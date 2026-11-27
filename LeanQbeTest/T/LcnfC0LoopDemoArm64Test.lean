@@ -8,7 +8,7 @@ meta import LeanQbe.T.Arm64.LcnfC0LoopDemoCertArm64
 # Verification Suite for AAPCS64 AArch64 `FactLoop` Certificate (`LcnfC0LoopDemoCertArm64`)
 
 1. Architecture-isolation `#eval` audit (zero `Kraken.X64` / `LeanQbe.T.Amd64` imports).
-2. Kernel `#guard` and legal-signature checks across all `88` functions of `factLoopLinkedMod`.
+2. Kernel `#guard` and legal-signature checks across all `82` functions of `factLoopLinkedMod`.
 3. Single-line `#print axioms` audit (`⊆ [propext, Classical.choice, Quot.sound]`).
 -/
 
@@ -28,12 +28,12 @@ open LeanQbe.T LeanQbe.T.LeanLCNF LeanQbe.T.Arm64
   if !x64.isEmpty then
     throwError "LcnfC0LoopDemoArm64Test leaked X64 imports: {x64.toList}"
 
-#guard factLoopLinkedMod.fns.length == 88
+#guard factLoopLinkedMod.fns.length == 82
 #guard factLoopLinkedMod.externs.isEmpty
 #guard factLoopLinkedMod.exits == rtExitSyms
 #guard factLoopLinkedMod.checkAcyclic
 #guard checkLegalSigAll armLegalTarget factLoopLinkedMod.fns
-#guard rtC0CoreArm64AllExt.length == 86
+#guard rtC0CoreArm64AllExt.length == 80
 
 theorem test_arm64_bounds :
     factLoopArm64Cert.bound "l_LeanQbe_T_LeanLCNF_FactLoop_factStr" ≤ 2048 ∧

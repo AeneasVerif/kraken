@@ -20,13 +20,13 @@ public section
 
 /-! ## 1. BitVec, String, `splitDot` & `HDecN` Helpers -/
 
-theorem natRepR0_small {w : BitVec 64} {n : Nat} {objs : List LcnfObj}
-    (hn : n < 2 ^ 63) : natRepR0 w n objs ↔ w = BitVec.ofNat 64 (2 * n + 1) := by
-  simp [natRepR0, hn]
+theorem natRep_small {w : BitVec 64} {n : Nat} {objs : List LcnfObj}
+    (hn : n < 2 ^ 63) : natRep w n objs ↔ w = BitVec.ofNat 64 (2 * n + 1) := by
+  simp [natRep, hn]
 
-theorem natRepR0_of_small {n : Nat} (hn : n < 2 ^ 63) (objs : List LcnfObj) :
-    natRepR0 (BitVec.ofNat 64 (2 * n + 1)) n objs :=
-  (natRepR0_small hn).mpr rfl
+theorem natRep_of_small {n : Nat} (hn : n < 2 ^ 63) (objs : List LcnfObj) :
+    natRep (BitVec.ofNat 64 (2 * n + 1)) n objs :=
+  (natRep_small hn).mpr rfl
 
 theorem boxNat_and1_eq_one (n : Nat) : BitVec.ofNat 64 (2 * n + 1) &&& 1#64 = 1#64 := by
   apply BitVec.eq_of_toNat_eq
@@ -390,7 +390,7 @@ theorem valRep_nat_small_word {ty : LcTy} {n : Nat} {w : Word} {objs : List Lcnf
   unfold ValRep at hrep
   simp only [Bool.eq_false_iff.mpr hns, Bool.false_eq_true, ↓reduceIte] at hrep
   rcases hrep with ⟨bv, hw, hobj, _, _⟩
-  rw [ObjRep.eq_3, natRepR0_small hn] at hobj
+  rw [ObjRep.eq_3, natRep_small hn] at hobj
   rw [hw, hobj]
 
 theorem retValRep_small_nat {retTy : LcTy} {n : Nat} {objs : List LcnfObj}
@@ -407,7 +407,7 @@ theorem retValRep_small_nat {retTy : LcTy} {n : Nat} {objs : List LcnfObj}
   refine ⟨BitVec.ofNat 64 (2 * n + 1), rfl, ?_, fun h => absurd h hno,
     fun _ => boxNat_and1_ne_zero n⟩
   rw [ObjRep.eq_3]
-  exact natRepR0_of_small hn objs
+  exact natRep_of_small hn objs
 
 theorem retValRep_bool {retTy : LcTy} (ht : retTy = LcTy.uint8) (b : Bool)
     (objs : List LcnfObj) :

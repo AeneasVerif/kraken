@@ -4,7 +4,7 @@ public import LeanQbe.T.LeanLCNF.Sem.LowerSound1c
 import LeanQbe.T.OpsLemmas
 import LeanQbe.T.Logic.C0Step
 import LeanQbe.T.Logic.MemLemmas
-import LeanQbe.T.LeanLCNF.Sem.SpecNormProof
+import LeanQbe.T.LeanLCNF.Sem.SpecNorm
 
 /-!
 # Tier-H Primitive Lowering Infrastructure & `tagBin` (`LowerSound2`)
@@ -388,7 +388,7 @@ theorem natArithSlow_specR0 {rt va vb : BitVec 64} {code resW : Nat}
     (hslow : HNatArithSlowWp rt code va vb resW K σ) :
     let P : Post [i64] := fun (res, ()) m' =>
       ∃ σ' : HState, HInv rt σ' ∧ (σ'.mem rt ⋆ R) m' ∧ K ⟨.bits resW, res.setWidth resW⟩ σ'
-    lcnfNatSlowSpecR0 (rt, BitVec.ofNat 64 code, va, vb, ()) mem P (fun _ _ _ _ => False) := by
+    lcnfNatSlowSpec (rt, BitVec.ofNat 64 code, va, vb, ()) mem P (fun _ _ _ _ => False) := by
   rcases hslow with ⟨aVal, bVal, ha, hb, hok, hk⟩
   rw [hstate_mem_unfold] at hm
   refine ⟨σ.st, σ.scr, σ.scrLimbs, σ.objs, R, hinv, hm, ?_⟩
@@ -410,7 +410,7 @@ theorem natBitsSlow_specR0 {rt va vb : BitVec 64} {code resW : Nat}
     (hslow : HNatBitsSlowWp rt code va vb resW K σ) :
     let P : Post [i64] := fun (res, ()) m' =>
       ∃ σ' : HState, HInv rt σ' ∧ (σ'.mem rt ⋆ R) m' ∧ K ⟨.bits resW, res.setWidth resW⟩ σ'
-    lcnfNatSlowSpecR0 (rt, BitVec.ofNat 64 code, va, vb, ()) mem P (fun _ _ _ _ => False) := by
+    lcnfNatSlowSpec (rt, BitVec.ofNat 64 code, va, vb, ()) mem P (fun _ _ _ _ => False) := by
   rcases hslow with ⟨aVal, ha, hok, hk⟩
   rw [hstate_mem_unfold] at hm
   refine ⟨σ.st, σ.scr, σ.scrLimbs, σ.objs, R, hinv, hm, ?_⟩
@@ -439,7 +439,7 @@ theorem natSlow_call1_conv_wp {m : LcModule} {Δ : HEnv} {Γ : Env} {rs : List T
     (hrt : LArg.eval ρ i64 rtArg = some rt)
     (ha : LArg.eval ρ i64 aArg = some va)
     (hb : LArg.eval ρ i64 bArg = some vb)
-    (hspec : lcnfNatSlowSpecR0 (rt, BitVec.ofNat 64 code, va, vb, ()) mem
+    (hspec : lcnfNatSlowSpec (rt, BitVec.ofNat 64 code, va, vb, ()) mem
       (fun (res, ()) m' => ∃ σ' : HState, HInv rt σ' ∧ (σ'.mem rt ⋆ R) m' ∧
         K ⟨.bits resW, res.setWidth resW⟩ σ') (fun _ _ _ _ => False))
     (hk : ∀ (r : LArg) (ek : LExpr) (ρ' : Frontend.C0.VEnv) (nr : Nat)
@@ -451,7 +451,7 @@ theorem natSlow_call1_conv_wp {m : LcModule} {Δ : HEnv} {Γ : Env} {rs : List T
   have hsig : ("lcnf_nat_slow", [i64, i64, i64, i64], [i64]) ∈ rtCoreCallSigs := by decide
   refine call1_wp hrun (evalArgs_cons hrt (evalArgs_cons (LArg.eval_imm_self ρ i64 _)
     (evalArgs_cons ha (evalArgs_cons hb (evalArgs_nil ρ)))))
-    (hΓ.rt hsig (lcnfNatSlowSpecR0_le_rtC0CoreEnv hspec))
+    (hΓ.rt hsig (lcnfNatSlowSpec_le_rtC0CoreEnv hspec))
     (fun _ _ _ _ hf => False.elim hf) ?_
   intro r1 ek1 hek1 hr1 res m' ⟨σ', hinv', hm', hK⟩ hagr1 hr1Ev
   refine convW_wp hek1 hr1Ev hr1 ?_
@@ -469,7 +469,7 @@ theorem natSlow_rtCall1_wp {m : LcModule} {Δ : HEnv} {Γ : Env} {rs : List Ty}
     (hrt : LArg.eval ρ i64 rtArg = some rt) (hnrt : argIdsBelow rtArg n)
     (hids : ∀ a ∈ [opArg, aArg, bArg], argIdsBelow a n)
     (hevs : EvalRtArgs ρ [opArg, aArg, bArg] [op, va, vb])
-    (hspec : lcnfNatSlowSpecR0 (rt, op, va, vb, ()) mem
+    (hspec : lcnfNatSlowSpec (rt, op, va, vb, ()) mem
       (fun (res, ()) m' => ∃ σ' : HState, HInv rt σ' ∧ (σ'.mem rt ⋆ R) m' ∧
         K (Word.i64 res) σ') (fun _ _ _ _ => False))
     (hk : ∀ (r : LArg) (ek : LExpr) (ρ' : Frontend.C0.VEnv) (nr : Nat)
@@ -480,7 +480,7 @@ theorem natSlow_rtCall1_wp {m : LcModule} {Δ : HEnv} {Γ : Env} {rs : List Ty}
     LExpr.wp Γ QT XT e ρ J mem := by
   have hsig : ("lcnf_nat_slow", [i64, i64, i64, i64], [i64]) ∈ rtCoreCallSigs := by decide
   refine rtCall1_wp hrun hrt hnrt hids hevs
-    (hΓ.rt hsig (lcnfNatSlowSpecR0_le_rtC0CoreEnv hspec))
+    (hΓ.rt hsig (lcnfNatSlowSpec_le_rtC0CoreEnv hspec))
     (fun _ _ _ _ hf => False.elim hf) ?_
   intro ret m' ⟨σ', hinv', hm', hK⟩ r ek ρ' nr hnr hek hr hagr hrEv
   have hrEv' : LArg.eval ρ' i64 r = some ret := by simpa [BitVec.setWidth_eq] using hrEv
@@ -581,7 +581,7 @@ theorem tagBin_wp {m : LcModule} {Δ : HEnv} {Γ : Env} {rs : List Ty}
     (ha : LArg.eval ρ i64 aArg = some va) (hna : argIdsBelow aArg n)
     (hb : LArg.eval ρ i64 bArg = some vb) (hnb : argIdsBelow bArg n)
     (hslow : (((va &&& vb) &&& 1#64) = 0#64) →
-      lcnfNatSlowSpecR0 (rt, BitVec.ofNat 64 code, va, vb, ()) mem
+      lcnfNatSlowSpec (rt, BitVec.ofNat 64 code, va, vb, ()) mem
         (fun (res, ()) m' => ∃ σ' : HState, HInv rt σ' ∧ (σ'.mem rt ⋆ R) m' ∧
           K ⟨.bits resW, res.setWidth resW⟩ σ') (fun _ _ _ _ => False))
     (hfast : ((va &&& vb) &&& 1#64) ≠ 0#64 →
@@ -597,7 +597,7 @@ theorem tagBin_wp {m : LcModule} {Δ : HEnv} {Γ : Env} {rs : List Ty}
         (∀ (nS nSEnd : Nat) (eS : LExpr) (ρS : Frontend.C0.VEnv) (J_S : JEnv),
           n ≤ nS → slow.run nS = .ok (eS, nSEnd) →
           VEnvAgreeBelow n ρS ρ → JEnvAgreeBelow (n + 4) J_S J' →
-          lcnfNatSlowSpecR0 (rt, BitVec.ofNat 64 code, va, vb, ()) mem
+          lcnfNatSlowSpec (rt, BitVec.ofNat 64 code, va, vb, ()) mem
             (fun (res, ()) m' => ∃ σ' : HState, HInv rt σ' ∧ (σ'.mem rt ⋆ R) m' ∧
               K ⟨.bits resW, res.setWidth resW⟩ σ') (fun _ _ _ _ => False) →
           LExpr.wp Γ QT XT eS ρS J_S mem) →
@@ -647,7 +647,7 @@ theorem tagBin_wp {m : LcModule} {Δ : HEnv} {Γ : Env} {rs : List Ty}
         (call1 "lcnf_nat_slow" [i64, i64, i64, i64] i64 [rtArg, imm64 code, aArg, bArg]
           fun r => convW 64 resW r fun r' => pure (j r')).run nS = .ok (eS, nSEnd) →
         VEnvAgreeBelow n ρS ρ → JEnvAgreeBelow (n + 4) J_S J' →
-        lcnfNatSlowSpecR0 (rt, BitVec.ofNat 64 code, va, vb, ()) mem
+        lcnfNatSlowSpec (rt, BitVec.ofNat 64 code, va, vb, ()) mem
           (fun (res, ()) m' => ∃ σ' : HState, HInv rt σ' ∧ (σ'.mem rt ⋆ R) m' ∧
             K ⟨.bits resW, res.setWidth resW⟩ σ') (fun _ _ _ _ => False) →
         LExpr.wp Γ QT XT eS ρS J_S mem := by

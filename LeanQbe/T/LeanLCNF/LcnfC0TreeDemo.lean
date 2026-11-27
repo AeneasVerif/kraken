@@ -151,7 +151,7 @@ lcnf_lower_thm! treeDemoTfs treeDemoLcMod
 @[expose] def treeDemoProgMod : Module :=
   { fns := Frontend.C0.tflatFnsToFns treeDemoTfs, externs := [], exits := rtExitSyms }
 
-/-- Full `88`-function linked `Module`: `rtC0CoreMod` (`86` fns) ++ `treeDemoProgMod` (`2` fns). -/
+/-- Full `82`-function linked `Module`: `rtC0CoreMod` (`80` fns) ++ `treeDemoProgMod` (`2` fns). -/
 @[expose] def treeDemoLinkedMod : Module :=
   linkLcnfWithRtC0 treeDemoTfs false
 

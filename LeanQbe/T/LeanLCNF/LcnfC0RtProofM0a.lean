@@ -349,6 +349,7 @@ private theorem alloc_bump_check_wp {Γ : Env} {rt : BitVec 64} {st : RtC0State}
     largeFreeList st.hdr.s_large_free st.largeNodes ⋆ region st.hdr.s_cur st.rem ⋆ R) m)
     {J : Cont [i64]} (hJ : ∀ (p : BitVec 64) (st' : RtC0State) (m' : Mem 64),
     p ≠ 0#64 → p.toNat % 8 = 0 → st'.PreservesMeta st → st'.rem ≤ st.rem →
+    st.rem - bytes ≤ st'.rem →
     (rtC0Inv rt st' ⋆ region p bytes ⋆ R) m' → J (p, ()) m') : wp Γ Q X
     (.let_ (Op.mk (.add i64) (.var rt, .imm 33552, ())) fun p_12 =>
       .load i64 (.var p_12.fst) fun ld =>
@@ -393,12 +394,11 @@ private theorem alloc_bump_check_wp {Γ : Env} {rt : BitVec 64} {st : RtC0State}
       have hrem1 : st1.rem = st.rem - bytes := bump_rem_eq st.curLeEnd hmax hrem; unfold rtC0Inv
       rw [hrem1]; dsimp [st1, RtC0State.withBump] at hsp ⊢
       exact sep_cast hsp (by (try unfold rtCore); ac_rfl)
-    refine hJ st.hdr.s_cur st1 _ st.curNz st.arenaAlign (by state_frame) ?_ hm1
-    dsimp [st1, RtC0State.withBump]; unfold RtC0State.rem
-    rw [bump_rem_eq st.curLeEnd hmax hrem]; omega
+    have hrem1 : st1.rem = st.rem - bytes := bump_rem_eq st.curLeEnd hmax hrem
+    exact hJ st.hdr.s_cur st1 _ st.curNz st.arenaAlign (by state_frame) (by omega) (by omega) hm1
 
-theorem lcnf_alloc_wp (Γ : Env) :
-    ∀ xs m Q X, lcnfAllocSpec xs m Q X → Func.wp Γ lcnf_alloc_body xs m Q X := by
+theorem lcnf_alloc_rem_wp (Γ : Env) :
+    ∀ xs m Q X, lcnfAllocRemSpec xs m Q X → Func.wp Γ lcnf_alloc_body xs m Q X := by
   rintro ⟨rt, sz, ⟨⟩⟩ m Q X ⟨st, R, hsz, hmin, hmax, havail, hm, hQ⟩; let bytes := align8 sz.toNat
   let bytesBV : BitVec 64 := BitVec.ofNat 64 bytes
   have hcurLe : st.hdr.s_cur.toNat ≤ st.hdr.s_end.toNat := st.curLeEnd
@@ -419,21 +419,21 @@ theorem lcnf_alloc_wp (Γ : Env) :
   dsimp only; rw [hbyBv', hclsBV]
   refine wp_join_state1 (t := i64) (fun st' : RtC0State × BitVec 64 => st'.2)
     (fun (st', p) m' => p ≠ 0#64 ∧ p.toNat % 8 = 0 ∧ st'.PreservesMeta st ∧ st'.rem ≤ st.rem ∧
-      (rtC0Inv rt st' ⋆ region p bytes ⋆ R) m') ?_ ?_
-  · rintro Jret ⟨st', p⟩ m' ⟨hpNz, hpAl, hMeta, hRem, hm'⟩
+      st.rem - bytes ≤ st'.rem ∧ (rtC0Inv rt st' ⋆ region p bytes ⋆ R) m') ?_ ?_
+  · rintro Jret ⟨st', p⟩ m' ⟨hpNz, hpAl, hMeta, hRem, hRem2, hm'⟩
     unfold rtC0Inv at hm'; (try dsimp only [rtCore] at *); c0_hsteps
     · refine hQ p { st' with hdr := { st'.hdr with
           s_st_allocs := st'.hdr.s_st_allocs + 1#64
           s_st_bytes := bytesBV + st'.hdr.s_st_bytes
           s_st_live := st'.hdr.s_st_live + 1#64
           s_st_peak_live := st'.hdr.s_st_live + 1#64 } } _
-        hpNz hpAl (by state_frame; all_goals exact ‹_›) hRem ?_
+        hpNz hpAl (by state_frame; all_goals exact ‹_›) hRem hRem2 ?_
       unfold rtC0Inv; exact sep_cast ‹_› (by (try unfold rtCore); ac_rfl)
     · refine hQ p { st' with hdr := { st'.hdr with
           s_st_allocs := st'.hdr.s_st_allocs + 1#64
           s_st_bytes := bytesBV + st'.hdr.s_st_bytes
           s_st_live := st'.hdr.s_st_live + 1#64 } } _
-        hpNz hpAl (by state_frame; all_goals exact ‹_›) hRem ?_
+        hpNz hpAl (by state_frame; all_goals exact ‹_›) hRem hRem2 ?_
       unfold rtC0Inv; exact sep_cast ‹_› (by (try unfold rtCore); ac_rfl)
   ·
       intro Jret hJret; unfold rtC0Inv at hm
@@ -446,8 +446,10 @@ theorem lcnf_alloc_wp (Γ : Env) :
         c0_hsteps_nogrp
         refine wp_join_group (fun (q : Tup Val [i64]) m' =>
             ∃ st' : RtC0State, q.fst ≠ 0#64 ∧ q.fst.toNat % 8 = 0 ∧ st'.PreservesMeta st ∧
-              st'.rem ≤ st.rem ∧ (rtC0Inv rt st' ⋆ region q.fst bytes ⋆ R) m')
-          (fun _ q m' ⟨st', h1, h2, h3, h4, h5⟩ => hJret (st', q.fst) m' ⟨h1, h2, h3, h4, h5⟩) ?_
+              st'.rem ≤ st.rem ∧ st.rem - bytes ≤ st'.rem ∧
+              (rtC0Inv rt st' ⋆ region q.fst bytes ⋆ R) m')
+          (fun _ q m' ⟨st', h1, h2, h3, h4, h4', h5⟩ =>
+            hJret (st', q.fst) m' ⟨h1, h2, h3, h4, h4', h5⟩) ?_
         intro Jp hJp
         by_cases hpz : st.freeList[bytes / 8]'(by rw [hflLen]; exact hsmall) = 0#64
         · simp only [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega : bytes / 8 < 2 ^ 64)]
@@ -465,7 +467,8 @@ theorem lcnf_alloc_wp (Γ : Env) :
             · omega
             · exact hrem
           exact alloc_bump_check_wp hbyMax hbyMod hrem hm
-            (fun p st' m' hp1 hp2 hM hR hm' => hJp (p, ()) m' ⟨st', hp1, hp2, hM, hR, hm'⟩)
+            (fun p st' m' hp1 hp2 hM hR hR' hm' =>
+              hJp (p, ()) m' ⟨st', hp1, hp2, hM, hR, hR', hm'⟩)
         · simp only [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega : bytes / 8 < 2 ^ 64)]
           obtain ⟨p, hpEq⟩ : ∃ p, p = st.freeList[bytes / 8]'(by rw [hflLen]; exact hsmall) :=
             ⟨_, rfl⟩
@@ -486,7 +489,8 @@ theorem lcnf_alloc_wp (Γ : Env) :
               hdr := hdr'
               smallPools := pools'
               freeListLen := by dsimp [fl']; rw [List.length_set]; exact st.freeListLen }
-          refine hJp (p, ()) m ⟨st', hpNe, hpEq ▸ hpAl, by state_frame, Nat.le_refl _, ?_⟩
+          refine hJp (p, ()) m
+            ⟨st', hpNe, hpEq ▸ hpAl, by state_frame, Nat.le_refl _, Nat.sub_le _ _, ?_⟩
           dsimp only
           have hidx : (BitVec.ofNat 64 (bytes / 8)).toNat = bytes / 8 :=
             Nat.mod_eq_of_lt (by omega)
@@ -524,12 +528,12 @@ theorem lcnf_alloc_wp (Γ : Env) :
                   region st.hdr.s_cur st.rem ⋆ R) m'
               else
                 xs.fst.toNat % 8 = 0 ∧ st'.PreservesMeta st ∧ st'.rem ≤ st.rem ∧
-                (rtC0Inv rt st' ⋆ region xs.fst bytes ⋆ R) m'))
+                st.rem - bytes ≤ st'.rem ∧ (rtC0Inv rt st' ⋆ region xs.fst bytes ⋆ R) m'))
           (fun _ xs m' ⟨st', hCase⟩ => by
             refine wp_join_group
               (fun (xp : Tup Val [i64]) mp => ∃ st1 : RtC0State,
                 xp.fst ≠ 0#64 ∧ xp.fst.toNat % 8 = 0 ∧ st1.PreservesMeta st ∧ st1.rem ≤ st.rem ∧
-                (rtC0Inv rt st1 ⋆ region xp.fst bytes ⋆ R) mp)
+                st.rem - bytes ≤ st1.rem ∧ (rtC0Inv rt st1 ⋆ region xp.fst bytes ⋆ R) mp)
               (fun _ xp mp ⟨st1, h⟩ => hJret (st1, xp.fst) mp h) ?_
             intro Jbump hJbump
             by_cases hx0 : xs.fst = 0#64
@@ -541,11 +545,11 @@ theorem lcnf_alloc_wp (Γ : Env) :
                 · exact hrem
               c0_hstep; c0_hstep
               exact alloc_bump_check_wp hbyMax hbyMod hrem hm'
-                (fun p st1 m1 hp1 hp2 hM hR hm1 =>
-                  hJbump (p, ()) m1 ⟨st1, hp1, hp2, hM, hR, hm1⟩)
+                (fun p st1 m1 hp1 hp2 hM hR hR' hm1 =>
+                  hJbump (p, ()) m1 ⟨st1, hp1, hp2, hM, hR, hR', hm1⟩)
             · simp only [hx0, ↓reduceIte] at hCase
-              rcases hCase with ⟨hpAl, hM, hR, hm'⟩; c0_hsteps_nogrp
-              exact hJbump (xs.fst, ()) m' ⟨st', hx0, hpAl, hM, hR, hm'⟩) ?_
+              rcases hCase with ⟨hpAl, hM, hR, hR', hm'⟩; c0_hsteps_nogrp
+              exact hJbump (xs.fst, ()) m' ⟨st', hx0, hpAl, hM, hR, hR', hm'⟩) ?_
         · intro Jout hJout
           let Rest_lg : Mem 64 → Prop := rtCore rt st st.freeList st.hdr ⋆
             smallPoolsAt st.freeList st.smallPools rtNumClasses ⋆
@@ -607,7 +611,7 @@ theorem lcnf_alloc_wp (Γ : Env) :
                       largeNodes := rest }
                   refine hJout (lcur, 0#64, lcur, ()) _ ⟨st', ?_⟩
                   simp only [hcurNz, ↓reduceIte]
-                  refine ⟨hcurAl, by state_frame, Nat.le_refl _, ?_⟩
+                  refine ⟨hcurAl, by state_frame, Nat.le_refl _, Nat.sub_le _ _, ?_⟩
                   unfold rtC0Inv
                   refine sep_cast (largeSegSplit_unlink_head (hd := lcur) (_lcur := lcur)
                     (nxt := nxt) (b := bytes) (rest := rest)
@@ -674,7 +678,7 @@ theorem lcnf_alloc_wp (Γ : Env) :
                       largeNodes := tlRev.reverse ++ (prv, prvB) :: rest }
                   refine hJout (lcur, prv, lcur, ()) _ ⟨st', ?_⟩
                   simp only [hcurNz, ↓reduceIte]
-                  refine ⟨hcurAl, by state_frame, Nat.le_refl _, ?_⟩
+                  refine ⟨hcurAl, by state_frame, Nat.le_refl _, Nat.sub_le _ _, ?_⟩
                   unfold rtC0Inv
                   refine sep_cast (sep_mono
                     (P := (largeSeg st'.hdr.s_large_free prv tlRev.reverse ⋆
@@ -711,6 +715,10 @@ theorem lcnf_alloc_wp (Γ : Env) :
                     ⟨pfx ++ [(lcur, b)], rest, rfl, by rw [hnodes]; simp [List.append_assoc],
                       fun y hy => (List.mem_append.mp hy).elim (hnePfx y)
                         (fun h => (List.mem_singleton.mp h) ▸ hbNe), hmemEq ▸ hmBack⟩
+
+theorem lcnf_alloc_wp (Γ : Env) :
+    ∀ xs m Q X, lcnfAllocSpec xs m Q X → Func.wp Γ lcnf_alloc_body xs m Q X :=
+  fun xs m Q X h => lcnf_alloc_rem_wp Γ xs m Q X (lcnfAllocSpec_to_rem h)
 
 /-! ## 3. `lcnf_free_obj_wp` -/
 

@@ -247,7 +247,7 @@ theorem rtC0CoreMod_loop_wp {fn : Fn} (hfn : fn ∈ rtC0CoreMod.fns)
     have hSlowMem : lcnf_nat_slow ∈ rtC0CoreMod.fns :=
       List.mem_of_getElem? (by rfl : rtC0CoreMod.fns[34]? = some lcnf_nat_slow)
     have hStrMem : lcnf_nat_to_str ∈ rtC0CoreMod.fns :=
-      List.mem_of_getElem? (by rfl : rtC0CoreMod.fns[85]? = some lcnf_nat_to_str)
+      List.mem_of_getElem? (by rfl : rtC0CoreMod.fns[79]? = some lcnf_nat_to_str)
     rcases hextra with ⟨⟨has, hrs⟩, hnm, hsp⟩ | ⟨⟨has, hrs⟩, hnm, hsp⟩ |
       ⟨⟨has, hrs⟩, hnm, hsp⟩ | ⟨⟨has, hrs⟩, hnm, hsp⟩ | ⟨⟨has, hrs⟩, hnm, hsp⟩
     · have heq := fn_eq_of_name_mem hnd hfn hAllocMem hnm; subst heq; cases has; cases hrs
@@ -266,8 +266,8 @@ theorem rtC0CoreMod_loopModuleOk : ModuleOk loopRtEnv rtC0CoreMod :=
     (fun _ hfn _ _ _ _ hp => rtC0CoreMod_loop_wp hfn hp)
 
 /-- Loop invariant for `FactLoop.factAcc`: owns `bigNumRtInv ⋆ lcnfHeap objs ⋆ R`. -/
-@[expose] def factAccInv (rt : BitVec 64) (st : BigNumRt.RtC0State)
-    (scr : BitVec 64) (scrLimbs : List (BitVec 64)) (objs : List BigNumRt.LcnfObj)
+@[expose] def factAccInv (rt : BitVec 64) (st : RtC0State)
+    (scr : BitVec 64) (scrLimbs : List (BitVec 64)) (objs : List LcnfObj)
     (k accVal : Nat) (n acc : BitVec 64) (resVal extraRem : Nat)
     (R : Mem 64 → Prop) (m : Mem 64) : Prop :=
   k < 2 ^ 63 ∧ n = boxNat k ∧ FactLoop.factAcc k accVal = resVal ∧
@@ -276,22 +276,22 @@ theorem rtC0CoreMod_loopModuleOk : ModuleOk loopRtEnv rtC0CoreMod :=
   (accVal < 2 ^ 63 → objs = []) ∧
   (2 ^ 63 ≤ accVal →
     ∃ accObj, accObj ∈ objs ∧ accObj.addr = acc ∧ accObj.rc = 1#32 ∧
-      mpzNatCanon accObj accVal ∧ BigNumRt.lcnfHeapClosed objs ∧ BigNumRt.RcSound acc objs) ∧
+      mpzNatCanon accObj accVal ∧ lcnfHeapClosed objs ∧ RcSound acc objs) ∧
   (∀ o ∈ objs, o.Wf) ∧
   objs.length + 1 ≤ st.workCap ∧ 2 ≤ st.workCap ∧
   2 * (1 + limbLenNat resVal) + 2 ≤ scrLimbs.length ∧
   limbLenNat resVal ≤ mpzMaxLimbs ∧
   extraRem + k * mpzAllocBytes (limbLenNat resVal) ≤ st.rem ∧
-  (bigNumRtInv rt st scr scrLimbs ⋆ BigNumRt.lcnfHeap objs ⋆ R) m
+  (bigNumRtInv rt st scr scrLimbs ⋆ lcnfHeap objs ⋆ R) m
 
 /-- Spec for lowered `FactLoop.factAcc (k, accVal)` parameterized by remaining budget `extraRem`. -/
 @[expose] def factAccSpec : Spec [i64, i64, i64] [i64] :=
   fun (rt, n, acc, ()) m Q _X =>
-    ∃ (st : BigNumRt.RtC0State) (scr : BitVec 64) (scrLimbs : List (BitVec 64))
-      (objs : List BigNumRt.LcnfObj) (k accVal resVal extraRem : Nat) (R : Mem 64 → Prop),
+    ∃ (st : RtC0State) (scr : BitVec 64) (scrLimbs : List (BitVec 64))
+      (objs : List LcnfObj) (k accVal resVal extraRem : Nat) (R : Mem 64 → Prop),
       factAccInv rt st scr scrLimbs objs k accVal n acc resVal extraRem R m ∧
-      ∀ (res : BitVec 64) (st' : BigNumRt.RtC0State) (scrLimbs' : List (BitVec 64))
-        (objs' : List BigNumRt.LcnfObj) (m' : Mem 64),
+      ∀ (res : BitVec 64) (st' : RtC0State) (scrLimbs' : List (BitVec 64))
+        (objs' : List LcnfObj) (m' : Mem 64),
         st'.PreservesMeta st → st'.rem ≤ st.rem → extraRem ≤ st'.rem →
         BigNumRtWf rt st' scr scrLimbs' →
         natRep res resVal objs' →
@@ -299,15 +299,15 @@ theorem rtC0CoreMod_loopModuleOk : ModuleOk loopRtEnv rtC0CoreMod :=
         (2 ^ 63 ≤ resVal →
           ∃ resObj, resObj ∈ objs' ∧ resObj.addr = res ∧ resObj.rc = 1#32 ∧
             mpzNatCanon resObj resVal ∧ objs'.length ≤ st.workCap ∧
-            BigNumRt.lcnfHeapClosed objs' ∧ BigNumRt.RcSound res objs') →
+            lcnfHeapClosed objs' ∧ RcSound res objs') →
         (∀ o ∈ objs', o.Wf) →
-        (bigNumRtInv rt st' scr scrLimbs' ⋆ BigNumRt.lcnfHeap objs' ⋆ R) m' →
+        (bigNumRtInv rt st' scr scrLimbs' ⋆ lcnfHeap objs' ⋆ R) m' →
         Q (res, ()) m'
 
 /-- Spec for lowered `FactLoop.factStr`: handles small boxed and 2-limb factorials. -/
 @[expose] def factStrSpec : Spec [i64, i64] [i64] :=
   fun (rt, n, ()) m Q _X =>
-    ∃ (st : BigNumRt.RtC0State) (scr : BitVec 64) (scrLimbs : List (BitVec 64))
+    ∃ (st : RtC0State) (scr : BitVec 64) (scrLimbs : List (BitVec 64))
       (k : Nat) (R : Mem 64 → Prop),
       let resVal := FactLoop.factAcc k 1
       k < 2 ^ 63 ∧ n = boxNat k ∧
@@ -322,7 +322,7 @@ theorem rtC0CoreMod_loopModuleOk : ModuleOk loopRtEnv rtC0CoreMod :=
       ∀ (s : BitVec 64) (st' : RtC0State) (objs' : List LcnfObj)
         (scrLimbs' : List (BitVec 64)) (m' : Mem 64),
         s ≠ 0#64 → s.toNat % 8 = 0 →
-        st'.PreservesMeta (b2rState st) → st'.rem ≤ st.rem →
+        st'.PreservesMeta st → st'.rem ≤ st.rem →
         have dec := natToDecimalBytes resVal
         have sObj := mkStrObj s 1#32 (dec.length + 1) dec dec.length
         StrCanon sObj →
@@ -497,8 +497,8 @@ private theorem factAcc_sub_wp {Γ : Env} {Q : Post [i64]} {X : XPost}
 
 private theorem factAcc_mul_wp {Q : Post [i64]} {X : XPost}
     {rt ca : Val i64} {k' accVal resVal extraRem : Nat}
-    {st0 st : BigNumRt.RtC0State} {scr : BitVec 64} {scrLimbs : List (BitVec 64)}
-    {objs : List BigNumRt.LcnfObj} {R : Mem 64 → Prop} {mk : Mem 64}
+    {st0 st : RtC0State} {scr : BitVec 64} {scrLimbs : List (BitVec 64)}
+    {objs : List LcnfObj} {R : Mem 64 → Prop} {mk : Mem 64}
     (hkLt : k' + 1 < 2 ^ 63) (hpr0 : st.PreservesMeta st0) (hrem0 : st.rem ≤ st0.rem)
     (hremSmall0 : resVal < 2 ^ 63 → st.rem = st0.rem) (hwf : BigNumRtWf rt st scr scrLimbs)
     (hrep : natRep ca accVal objs) (haccEmpty : accVal < 2 ^ 63 → objs = [])
@@ -507,7 +507,7 @@ private theorem factAcc_mul_wp {Q : Post [i64]} {X : XPost}
     (hmaxLimb : limbLenNat resVal ≤ mpzMaxLimbs)
     (hremB : extraRem + (k' + 1) * mpzAllocBytes (limbLenNat resVal) ≤ st.rem)
     (hmulLt : (k' + 1) * accVal ≤ resVal)
-    (hmk : (bigNumRtInv rt st scr scrLimbs ⋆ BigNumRt.lcnfHeap objs ⋆ R) mk)
+    (hmk : (bigNumRtInv rt st scr scrLimbs ⋆ lcnfHeap objs ⋆ R) mk)
     {cont : Val i64 → Expr Val Cont [i64]}
     (hk : ∀ prod st1 scrLimbs1 objs1 m3,
       st1.PreservesMeta st0 → st1.rem ≤ st0.rem →
@@ -522,7 +522,7 @@ private theorem factAcc_mul_wp {Q : Post [i64]} {X : XPost}
       (∀ o ∈ objs1, o.Wf) → st1.workCap = st.workCap →
       2 * (1 + limbLenNat resVal) + 2 ≤ scrLimbs1.length →
       extraRem + k' * mpzAllocBytes (limbLenNat resVal) ≤ st1.rem →
-      (bigNumRtInv rt st1 scr scrLimbs1 ⋆ BigNumRt.lcnfHeap objs1 ⋆ R) m3 →
+      (bigNumRtInv rt st1 scr scrLimbs1 ⋆ lcnfHeap objs1 ⋆ R) m3 →
       wp factLoopEnv Q X (cont prod) m3) :
     wp factLoopEnv Q X (factAccMulExpr rt (boxNat (k' + 1)) ca cont) mk := by
   have hmulMax : limbLenNat ((k' + 1) * accVal) ≤ limbLenNat resVal :=
@@ -545,8 +545,8 @@ private theorem factAcc_mul_wp {Q : Post [i64]} {X : XPost}
   unfold factAccMulExpr
   c0_let_simp
   refine wp_join_group (fun (prod, ()) m3 =>
-    ∃ (st1 : BigNumRt.RtC0State) (scrLimbs1 : List (BitVec 64))
-      (objs1 : List BigNumRt.LcnfObj),
+    ∃ (st1 : RtC0State) (scrLimbs1 : List (BitVec 64))
+      (objs1 : List LcnfObj),
       st1.PreservesMeta st0 ∧ st1.rem ≤ st0.rem ∧ (resVal < 2 ^ 63 → st1.rem = st0.rem) ∧
       BigNumRtWf rt st1 scr scrLimbs1 ∧ natRep prod ((k' + 1) * accVal) objs1 ∧
       ((k' + 1) * accVal < 2 ^ 63 → objs1 = []) ∧
@@ -558,7 +558,7 @@ private theorem factAcc_mul_wp {Q : Post [i64]} {X : XPost}
       (∀ o ∈ objs1, o.Wf) ∧ st1.workCap = st.workCap ∧
       2 * (1 + limbLenNat resVal) + 2 ≤ scrLimbs1.length ∧
       extraRem + k' * mpzAllocBytes (limbLenNat resVal) ≤ st1.rem ∧
-      (bigNumRtInv rt st1 scr scrLimbs1 ⋆ BigNumRt.lcnfHeap objs1 ⋆ R) m3) ?_ ?_
+      (bigNumRtInv rt st1 scr scrLimbs1 ⋆ lcnfHeap objs1 ⋆ R) m3) ?_ ?_
   · rintro J ⟨prod, ⟨⟩⟩ m3 ⟨st1, scrLimbs1, objs1, hpr1, hrem1, hremSmall1, hwf1, hrep1,
       hmulEmpty, hmulMpz, hobjsWf1, hwk1, hscr1, hremB1, hm3⟩
     rw [Blocks.get.eq_1]
@@ -611,14 +611,14 @@ private theorem factAcc_mul_wp {Q : Post [i64]} {X : XPost}
           exact (umulw_ov_nat_iff hkLt hcaLt).mpr hmGe
         refine ⟨fun _ => ?_, fun hf => absurd (hovTrue ▸ hf) (by decide)⟩
         refine wp_call_pred (fun (prod, ()) m3 =>
-          ∃ (st1 : BigNumRt.RtC0State) (scrLimbs1 : List (BitVec 64))
-            (newObj : BigNumRt.LcnfObj),
+          ∃ (st1 : RtC0State) (scrLimbs1 : List (BitVec 64))
+            (newObj : LcnfObj),
             st1.PreservesMeta st ∧ st1.rem ≤ st.rem ∧ BigNumRtWf rt st1 scr scrLimbs1 ∧
             natRep prod ((k' + 1) * accVal) [newObj] ∧ newObj.addr = prod ∧
             newObj.rc = 1#32 ∧ mpzNatCanon newObj ((k' + 1) * accVal) ∧
             scrLimbs1.length = scrLimbs.length ∧
             st.rem - mpzAllocBytes (limbLenNat ((k' + 1) * accVal)) ≤ st1.rem ∧
-            (bigNumRtInv rt st1 scr scrLimbs1 ⋆ BigNumRt.lcnfHeap [newObj] ⋆ R) m3) ?_ ?_
+            (bigNumRtInv rt st1 scr scrLimbs1 ⋆ lcnfHeap [newObj] ⋆ R) m3) ?_ ?_
         · refine loopRtEnv_le_factLoopEnv_of_mem (by decide) _ _ _ _ _ _
             (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl ⟨⟨rfl, rfl⟩, rfl, rfl, st, scr, scrLimbs, [],
               accVal, k' + 1, R, hwf, (by simpa [hcaEq] using hrep),
@@ -652,15 +652,15 @@ private theorem factAcc_mul_wp {Q : Post [i64]} {X : XPost}
         rw [and_zero_of_and_one_zero hcaTag]; decide
       refine ⟨fun ht => absurd (hzero ▸ ht) (by decide), fun _ => ?_⟩
       refine wp_call_pred (fun (prod, ()) m3 =>
-        ∃ (st1 : BigNumRt.RtC0State) (scrLimbs1 : List (BitVec 64))
-          (newObj : BigNumRt.LcnfObj),
+        ∃ (st1 : RtC0State) (scrLimbs1 : List (BitVec 64))
+          (newObj : LcnfObj),
           st1.PreservesMeta st ∧ st1.rem ≤ st.rem ∧ BigNumRtWf rt st1 scr scrLimbs1 ∧
           natRep prod ((k' + 1) * accVal) (newObj :: objs) ∧ newObj.addr = prod ∧
           newObj.rc = 1#32 ∧ mpzNatCanon newObj ((k' + 1) * accVal) ∧
           scrLimbs1.length = scrLimbs.length ∧
           st.rem - mpzAllocBytes (limbLenNat ((k' + 1) * accVal)) ≤ st1.rem ∧
           (bigNumRtInv rt st1 scr scrLimbs1 ⋆
-            BigNumRt.lcnfHeap (newObj :: objs) ⋆ R) m3) ?_ ?_
+            lcnfHeap (newObj :: objs) ⋆ R) m3) ?_ ?_
       · refine loopRtEnv_le_factLoopEnv_of_mem (by decide) _ _ _ _ _ _
           (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl ⟨⟨rfl, rfl⟩, rfl, rfl, st, scr, scrLimbs, objs,
             accVal, k' + 1, R, hwf, hrep, (by simp [natRep, hkLt, boxNat]), hmulArith, hmk,
@@ -690,15 +690,15 @@ private theorem factAcc_mul_wp {Q : Post [i64]} {X : XPost}
 
 private theorem factAcc_decAcc_wp {Q : Post [i64]} {X : XPost}
     {rt ca prod : Val i64} {k' accVal resVal : Nat}
-    {st0 st st1 : BigNumRt.RtC0State} {scr : BitVec 64} {scrLimbs1 : List (BitVec 64)}
-    {objs objs1 : List BigNumRt.LcnfObj} {R : Mem 64 → Prop} {m3 : Mem 64}
+    {st0 st st1 : RtC0State} {scr : BitVec 64} {scrLimbs1 : List (BitVec 64)}
+    {objs objs1 : List LcnfObj} {R : Mem 64 → Prop} {m3 : Mem 64}
     (hpr1 : st1.PreservesMeta st0) (hrem1 : st1.rem ≤ st0.rem)
     (hremSmall1 : resVal < 2 ^ 63 → st1.rem = st0.rem)
     (hmulLt : (k' + 1) * accVal ≤ resVal) (hwf1 : BigNumRtWf rt st1 scr scrLimbs1)
     (hrep : natRep ca accVal objs) (hrep1 : natRep prod ((k' + 1) * accVal) objs1)
     (haccMpz : 2 ^ 63 ≤ accVal →
       ∃ accObj, accObj ∈ objs ∧ accObj.addr = ca ∧ accObj.rc = 1#32 ∧
-        mpzNatCanon accObj accVal ∧ BigNumRt.lcnfHeapClosed objs ∧ BigNumRt.RcSound ca objs)
+        mpzNatCanon accObj accVal ∧ lcnfHeapClosed objs ∧ RcSound ca objs)
     (hmulEmpty : (k' + 1) * accVal < 2 ^ 63 → objs1 = [])
     (hmulMpz : 2 ^ 63 ≤ (k' + 1) * accVal →
       ∃ newObj, newObj ∈ objs1 ∧ newObj.addr = prod ∧ newObj.rc = 1#32 ∧
@@ -706,7 +706,7 @@ private theorem factAcc_decAcc_wp {Q : Post [i64]} {X : XPost}
         ((accVal < 2 ^ 63 ∧ objs1 = [newObj]) ∨ (2 ^ 63 ≤ accVal ∧ objs1 = newObj :: objs)))
     (hobjsWf1 : ∀ o ∈ objs1, o.Wf) (hwkCap : objs.length + 1 ≤ st.workCap)
     (hwkMin : 2 ≤ st.workCap) (hwk1 : st1.workCap = st.workCap)
-    (hm3 : (bigNumRtInv rt st1 scr scrLimbs1 ⋆ BigNumRt.lcnfHeap objs1 ⋆ R) m3)
+    (hm3 : (bigNumRtInv rt st1 scr scrLimbs1 ⋆ lcnfHeap objs1 ⋆ R) m3)
     {cont : Expr Val Cont [i64]}
     (hk : ∀ st2 objs2 m5,
       st2.PreservesMeta st0 → st2.rem ≤ st0.rem →
@@ -716,9 +716,9 @@ private theorem factAcc_decAcc_wp {Q : Post [i64]} {X : XPost}
       (2 ^ 63 ≤ (k' + 1) * accVal →
         ∃ newObj, newObj ∈ objs2 ∧ newObj.addr = prod ∧ newObj.rc = 1#32 ∧
           mpzNatCanon newObj ((k' + 1) * accVal) ∧
-          BigNumRt.lcnfHeapClosed objs2 ∧ BigNumRt.RcSound prod objs2) →
+          lcnfHeapClosed objs2 ∧ RcSound prod objs2) →
       (∀ o ∈ objs2, o.Wf) → objs2.length + 1 ≤ st2.workCap → st1.rem ≤ st2.rem →
-      (bigNumRtInv rt st2 scr scrLimbs1 ⋆ BigNumRt.lcnfHeap objs2 ⋆ R) m5 →
+      (bigNumRtInv rt st2 scr scrLimbs1 ⋆ lcnfHeap objs2 ⋆ R) m5 →
       wp factLoopEnv Q X cont m5) :
     wp factLoopEnv Q X (decRefExpr rt ca cont) m3 := by
   by_cases hcaLt : accVal < 2 ^ 63
@@ -753,16 +753,16 @@ private theorem factAcc_decAcc_wp {Q : Post [i64]} {X : XPost}
     unfold decRefExpr
     c0_let_simp
     refine wp_join_group (fun _ m5 =>
-      ∃ (st2 : BigNumRt.RtC0State) (objs2 : List BigNumRt.LcnfObj),
+      ∃ (st2 : RtC0State) (objs2 : List LcnfObj),
         st2.PreservesMeta st0 ∧ st2.rem ≤ st0.rem ∧ (resVal < 2 ^ 63 → st2.rem = st0.rem) ∧
         BigNumRtWf rt st2 scr scrLimbs1 ∧ natRep prod ((k' + 1) * accVal) objs2 ∧
         ((k' + 1) * accVal < 2 ^ 63 → objs2 = []) ∧
         (2 ^ 63 ≤ (k' + 1) * accVal →
           ∃ resObj, resObj ∈ objs2 ∧ resObj.addr = prod ∧ resObj.rc = 1#32 ∧
             mpzNatCanon resObj ((k' + 1) * accVal) ∧
-            BigNumRt.lcnfHeapClosed objs2 ∧ BigNumRt.RcSound prod objs2) ∧
+            lcnfHeapClosed objs2 ∧ RcSound prod objs2) ∧
         (∀ o ∈ objs2, o.Wf) ∧ objs2.length + 1 ≤ st2.workCap ∧ st1.rem ≤ st2.rem ∧
-        (bigNumRtInv rt st2 scr scrLimbs1 ⋆ BigNumRt.lcnfHeap objs2 ⋆ R) m5) ?_ ?_
+        (bigNumRtInv rt st2 scr scrLimbs1 ⋆ lcnfHeap objs2 ⋆ R) m5) ?_ ?_
     · rintro J ⟨⟩ m5 ⟨st2, objs2, hpr2, hrem2, hremS2, hwf2, hrep2, hmE2, hmM2, hobWf2, hwk2,
         hsr2, hm5⟩
       rw [Blocks.get.eq_1]
@@ -773,20 +773,20 @@ private theorem factAcc_decAcc_wp {Q : Post [i64]} {X : XPost}
         (by decide), fun _ => ?_⟩
       obtain ⟨idxAcc, hidxLt, haccAt⟩ :=
         List.mem_iff_getElem.mp (List.mem_cons_of_mem newObj haccMem)
-      have hfocus := BigNumRt.lcnfHeap_focus (newObj :: objs) hidxLt
+      have hfocus := lcnfHeap_focus (newObj :: objs) hidxLt
       have hm3_acc :
           (cell64 accObj.addr accObj.header ⋆ (cell64 (accObj.addr + 8#64) accObj.mpzMeta ⋆
             array64 (accObj.addr + 16#64) accObj.limbs ⋆
-            BigNumRt.lcnfHeap (List.take idxAcc (newObj :: objs)) ⋆
-            BigNumRt.lcnfHeap (List.drop (idxAcc + 1) (newObj :: objs)) ⋆
+            lcnfHeap (List.take idxAcc (newObj :: objs)) ⋆
+            lcnfHeap (List.drop (idxAcc + 1) (newObj :: objs)) ⋆
             bigNumRtInv rt st1 scr scrLimbs1 ⋆ R)) m3 := by
-        have hobjMem : BigNumRt.lcnfObjMem accObj =
+        have hobjMem : lcnfObjMem accObj =
             cell64 accObj.addr accObj.header ⋆ cell64 (accObj.addr + 8#64) accObj.mpzMeta ⋆
               array64 (accObj.addr + 16#64) accObj.limbs := by
-          dsimp only [BigNumRt.lcnfObjMem]
+          dsimp only [lcnfObjMem]
           rw [haccCan.2.1]
-          simp [BigNumRt.mpzTag, closureTag, BigNumRt.arrayTag,
-            BigNumRt.sarrayTag, BigNumRt.stringTag]
+          simp [mpzTag, closureTag, arrayTag,
+            sarrayTag, stringTag]
         rw [hfocus, haccAt, hobjMem] at hm3
         exact sep_cast hm3 (by ac_rfl)
       have hldAcc : loadVal m3 i32 ca = some 1#32 := by
@@ -796,46 +796,46 @@ private theorem factAcc_decAcc_wp {Q : Post [i64]} {X : XPost}
       rw [wp_jnz]; dsimp only [Arg.val_var]
       refine ⟨fun _ => ?_, fun hf => absurd hf (by decide)⟩
       have hm3_dec :
-          (BigNumRt.rtC0Inv rt st1 ⋆ BigNumRt.lcnfHeap (newObj :: objs) ⋆
+          (rtC0Inv rt st1 ⋆ lcnfHeap (newObj :: objs) ⋆
             (cell64 (rt + 33672#64) scr ⋆
               cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs1.length) ⋆
               array64 scr scrLimbs1 ⋆ R)) m3 := by
         unfold bigNumRtInv at hm3; exact sep_cast hm3 (by ac_rfl)
-      have hm3_heap : (BigNumRt.lcnfHeap (newObj :: objs) ⋆
+      have hm3_heap : (lcnfHeap (newObj :: objs) ⋆
           (bigNumRtInv rt st1 scr scrLimbs1 ⋆ R)) m3 := sep_cast hm3 (by ac_rfl)
-      have hndAddrs := bn_lcnfHeap_nodup_addrs hm3_heap
+      have hndAddrs := lcnfHeap_nodup_addrs hm3_heap
       simp only [List.map_cons, List.nodup_cons, List.mem_map] at hndAddrs
       have hneAddr : newObj.addr ≠ ca := fun heq =>
         hndAddrs.1 ⟨accObj, haccMem, haccAddr.trans heq.symm⟩
       have hprodTag : prod &&& 1#64 = 0#64 := by
         rw [natRep, ite_eq_right (Nat.not_lt_of_ge hmulGe)] at hrep1; exact hrep1.1
       have hnewAlign : newObj.addr &&& 1#64 = 0#64 := hnewAddr ▸ hprodTag
-      have hnewFresh : newObj.addr ∉ objs.map BigNumRt.LcnfObj.addr := fun hm => by
+      have hnewFresh : newObj.addr ∉ objs.map LcnfObj.addr := fun hm => by
         rcases List.mem_map.mp hm with ⟨a, ha, hea⟩; exact hndAddrs.1 ⟨a, ha, hea⟩
-      have hcl1 : BigNumRt.lcnfHeapClosed (newObj :: objs) :=
+      have hcl1 : lcnfHeapClosed (newObj :: objs) :=
         lcnfHeapClosed_cons_mpz hnewCan.2.1 hobjsCl
-      have hrc1 : BigNumRt.RcSound ca (newObj :: objs) :=
+      have hrc1 : RcSound ca (newObj :: objs) :=
         rcSound_cons_mpz hnewCan.2.1 hnewRc hnewAlign hnewFresh hneAddr hobjsCl hobjsRc
       refine wp_call_pred (fun _ m5 =>
-        ∃ (st2 : BigNumRt.RtC0State) (objs2 : List BigNumRt.LcnfObj),
+        ∃ (st2 : RtC0State) (objs2 : List LcnfObj),
           st2.PreservesMeta st1 ∧ st2.rem = st1.rem ∧
-          BigNumRt.DecColdRel ca (newObj :: objs) objs2 ∧
-          (BigNumRt.rtC0Inv rt st2 ⋆ BigNumRt.lcnfHeap objs2 ⋆
+          DecColdRel ca (newObj :: objs) objs2 ∧
+          (rtC0Inv rt st2 ⋆ lcnfHeap objs2 ⋆
             (cell64 (rt + 33672#64) scr ⋆
               cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs1.length) ⋆
               array64 scr scrLimbs1 ⋆ R)) m5) ?_ ?_
       · refine loopRtEnv_le_factLoopEnv_of_mem (by decide) _ _ _ _ _ _
           (rtC0CoreEnv_le_loopRtEnv _ _ _ _ _ _ _
-          (rtC0CoreEnv_lcnf_dec_ref_cold (bnDecRefColdSpec_to_rt
+          (rtC0CoreEnv_lcnf_dec_ref_cold
           ⟨hcaTag, st1, newObj :: objs, _, hwk1 ▸ hwkCap, hm3_dec,
             ⟨accObj, List.mem_cons_of_mem newObj haccMem, haccAddr, haccRc⟩, hobjsWf1, hcl1,
             hrc1, fun st2 objs2 m5 hpr2 hrem2 hdecRel hm5 =>
-              ⟨st2, objs2, hpr2, hrem2, hdecRel, hm5⟩⟩)))
+              ⟨st2, objs2, hpr2, hrem2, hdecRel, hm5⟩⟩))
       · rintro ⟨⟩ m5 ⟨st2, objs2, hpr2, hrem2, hdecRel, hm5⟩
         have hm5_inv :
-            (bigNumRtInv rt st2 scr scrLimbs1 ⋆ BigNumRt.lcnfHeap objs2 ⋆ R) m5 := by
+            (bigNumRtInv rt st2 scr scrLimbs1 ⋆ lcnfHeap objs2 ⋆ R) m5 := by
           unfold bigNumRtInv; exact sep_cast hm5 (by ac_rfl)
-        have hm5_heap : (BigNumRt.lcnfHeap objs2 ⋆
+        have hm5_heap : (lcnfHeap objs2 ⋆
             (bigNumRtInv rt st2 scr scrLimbs1 ⋆ R)) m5 := by
           unfold bigNumRtInv; exact sep_cast hm5 (by ac_rfl)
         have hstepDec := decColdRel_mpz_step
@@ -862,8 +862,8 @@ theorem factAcc_wp (xs : Tup Val [i64, i64, i64]) (m : Mem 64) (Q : Post [i64]) 
   unfold factAccHoas
   refine wp_loop_inv (Γ := factLoopEnv)
     (fun (cn, ca, ()) mk =>
-      ∃ (k accVal : Nat) (st : BigNumRt.RtC0State) (scrLimbs : List (BitVec 64))
-        (objs : List BigNumRt.LcnfObj),
+      ∃ (k accVal : Nat) (st : RtC0State) (scrLimbs : List (BitVec 64))
+        (objs : List LcnfObj),
         st.PreservesMeta st0 ∧ st.rem ≤ st0.rem ∧
         (resVal < 2 ^ 63 → st.rem = st0.rem) ∧
         factAccInv rt st scr scrLimbs objs k accVal cn ca resVal extraRem R mk)

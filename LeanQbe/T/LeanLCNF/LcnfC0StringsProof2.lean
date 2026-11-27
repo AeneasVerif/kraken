@@ -458,7 +458,7 @@ theorem str_copy_from_heap {objs : List LcnfObj} {sObj : LcnfObj}
     (hm : (region dst (strPayload sObj).length ⋆ lcnfHeap objs ⋆ R) m)
     (hk : ∀ m', (bytes dst (strPayload sObj) ⋆ lcnfHeap objs ⋆ R) m' → wp rtR2bEnv Q X kRest m') :
     wp rtR2bEnv Q X
-      (Expr.call "r2b_mem_copy_bytes" (as := [i64, i64, i64]) (bs := [])
+      (Expr.call "r2_mem_copy_bytes" (as := [i64, i64, i64]) (bs := [])
         (Arg.var dst, Arg.var (s + 32#64), Arg.var (BitVec.ofNat 64 (strPayload sObj).length), ())
         (fun _ => kRest)) m := by
   obtain ⟨k, hkLen, hobjk⟩ := List.getElem_of_mem hsMem
@@ -471,7 +471,7 @@ theorem str_copy_from_heap {objs : List LcnfObj} {sObj : LcnfObj}
   have hszLt := str_payload_lt_max sObj hcanon
   have hszTo : (BitVec.ofNat 64 (strPayload sObj).length).toNat = (strPayload sObj).length := by
     rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by unfold strMaxCap at hszLt; omega)]
-  r2b_call rtR2bEnv_r2b_mem_copy_bytes
+  r2b_call rtR2bEnv_r2_mem_copy_bytes
   dsimp only [r2MemCopyBytesSpec, vals, Tup.map, Arg.val]
   refine ⟨strPayload sObj, (strPayload sObj).length,
     strRest sObj ⋆ lcnfHeap (objs.eraseIdx k) ⋆ R, hszTo.symm, Nat.le_of_eq hszTo,
@@ -855,7 +855,7 @@ theorem lcnf_string_push_wp :
               sep_cast hm1Sp (by ac_rfl)
             rw [strObj_eq_bytes_rest hcanon] at hmS1
             r2b_steps
-            r2b_call rtR2bEnv_r2b_mem_copy_bytes
+            r2b_call rtR2bEnv_r2_mem_copy_bytes
             dsimp only [r2MemCopyBytesSpec, vals, Tup.map, Arg.val]
             rw [show (32 : BitVec 64) = 32#64 from rfl]
             refine ⟨bs0, bs0.length,
@@ -941,7 +941,7 @@ theorem lcnf_string_push_wp :
                 (by rw [hnewLenBs]; exact hcapBnd.1) hparts
               simp only [lcnfHeap, sep_emp]
               exact sep_cast hmObj (by ac_rfl)
-            r2b_call rtR2bEnv_r2b_dec_obj
+            r2b_call rtR2bEnv_r2_dec_obj
             dsimp only [r2DecObjSpec, vals, Tup.map, Arg.val]
             have hnotNull : ¬ (sObj.addr = 0#64 ∨ (sObj.addr &&& 1#64) ≠ 0#64) :=
               by simp [hcanon.1, bv64_and1_zero_of_mod8 hcanon.2.1]
@@ -1097,14 +1097,14 @@ private theorem str_append_slow_wp {rt s1 s2 : BitVec 64} {st : RtC0State}
           (strAllocBytes newCap - (32 + newSz + 1)) ⋆
         lcnfHeap objs ⋆ R) m1 →
       wp rtR2bEnv Q X
-        (Expr.call "r2b_mem_copy_bytes" (as := [i64, i64, i64]) (bs := [])
+        (Expr.call "r2_mem_copy_bytes" (as := [i64, i64, i64]) (bs := [])
           (Arg.var (dst + 32#64), Arg.var (s1 + 32#64), Arg.var (BitVec.ofNat 64 p1.length), ())
           fun _ =>
-            Expr.call "r2b_mem_copy_bytes" (as := [i64, i64, i64]) (bs := [])
+            Expr.call "r2_mem_copy_bytes" (as := [i64, i64, i64]) (bs := [])
               (Arg.var (dst + 32#64 + BitVec.ofNat 64 p1.length), Arg.var (s2 + 32#64),
                 Arg.var (BitVec.ofNat 64 p2.length), ())
               fun _ =>
-                Expr.call "r2b_dec_obj" (as := [i64, i64]) (bs := [])
+                Expr.call "r2_dec_obj" (as := [i64, i64]) (bs := [])
                   (Arg.var rt, Arg.var s1, ()) fun _ => Expr.ret (Arg.var dst, ())) m1 := by
   intro newCap p1 p2 newSz dst st1 m1 hdst0 hdst8 hpr1 hrem1 hm1
   have hnewLen : (p1 ++ p2).length = newSz := by simp [p1, p2, newSz]
@@ -1192,7 +1192,7 @@ private theorem str_append_slow_wp {rt s1 s2 : BitVec 64} {st : RtC0State}
       rw [← hnewCapEq, hnewLen]; exact hcapBnd
     have hmObj := mkStrObj_mem_of_parts hcapBnd'.2 (by rw [hnewLen]; exact hcapBnd'.1) hparts
     exact sep_cast hmObj (by ac_rfl)
-  r2b_call rtR2bEnv_r2b_dec_obj
+  r2b_call rtR2bEnv_r2_dec_obj
   dsimp only [r2DecObjSpec, vals, Tup.map, Arg.val]
   have hnotNull : ¬ (s1 = 0#64 ∨ (s1 &&& 1#64) ≠ 0#64) := by
     simp [hs1Addr ▸ hc1.1, hs1Addr ▸ bv64_and1_zero_of_mod8 hc1.2.1]
@@ -1420,7 +1420,7 @@ theorem lcnf_string_append_wp :
                         lcnfHeap (objs.eraseIdx k1) ⋆ rtC0Inv rt st ⋆ R) m2 →
                       wp rtR2bEnv Q X kRest m2) →
                     wp rtR2bEnv Q X
-                      (Expr.call "r2b_mem_copy_bytes" (as := [i64, i64, i64]) (bs := [])
+                      (Expr.call "r2_mem_copy_bytes" (as := [i64, i64, i64]) (bs := [])
                         (Arg.var (s1 + 32#64 + BitVec.ofNat 64 p1.length),
                           Arg.var (s2 + 32#64), Arg.var (BitVec.ofNat 64 p2.length), ())
                         (fun _ => kRest)) m := by
@@ -1431,7 +1431,7 @@ theorem lcnf_string_append_wp :
                       rw [hobj1, hobj2, hs1Addr, hs2Addr, hsEq]
                     have hs2Eq1 : s2Obj = s1Obj := by subst hkEq; rw [← hobj1, ← hobj2]
                     have hp12 : p2 = p1 := by dsimp only [p1, p2]; rw [hs2Eq1]
-                    r2b_call rtR2bEnv_r2b_mem_copy_bytes
+                    r2b_call rtR2bEnv_r2_mem_copy_bytes
                     dsimp only [r2MemCopyBytesSpec, vals, Tup.map, Arg.val]
                     rw [hs1Addr] at hmMerge
                     refine ⟨p1, strAllocBytes s1Obj.cap - (32 + p1.length),
@@ -1483,7 +1483,7 @@ theorem lcnf_string_append_wp :
                       dsimp only [p2]
                       rw [hf2, strObj_eq_bytes_rest hc2] at hmMerge
                       exact sep_cast hmMerge (by ac_rfl)
-                    r2b_call rtR2bEnv_r2b_mem_copy_bytes
+                    r2b_call rtR2bEnv_r2_mem_copy_bytes
                     dsimp only [r2MemCopyBytesSpec, vals, Tup.map, Arg.val]
                     rw [hs1Addr] at hmMerge
                     rw [hs1Addr, hs2Addr] at hm2Focus
@@ -1878,7 +1878,7 @@ theorem lcnf_string_cmp_op_wp :
                   have hcmpNe : cmpByteSlices (strPayload s1Obj) (strPayload s2Obj) ≠ 1#64 :=
                     fun heq => hneN (cmpByteSlices_eq_one_len _ _ heq)
                   simpa [strCmpOpVal, hcmpNe] using hPost)
-               | (r2b_call rtR2bEnv_r2b_cmp_byte_slices
+               | (r2b_call rtR2bEnv_r2_cmp_byte_slices
                   dsimp only [r2CmpByteSlicesSpec, vals, Tup.map, Arg.val]
                   refine ⟨strPayload s1Obj, strPayload s2Obj,
                     strRest s1Obj ⋆ bytes (s2Obj.addr + 32#64) (strPayload s2Obj) ⋆
@@ -1899,7 +1899,7 @@ theorem lcnf_string_cmp_op_wp :
              all_goals first
                | contradiction
                | (exfalso; exact (by decide : (1#64 : BitVec 64) ≠ 0#64) (by assumption))
-               | (r2b_call rtR2bEnv_r2b_cmp_byte_slices
+               | (r2b_call rtR2bEnv_r2_cmp_byte_slices
                   dsimp only [r2CmpByteSlicesSpec, vals, Tup.map, Arg.val]
                   refine ⟨strPayload s1Obj, strPayload s2Obj,
                     strRest s1Obj ⋆ bytes (s2Obj.addr + 32#64) (strPayload s2Obj) ⋆
@@ -1921,7 +1921,7 @@ theorem lcnf_string_cmp_op_wp :
                | contradiction
                | (exfalso; exact (by decide : (2#64 : BitVec 64) ≠ 0#64) (by assumption))
                | (exfalso; exact (by decide : (2#64 : BitVec 64) ≠ 1#64) (by assumption))
-               | (r2b_call rtR2bEnv_r2b_cmp_byte_slices
+               | (r2b_call rtR2bEnv_r2_cmp_byte_slices
                   dsimp only [r2CmpByteSlicesSpec, vals, Tup.map, Arg.val]
                   refine ⟨strPayload s1Obj, strPayload s2Obj,
                     strRest s1Obj ⋆ bytes (s2Obj.addr + 32#64) (strPayload s2Obj) ⋆

@@ -20,35 +20,35 @@ open Std Std.ExtHashMap
 open scoped LeanQbe.T.ProofUtil
 
 /-! ## 2. Strengthened Runtime Arithmetic / Alloc Specs & `loopRtEnv` -/
-@[expose] def mpzZeroObj (p : BitVec 64) (n' : Nat) : BigNumRt.LcnfObj :=
+@[expose] def mpzZeroObj (p : BitVec 64) (n' : Nat) : LcnfObj :=
   let bytes := 16 + 8 * n'
   { addr := p, rc := 1#32, csSz := if bytes < 65536 then bytes else 0, other := 0,
-    tag := BigNumRt.mpzTag, cap := n', arrSize := n', limbs := List.replicate n' 0#64 }
+    tag := mpzTag, cap := n', arrSize := n', limbs := List.replicate n' 0#64 }
 /-- `lcnfNatAllocSpec` retaining exact remaining
 bump-arena lower bound `st.rem - bytes ≤ st'.rem`. -/
 @[expose] def lcnfNatAllocRemSpec : Spec [i64, i64] [i64] :=
   fun (rt, nlimbs, ()) m Q _X =>
     let n' := max 1 nlimbs.toNat
     let bytes := 16 + 8 * n'
-    ∃ (st : BigNumRt.RtC0State) (R : Mem 64 → Prop),
+    ∃ (st : RtC0State) (R : Mem 64 → Prop),
       nlimbs.toNat ≤ mpzMaxLimbs ∧
       st.Bounded48 ∧
       (st.hasFree bytes ∨ bytes ≤ st.rem) ∧
-      (BigNumRt.rtC0Inv rt st ⋆ R) m ∧
-      ∀ (p : BitVec 64) (st' : BigNumRt.RtC0State) (m' : Mem 64),
+      (rtC0Inv rt st ⋆ R) m ∧
+      ∀ (p : BitVec 64) (st' : RtC0State) (m' : Mem 64),
         (mpzZeroObj p n').Wf →
         p &&& 1#64 = 0#64 →
         st'.PreservesMeta st →
         st'.rem ≤ st.rem →
         st.rem - bytes ≤ st'.rem →
         st'.Bounded48 →
-        (BigNumRt.rtC0Inv rt st' ⋆ BigNumRt.lcnfObjMem (mpzZeroObj p n') ⋆ R) m' →
+        (rtC0Inv rt st' ⋆ lcnfObjMem (mpzZeroObj p n') ⋆ R) m' →
         Q (p, ()) m'
-/-- `bnNatFromLimbsSpec` retaining `newObj.rc = 1#32`, `st'.rem = st.rem` (small), and
-`st.rem - (16 + 8 * tn) ≤ st'.rem` (boxed). -/
+/-- `bnNatFromLimbsSpec` retaining `newObj.rc = 1#32`, `st'.rem = st.rem` small, and
+`st.rem - (16 + 8 * tn) ≤ st'.rem` boxed. -/
 @[expose] def bnNatFromLimbsRemSpec : Spec [i64, i64, i64] [i64] :=
   fun (rt, buf, n, ()) m Q _X =>
-    ∃ (st : BigNumRt.RtC0State) (bufXs : List (BitVec 64)) (objs : List BigNumRt.LcnfObj)
+    ∃ (st : RtC0State) (bufXs : List (BitVec 64)) (objs : List LcnfObj)
       (R : Mem 64 → Prop),
       let val := limbsVal (bufXs.take n.toNat)
       let tn := trimLenLoop bufXs n.toNat
@@ -56,8 +56,8 @@ bump-arena lower bound `st.rem - bytes ≤ st'.rem`. -/
       n.toNat ≤ mpzMaxLimbs ∧
       st.Bounded48 ∧
       (2 ^ 63 ≤ val → st.hasFree (16 + 8 * tn) ∨ 16 + 8 * tn ≤ st.rem) ∧
-      (BigNumRt.rtC0Inv rt st ⋆ array64 buf bufXs ⋆ BigNumRt.lcnfHeap objs ⋆ R) m ∧
-      ∀ (p : BitVec 64) (st' : BigNumRt.RtC0State) (objs' : List BigNumRt.LcnfObj)
+      (rtC0Inv rt st ⋆ array64 buf bufXs ⋆ lcnfHeap objs ⋆ R) m ∧
+      ∀ (p : BitVec 64) (st' : RtC0State) (objs' : List LcnfObj)
         (m' : Mem 64),
         st'.PreservesMeta st →
         st'.rem ≤ st.rem →
@@ -68,21 +68,21 @@ bump-arena lower bound `st.rem - bytes ≤ st'.rem`. -/
           st.rem - (16 + 8 * tn) ≤ st'.rem ∧
           ∃ newObj, newObj.addr = p ∧ newObj.rc = 1#32 ∧ mpzNatCanon newObj val ∧
             objs' = newObj :: objs) →
-        (BigNumRt.rtC0Inv rt st' ⋆ array64 buf bufXs ⋆ BigNumRt.lcnfHeap objs' ⋆ R) m' →
+        (rtC0Inv rt st' ⋆ array64 buf bufXs ⋆ lcnfHeap objs' ⋆ R) m' →
         Q (p, ()) m'
 /-- Multiplication (`op = 3#64`) specialization of `lcnf_nat_arith`. -/
 @[expose] def loopNatMulArithSpec : Spec [i64, i64, i64, i64] [i64] :=
   fun (rt, op, a, b, ()) m Q _X =>
     op = 3#64 ∧
-    ∃ (st : BigNumRt.RtC0State) (scr : BitVec 64) (scrLimbs : List (BitVec 64))
-      (objs : List BigNumRt.LcnfObj) (aVal bVal : Nat) (R : Mem 64 → Prop),
+    ∃ (st : RtC0State) (scr : BitVec 64) (scrLimbs : List (BitVec 64))
+      (objs : List LcnfObj) (aVal bVal : Nat) (R : Mem 64 → Prop),
       BigNumRtWf rt st scr scrLimbs ∧
       natRep a aVal objs ∧
       natRep b bVal objs ∧
       natArithOk 3 aVal bVal scrLimbs.length st ∧
-      (bigNumRtInv rt st scr scrLimbs ⋆ BigNumRt.lcnfHeap objs ⋆ R) m ∧
-      ∀ (res : BitVec 64) (st' : BigNumRt.RtC0State) (scrLimbs' : List (BitVec 64))
-        (objs' : List BigNumRt.LcnfObj) (m' : Mem 64),
+      (bigNumRtInv rt st scr scrLimbs ⋆ lcnfHeap objs ⋆ R) m ∧
+      ∀ (res : BitVec 64) (st' : RtC0State) (scrLimbs' : List (BitVec 64))
+        (objs' : List LcnfObj) (m' : Mem 64),
         st'.PreservesMeta st →
         st'.rem ≤ st.rem →
         scrLimbs'.length = scrLimbs.length →
@@ -93,7 +93,7 @@ bump-arena lower bound `st.rem - bytes ≤ st'.rem`. -/
           st.rem - (16 + 8 * limbLenNat (aVal * bVal)) ≤ st'.rem ∧
           ∃ newObj, newObj.addr = res ∧ newObj.rc = 1#32 ∧ mpzNatCanon newObj (aVal * bVal) ∧
             objs' = newObj :: objs) →
-        (bigNumRtInv rt st' scr scrLimbs' ⋆ BigNumRt.lcnfHeap objs' ⋆ R) m' →
+        (bigNumRtInv rt st' scr scrLimbs' ⋆ lcnfHeap objs' ⋆ R) m' →
         Q (res, ()) m'
 /-- Multiplication (`op = 3#64`) specialization of `lcnf_nat_slow`. -/
 @[expose] def loopNatMulSlowSpec : Spec [i64, i64, i64, i64] [i64] :=
@@ -101,7 +101,7 @@ bump-arena lower bound `st.rem - bytes ≤ st'.rem`. -/
 /-- Two-limb `mpz` specialization of `lcnf_nat_to_str` without requiring `nObj.csSz = 0`. -/
 @[expose] def loopNatToStr2Spec : Spec [i64, i64] [i64] :=
   fun (rt, n, ()) m Q _X =>
-    ∃ (st : BigNumRt.RtC0State) (nObj : BigNumRt.LcnfObj) (objs : List BigNumRt.LcnfObj)
+    ∃ (st : RtC0State) (nObj : LcnfObj) (objs : List LcnfObj)
       (val : Nat) (R : Mem 64 → Prop),
       (n &&& 1#64) = 0#64 ∧
       nObj ∈ objs ∧ nObj.addr = n ∧
@@ -109,16 +109,16 @@ bump-arena lower bound `st.rem - bytes ≤ st'.rem`. -/
       nObj.limbs.length = 2 ∧
       (∀ o ∈ objs, o.Wf) ∧
       (nObj.rc = 1#32 →
-        objs.length ≤ st.workCap ∧ BigNumRt.lcnfHeapClosed objs ∧ BigNumRt.RcSound n objs) ∧
+        objs.length ≤ st.workCap ∧ lcnfHeapClosed objs ∧ RcSound n objs) ∧
       mpzAllocBytes 2 + sarrayAllocBytes 40 + strAllocBytes 41 ≤ st.rem ∧
-      (BigNumRt.rtC0Inv rt st ⋆ BigNumRt.lcnfHeap objs ⋆ R) m ∧
+      (rtC0Inv rt st ⋆ lcnfHeap objs ⋆ R) m ∧
       ∀ (s : BitVec 64) (st' : RtC0State) (objs' : List LcnfObj) (m' : Mem 64),
         s ≠ 0#64 → s.toNat % 8 = 0 →
-        st'.PreservesMeta (b2rState st) → st'.rem ≤ st.rem →
+        st'.PreservesMeta st → st'.rem ≤ st.rem →
         have dec := natToDecimalBytes val
         have sObj := mkStrObj s 1#32 (dec.length + 1) dec dec.length
         StrCanon sObj →
-        DecObjRel n (objs.map b2rObj) objs' →
+        DecObjRel n objs objs' →
         (rtC0Inv rt st' ⋆ lcnfObjMem sObj ⋆ lcnfHeap objs' ⋆ R) m' →
         Q (s, ()) m'
 /-- Additional strengthened R1/R2b specifications adjoined to `rtC0CoreEnv` in `loopRtEnv`. -/
@@ -147,11 +147,11 @@ theorem mpzObjLimbs_wf {p : BitVec 64} {n' : Nat} {limbs : List (BitVec 64)}
     (hp0 : p ≠ 0#64) (hp8 : p.toNat % 8 = 0) (hlen : limbs.length = n') :
     let bytes := 16 + 8 * n'
     ({ addr := p, rc := 1#32, csSz := if bytes < 65536 then bytes else 0, other := 0,
-       tag := BigNumRt.mpzTag, cap := n', arrSize := n', limbs := limbs } :
-       BigNumRt.LcnfObj).Wf := by
-  unfold BigNumRt.LcnfObj.Wf BigNumRt.LcnfObj.totalBytes
-  simp only [BigNumRt.mpzTag, closureTag, BigNumRt.arrayTag, BigNumRt.sarrayTag,
-    BigNumRt.stringTag, BigNumRt.rtMinObjBytes, BigNumRt.rtMaxObjBytes, mpzMaxLimbs,
+       tag := mpzTag, cap := n', arrSize := n', limbs := limbs } :
+       LcnfObj).Wf := by
+  unfold LcnfObj.Wf LcnfObj.totalBytes
+  simp only [mpzTag, closureTag, arrayTag, sarrayTag,
+    stringTag, rtMinObjBytes, rtMaxObjBytes, mpzMaxLimbs,
     hlen, show (250 = 245) = False by decide,
     show (250 = 246) = False by decide, show (250 = 248) = False by decide,
     show (250 = 249) = False by decide, ite_false, ite_true] at *
@@ -234,7 +234,6 @@ theorem lcnf_nat_alloc_rem_wp (xs : Tup Val [i64, i64]) (m : Mem 64)
       apply wp_call_step
       apply rtC0CoreEnv_le_loopRtEnv
       apply rtC0CoreEnv_lcnf_alloc
-      rw [b2r_rtC0Inv_eq] at hm
       have hbytes_arg : (16#64 + 8#64 * BitVec.ofNat 64 n') = BitVec.ofNat 64 bytes := hbytes_bv
       change lcnfAllocRemSpec (rt, (16#64 + 8#64 * BitVec.ofNat 64 n'), ()) m2 _ X
       rw [hbytes_arg]
@@ -246,16 +245,16 @@ theorem lcnf_nat_alloc_rem_wp (xs : Tup Val [i64, i64]) (m : Mem 64)
         rw [hal8]; dsimp only [rtMinObjBytes, bytes]; omega
       have hmax_o : align8 (BitVec.ofNat 64 bytes).toNat < rtMaxObjBytes := by
         rw [hal8]; dsimp only [rtMaxObjBytes, bytes, mpzMaxLimbs] at hnmax ⊢; omega
-      have hroom' : (b2rState st).hasFree (align8 (BitVec.ofNat 64 bytes).toNat) ∨
-          align8 (BitVec.ofNat 64 bytes).toNat ≤ (b2rState st).rem := by
+      have hroom' : st.hasFree (align8 (BitVec.ofNat 64 bytes).toNat) ∨
+          align8 (BitVec.ofNat 64 bytes).toNat ≤ st.rem := by
         rw [hal8]; exact hroom
-      refine ⟨b2rState st, R, hle_max, hmin, hmax_o, hroom', hm, ?_⟩
+      refine ⟨st, R, hle_max, hmin, hmax_o, hroom', hm, ?_⟩
       intro p st' m2 hp0 hp8 hmeta hrem_le hrem_lb hm2
       rw [hal8] at hm2 hrem_lb
       rw [sep_comm (rtC0Inv rt st'), sep_assoc] at hm2
       obtain ⟨w0, w1, dst, hdst_len, hm2'⟩ := region_to_mpz_parts hn1 hnmax hm2
-      let obj : BigNumRt.LcnfObj :=
-        { addr := p, rc := 1#32, csSz := csSz, other := 0, tag := BigNumRt.mpzTag,
+      let obj : LcnfObj :=
+        { addr := p, rc := 1#32, csSz := csSz, other := 0, tag := mpzTag,
           cap := n', arrSize := n', limbs := List.replicate n' 0#64 }
       have hobj_wf : obj.Wf := mpzObj_wf hn1 hnmax hp0 hp8
       have hh_hdr :
@@ -266,7 +265,7 @@ theorem lcnf_nat_alloc_rem_wp (xs : Tup Val [i64, i64]) (m : Mem 64)
           show (BitVec.signExtend 64 56#32).toNat % 64 = 56 from rfl]
         have h0s : (0#64 : BitVec 64) <<< 48 = 0#64 := rfl
         have h1s : (1#32 : BitVec 32).toNat = 1 := rfl
-        simp only [obj, BigNumRt.LcnfObj.header, BigNumRt.mpzTag, h0s, h1s, BitVec.or_zero]
+        simp only [obj, LcnfObj.header, mpzTag, h0s, h1s, BitVec.or_zero]
       have hh_meta :
           (BitVec.ofNat 64 n' |||
             BitVec.ofNat 64 n' <<< ((BitVec.signExtend 64 32#32).toNat % 64)) =
@@ -332,22 +331,21 @@ theorem lcnf_nat_alloc_rem_wp (xs : Tup Val [i64, i64]) (m : Mem 64)
           have hm_r2b :
               (cell64 obj.addr obj.header ⋆ cell64 (obj.addr + 8#64) obj.mpzMeta ⋆
                 array64 (obj.addr + 16#64) obj.limbs ⋆
-                (BigNumRt.rtC0Inv rt (r2bState st') ⋆ R)) m_cur := by
-            rw [← r2b_rtC0Inv_eq]
+                (rtC0Inv rt st' ⋆ R)) m_cur := by
             exact sep_ac hm_cur
           have hm_obj :
-              (BigNumRt.rtC0Inv rt (r2bState st') ⋆ BigNumRt.lcnfObjMem obj ⋆ R) m_cur :=
+              (rtC0Inv rt st' ⋆ lcnfObjMem obj ⋆ R) m_cur :=
             sep_ac (lcnfObjMem_mpz_intro (o := obj) rfl hm_r2b)
           have hp_align : p &&& 1#64 = 0#64 := by
             apply BitVec.eq_of_toNat_eq
             simp only [BitVec.toNat_and, BitVec.toNat_ofNat,
               Nat.mod_eq_of_lt (by decide : 1 < 2 ^ 64), Nat.and_one_is_mod]
             omega
-          exact hk p (r2bState st') m_cur hobj_wf hp_align
-            (by simpa [r2bState_b2rState] using r2bState_preservesMeta hmeta)
-            (by simpa [r2bState_rem, b2rState_rem] using hrem_le)
-            (by rw [r2bState_rem, ← b2rState_rem]; exact hrem_lb)
-            (r2bState_bounded48 hb48 hmeta) hm_obj
+          exact hk p st' m_cur hobj_wf hp_align
+            (by simpa [] using hmeta)
+            (by simpa [] using hrem_le)
+            hrem_lb
+            (preservesMeta_bn_bounded48 hb48 hmeta) hm_obj
     · intro J2 hJ2
       c0_hsteps!
       · have hlt : bytes < 65536 := by
@@ -364,7 +362,7 @@ theorem lcnf_nat_alloc_rem_wp (xs : Tup Val [i64, i64]) (m : Mem 64)
     c0_hsteps!
     · exact hJ _ _ ⟨rfl, by simp [n', hc]⟩
     · exact hJ _ _ ⟨rfl, by rw [← hn'_eq]; split <;> first | contradiction | rfl⟩
-theorem preservesMeta_bn_refl (st : BigNumRt.RtC0State) : st.PreservesMeta st :=
+theorem preservesMeta_bn_refl (st : RtC0State) : st.PreservesMeta st :=
   ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
 private theorem limbsVal_take_one {xs : List (BitVec 64)} (hne : 0 < xs.length) :
     limbsVal (xs.take 1) = (xs[0]).toNat := by
@@ -420,7 +418,7 @@ theorem bn_nat_from_limbs_rem_wp (xs : Tup Val [i64, i64, i64]) (m : Mem 64)
   dsimp only [vals, Arg.val]
   apply rtR1Env_le_loopRtEnv
   apply rtR1Env_bn_trim
-  refine ⟨bufXs, BigNumRt.rtC0Inv rt st ⋆ BigNumRt.lcnfHeap objs ⋆ R, hn_len, sep_ac hm, ?_⟩
+  refine ⟨bufXs, rtC0Inv rt st ⋆ lcnfHeap objs ⋆ R, hn_len, sep_ac hm, ?_⟩
   t_wp_unfold
   refine ⟨fun hc0 => ?_, fun hcn0 => ?_⟩
   · have htn0 : tn = 0 := by
@@ -447,14 +445,14 @@ theorem bn_nat_from_limbs_rem_wp (xs : Tup Val [i64, i64, i64]) (m : Mem 64)
       dsimp only [vals, Arg.val]
       refine Or.inr (Or.inl ⟨⟨rfl, rfl⟩, rfl, ?_⟩)
       have hmax1 : max 1 tn = tn := Nat.max_eq_right htn_pos
-      refine ⟨st, array64 buf bufXs ⋆ BigNumRt.lcnfHeap objs ⋆ R,
+      refine ⟨st, array64 buf bufXs ⋆ lcnfHeap objs ⋆ R,
         by rw [htn_bv]; exact htn_max, hb48,
         by rw [htn_bv, hmax1]; exact hroom hge63, sep_ac hm, ?_⟩
       intro p st' m2 hobj_wf hp_align hmeta hrem_le hrem_lb hb48' hm2
       rw [htn_bv, hmax1] at hm2 hrem_lb hobj_wf
       let obj0 := mpzZeroObj p tn
       have hm2_elim := lcnfObjMem_mpz_elim (o := obj0)
-        (R := BigNumRt.rtC0Inv rt st' ⋆ array64 buf bufXs ⋆ BigNumRt.lcnfHeap objs ⋆ R)
+        (R := rtC0Inv rt st' ⋆ array64 buf bufXs ⋆ lcnfHeap objs ⋆ R)
         rfl (sep_ac hm2)
       t_wp_unfold
       apply wp_call_step
@@ -462,16 +460,16 @@ theorem bn_nat_from_limbs_rem_wp (xs : Tup Val [i64, i64, i64]) (m : Mem 64)
       apply rtR1Env_le_loopRtEnv
       apply rtR1Env_bn_copy
       refine ⟨List.replicate tn 0#64, bufXs,
-        BigNumRt.rtC0Inv rt st' ⋆ cell64 p obj0.header ⋆ cell64 (p + 8#64) obj0.mpzMeta ⋆
-          BigNumRt.lcnfHeap objs ⋆ R,
+        rtC0Inv rt st' ⋆ cell64 p obj0.header ⋆ cell64 (p + 8#64) obj0.mpzMeta ⋆
+          lcnfHeap objs ⋆ R,
         by rw [htn_bv, List.length_replicate]; exact Nat.le_refl _,
         by rw [htn_bv]; exact htn_len, sep_ac hm2_elim, ?_⟩
       intro m3 hm3
       rw [htn_bv, List.drop_replicate, Nat.sub_self, List.replicate_zero, List.append_nil] at hm3
-      let finalObj : BigNumRt.LcnfObj :=
+      let finalObj : LcnfObj :=
         { addr := p, rc := 1#32,
           csSz := if 16 + 8 * tn < 65536 then 16 + 8 * tn else 0,
-          other := 0, tag := BigNumRt.mpzTag, cap := tn, arrSize := tn,
+          other := 0, tag := mpzTag, cap := tn, arrSize := tn,
           limbs := bufXs.take tn }
       have hfinal_hdr : finalObj.header = obj0.header := rfl
       have hfinal_meta : finalObj.mpzMeta = obj0.mpzMeta := rfl
@@ -484,14 +482,14 @@ theorem bn_nat_from_limbs_rem_wp (xs : Tup Val [i64, i64, i64]) (m : Mem 64)
       have hm3_pre :
           (cell64 finalObj.addr finalObj.header ⋆ cell64 (finalObj.addr + 8#64) finalObj.mpzMeta ⋆
             array64 (finalObj.addr + 16#64) finalObj.limbs ⋆
-            (BigNumRt.rtC0Inv rt st' ⋆ array64 buf bufXs ⋆
-              BigNumRt.lcnfHeap objs ⋆ R)) m3 := by
+            (rtC0Inv rt st' ⋆ array64 buf bufXs ⋆
+              lcnfHeap objs ⋆ R)) m3 := by
         rw [← hfinal_hdr, ← hfinal_meta] at hm3
         exact sep_ac hm3
       have hm3' :
-          (BigNumRt.rtC0Inv rt st' ⋆ array64 buf bufXs ⋆
-            BigNumRt.lcnfHeap (finalObj :: objs) ⋆ R) m3 := by
-        rw [BigNumRt.lcnfHeap_cons_eq]
+          (rtC0Inv rt st' ⋆ array64 buf bufXs ⋆
+            lcnfHeap (finalObj :: objs) ⋆ R) m3 := by
+        rw [lcnfHeap_cons_eq]
         exact sep_ac (lcnfObjMem_mpz_intro (o := finalObj) rfl hm3_pre)
       have hrep : natRep p val (finalObj :: objs) := by
         simp only [natRep, Nat.not_lt.mpr hge63, ↓reduceIte]
@@ -512,7 +510,7 @@ theorem bn_nat_from_limbs_rem_wp (xs : Tup Val [i64, i64, i64]) (m : Mem 64)
           have ha : buf + (0#64 * 8#64) = buf + BitVec.ofNat 64 (8 * 0) := by simp
           rw [ha]
           exact loadVal_array64 (a := buf)
-            (R := BigNumRt.rtC0Inv rt st ⋆ BigNumRt.lcnfHeap objs ⋆ R) hlen_pos (sep_ac hm)
+            (R := rtC0Inv rt st ⋆ lcnfHeap objs ⋆ R) hlen_pos (sep_ac hm)
         refine ⟨bufXs[0], hld, ?_⟩
         have hval_ld : val = bufXs[0].toNat := by
           rw [← hval_eq, htn1]
@@ -671,16 +669,16 @@ theorem lcnf_nat_mul_arith_wp (xs : Tup Val [i64, i64, i64, i64]) (m : Mem 64)
     apply rtR1Env_le_loopRtEnv
     apply rtR1Env_bn_require_scratch
     refine ⟨scr, BitVec.ofNat 64 scrLimbs.length,
-      BigNumRt.rtC0Inv rt st ⋆ array64 scr scrLimbs ⋆ BigNumRt.lcnfHeap objs ⋆ R,
+      rtC0Inv rt st ⋆ array64 scr scrLimbs ⋆ lcnfHeap objs ⋆ R,
       hscr0, by erw [hneed_bv, hneed_nat, hcap_nat]; exact hscr_cap, ?_, ?_⟩
     · dsimp only [bigNumRtInv] at hm; exact sep_ac hm
     have hm_split :
-        (BigNumRt.rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
+        (rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
           cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆
           array64 scr (scrLimbs.take na) ⋆
           array64 (scr + BitVec.ofNat 64 (8 * na)) ((scrLimbs.drop na).take nb) ⋆
           array64 (scr + BitVec.ofNat 64 (8 * (na + nb))) (scrLimbs.drop (na + nb)) ⋆
-          BigNumRt.lcnfHeap objs ⋆ R) m1 := by
+          lcnfHeap objs ⋆ R) m1 := by
       dsimp only [bigNumRtInv] at hm
       rw [loop_array64_split3 scr scrLimbs (na := na) (nb := nb) (by omega)] at hm
       exact sep_ac hm
@@ -715,7 +713,7 @@ theorem lcnf_nat_mul_arith_wp (xs : Tup Val [i64, i64, i64, i64]) (m : Mem 64)
     apply rtR1Env_le_loopRtEnv
     apply rtR1Env_bn_load_nat
     refine ⟨aVal, objs, aXs0,
-      BigNumRt.rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
+      rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
         cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆
         array64 (scr + BitVec.ofNat 64 (8 * na)) bXs0 ⋆
         array64 (scr + BitVec.ofNat 64 (8 * (na + nb))) outXs0 ⋆ R,
@@ -728,7 +726,7 @@ theorem lcnf_nat_mul_arith_wp (xs : Tup Val [i64, i64, i64, i64]) (m : Mem 64)
     apply rtR1Env_bn_load_nat
     rw [hoffB]
     refine ⟨bVal, objs, bXs0,
-      BigNumRt.rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
+      rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
         cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆
         array64 scr aXs1 ⋆
         array64 (scr + BitVec.ofNat 64 (8 * (na + nb))) outXs0 ⋆ R,
@@ -742,7 +740,7 @@ theorem lcnf_nat_mul_arith_wp (xs : Tup Val [i64, i64, i64, i64]) (m : Mem 64)
     have hscr_len' : (aXs1 ++ bXs1 ++ outXs0).length = scrLimbs.length := by
       simp [ha1_len, hb1_len, hout0_len]; omega
     have hm2_full :
-        (bigNumRtInv rt st scr (aXs1 ++ bXs1 ++ outXs0) ⋆ BigNumRt.lcnfHeap objs ⋆ R) m2 := by
+        (bigNumRtInv rt st scr (aXs1 ++ bXs1 ++ outXs0) ⋆ lcnfHeap objs ⋆ R) m2 := by
       dsimp only [bigNumRtInv]
       rw [← loop_array64_join3 scr aXs1 bXs1 outXs0, ha1_len, hb1_len, hscr_len']
       exact sep_ac hm2
@@ -783,9 +781,9 @@ theorem lcnf_nat_mul_arith_wp (xs : Tup Val [i64, i64, i64, i64]) (m : Mem 64)
           limbsVal (bXs1.take (BitVec.ofNat 64 nb).toNat)) = tn := by
       rw [hlimA, hlimB]
     refine ⟨aXs1, bXs1, outXs0,
-      BigNumRt.rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
+      rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
         cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆
-        BigNumRt.lcnfHeap objs ⋆ R,
+        lcnfHeap objs ⋆ R,
       by rw [hna_bv, ha1_len]; exact Nat.le_refl _,
       by rw [hnb_bv, hb1_len]; exact Nat.le_refl _,
       by rw [hna_bv, hnb_bv, hout0_len]; omega,
@@ -834,7 +832,7 @@ theorem lcnf_nat_mul_arith_wp (xs : Tup Val [i64, i64, i64, i64]) (m : Mem 64)
       ⟨hb48', hrt64, hscr0, hscr8, by rw [hlen4]; exact hlen64,
         by rw [hlen4]; exact hscr_bnd⟩
     have hm4' :
-        (bigNumRtInv rt st' scr (aXs1 ++ bXs1 ++ outXs1) ⋆ BigNumRt.lcnfHeap objs' ⋆ R) m4 := by
+        (bigNumRtInv rt st' scr (aXs1 ++ bXs1 ++ outXs1) ⋆ lcnfHeap objs' ⋆ R) m4 := by
       dsimp only [bigNumRtInv]
       rw [← loop_array64_join3 scr aXs1 bXs1 outXs1, ha1_len, hb1_len, hlen4]
       exact sep_ac hm4

@@ -56,7 +56,7 @@ splice_lcnf_tflat! factLoopTfs factLoopLcMod
 @[expose] def factLoopProgMod : Module :=
   { fns := Frontend.C0.tflatFnsToFns factLoopTfs, externs := [], exits := rtExitSyms }
 
-/-- Full `88`-function linked `Module`: `rtC0CoreMod` (`86` fns) ++
+/-- Full `82`-function linked `Module`: `rtC0CoreMod` (`80` fns) ++
 `factLoopProgMod` (`2` fns). -/
 @[expose] def factLoopLinkedMod : Module :=
   linkLcnfWithRtC0 factLoopTfs false

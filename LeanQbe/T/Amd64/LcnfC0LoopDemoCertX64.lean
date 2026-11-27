@@ -17,7 +17,7 @@ public meta import Kraken.X64.Syntax
 /-!
 # SysV x86-64 Closed Linked Certificate for `FactLoop` (`LcnfC0LoopDemoCertX64`)
 
-Links `factLoopProgMod` (`FactLoop.factAcc`, `FactLoop.factStr`) onto the verified 86-function
+Links `factLoopProgMod` (`FactLoop.factAcc`, `FactLoop.factStr`) onto the verified 80-function
 pure-C0 runtime certificate `rtC0CoreCert`, producing closed `factLoopX64Cert`, `Defined`/`FnSpec`
 bridges for `factLoopEnv`, and a closed `Eventually` machine-execution witness computing `25!`
 and formatting `"15511210043330985984000000"`.
@@ -36,7 +36,7 @@ compile_linked_chunks! factLoopX64ProgCert x64Target x64Layout x64LegalTarget x6
   (lcnfProgMod factLoopTfs) 1 (ext := rtC0CoreAllExt) (exits := rtExitSyms) (nX := 64)
   (maxBound := 2048) (maxDirs := 600) (flat := true)
 
-/-- Closed 88-function SysV x86-64 linked certificate (`rtC0CoreMod ++ factLoopProgMod`). -/
+/-- Closed 82-function SysV x86-64 linked certificate (`rtC0CoreMod ++ factLoopProgMod`). -/
 noncomputable def factLoopX64Cert :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean
       factLoopLinkedMod [] rtExitSyms 64 2048 :=
@@ -86,7 +86,7 @@ theorem factLoopX64_factStr_fnSpec :
 private theorem loopRtBytes_len : loopRtBytes.length = 36056 := by
   simp only [loopRtBytes, List.length_append, bytes64_length, List.length_replicate,
     loopRtState.extraLen, loopRtState.globalsLen, loopRtState.freeListLen, loopRtState.workLen,
-    rtExtraSlots, rtGlobalSlots, BigNumRt.rtNumClasses, loopRem,
+    rtExtraSlots, rtGlobalSlots, rtNumClasses, loopRem,
     loopScrLimbs, loopScrCap]
   dsimp [nvBnHdrWords]
   decide
@@ -156,7 +156,7 @@ theorem factLoopX64_fact25_run :
           (scrLimbs' : List (BitVec 64)) (m' : Mem 64),
           st.data.regs.get64 .rax = s ∧
           s ≠ 0#64 ∧ s.toNat % 8 = 0 ∧
-          st'.PreservesMeta (b2rState loopRtState) ∧ st'.rem ≤ loopRtState.rem ∧
+          st'.PreservesMeta loopRtState ∧ st'.rem ≤ loopRtState.rem ∧
           StrCanon (mkStrObj s 1#32 27 fact25Bytes 26) ∧
           (rtC0Inv loopRtBase st' ⋆
             lcnfObjMem (mkStrObj s 1#32 27 fact25Bytes 26) ⋆
@@ -176,7 +176,7 @@ theorem factLoopX64_fact25_run :
   let Q : Post [i64] := fun (s, ()) m' =>
     s ≠ 0#64 ∧ s.toNat % 8 = 0 ∧
     ∃ (st' : RtC0State) (objs' : List LcnfObj) (scrLimbs' : List (BitVec 64)),
-      st'.PreservesMeta (b2rState loopRtState) ∧ st'.rem ≤ loopRtState.rem ∧
+      st'.PreservesMeta loopRtState ∧ st'.rem ≤ loopRtState.rem ∧
       StrCanon (mkStrObj s 1#32 27 fact25Bytes 26) ∧
       (rtC0Inv loopRtBase st' ⋆
         lcnfObjMem (mkStrObj s 1#32 27 fact25Bytes 26) ⋆

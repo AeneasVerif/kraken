@@ -121,8 +121,8 @@ public theorem del_heap_rcInv {rt : BitVec 64} {rf rf0 : RcFrame} {σ σ0 : HSta
     have htbv : (Word.i64 bv).toBV64? = some bv := rfl
     simp [consumeVarHandles, hget, hno, hpers, henvh, hbev, htbv]
   rw [hch_bv] at hperm_lh hperm_ex
-  have hbn' : BigNumRtWfR0 rt st' σ.scr σ.scrLimbs :=
-    bigNumRtWfR0_of_preservesMeta hbn hmeta
+  have hbn' : BigNumRtWf rt st' σ.scr σ.scrLimbs :=
+    bigNumRtWf_of_preservesMeta hbn hmeta
   have hnodup_objs' : (objs'.map LcnfObj.addr).Nodup := by
     rw [show objs' = σ.objs.eraseIdx idx from rfl, map_eraseIdx]
     exact list_nodup_eraseIdx hnodup_objs idx

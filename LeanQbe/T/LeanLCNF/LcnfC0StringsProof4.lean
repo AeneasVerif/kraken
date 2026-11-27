@@ -1,7 +1,6 @@
 module
 
 public import LeanQbe.T.LeanLCNF.LcnfC0StringsProof4a
-import LeanQbe.T.LeanLCNF.LcnfC0StringsProofAlloc
 import LeanQbe.T.LeanLCNF.LcnfC0StringsProof1
 
 /-!
@@ -863,11 +862,13 @@ private theorem nat_to_str_after_dec_wp {Q : Post [i64]} {X : XPost} {R : Mem 64
     rw [BitVec.toNat_mul, show (20 : BitVec 64).toNat = 20 from rfl,
       Nat.mod_eq_of_lt (by unfold mpzMaxLimbsNat at hcnLeMax; omega)]
   have hsaLe : sarrayAllocBytes (20 * cnBv).toNat ≤ st.rem := by rw [h20mul]; omega
-  apply wp_call_of_spec; apply rtR2bEnv_r2b_alloc_sarray
-  dsimp only [r2bAllocSarraySpec, vals, Arg.val_var]
-  have hsaOk : ¬ baMaxCap < (20 * cnBv).toNat := by
-    rw [h20mul]; unfold baMaxCap mpzMaxLimbsNat at *; omega
-  rw [ite_eq_right hsaOk]
+  apply wp_call_of_spec; apply rtR2bEnv_r2_alloc_sarray
+  dsimp only [r2AllocSarraySpec, vals, Arg.val_var, Arg.val_imm]
+  have hsaOk : (0 : BitVec 64).toNat ≤ (20 * cnBv).toNat ∧ (20 * cnBv).toNat ≤ baMaxCap :=
+    ⟨by simp, by rw [h20mul]; unfold baMaxCap mpzMaxLimbsNat at *; omega⟩
+  split
+  case isFalse hc => exact absurd hsaOk hc
+  rw [show baAllocBytes = sarrayAllocBytes from rfl]
   refine ⟨st, array64 (tmp + 16#64) tmpXs ⋆
       cell64 tmp mpzHeaderWord ⋆ cell64 (tmp + 8#64) (cnBv ||| (cnBv <<< 32)) ⋆ R,
     Or.inr hsaLe, sep_cast hm (by simp only [Std.ExtHashMap.sep_assoc]),
@@ -1061,7 +1062,7 @@ private theorem nat_to_str_after_trim_wp {Q : Post [i64]} {X : XPost} {R : Mem 6
     have hcanon : StrCanon (mkStrObj s 1#32 2 [UInt8.ofNat 48] 1) :=
       mkStrObj_canon hs0 hs8 (by decide) (by decide) (by decide) (by decide)
     apply wp_call_of_spec
-    apply rtR2bEnv_r2b_dec_obj
+    apply rtR2bEnv_r2_dec_obj
     dsimp only [r2DecObjSpec, vals, Arg.val_var]
     rw [ite_eq_right hnoNull]
     refine ⟨st1, objs, lcnfObjMem (mkStrObj s 1#32 2 [UInt8.ofNat 48] 1) ⋆ R,
@@ -1143,7 +1144,7 @@ private theorem nat_to_str_after_trim_wp {Q : Post [i64]} {X : XPost} {R : Mem 6
         rw [← hnAddr, ← r2b_lcnfObjMem_mpz_eq hmpzTag, ← hfocusN] at hm'
         exact hm'
       apply wp_call_of_spec
-      apply rtR2bEnv_r2b_dec_obj
+      apply rtR2bEnv_r2_dec_obj
       dsimp only [r2DecObjSpec, vals, Arg.val_var]
       rw [ite_eq_right hnoNull]
       refine ⟨st1, objs, array64 (tmp + 16#64) tmpXs ⋆ cell64 tmp mpzHeaderWord ⋆

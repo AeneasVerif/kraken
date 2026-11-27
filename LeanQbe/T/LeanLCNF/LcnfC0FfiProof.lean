@@ -133,34 +133,12 @@ theorem ffiEnv_noExit_fns {fn : Fn} (hfn : fn ∈ ffiMod.fns)
   · exact ffi_ofTable_noExit_at ffiSpecEntries_nodup 13 (by decide) rfl hpre
   · exact ffi_ofTable_noExit_at ffiSpecEntries_nodup 14 (by decide) rfl hpre
 
-/-! ## 2. Bidirectional `MPZ` Bridge & Closed `rtC0WithFfiMod` Composition -/
-
-/-- Transparent `LcnfObj → BigNumRt.LcnfObj` projection matching R0/R1 fields identically. -/
-@[expose] def ffiObjToBn (o : LcnfObj) : BigNumRt.LcnfObj :=
-  { addr := o.addr, rc := o.rc, csSz := o.csSz, other := o.other, tag := o.tag,
-    funId := o.funId, arity := o.arity, cap := o.cap, arrSize := o.arrSize,
-    strLen := o.strLen, fields := o.fields, scalarData := o.scalarData, limbs := o.limbs }
-
-/-- Transparent `BigNumRt.LcnfObj → LcnfObj` projection matching R0/R1 fields identically. -/
-@[expose] def bnToFfiObj (o : BigNumRt.LcnfObj) : LcnfObj :=
-  { addr := o.addr, rc := o.rc, csSz := o.csSz, other := o.other, tag := o.tag,
-    funId := o.funId, arity := o.arity, cap := o.cap, arrSize := o.arrSize,
-    strLen := o.strLen, fields := o.fields, scalarData := o.scalarData, limbs := o.limbs }
-
-theorem ffiObjToBn_bnToFfiObj (o : BigNumRt.LcnfObj) : ffiObjToBn (bnToFfiObj o) = o := rfl
-
-theorem bnToFfiObj_ffiObjToBn (o : LcnfObj) : bnToFfiObj (ffiObjToBn o) = o := rfl
+/-! ## 2. `MPZ` Bridge & Closed `rtC0WithFfiMod` Composition -/
 
 theorem rtMpzNatCanon_iff_bnMpzNatCanon {obj : LcnfObj} {n : Nat} :
-    RtMpzNatCanon obj n ↔ mpzNatCanon (ffiObjToBn obj) n := by
-  have hwf : obj.Wf ↔ (ffiObjToBn obj).Wf := by
-    unfold LcnfObj.Wf BigNumRt.LcnfObj.Wf ffiObjToBn
-      LcnfObj.totalBytes BigNumRt.LcnfObj.totalBytes
-      mpzTag BigNumRt.mpzTag closureTag arrayTag BigNumRt.arrayTag
-      sarrayTag BigNumRt.sarrayTag stringTag BigNumRt.stringTag align8
-    rfl
+    RtMpzNatCanon obj n ↔ mpzNatCanon obj n := by
   unfold RtMpzNatCanon mpzNatCanon
-  simp only [hwf, ffiObjToBn, mpzTag, BigNumRt.mpzTag, ffiMpzMaxLimbs, mpzMaxLimbs]
+  simp only [ffiMpzMaxLimbs, mpzMaxLimbs]
 
 /-- Closed combined function list: `rtC0CoreMod.fns` followed by all 15 `ffiMod.fns`. -/
 @[expose] def rtC0WithFfiFns : List Fn := rtC0CoreMod.fns ++ ffiMod.fns
@@ -182,17 +160,6 @@ def rtC0WithFfiEnv : Env := fun f as bs xs m Q X =>
   Env.ofModule rtC0CoreMod rtC0CoreEnv f as bs xs m Q X ∨
     Env.ofModule ffiPureMod ffiEnv f as bs xs m Q X
 
-private theorem ffiEnv_ofTable_sub {tbl : List SpecEntry} {Γ' : Env}
-    (h : ∀ e ∈ tbl, ∀ xs m Q X, e.eff xs m Q X → Γ' e.name e.as e.rs xs m Q X) :
-    ∀ f as bs xs m Q X, Env.ofTable tbl f as bs xs m Q X → Γ' f as bs xs m Q X := by
-  induction tbl with
-  | nil => intro _ _ _ _ _ _ _ hf; exact hf.elim
-  | cons e es ih =>
-    intro f as bs xs m Q X hs
-    rcases hs with ⟨⟨rfl, rfl, rfl⟩, he⟩ | ⟨_, hrest⟩
-    · exact h e List.mem_cons_self xs m Q X he
-    · exact ih (fun e' he' => h e' (List.mem_cons_of_mem _ he')) f as bs xs m Q X hrest
-
 theorem rtC0CoreMod_env_le_rtC0WithFfiEnv :
     ∀ f as bs xs m Q X,
       Env.ofModule rtC0CoreMod rtC0CoreEnv f as bs xs m Q X →
@@ -201,7 +168,7 @@ theorem rtC0CoreMod_env_le_rtC0WithFfiEnv :
 
 theorem ffiEnv_le_rtC0WithFfiEnv :
     ∀ f as bs xs m Q X, ffiEnv f as bs xs m Q X → rtC0WithFfiEnv f as bs xs m Q X := by
-  refine ffiEnv_ofTable_sub (fun e he xs m Q X h => ?_)
+  refine env_ofTable_sub (fun e he xs m Q X h => ?_)
   simp only [ffiSpecEntries, List.mem_cons, List.not_mem_nil, or_false] at he
   rcases he with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
     rfl | rfl | rfl | rfl
@@ -735,7 +702,7 @@ theorem nv_ffi_nat_tagged_and_boxed :
         ∃ (_st1 : RtC0State) (obj : LcnfObj),
           p ≠ 0#64 ∧ p.toNat % 8 = 0 ∧ (p &&& 1#64) = 0#64 ∧
           obj.addr = p ∧ RtMpzNatCanon obj (2 ^ 64) ∧
-          mpzNatCanon (ffiObjToBn obj) (2 ^ 64) ∧
+          mpzNatCanon obj (2 ^ 64) ∧
           Func.wp rtC0WithFfiEnv lcnf_ffi_nat_bytes_len.body (p, ()) m1
             (fun (len, _) m2 => len = 8#64 ∧ m2 = m1) (fun _ _ _ _ => False))
       (fun _ _ _ _ => False) := by
@@ -769,7 +736,7 @@ theorem nv_ffi_nat_tagged_and_boxed :
     intro p st1 obj m1 hp0 hp8 hpEven _ _ _ haddr hrtCan _ hm1
     have hnat : natOfBytesS (List.replicate 8 0) = 2 ^ 64 := by decide
     rw [hnat] at hrtCan
-    have hbnCan : mpzNatCanon (ffiObjToBn obj) (2 ^ 64) :=
+    have hbnCan : mpzNatCanon obj (2 ^ 64) :=
       rtMpzNatCanon_iff_bnMpzNatCanon.mp hrtCan
     refine ⟨st1, obj, hp0, hp8, hpEven, haddr, hrtCan, hbnCan, ?_⟩
     refine wp_env_mono ffiEnv_le_rtC0WithFfiEnv _ _ (lcnf_ffi_nat_bytes_len_wp _ _ _ _ ?_)

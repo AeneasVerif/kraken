@@ -16,12 +16,12 @@ meta import LeanQbe.T.LeanLCNF.LcnfC0MutRecDemo
 
 First SysV x86-64 (`x64Target`) multi-function mutually-recursive Lean `LCNF` SCC certified as a
 **single 2-function `.recBudgetSCC` chunk** (`maxFrame = 48`, `minEntry = 272`, depth `D = 16`,
-`exportBound = 1040 ≤ 2048`) and appended onto `LinkedCertScc.ofLinkedCert rtC0CoreCert` (`86`
+`exportBound = 1040 ≤ 2048`) and appended onto `LinkedCertScc.ofLinkedCert rtC0CoreCert` (`80`
 pure-C0 runtime functions, `exits = ["lcnf_panic"]`, `nX = 64`, `0` externs):
 
 1. `mutRecDemoX64ProgCert`: `1`-chunk 2-function `.recBudgetSCC` user certificate (`roseSum`,
    `forestSum`) with `ext := rtC0CoreAllExt`.
-2. `mutRecDemoX64Cert`: closed `88`-function `LinkedCertScc` (`maxBound = 2048`,
+2. `mutRecDemoX64Cert`: closed `82`-function `LinkedCertScc` (`maxBound = 2048`,
    `bound mutRecDemoRoseName = 1040`, `bound mutRecDemoForestName = 1040`).
 3. `mutRecDemoX64_roseSum_fnSpec` & `mutRecDemoX64_forestSum_fnSpec`: source-level `FnSpec`.
 4. `mutRecDemoX64_roseSum_sample_run`, `mutRecDemoX64_forestSum_sample_run`, &
@@ -44,13 +44,13 @@ compile_linked_budget_scc! mutRecDemoX64ProgCert x64Target x64Layout x64LegalTar
   (ext := rtC0CoreAllExt) (extSigs := rtC0CoreMod.fns.map Fn.sig)
   (exits := rtExitSyms) (nX := 64) (flat := true)
 
-/-- Lift of the `86`-function acyclic runtime `rtC0CoreCert` into `LinkedCertScc`. -/
+/-- Lift of the `80`-function acyclic runtime `rtC0CoreCert` into `LinkedCertScc`. -/
 @[expose] noncomputable def mutRecDemoRtSccCertX64 :
     LinkedCertScc x64Target x64Layout x64LegalTarget x64LabelClean
       rtC0CoreMod [] rtExitSyms 64 2048 [] :=
   LinkedCertScc.ofLinkedCert rtC0CoreCert rfl (by t_kernel_rfl)
 
-/-- Full `88`-function SysV x86-64 `LinkedCertScc` combining `rtC0CoreCert` (`86` fns) and
+/-- Full `82`-function SysV x86-64 `LinkedCertScc` combining `rtC0CoreCert` (`80` fns) and
 `mutRecDemoX64ProgCert` (`1` 2-fn `.recBudgetSCC` chunk, `bound = 1040`, `maxBound = 2048`). -/
 @[expose] noncomputable def mutRecDemoX64Cert :
     LinkedCertScc x64Target x64Layout x64LegalTarget x64LabelClean

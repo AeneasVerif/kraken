@@ -559,15 +559,15 @@ theorem lcnf_nat_to_str_two_limb_wp (xs : Tup Val [i64, i64]) (m : Mem 64)
   have hnArr2 : nObj.arrSize = 2 := by rw [hcanon.2.2.2.1, hlen2]
   have hcapMax : nObj.cap ≤ mpzMaxLimbs := by
     have hwf_n := hcanon.1
-    unfold BigNumRt.LcnfObj.Wf at hwf_n
-    simp only [hcanon.2.1, BigNumRt.mpzTag, closureTag, BigNumRt.arrayTag,
-      BigNumRt.sarrayTag, BigNumRt.stringTag, show (250 = 245) = False by decide,
+    unfold LcnfObj.Wf at hwf_n
+    simp only [hcanon.2.1, mpzTag, closureTag, arrayTag,
+      sarrayTag, stringTag, show (250 = 245) = False by decide,
       show (250 = 246) = False by decide, show (250 = 248) = False by decide,
       show (250 = 249) = False by decide, ite_false, ite_true] at hwf_n
     exact hwf_n.2.2.2.2.2.2.2.2.2.2.1
   dsimp only [mpzMaxLimbs] at hcapMax
   have hmetaShift : nObj.mpzMeta >>> 32 = 2#64 := by
-    unfold BigNumRt.LcnfObj.mpzMeta
+    unfold LcnfObj.mpzMeta
     rw [hnArr2]
     apply BitVec.eq_of_toNat_eq
     have hdisj : ((BitVec.ofNat 64 nObj.cap) &&& (BitVec.ofNat 64 2 <<< 32)) = 0#64 := by
@@ -589,37 +589,29 @@ theorem lcnf_nat_to_str_two_limb_wp (xs : Tup Val [i64, i64]) (m : Mem 64)
     rw [Nat.mod_eq_of_lt (by omega)]
     rw [Nat.mod_eq_of_lt (by omega)]
     omega
-  rw [b2r_rtC0Inv_eq, b2r_lcnfHeap_eq] at hm
-  have hm_b2r : (rtC0Inv rt (b2rState st) ⋆ lcnfHeap (objs.map b2rObj) ⋆ R) m := hm
   obtain ⟨idxObj, hidxLt, hgetObj⟩ := List.mem_iff_getElem.mp hnMem
-  have hidxMap : idxObj < (objs.map b2rObj).length := by simp [hidxLt]
-  have hgetMap : (objs.map b2rObj)[idxObj] = b2rObj nObj := by
-    rw [List.getElem_map, hgetObj]
-  have hfocus := lcnfHeap_focus (objs.map b2rObj) hidxMap
-  rw [hgetMap] at hfocus
-  have hmpzTagB : (b2rObj nObj).tag = mpzTag := hcanon.2.1
-  have hb2rAddr : (b2rObj nObj).addr = n := hnAddr
-  have hb2rMeta : (b2rObj nObj).mpzMeta = nObj.mpzMeta := rfl
-  have hb2rLimbs : (b2rObj nObj).limbs = [w0, w1] := hwEq
+  have hfocus := lcnfHeap_focus objs hidxLt
+  rw [hgetObj] at hfocus
+  have hmpzTagB : nObj.tag = mpzTag := hcanon.2.1
   dsimp only [Func.wp, Ty.hasFloat, List.any, lcnf_nat_to_str, lcnf_nat_to_str_body]
   try rw [if_neg (by decide)]
   t_wp_unfold
   refine ⟨fun h => absurd hnBit h, fun _ => ?_⟩
   have hm_unfold :
       (array64 (n + 16#64) [w0, w1] ⋆
-        (cell64 n (b2rObj nObj).header ⋆ cell64 (n + 8#64) nObj.mpzMeta ⋆
-          lcnfHeap (List.take idxObj (objs.map b2rObj)) ⋆
-          lcnfHeap (List.drop (idxObj + 1) (objs.map b2rObj)) ⋆
-          rtC0Inv rt (b2rState st) ⋆ R)) m := by
-    rw [hfocus, loop_mpzObjMem_eq hmpzTagB, hb2rAddr, hb2rMeta, hb2rLimbs] at hm_b2r
-    exact sep_cast hm_b2r (by ac_rfl)
+        (cell64 n nObj.header ⋆ cell64 (n + 8#64) nObj.mpzMeta ⋆
+          lcnfHeap (List.take idxObj objs) ⋆
+          lcnfHeap (List.drop (idxObj + 1) objs) ⋆
+          rtC0Inv rt st ⋆ R)) m := by
+    rw [hfocus, loop_mpzObjMem_eq hmpzTagB, hnAddr, hwEq] at hm
+    exact sep_cast hm (by ac_rfl)
   have hldMeta : loadVal m i64 (n + 8#64) = some nObj.mpzMeta := by
     have hm_meta :
         (cell64 (n + 8#64) nObj.mpzMeta ⋆
-          (array64 (n + 16#64) [w0, w1] ⋆ cell64 n (b2rObj nObj).header ⋆
-            lcnfHeap (List.take idxObj (objs.map b2rObj)) ⋆
-            lcnfHeap (List.drop (idxObj + 1) (objs.map b2rObj)) ⋆
-            rtC0Inv rt (b2rState st) ⋆ R)) m := sep_cast hm_unfold (by ac_rfl)
+          (array64 (n + 16#64) [w0, w1] ⋆ cell64 n nObj.header ⋆
+            lcnfHeap (List.take idxObj objs) ⋆
+            lcnfHeap (List.drop (idxObj + 1) objs) ⋆
+            rtC0Inv rt st ⋆ R)) m := sep_cast hm_unfold (by ac_rfl)
     exact loadVal_cell64 hm_meta
   refine ⟨nObj.mpzMeta, by simpa using hldMeta, ?_⟩
   rw [show (BitVec.signExtend 64 (32 : BitVec 32)).toNat % 64 = 32 from by decide, hmetaShift]
@@ -636,28 +628,28 @@ theorem lcnf_nat_to_str_two_limb_wp (xs : Tup Val [i64, i64]) (m : Mem 64)
     dsimp only [r2bAllocMpzSpec, vals, Arg.val]
     rw [ite_eq_left (by decide : (2#64 : BitVec 64).toNat ≤ (2#64 : BitVec 64).toNat ∧
       (2#64 : BitVec 64).toNat ≤ 33554429)]
-    refine ⟨b2rState st, lcnfHeap (objs.map b2rObj) ⋆ R,
-      Or.inr (by simp only [b2rState_rem]; rw [show (2#64 : BitVec 64).toNat = 2 from rfl]; omega),
-      sep_cast hm_b2r (by ac_rfl), ?_⟩
+    refine ⟨st, lcnfHeap objs ⋆ R,
+      Or.inr (by rw [show (2#64 : BitVec 64).toNat = 2 from rfl]; omega),
+      sep_cast hm (by ac_rfl), ?_⟩
     intro tmp st1 m2 htmp0 htmp8 hpr1 hrem1 hrem1Lo hm2
     rw [show (2#64 : BitVec 64).toNat = 2 from rfl] at hm2 hrem1Lo
     have hm2_reg :
         (region (tmp + 16#64) (8 * 2) ⋆
           (rtC0Inv rt st1 ⋆ cell64 tmp mpzHeaderWord ⋆
             cell64 (tmp + 8#64) (2#64 ||| (2#64 <<< 32)) ⋆
-            lcnfHeap (objs.map b2rObj) ⋆ R)) m2 := sep_cast hm2 (by ac_rfl)
+            lcnfHeap objs ⋆ R)) m2 := sep_cast hm2 (by ac_rfl)
     obtain ⟨zXs, hzLen, hm2_arr⟩ := region_to_array64_sep (by decide) hm2_reg
     obtain ⟨z0, z1, hzEq⟩ := list_two_elim hzLen
     rw [hzEq] at hm2_arr
     have hm_copy0 :
         (array64 (tmp + 16#64) [z0, z1] ⋆
           (array64 (n + 16#64) [w0, w1] ⋆
-            cell64 n (b2rObj nObj).header ⋆ cell64 (n + 8#64) nObj.mpzMeta ⋆
-            lcnfHeap (List.take idxObj (objs.map b2rObj)) ⋆
-            lcnfHeap (List.drop (idxObj + 1) (objs.map b2rObj)) ⋆
+            cell64 n nObj.header ⋆ cell64 (n + 8#64) nObj.mpzMeta ⋆
+            lcnfHeap (List.take idxObj objs) ⋆
+            lcnfHeap (List.drop (idxObj + 1) objs) ⋆
             rtC0Inv rt st1 ⋆ cell64 tmp mpzHeaderWord ⋆
             cell64 (tmp + 8#64) (2#64 ||| (2#64 <<< 32)) ⋆ R)) m2 := by
-      rw [hfocus, loop_mpzObjMem_eq hmpzTagB, hb2rAddr, hb2rMeta, hb2rLimbs] at hm2_arr
+      rw [hfocus, loop_mpzObjMem_eq hmpzTagB, hnAddr, hwEq] at hm2_arr
       exact sep_cast hm2_arr (by ac_rfl)
     refine wp_loop_inv (Γ := loopRtEnv)
       (fun (i, ()) mk =>
@@ -666,9 +658,9 @@ theorem lcnf_nat_to_str_two_limb_wp (xs : Tup Val [i64, i64]) (m : Mem 64)
             (i = 2#64 ∧ zs = [w0, w1])) ∧
           (array64 (tmp + 16#64) zs ⋆
             (array64 (n + 16#64) [w0, w1] ⋆
-              cell64 n (b2rObj nObj).header ⋆ cell64 (n + 8#64) nObj.mpzMeta ⋆
-              lcnfHeap (List.take idxObj (objs.map b2rObj)) ⋆
-              lcnfHeap (List.drop (idxObj + 1) (objs.map b2rObj)) ⋆
+              cell64 n nObj.header ⋆ cell64 (n + 8#64) nObj.mpzMeta ⋆
+              lcnfHeap (List.take idxObj objs) ⋆
+              lcnfHeap (List.drop (idxObj + 1) objs) ⋆
               rtC0Inv rt st1 ⋆ cell64 tmp mpzHeaderWord ⋆
               cell64 (tmp + 8#64) (2#64 ||| (2#64 <<< 32)) ⋆ R)) mk)
       (fun (i, ()) _ => 2 - i.toNat) ?_ ?_
@@ -681,9 +673,9 @@ theorem lcnf_nat_to_str_two_limb_wp (xs : Tup Val [i64, i64]) (m : Mem 64)
         have hmk_n :
             (array64 (n + 16#64) [w0, w1] ⋆
               (array64 (tmp + 16#64) [z0, z1] ⋆
-                cell64 n (b2rObj nObj).header ⋆ cell64 (n + 8#64) nObj.mpzMeta ⋆
-                lcnfHeap (List.take idxObj (objs.map b2rObj)) ⋆
-                lcnfHeap (List.drop (idxObj + 1) (objs.map b2rObj)) ⋆
+                cell64 n nObj.header ⋆ cell64 (n + 8#64) nObj.mpzMeta ⋆
+                lcnfHeap (List.take idxObj objs) ⋆
+                lcnfHeap (List.drop (idxObj + 1) objs) ⋆
                 rtC0Inv rt st1 ⋆ cell64 tmp mpzHeaderWord ⋆
                 cell64 (tmp + 8#64) (2#64 ||| (2#64 <<< 32)) ⋆ R)) mk := sep_cast hmk (by ac_rfl)
         have hld0 : loadVal mk i64 (n + 16#64 + 8#64 * 0#64) = some w0 := by
@@ -699,9 +691,9 @@ theorem lcnf_nat_to_str_two_limb_wp (xs : Tup Val [i64, i64]) (m : Mem 64)
         have hmk_n :
             (array64 (n + 16#64) [w0, w1] ⋆
               (array64 (tmp + 16#64) [w0, z1] ⋆
-                cell64 n (b2rObj nObj).header ⋆ cell64 (n + 8#64) nObj.mpzMeta ⋆
-                lcnfHeap (List.take idxObj (objs.map b2rObj)) ⋆
-                lcnfHeap (List.drop (idxObj + 1) (objs.map b2rObj)) ⋆
+                cell64 n nObj.header ⋆ cell64 (n + 8#64) nObj.mpzMeta ⋆
+                lcnfHeap (List.take idxObj objs) ⋆
+                lcnfHeap (List.drop (idxObj + 1) objs) ⋆
                 rtC0Inv rt st1 ⋆ cell64 tmp mpzHeaderWord ⋆
                 cell64 (tmp + 8#64) (2#64 ||| (2#64 <<< 32)) ⋆ R)) mk := sep_cast hmk (by ac_rfl)
         have hld1 : loadVal mk i64 (n + 16#64 + 8#64 * 1#64) = some w1 := by
@@ -715,16 +707,16 @@ theorem lcnf_nat_to_str_two_limb_wp (xs : Tup Val [i64, i64]) (m : Mem 64)
           ⟨[w0, w1], Or.inr (Or.inr ⟨rfl, rfl⟩), by simpa using hst.2⟩
       · refine ⟨fun ht => absurd ht (by decide), fun _ => ?_⟩
         have hmk_dec :
-            (rtC0Inv rt st1 ⋆ lcnfHeap (objs.map b2rObj) ⋆
+            (rtC0Inv rt st1 ⋆ lcnfHeap objs ⋆
               (cell64 tmp mpzHeaderWord ⋆ cell64 (tmp + 8#64) (2#64 ||| (2#64 <<< 32)) ⋆
                 array64 (tmp + 16#64) [w0, w1] ⋆ R)) mk := by
-          rw [hfocus, loop_mpzObjMem_eq hmpzTagB, hb2rAddr, hb2rMeta, hb2rLimbs]
+          rw [hfocus, loop_mpzObjMem_eq hmpzTagB, hnAddr, hwEq]
           exact sep_cast hmk (by ac_rfl)
         apply wp_call_step
         dsimp only [vals, Arg.val]
         apply rtC0CoreEnv_le_loopRtEnv
         apply rtR2bEnv_le_rtC0CoreEnv
-        apply rtR2bEnv_r2b_dec_obj
+        apply rtR2bEnv_r2_dec_obj
         dsimp only [r2DecObjSpec, vals, Arg.val]
         have hnoNull : ¬ (n = 0#64 ∨ n &&& 1#64 ≠ 0#64) := by
           intro h
@@ -733,14 +725,14 @@ theorem lcnf_nat_to_str_two_limb_wp (xs : Tup Val [i64, i64]) (m : Mem 64)
           · exact h hnBit
         rw [ite_eq_right hnoNull]
         have hworkEq : st1.workCap = st.workCap := by
-          simpa [BigNumRt.RtC0State.workCap, RtC0State.workCap, b2rState, b2rHdr] using
+          simpa [RtC0State.workCap, RtC0State.workCap] using
             congrArg BitVec.toNat hpr1.2.2.2.2.2.1.symm
-        refine ⟨st1, objs.map b2rObj, _,
-          ⟨b2rObj nObj, List.mem_map_of_mem hnMem, hnAddr, fun hrc => by
+        refine ⟨st1, objs, _,
+          ⟨nObj, hnMem, hnAddr, fun hrc => by
             obtain ⟨hwc, hcl, hrcS⟩ := hrc1 hrc
-            refine ⟨by rw [hworkEq]; simp [hwc], (b2r_heapClosed_iff objs).mp hcl,
-              (b2r_rcSound_iff n objs).mp hrcS⟩⟩,
-          fun o ho => by rcases List.mem_map.mp ho with ⟨bo, hbo, rfl⟩; exact hwf bo hbo,
+            refine ⟨by rw [hworkEq]; simp [hwc], hcl,
+              hrcS⟩⟩,
+          hwf,
           hmk_dec, ?_⟩
         intro st2 objs' m3 hpr2 hrem2 hdec hm3
         t_wp_unfold
@@ -748,14 +740,16 @@ theorem lcnf_nat_to_str_two_limb_wp (xs : Tup Val [i64, i64]) (m : Mem 64)
         dsimp only [vals, Arg.val]
         apply rtC0CoreEnv_le_loopRtEnv
         apply rtR2bEnv_le_rtC0CoreEnv
-        apply rtR2bEnv_r2b_alloc_sarray
-        dsimp only [r2bAllocSarraySpec, vals, Arg.val]
-        have h40le : ¬ baMaxCap < (20 * 2#64 : BitVec 64).toNat := by dsimp only [baMaxCap]; decide
-        rw [ite_eq_right h40le]
+        apply rtR2bEnv_r2_alloc_sarray
+        dsimp only [r2AllocSarraySpec, vals, Arg.val]
+        have h40le : (0 : BitVec 64).toNat ≤ (20 * 2#64 : BitVec 64).toNat ∧
+            (20 * 2#64 : BitVec 64).toNat ≤ baMaxCap := by dsimp only [baMaxCap]; decide
+        split
+        case isFalse hc => exact absurd h40le hc
+        rw [show baAllocBytes = sarrayAllocBytes from rfl]
         have hs40_eq : sarrayAllocBytes (20 * 2#64 : BitVec 64).toNat = sarrayAllocBytes 40 := by
           rw [show (20 * 2#64 : BitVec 64).toNat = 40 from by decide]
         have hst2_rem : sarrayAllocBytes 40 + strAllocBytes 41 ≤ st2.rem := by
-          rw [b2rState_rem] at hrem1Lo
           have : mpzAllocBytes 2 = 32 := rfl
           omega
         refine ⟨st2,
@@ -785,7 +779,6 @@ theorem lcnf_nat_to_str_two_limb_wp (xs : Tup Val [i64, i64]) (m : Mem 64)
         exact twoLimb_outerDiv_wp htmp0 htmp8 hrev0 hrev8 hw1Ne hbs0Len hst3_rem hm4_tail
           fun s st' m' hs0 hs8 hpr' hrem' hcan hm' => by
             rw [← hvalEq] at hcan hm'
-            rw [b2rState_rem] at hrem1
             exact hk s st' objs' m' hs0 hs8
               (hpr1.trans (hpr2.trans (hpr3.trans hpr'))) (by omega) hcan hdec hm'
   · exact absurd h1z hw1Ne

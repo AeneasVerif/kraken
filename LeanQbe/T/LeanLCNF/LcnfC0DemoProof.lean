@@ -727,7 +727,7 @@ theorem demoNatStrProgMod_wp :
     have hpre' := (Env.ofTable_cons_ne h2 _ _ _ _).mp ((Env.ofTable_cons_ne h1 _ _ _ _).mp hpre)
     exact demo_fmtSumTagged_wp xs m Q X ((Env.ofTable_cons_self _ _ _ _ _ _).mp hpre')
 
-/-- Whole-module `ModuleOk` composition combining `rtC0CoreMod` (`86` fns) and `demoNatStrProgMod`
+/-- Whole-module `ModuleOk` composition combining `rtC0CoreMod` (`80` fns) and `demoNatStrProgMod`
 (`3` fns) under `demoNatStrLinkedEnv` via `linkLcnfWithRtC0_moduleOk`. -/
 theorem demoNatStrLinkedMod_moduleOk :
     ModuleOk demoNatStrLinkedEnv demoNatStrLinkedMod :=

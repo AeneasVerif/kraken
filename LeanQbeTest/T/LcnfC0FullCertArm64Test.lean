@@ -11,7 +11,7 @@ meta import LeanQbe.T.Arm64.LcnfC0FullCertArm64
 # Verification Suite for AAPCS64 Arm64 `rtC0CoreMod` Linked Certificate (`LcnfC0FullCertArm64`)
 
 1. Architecture-isolation `#eval` audit (zero `Kraken.X64` / `LeanQbe.T.Amd64` imports).
-2. Kernel `#guard` and structural certificate checks across all `86` pure-C0 runtime functions
+2. Kernel `#guard` and structural certificate checks across all `80` pure-C0 runtime functions
    (`exits = ["lcnf_panic"]`, `nX = 64`, max stack bound `≤ 272`).
 3. Closed concrete AArch64 machine execution (`Eventually (step1 rtC0CoreArm64Cert.host.exe)`)
    witnesses (`XPost := False`):
@@ -41,12 +41,12 @@ open LeanQbe.T LeanQbe.T.LeanLCNF LeanQbe.T.Arm64 Kraken
   if !x64.isEmpty then
     throwError "LcnfC0FullCertArm64Test leaked X64 imports: {x64.toList}"
 
-#guard rtC0CoreMod.fns.length == 86
+#guard rtC0CoreMod.fns.length == 80
 #guard rtC0CoreMod.externs.isEmpty
 #guard rtC0CoreMod.exits == ["lcnf_panic"]
 #guard rtC0CoreMod.checkAcyclic
 #guard checkLegalSigAll armLegalTarget rtC0CoreMod.fns
-#guard rtC0CoreArm64AllExt.length == 86
+#guard rtC0CoreArm64AllExt.length == 80
 
 /-! ## 2. Closed Concrete AArch64 Machine Execution Witnesses -/
 
@@ -149,7 +149,7 @@ private theorem nvBnRtWf_ok :
     BigNumRtWf nvBnRtBase nvBnRtState nvBnScr nvBnScrLimbs := by
   have hlen : nvBnScrLimbs.length = 32 := List.length_replicate
   refine ⟨?_, by decide, by decide, by decide, ?_, ?_⟩
-  · unfold BigNumRt.RtC0State.Bounded48
+  · unfold RtC0State.Bounded48
     decide
   · rw [hlen]
     decide
@@ -161,7 +161,7 @@ private theorem nvBnNatA_rep_ok : natRep nvBnAddrNatA nvValNatA nvBnObjs := by
   simp only [natRep, hge, ↓reduceIte]
   refine ⟨by decide, nvBnNatA, by simp [nvBnObjs], rfl, ?_, rfl, rfl, rfl,
     by decide, by decide, by decide, ?_, by decide⟩
-  · unfold BigNumRt.LcnfObj.Wf BigNumRt.LcnfObj.totalBytes
+  · unfold LcnfObj.Wf LcnfObj.totalBytes
     decide
   · simp [nvBnNatA, limbsVal, nvValNatA]
 
@@ -170,7 +170,7 @@ private theorem nvBnNatB_rep_ok : natRep nvBnAddrNatB nvValNatB nvBnObjs := by
   simp only [natRep, hge, ↓reduceIte]
   refine ⟨by decide, nvBnNatB, by simp [nvBnObjs], rfl, ?_, rfl, rfl, rfl,
     by decide, by decide, by decide, ?_, by decide⟩
-  · unfold BigNumRt.LcnfObj.Wf BigNumRt.LcnfObj.totalBytes
+  · unfold LcnfObj.Wf LcnfObj.totalBytes
     decide
   · simp [nvBnNatB, limbsVal, nvValNatB]
 
@@ -187,14 +187,14 @@ theorem rtC0CoreArm64_nat_slow_add_arm64_run :
     Eventually (step1 rtC0CoreArm64Cert.host.exe)
       (fun st =>
         st.pc = (0x1234 : Int64) ∧
-        ∃ (p : BitVec 64) (st' : BigNumRt.RtC0State) (scrLimbs' : List (BitVec 64))
-          (objs' : List BigNumRt.LcnfObj) (obj : BigNumRt.LcnfObj) (m' : Mem 64),
+        ∃ (p : BitVec 64) (st' : RtC0State) (scrLimbs' : List (BitVec 64))
+          (objs' : List LcnfObj) (obj : LcnfObj) (m' : Mem 64),
           (st.data.regs.getXReg .X0).toBitVec = p ∧
           (p &&& 1#64) = 0#64 ∧ obj ∈ objs' ∧ obj.addr = p ∧
-          obj.tag = BigNumRt.mpzTag ∧ obj.other = 0 ∧
+          obj.tag = mpzTag ∧ obj.other = 0 ∧
           natRep p (nvValNatA + nvValNatB) objs' ∧
           (bigNumRtInv nvBnRtBase st' nvBnScr scrLimbs' ⋆
-            BigNumRt.lcnfHeap objs') m' ∧
+            lcnfHeap objs') m' ∧
           (st.data.dmem =⋆ Eq m' ⋆
             region (0x1000#64 - BitVec.ofNat 64 b) b ⋆ emp))
       ⟨s0, Labels.label "lcnf_nat_slow"⟩ := by
@@ -205,12 +205,12 @@ theorem rtC0CoreArm64_nat_slow_add_arm64_run :
   let s0 : MachineData :=
     { armInitState b [] args with dmem := nvBnMem.union (armInitState b [] args).dmem }
   let Q : Post [i64] := fun (r, ()) m' =>
-    ∃ (st' : BigNumRt.RtC0State) (scrLimbs' : List (BitVec 64))
-      (objs' : List BigNumRt.LcnfObj) (obj : BigNumRt.LcnfObj),
+    ∃ (st' : RtC0State) (scrLimbs' : List (BitVec 64))
+      (objs' : List LcnfObj) (obj : LcnfObj),
       (r &&& 1#64) = 0#64 ∧ obj ∈ objs' ∧ obj.addr = r ∧
-      obj.tag = BigNumRt.mpzTag ∧ obj.other = 0 ∧
+      obj.tag = mpzTag ∧ obj.other = 0 ∧
       natRep r (nvValNatA + nvValNatB) objs' ∧
-      (bigNumRtInv nvBnRtBase st' nvBnScr scrLimbs' ⋆ BigNumRt.lcnfHeap objs') m'
+      (bigNumRtInv nvBnRtBase st' nvBnScr scrLimbs' ⋆ lcnfHeap objs') m'
   have hb : b ≤ 2048 := rtC0CoreArm64Cert.bound_le_max "lcnf_nat_slow"
   have hspec : lcnfNatSlowSpec args nvBnMem Q (fun _ _ _ _ => False) := by
     refine ⟨nvBnRtState, nvBnScr, nvBnScrLimbs, nvBnObjs, emp, nvBnRtWf_ok,

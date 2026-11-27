@@ -101,7 +101,7 @@ private theorem localHandlesExcept_none {ctx : RcCtx} (hnd : (ctx.vars.map RcVar
   have h1 := (RcCtx.mem_get?_iff hnd).mpr hv
   rw [h, hg] at h1; cases h1
 
-private theorem varInv_backed_parent {rf : RcFrame} {objs : List LcnfObj}
+theorem varInv_backed_parent {rf : RcFrame} {objs : List LcnfObj}
     (hwf : ∀ o ∈ objs, o.Wf)
     (howned : ∀ pv ∈ rf.ctx.vars, pv.noRc = false → pv.persistent = false →
       pv.resetTok = false → 0 < pv.owned → ∃ ty w, rf.envH pv.id = some (ty, w))

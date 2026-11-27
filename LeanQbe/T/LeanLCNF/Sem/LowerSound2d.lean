@@ -4,7 +4,7 @@ public import LeanQbe.T.LeanLCNF.Sem.LowerSound2c
 import LeanQbe.T.OpsLemmas
 import LeanQbe.T.Logic.C0Step
 import LeanQbe.T.Logic.MemLemmas
-import LeanQbe.T.LeanLCNF.Sem.SpecNormProof
+import LeanQbe.T.LeanLCNF.Sem.SpecNorm
 
 /-!
 # Tier-H `Array.*`, Miscellaneous `LMMono`, `objTagNat`, and `externPrim` Soundness (`LowerSound2d`)
@@ -70,7 +70,7 @@ private theorem arrayMkEmpty_rtCall1_wp {m : LcModule} {Δ : HEnv} {Γ : Env} {r
     (hpre :
       let c := if (cap &&& 1#64) ≠ 0#64 then (cap >>> 1).toNat else 0
       if c ≤ arrMaxCap then
-        canAllocBytesR0 σ.st (arrAllocBytes c) ∧
+        canAllocBytes σ.st (arrAllocBytes c) ∧
         ∀ p st', p ≠ 0#64 → p.toNat % 8 = 0 → st'.PreservesMeta σ.st → st'.rem ≤ σ.st.rem →
           let arrObj := mkArrObj p 1#32 c []
           ArrCanon arrObj → K (Word.i64 p) { σ with st := st', objs := arrObj :: σ.objs }
@@ -135,7 +135,7 @@ private theorem arrayPush_rtCall1_wp {m : LcModule} {Δ : HEnv} {Γ : Env} {rs :
       else
         let newCap := arrEnsureCap arrObj.fields.length arrObj.cap 1#64
         let needAlloc := arrObj.rc ≠ 1#32 ∨ arrObj.fields.length ≥ arrObj.cap
-        (needAlloc → canAllocBytesR0 σ.st (arrAllocBytes newCap)) ∧
+        (needAlloc → canAllocBytes σ.st (arrAllocBytes newCap)) ∧
         ∀ r st' childObjs',
           r ≠ 0#64 → r.toNat % 8 = 0 → st'.PreservesMeta σ.st → st'.rem ≤ σ.st.rem →
           (arrObj.rc = 1#32 → arrObj.fields.length < arrObj.cap → r = arr ∧ st' = σ.st) →

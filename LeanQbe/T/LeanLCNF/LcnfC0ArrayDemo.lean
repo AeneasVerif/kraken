@@ -79,7 +79,7 @@ splice_lcnf_tflat! arrayDemoTfs arrayDemoLcMod
 @[expose] def arrayDemoProgMod : Module :=
   { fns := Frontend.C0.tflatFnsToFns arrayDemoTfs, externs := [], exits := rtExitSyms }
 
-/-- Full `89`-function linked `Module`: `rtC0CoreMod` (`86` fns) ++ `arrayDemoProgMod` (`3` fns).
+/-- Full `83`-function linked `Module`: `rtC0CoreMod` (`80` fns) ++ `arrayDemoProgMod` (`3` fns).
 -/
 @[expose] def arrayDemoLinkedMod : Module :=
   linkLcnfWithRtC0 arrayDemoTfs false

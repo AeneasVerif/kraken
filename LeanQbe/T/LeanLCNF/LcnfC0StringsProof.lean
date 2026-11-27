@@ -32,57 +32,11 @@ private theorem allFns_of_mem {P : Fn → Prop} {fs : List Fn}
   | nil => trivial
   | cons f fs ih => exact ⟨h f (by simp), ih (fun g hg => h g (by simp [hg]))⟩
 
-theorem rtR2b_fns_wf : ∀ f ∈ rtR2bMod.fns, f.Wf := by
-  intro f hf
-  have hfn : rtR2bMod.fns =
-      [r2b_inc_obj, r2b_dec_obj, r2b_mem_copy_bytes, r2b_cmp_byte_slices,
-       r2b_alloc_sarray, r2b_alloc_array, r2b_alloc_mpz, r2b_str_alloc_cap,
-       r2b_utf8_len, r2b_utf8_write, r2b_utf8_decode_step, r2b_utf8_decode_cp,
-       lcnf_str_alloc, lcnf_char_op, lcnf_string_push, lcnf_string_append,
-       lcnf_string_cmp_op, lcnf_string_pos_op, lcnf_string_to_list, lcnf_string_mk,
-       lcnf_ba_data, lcnf_array_mk, lcnf_array_to_list, lcnf_array_replicate,
-       lcnf_nat_to_str] := rfl
-  rw [hfn] at hf
-  simp only [List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
-    rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
-  · exact r2b_inc_obj_wf
-  · exact r2b_dec_obj_wf
-  · exact r2b_mem_copy_bytes_wf
-  · exact r2b_cmp_byte_slices_wf
-  · exact r2b_alloc_sarray_wf
-  · exact r2b_alloc_array_wf
-  · exact r2b_alloc_mpz_wf
-  · exact r2b_str_alloc_cap_wf
-  · exact r2b_utf8_len_wf
-  · exact r2b_utf8_write_wf
-  · exact r2b_utf8_decode_step_wf
-  · exact r2b_utf8_decode_cp_wf
-  · exact lcnf_str_alloc_wf
-  · exact lcnf_char_op_wf
-  · exact lcnf_string_push_wf
-  · exact lcnf_string_append_wf
-  · exact lcnf_string_cmp_op_wf
-  · exact lcnf_string_pos_op_wf
-  · exact lcnf_string_to_list_wf
-  · exact lcnf_string_mk_wf
-  · exact lcnf_ba_data_wf
-  · exact lcnf_array_mk_wf
-  · exact lcnf_array_to_list_wf
-  · exact lcnf_array_replicate_wf
-  · exact lcnf_nat_to_str_wf
-
 theorem rtR2bMod_allFns_wf : AllFns Fn.Wf rtR2bMod.fns :=
   allFns_of_mem rtR2b_fns_wf
 
 theorem rtR2bMod_tableImpl : TableImpl rtR2bEnv rtR2bMod.fns rtR2bSpecEntries :=
-  ⟨⟨⟨rfl, ⟨rfl, rfl⟩⟩, r2b_inc_obj_wp⟩,
-   ⟨⟨rfl, ⟨rfl, rfl⟩⟩, r2b_dec_obj_wp⟩,
-   ⟨⟨rfl, ⟨rfl, rfl⟩⟩, r2b_mem_copy_bytes_wp⟩,
-   ⟨⟨rfl, ⟨rfl, rfl⟩⟩, r2b_cmp_byte_slices_wp⟩,
-   ⟨⟨rfl, ⟨rfl, rfl⟩⟩, r2b_alloc_sarray_wp⟩,
-   ⟨⟨rfl, ⟨rfl, rfl⟩⟩, r2b_alloc_array_wp⟩,
-   ⟨⟨rfl, ⟨rfl, rfl⟩⟩, r2b_alloc_mpz_wp⟩,
+  ⟨⟨⟨rfl, ⟨rfl, rfl⟩⟩, r2b_alloc_mpz_wp⟩,
    ⟨⟨rfl, ⟨rfl, rfl⟩⟩, r2b_str_alloc_cap_wp⟩,
    ⟨⟨rfl, ⟨rfl, rfl⟩⟩, r2b_utf8_len_wp⟩,
    ⟨⟨rfl, ⟨rfl, rfl⟩⟩, r2b_utf8_write_wp⟩,

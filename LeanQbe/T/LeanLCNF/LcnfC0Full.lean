@@ -119,12 +119,12 @@ def LcnfC0FullRt.toBaseRt (h : LcnfC0FullRt) : LcnfC0Rt :=
 
 /-! ## 2. Unified Pure-C0 Runtime Module (`rtC0CoreMod`) -/
 
-/-- All 86 acyclic C0 runtime functions in callees-before-callers order:
+/-- All 80 acyclic C0 runtime functions in callees-before-callers order:
 R0 (`5`) ++ R1 (`34`) ++ R2 (`22`) ++ R2b (`25`). -/
 def rtC0CoreFns : List Fn :=
   rtR0Mod.fns ++ rtR1Mod.fns ++ rtR2Mod.fns ++ rtR2bMod.fns
 
-/-- Closed non-float pure-C0 runtime module (`86` functions, `0` externs, `exits = ["lcnf_panic"]`),
+/-- Closed non-float pure-C0 runtime module (`80` functions, `0` externs, `exits = ["lcnf_panic"]`),
 internalizing all cross-module calls (`lcnf_alloc`, `lcnf_free_obj`, `lcnf_dec_ref_cold`,
 `lcnf_mark_persistent`) and covering all `35 / 38` non-float `Lower.rtCalls`. -/
 def rtC0CoreMod : Module :=
@@ -201,7 +201,7 @@ theorem LcnfC0FullRt_At_split (rt : BitVec 64) (h : LcnfC0FullRt) :
   unfold LcnfC0BigNumRt.At LcnfC0Rt.At LcnfC0FullRt.toBaseRt
   simp only [Std.ExtHashMap.sep_assoc]
 
-theorem rtC0CoreFns_length : rtC0CoreFns.length = 86 := by
+theorem rtC0CoreFns_length : rtC0CoreFns.length = 80 := by
   decide
 
 theorem rtC0CoreMod_externs_nil : rtC0CoreMod.externs = [] := rfl
@@ -240,43 +240,7 @@ theorem rtC0CoreMod_fns_wf : ∀ f ∈ rtC0CoreMod.fns, f.Wf := by
   · exact rtR0Mod_wf f h0
   · exact rtR1_fns_wf f h1
   · exact rtR2_fns_wf f h2
-  · have hfn : rtR2bMod.fns =
-        [r2b_inc_obj, r2b_dec_obj, r2b_mem_copy_bytes, r2b_cmp_byte_slices,
-         r2b_alloc_sarray, r2b_alloc_array, r2b_alloc_mpz, r2b_str_alloc_cap,
-         r2b_utf8_len, r2b_utf8_write, r2b_utf8_decode_step, r2b_utf8_decode_cp,
-         lcnf_str_alloc, lcnf_char_op, lcnf_string_push, lcnf_string_append,
-         lcnf_string_cmp_op, lcnf_string_pos_op, lcnf_string_to_list, lcnf_string_mk,
-         lcnf_ba_data, lcnf_array_mk, lcnf_array_to_list, lcnf_array_replicate,
-         lcnf_nat_to_str] := rfl
-    rw [hfn] at h2b
-    simp only [List.mem_cons, List.not_mem_nil, or_false] at h2b
-    rcases h2b with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
-      rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
-    · exact r2b_inc_obj_wf
-    · exact r2b_dec_obj_wf
-    · exact r2b_mem_copy_bytes_wf
-    · exact r2b_cmp_byte_slices_wf
-    · exact r2b_alloc_sarray_wf
-    · exact r2b_alloc_array_wf
-    · exact r2b_alloc_mpz_wf
-    · exact r2b_str_alloc_cap_wf
-    · exact r2b_utf8_len_wf
-    · exact r2b_utf8_write_wf
-    · exact r2b_utf8_decode_step_wf
-    · exact r2b_utf8_decode_cp_wf
-    · exact lcnf_str_alloc_wf
-    · exact lcnf_char_op_wf
-    · exact lcnf_string_push_wf
-    · exact lcnf_string_append_wf
-    · exact lcnf_string_cmp_op_wf
-    · exact lcnf_string_pos_op_wf
-    · exact lcnf_string_to_list_wf
-    · exact lcnf_string_mk_wf
-    · exact lcnf_ba_data_wf
-    · exact lcnf_array_mk_wf
-    · exact lcnf_array_to_list_wf
-    · exact lcnf_array_replicate_wf
-    · exact lcnf_nat_to_str_wf
+  · exact rtR2b_fns_wf f h2b
 
 private theorem allFns_of_mem_full {P : Fn → Prop} :
     ∀ {fs : List Fn}, (∀ f ∈ fs, P f) → AllFns P fs

@@ -36,7 +36,7 @@ open LeanQbe.T LeanQbe.T.LeanLCNF LeanQbe.T.Amd64
 
 #guard mutRecDemoLcMod.decls.length == 2
 #guard mutRecDemoTfs.length == 2
-#guard mutRecDemoLinkedMod.fns.length == 88
+#guard mutRecDemoLinkedMod.fns.length == 82
 #guard mutRecDemoLinkedMod.externs.isEmpty
 #guard mutRecDemoLinkedMod.exits == ["lcnf_panic"]
 #guard mutRecDemoRoseFn.callees.any (fun s => s.1 == mutRecDemoForestName)

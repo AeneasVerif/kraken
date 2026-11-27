@@ -17,11 +17,11 @@ meta import LeanQbe.T.LeanLCNF.LcnfC0MutRecDemo
 First AAPCS64 AArch64 (`armTarget`) multi-function mutually-recursive Lean `LCNF` SCC certified as
 a **single 2-function `.recBudgetSCC` chunk** (`maxFrame = 48`, `minEntry = 272`, depth `D = 16`,
 `exportBound = 1040 ≤ 2048`) and appended onto `LinkedCertScc.ofLinkedCert rtC0CoreArm64Cert`
-(`86` pure-C0 runtime functions, `exits = ["lcnf_panic"]`, `nX = 64`, `0` externs):
+(`80` pure-C0 runtime functions, `exits = ["lcnf_panic"]`, `nX = 64`, `0` externs):
 
 1. `mutRecDemoArm64ProgCert`: `1`-chunk 2-function `.recBudgetSCC` user certificate (`roseSum`,
    `forestSum`) with `ext := rtC0CoreArm64AllExt`.
-2. `mutRecDemoArm64Cert`: closed `88`-function `LinkedCertScc` (`maxBound = 2048`,
+2. `mutRecDemoArm64Cert`: closed `82`-function `LinkedCertScc` (`maxBound = 2048`,
    `bound mutRecDemoRoseName = 1040`, `bound mutRecDemoForestName = 1040`).
 3. `mutRecDemoArm64_roseSum_fnSpec` & `mutRecDemoArm64_forestSum_fnSpec`: source-level `FnSpec`.
 4. `mutRecDemoArm64_roseSum_sample_run`, `mutRecDemoArm64_forestSum_sample_run`, &
@@ -44,13 +44,13 @@ compile_linked_budget_scc! mutRecDemoArm64ProgCert armTarget armLayout armLegalT
   (ext := rtC0CoreArm64AllExt) (extSigs := rtC0CoreMod.fns.map Fn.sig)
   (exits := rtExitSyms) (nX := 64) (flat := true)
 
-/-- Lift of the `86`-function acyclic runtime `rtC0CoreArm64Cert` into `LinkedCertScc`. -/
+/-- Lift of the `80`-function acyclic runtime `rtC0CoreArm64Cert` into `LinkedCertScc`. -/
 @[expose] noncomputable def mutRecDemoRtSccCertArm64 :
     LinkedCertScc armTarget armLayout armLegalTarget armLabelClean
       rtC0CoreMod [] rtExitSyms 64 2048 [] :=
   LinkedCertScc.ofLinkedCert rtC0CoreArm64Cert rfl (by t_kernel_rfl)
 
-/-- Full `88`-function AAPCS64 AArch64 `LinkedCertScc` combining `rtC0CoreArm64Cert` (`86` fns)
+/-- Full `82`-function AAPCS64 AArch64 `LinkedCertScc` combining `rtC0CoreArm64Cert` (`80` fns)
 and `mutRecDemoArm64ProgCert` (`1` 2-fn `.recBudgetSCC` chunk, `bound = 1040`, `maxBound = 2048`).
 -/
 @[expose] noncomputable def mutRecDemoArm64Cert :

@@ -17,11 +17,11 @@ meta import LeanQbe.T.LeanLCNF.LcnfC0RecDemo
 First real-target (`armTarget`) structurally recursive Lean `LCNF` program certified through
 `compile_linked_budget_scc!` (`maxFrame = 32`, `minEntry = 256`, depth `D = 16`,
 `exportBound = 768 ≤ 2048`) and compositionally appended onto `LinkedCertScc.ofLinkedCert
-rtC0CoreArm64Cert` (`86` pure-C0 runtime functions, `exits = ["lcnf_panic"]`, `nX = 64`):
+rtC0CoreArm64Cert` (`80` pure-C0 runtime functions, `exits = ["lcnf_panic"]`, `nX = 64`):
 
 1. `recDemoArm64ProgCert`: `1`-chunk `.recBudgetSCC` user certificate with
    `ext := rtC0CoreArm64AllExt`.
-2. `recDemoArm64Cert`: closed `87`-function `LinkedCertScc` (`maxBound = 2048`,
+2. `recDemoArm64Cert`: closed `81`-function `LinkedCertScc` (`maxBound = 2048`,
    `bound recDemoListSumName = 768`).
 3. `recDemoArm64_listSum_fnSpec`: source-level `armTarget.Defined` + `armTarget.FnSpec` via
    `LinkedCertScc.fnSpec_host_src_of_le`.
@@ -45,13 +45,13 @@ compile_linked_budget_scc! recDemoArm64ProgCert armTarget armLayout armLegalTarg
   (ext := rtC0CoreArm64AllExt) (extSigs := rtC0CoreMod.fns.map Fn.sig)
   (exits := rtExitSyms) (nX := 64) (flat := true)
 
-/-- Lift of the `86`-function acyclic runtime `rtC0CoreArm64Cert` into `LinkedCertScc`. -/
+/-- Lift of the `80`-function acyclic runtime `rtC0CoreArm64Cert` into `LinkedCertScc`. -/
 @[expose] noncomputable def rtC0CoreSccCertArm64 :
     LinkedCertScc armTarget armLayout armLegalTarget armLabelClean
       rtC0CoreMod [] rtExitSyms 64 2048 [] :=
   LinkedCertScc.ofLinkedCert rtC0CoreArm64Cert rfl (by t_kernel_rfl)
 
-/-- Full `87`-function AAPCS64 AArch64 `LinkedCertScc` combining `rtC0CoreArm64Cert` (`86` fns)
+/-- Full `81`-function AAPCS64 AArch64 `LinkedCertScc` combining `rtC0CoreArm64Cert` (`80` fns)
 and `recDemoArm64ProgCert` (`1` `.recBudgetSCC` fn, `bound = 768`, `maxBound = 2048`). -/
 @[expose] noncomputable def recDemoArm64Cert :
     LinkedCertScc armTarget armLayout armLegalTarget armLabelClean

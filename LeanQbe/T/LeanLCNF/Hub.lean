@@ -21,6 +21,7 @@ public import LeanQbe.T.LeanLCNF.LcnfC0BigNumProof7
 public import LeanQbe.T.LeanLCNF.LcnfC0BigNumProof8
 public import LeanQbe.T.LeanLCNF.LcnfC0BigNumSpec
 public import LeanQbe.T.LeanLCNF.LcnfC0Containers
+public import LeanQbe.T.LeanLCNF.LcnfC0ContainersCow
 public import LeanQbe.T.LeanLCNF.LcnfC0ContainersProof
 public import LeanQbe.T.LeanLCNF.LcnfC0ContainersProof1
 public import LeanQbe.T.LeanLCNF.LcnfC0ContainersProof2
@@ -70,7 +71,6 @@ public import LeanQbe.T.LeanLCNF.LcnfC0StringsProof3a
 public import LeanQbe.T.LeanLCNF.LcnfC0StringsProof3b
 public import LeanQbe.T.LeanLCNF.LcnfC0StringsProof4
 public import LeanQbe.T.LeanLCNF.LcnfC0StringsProof4a
-public import LeanQbe.T.LeanLCNF.LcnfC0StringsProofAlloc
 public import LeanQbe.T.LeanLCNF.LcnfC0StringsSpec
 public import LeanQbe.T.LeanLCNF.LcnfC0TreeDemo
 public import LeanQbe.T.LeanLCNF.LcnfC0TreeDemoProof
@@ -127,7 +127,6 @@ public import LeanQbe.T.LeanLCNF.Sem.PerceusPrims1
 public import LeanQbe.T.LeanLCNF.Sem.PerceusSim
 public import LeanQbe.T.LeanLCNF.Sem.RcCheck
 public import LeanQbe.T.LeanLCNF.Sem.SpecNorm
-public import LeanQbe.T.LeanLCNF.Sem.SpecNormProof
 public import LeanQbe.T.LeanLCNF.Sem.Tactic
 public import LeanQbe.T.LeanLCNF.Sem.ValRep
 

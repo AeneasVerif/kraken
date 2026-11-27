@@ -402,7 +402,7 @@ theorem lcnf_string_to_list_wp :
       r2b_steps
       all_goals first
         | (exfalso; exact hcmpF (by assumption))
-        | (r2b_call rtR2bEnv_r2b_dec_obj
+        | (r2b_call rtR2bEnv_r2_dec_obj
            dsimp only [r2DecObjSpec, vals, Tup.map, Arg.val]
            have hnotNull : ¬ (s = 0#64 ∨ (s &&& 1#64) ≠ 0#64) := by
              simp [hsAddr ▸ hcan.1, hsAddr ▸ bv64_and1_zero_of_mod8 hcan.2.1]
@@ -803,7 +803,7 @@ theorem lcnf_string_mk_wp :
                r2b_steps
                all_goals first
                  | (exfalso; exact hcur2 (by assumption))
-                 | (r2b_call rtR2bEnv_r2b_dec_obj
+                 | (r2b_call rtR2bEnv_r2_dec_obj
                     dsimp only [r2DecObjSpec, vals, Tup.map, Arg.val]
                     by_cases hcs1 : cs = 1#64
                     · subst hcs1
@@ -878,8 +878,8 @@ theorem lcnf_ba_data_wp :
       rw [BitVec.lt_def, h33, hnTo] at hcmpF; unfold arrMaxCap; exact Nat.not_lt.mp hcmpF
     rw [ite_eq_right (Nat.not_lt.mpr hle)] at hPost
     rcases hPost with ⟨hav, hk⟩
-    r2b_call rtR2bEnv_r2b_alloc_array
-    dsimp only [r2bAllocArraySpec, vals, Tup.map, Arg.val]
+    r2b_call rtR2bEnv_r2_alloc_array
+    dsimp only [r2AllocArraySpec, vals, Tup.map, Arg.val]
     rw [hnTo, ite_eq_left ⟨Nat.le_refl _, hle⟩]
     refine ⟨st, lcnfHeap objs ⋆ R, hav, sep_cast hm (by ac_rfl),
       fun arr st1 m1 harr0 harr8 hpr1 hrem1 _ hm1 => ?_⟩
@@ -1014,7 +1014,7 @@ theorem lcnf_ba_data_wp :
             exact sep_cast hmL (by ac_rfl)
           exact sep_cast (r2b_mkArrObj_mem_of_parts hparts) (by ac_rfl)
         r2b_steps
-        r2b_call rtR2bEnv_r2b_dec_obj
+        r2b_call rtR2bEnv_r2_dec_obj
         dsimp only [r2DecObjSpec, vals, Tup.map, Arg.val]
         have hnotNull : ¬ (ba = 0#64 ∨ (ba &&& 1#64) ≠ 0#64) := by
           simp [ha ▸ hcan.1, ha ▸ bv64_and1_zero_of_mod8 hcan.2.1]

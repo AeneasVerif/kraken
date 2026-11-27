@@ -10,7 +10,7 @@ meta import LeanQbe.T.LeanLCNF.LcnfC0ArrayDemo
 # Verification Suite for SysV x86-64 R2 Container Demo (`LcnfC0ArrayDemoCertX64`)
 
 1. Architecture-isolation `#eval` audit (`0` `Kraken.AArch64` / `LeanQbe.T.Arm64` imports).
-2. Structural guards verifying acyclic `89`-fn `0`-extern linking onto `rtC0CoreMod`, R2
+2. Structural guards verifying acyclic `83`-fn `0`-extern linking onto `rtC0CoreMod`, R2
    container callee coverage (`lcnf_array_{mk_empty,push,set,get}`,
    `lcnf_ba_{mk_empty,push,set,get}`, `lcnf_dec_ref_cold`), and exact stack bounds `≤ 2048`.
 3. Single-line `#print axioms` audit (`⊆ [propext, Classical.choice, Quot.sound]`).
@@ -34,7 +34,7 @@ open LeanQbe.T LeanQbe.T.LeanLCNF LeanQbe.T.Amd64
 
 #guard arrayDemoLcMod.decls.length == 3
 #guard arrayDemoTfs.length == 3
-#guard arrayDemoLinkedMod.fns.length == 89
+#guard arrayDemoLinkedMod.fns.length == 83
 #guard arrayDemoLinkedMod.externs.isEmpty
 #guard arrayDemoLinkedMod.exits == ["lcnf_panic"]
 #guard arrayDemoLinkedMod.checkAcyclic

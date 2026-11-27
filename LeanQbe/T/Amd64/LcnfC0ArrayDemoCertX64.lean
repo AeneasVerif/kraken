@@ -16,8 +16,8 @@ meta import LeanQbe.T.LeanLCNF.LcnfC0ArrayDemo
 # SysV x86-64 `LinkedCert` & Execution Witnesses for `ArrayDemo` (`LcnfC0ArrayDemoCertX64`)
 
 Acyclically compiles `arrayDemoProgMod` (`ArrayDemo.{arrayPushSetGet, baPushSetGet, baCowSetGet}`,
-`3` fns) via `compile_linked_chunks!`, appends onto `rtC0CoreCert` (`86` pure-C0 runtime fns,
-`0` externs, `0` C runtime) via `LcnfC0LinkKit.linkRtC0Cert` (`89` fns total, `maxBound = 2048`),
+`3` fns) via `compile_linked_chunks!`, appends onto `rtC0CoreCert` (`80` pure-C0 runtime fns,
+`0` externs, `0` C runtime) via `LcnfC0LinkKit.linkRtC0Cert` (`83` fns total, `maxBound = 2048`),
 bridges `arrayDemoLinkedMod_moduleOk` to `x64Target.Defined` + `x64Target.FnSpec`, and proves
 closed concrete SysV x86-64 `Eventually` execution witnesses (`0` `import all`):
 
@@ -42,14 +42,14 @@ compile_linked_chunks! arrayDemoX64ProgCert x64Target x64Layout x64LegalTarget x
   arrayDemoProgMod 3 (ext := rtC0CoreAllExt) (exits := rtExitSyms) (nX := 64) (maxDirs := 600)
   (flat := true)
 
-/-- Full `89`-function SysV x86-64 `LinkedCert` combining `rtC0CoreCert` (`86` fns) and
+/-- Full `83`-function SysV x86-64 `LinkedCert` combining `rtC0CoreCert` (`80` fns) and
 `arrayDemoX64ProgCert` (`3` R2 container client fns, `maxBound = 2048`, `0` externs). -/
 @[expose] noncomputable def arrayDemoX64Cert :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean
       arrayDemoLinkedMod [] rtExitSyms 64 (Nat.max 2048 2048) :=
   linkRtC0Cert rtC0CoreCert arrayDemoX64ProgCert (by t_kernel_rfl)
 
-theorem arrayDemoX64Cert_bounds_len : arrayDemoX64Cert.bounds.length = 89 :=
+theorem arrayDemoX64Cert_bounds_len : arrayDemoX64Cert.bounds.length = 83 :=
   arrayDemoX64Cert.bounds_length.trans (by decide)
 
 theorem arrayDemoX64Cert_bounds_le :

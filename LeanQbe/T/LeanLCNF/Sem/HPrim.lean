@@ -36,11 +36,11 @@ open LeanQbe.T.LeanLCNF
 @[expose] def HNatArithSlowWp (rt : BitVec 64) (op : Nat) (a b : BitVec 64) (resW : Nat)
     (K : HPost) (σ : HState) : Prop :=
   ∃ aVal bVal,
-    natRepR0 a aVal σ.objs ∧ (op = 17 ∨ natRepR0 b bVal σ.objs) ∧
-    natArithOkR0 op aVal bVal σ.scrLimbs.length σ.st ∧
+    natRep a aVal σ.objs ∧ (op = 17 ∨ natRep b bVal σ.objs) ∧
+    natArithOk op aVal bVal σ.scrLimbs.length σ.st ∧
     ∀ res st' scrLimbs' objs',
-      st'.PreservesMeta σ.st → st'.rem ≤ σ.st.rem → BigNumRtWfR0 rt st' σ.scr scrLimbs' →
-      natArithPostR0 op aVal bVal res σ.objs objs' →
+      st'.PreservesMeta σ.st → st'.rem ≤ σ.st.rem → BigNumRtWf rt st' σ.scr scrLimbs' →
+      natArithPost op aVal bVal res σ.objs objs' →
       K ⟨.bits resW, res.setWidth resW⟩
         { st := st', objs := objs', scr := σ.scr, scrLimbs := scrLimbs' }
 
@@ -48,11 +48,11 @@ open LeanQbe.T.LeanLCNF
 @[expose] def HNatBitsSlowWp (rt : BitVec 64) (op : Nat) (a b : BitVec 64) (resW : Nat)
     (K : HPost) (σ : HState) : Prop :=
   ∃ aVal,
-    (if op = 14 then aVal = a.toNat else natRepR0 a aVal σ.objs) ∧
-    natBitsOkR0 op aVal b σ.objs σ.scrLimbs.length σ.st ∧
+    (if op = 14 then aVal = a.toNat else natRep a aVal σ.objs) ∧
+    natBitsOk op aVal b σ.objs σ.scrLimbs.length σ.st ∧
     ∀ res st' scrLimbs' objs',
-      st'.PreservesMeta σ.st → st'.rem ≤ σ.st.rem → BigNumRtWfR0 rt st' σ.scr scrLimbs' →
-      natBitsPostR0 op aVal b res σ.objs objs' →
+      st'.PreservesMeta σ.st → st'.rem ≤ σ.st.rem → BigNumRtWf rt st' σ.scr scrLimbs' →
+      natBitsPost op aVal b res σ.objs objs' →
       K ⟨.bits resW, res.setWidth resW⟩
         { st := st', objs := objs', scr := σ.scr, scrLimbs := scrLimbs' }
 
@@ -106,7 +106,7 @@ open LeanQbe.T.LeanLCNF
   ∃ val, NatInHeap n val σ.objs ∧ (∀ o ∈ σ.objs, o.Wf) ∧
     let dec := natToDecimalBytes val
     if (n &&& 1#64) ≠ 0#64 then
-      canAllocBytesR0 σ.st (strAllocBytes (dec.length + 1)) ∧
+      canAllocBytes σ.st (strAllocBytes (dec.length + 1)) ∧
       ∀ s st',
         s ≠ 0#64 → s.toNat % 8 = 0 → st'.PreservesMeta σ.st → st'.rem ≤ σ.st.rem →
         let sObj := mkStrObj s 1#32 (dec.length + 1) dec dec.length
@@ -117,7 +117,7 @@ open LeanQbe.T.LeanLCNF
         (nObj.rc = 1#32 → σ.objs.length ≤ σ.st.workCap ∧ lcnfHeapClosed σ.objs ∧
           RcSound n σ.objs) ∧
         if cn = 0 then
-          canAllocBytesR0 σ.st (strAllocBytes 2) ∧
+          canAllocBytes σ.st (strAllocBytes 2) ∧
           ∀ s st' objs',
             s ≠ 0#64 → s.toNat % 8 = 0 → st'.PreservesMeta σ.st → st'.rem ≤ σ.st.rem →
             let sObj := mkStrObj s 1#32 2 [UInt8.ofNat 48] 1
@@ -159,22 +159,22 @@ open LeanQbe.T.LeanLCNF
     | "pow", [wa, wb] =>
       match wa.toBV64?, wb.toBV64? with
       | some a, some b =>
-        ∃ aVal bVal, natRepR0 a aVal σ.objs ∧ natRepR0 b bVal σ.objs ∧
-          natPowOkR0 aVal bVal σ.scrLimbs.length σ.st ∧
+        ∃ aVal bVal, natRep a aVal σ.objs ∧ natRep b bVal σ.objs ∧
+          natPowOk aVal bVal σ.scrLimbs.length σ.st ∧
           ∀ res st' scrLimbs' objs',
-            st'.PreservesMeta σ.st → st'.rem ≤ σ.st.rem → BigNumRtWfR0 rt st' σ.scr scrLimbs' →
-            natRepR0 res (aVal ^ bVal) objs' →
+            st'.PreservesMeta σ.st → st'.rem ≤ σ.st.rem → BigNumRtWf rt st' σ.scr scrLimbs' →
+            natRep res (aVal ^ bVal) objs' →
             (∀ o ∈ σ.objs, o.addr ≠ res → o ∈ objs') →
             K (Word.i64 res) { st := st', objs := objs', scr := σ.scr, scrLimbs := scrLimbs' }
       | _, _ => False
     | "gcd", [wa, wb] =>
       match wa.toBV64?, wb.toBV64? with
       | some a, some b =>
-        ∃ aVal bVal, natRepR0 a aVal σ.objs ∧ natRepR0 b bVal σ.objs ∧
-          natGcdOkR0 aVal bVal σ.scrLimbs.length σ.st ∧
+        ∃ aVal bVal, natRep a aVal σ.objs ∧ natRep b bVal σ.objs ∧
+          natGcdOk aVal bVal σ.scrLimbs.length σ.st ∧
           ∀ res st' scrLimbs' objs',
-            st'.PreservesMeta σ.st → st'.rem ≤ σ.st.rem → BigNumRtWfR0 rt st' σ.scr scrLimbs' →
-            natRepR0 res (Nat.gcd aVal bVal) objs' →
+            st'.PreservesMeta σ.st → st'.rem ≤ σ.st.rem → BigNumRtWf rt st' σ.scr scrLimbs' →
+            natRep res (Nat.gcd aVal bVal) objs' →
             (∀ o ∈ σ.objs, o ∈ objs') →
             K (Word.i64 res) { st := st', objs := objs', scr := σ.scr, scrLimbs := scrLimbs' }
       | _, _ => False
@@ -267,7 +267,7 @@ open LeanQbe.T.LeanLCNF
         let inPlace := s1Obj.rc = 1#32 ∧ newPayload.length + 1 ≤ s1Obj.cap
         let newCap :=
           if inPlace then s1Obj.cap else strGrowCap s1Obj.rc s1Obj.cap (newPayload.length + 1)
-        (¬ inPlace → canAllocBytesR0 σ.st (strAllocBytes newCap) ∧
+        (¬ inPlace → canAllocBytes σ.st (strAllocBytes newCap) ∧
           (s1Obj.rc = 1#32 → σ.objs.length ≤ σ.st.workCap ∧ lcnfHeapClosed σ.objs ∧
             RcSound s1 σ.objs)) ∧
         ∀ r st' objs',
@@ -326,7 +326,7 @@ open LeanQbe.T.LeanLCNF
     if hlt : iNat < arrObj.fields.length then
       let old := arrObj.fields[iNat]'hlt
       (arrObj.rc ≠ 1#32 →
-        canAllocBytesR0 σ.st (arrAllocBytes arrObj.cap) ∧
+        canAllocBytes σ.st (arrAllocBytes arrObj.cap) ∧
         (∀ y ∈ σ.objs.eraseIdx k, 0 < y.rc.toInt →
           y.rc.toInt + (arrObj.fields.count y.addr : Int) < 2147483648)) ∧
       (arrObj.rc = 1#32 → old ≠ 0#64 → (old &&& 1#64) = 0#64 →
@@ -369,7 +369,7 @@ open LeanQbe.T.LeanLCNF
     | none => False
   | "propagateMark", [_, _, _, ys] => ys.1 = i64 ∧ K ys σ
   | "empty", [_] =>
-    canAllocBytesR0 σ.st (arrAllocBytes 0) ∧
+    canAllocBytes σ.st (arrAllocBytes 0) ∧
     ∀ p st', p ≠ 0#64 → p.toNat % 8 = 0 → st'.PreservesMeta σ.st → st'.rem ≤ σ.st.rem →
       let arrObj := mkArrObj p 1#32 0 []
       ArrCanon arrObj → K (Word.i64 p) { σ with st := st', objs := arrObj :: σ.objs }
@@ -379,7 +379,7 @@ open LeanQbe.T.LeanLCNF
     | some cap =>
       let c := if (cap &&& 1#64) ≠ 0#64 then (cap >>> 1).toNat else 0
       if c ≤ arrMaxCap then
-        canAllocBytesR0 σ.st (arrAllocBytes c) ∧
+        canAllocBytes σ.st (arrAllocBytes c) ∧
         ∀ p st', p ≠ 0#64 → p.toNat % 8 = 0 → st'.PreservesMeta σ.st → st'.rem ≤ σ.st.rem →
           let arrObj := mkArrObj p 1#32 c []
           ArrCanon arrObj → K (Word.i64 p) { σ with st := st', objs := arrObj :: σ.objs }
@@ -399,7 +399,7 @@ open LeanQbe.T.LeanLCNF
         else
           let newCap := arrEnsureCap arrObj.fields.length arrObj.cap 1#64
           let needAlloc := arrObj.rc ≠ 1#32 ∨ arrObj.fields.length ≥ arrObj.cap
-          (needAlloc → canAllocBytesR0 σ.st (arrAllocBytes newCap)) ∧
+          (needAlloc → canAllocBytes σ.st (arrAllocBytes newCap)) ∧
           ∀ r st' childObjs',
             r ≠ 0#64 → r.toNat % 8 = 0 → st'.PreservesMeta σ.st → st'.rem ≤ σ.st.rem →
             (arrObj.rc = 1#32 → arrObj.fields.length < arrObj.cap → r = arr ∧ st' = σ.st) →
@@ -474,7 +474,7 @@ open LeanQbe.T.LeanLCNF
         else
           let newCap := baEnsureCap baObj.arrSize baObj.cap 1#64
           let needAlloc := baObj.rc ≠ 1#32 ∨ baObj.arrSize ≥ baObj.cap
-          (needAlloc → canAllocBytesR0 σ.st (baAllocBytes newCap)) ∧
+          (needAlloc → canAllocBytes σ.st (baAllocBytes newCap)) ∧
           ∀ r st',
             r ≠ 0#64 → r.toNat % 8 = 0 → st'.PreservesMeta σ.st → st'.rem ≤ σ.st.rem →
             (baObj.rc = 1#32 → baObj.arrSize < baObj.cap → r = ba ∧ st' = σ.st) →

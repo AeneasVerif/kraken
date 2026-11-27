@@ -5,7 +5,7 @@ public import LeanQbe.T.LeanLCNF.Sem.LowerSound2b
 import LeanQbe.T.OpsLemmas
 import LeanQbe.T.Logic.C0Step
 import LeanQbe.T.Logic.MemLemmas
-import LeanQbe.T.LeanLCNF.Sem.SpecNormProof
+import LeanQbe.T.LeanLCNF.Sem.SpecNorm
 
 /-!
 # Tier-H `String.*` and `ByteArray.*` Lowering Soundness (`LowerSound2c`)
@@ -292,9 +292,9 @@ private theorem stringCmpOp_rtCall1_wp {m : LcModule} {Δ : HEnv} {Γ : Env} {rs
       rcases hpre with ⟨s1Obj, hm1, ha1, hc1, s2Obj, hm2, ha2, hc2, hK⟩
       have hneAddr : s1Obj.addr ≠ s2Obj.addr := by rw [ha1, ha2]; exact hs
       have hmHeap : (lcnfHeap σ.objs ⋆
-          (fullRtInv rt σ.st σ.scr σ.scrLimbs ⋆ R)) mem := by
+          (bigNumRtInv rt σ.st σ.scr σ.scrLimbs ⋆ R)) mem := by
         rw [hstate_mem_unfold] at hm
-        dsimp only [fullRtInv]
+        dsimp only [bigNumRtInv]
         exact sep_cast hm (by ac_rfl)
       obtain ⟨R', hmTwo⟩ := lcnfHeap_focus_two hm1 hm2 hneAddr hmHeap
       exact ⟨s1Obj, s2Obj, R', ha1, hc1, ha2, hc2, hmTwo, rfl, hK⟩
@@ -615,7 +615,7 @@ private theorem baPush_rtCall1_wp {m : LcModule} {Δ : HEnv} {Γ : Env} {rs : Li
       else
         let newCap := baEnsureCap baObj.arrSize baObj.cap 1#64
         let needAlloc := baObj.rc ≠ 1#32 ∨ baObj.arrSize ≥ baObj.cap
-        (needAlloc → canAllocBytesR0 σ.st (baAllocBytes newCap)) ∧
+        (needAlloc → canAllocBytes σ.st (baAllocBytes newCap)) ∧
         ∀ r st',
           r ≠ 0#64 → r.toNat % 8 = 0 → st'.PreservesMeta σ.st → st'.rem ≤ σ.st.rem →
           (baObj.rc = 1#32 → baObj.arrSize < baObj.cap → r = ba ∧ st' = σ.st) →

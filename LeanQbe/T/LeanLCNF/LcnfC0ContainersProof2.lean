@@ -1,6 +1,6 @@
 module
 
-public import LeanQbe.T.LeanLCNF.LcnfC0ContainersProof1
+public import LeanQbe.T.LeanLCNF.LcnfC0ContainersCow
 import all Kraken.Separation
 
 /-!
@@ -88,32 +88,6 @@ theorem ba_sz_mask_toNat (cap : BitVec 64) (hcap : cap.toNat ≤ baMaxCap) :
   unfold baAllocBytes align8
   omega
 
-theorem region_pop_cell64 {a : BitVec 64} {rem : Nat} (hrem : 8 ≤ rem) (hfit : rem ≤ 2 ^ 64)
-    {R : Mem 64 → Prop} {m : Mem 64} (hm : (region a rem ⋆ R) m) :
-    ∃ w : BitVec 64, (cell64 a w ⋆ region (a + 8#64) (rem - 8) ⋆ R) m := by
-  have heq : rem = 8 + (rem - 8) := by omega
-  rw [heq, region_split (by omega), sep_assoc] at hm
-  obtain ⟨f1, f2, hu, hd, hr1, hr2⟩ := hm
-  obtain ⟨w, hw⟩ := region_to_cell64 hr1
-  have hwSep : (cell64 a w ⋆ (region (a + 8#64) (rem - 8) ⋆ R)) m := ⟨f1, f2, hu, hd, hw, hr2⟩
-  exact ⟨w, sep_cast hwSep (by ac_rfl)⟩
-
-theorem region_to_3cells_rem {p : BitVec 64} {bytes : Nat} (hge : 24 ≤ bytes)
-    (hfit : bytes ≤ 2 ^ 64) {R : Mem 64 → Prop} {m : Mem 64}
-    (hm : (region p bytes ⋆ R) m) :
-    ∃ w0 w1 w2 : BitVec 64,
-      (cell64 p w0 ⋆ cell64 (p + 8#64) w1 ⋆ cell64 (p + 16#64) w2 ⋆
-        region (p + 24#64) (bytes - 24) ⋆ R) m := by
-  obtain ⟨w0, h0⟩ := region_pop_cell64 (by omega) hfit hm
-  have h1in : (region (p + 8#64) (bytes - 8) ⋆ (cell64 p w0 ⋆ R)) m := sep_cast h0 (by ac_rfl)
-  obtain ⟨w1, h1⟩ := region_pop_cell64 (by omega) (by omega) h1in
-  have h2in : (region (p + 16#64) (bytes - 16) ⋆ (cell64 p w0 ⋆ cell64 (p + 8#64) w1 ⋆ R)) m := by
-    rw [ptr_add_nat_r2, show bytes - 8 - 8 = bytes - 16 by omega] at h1
-    exact sep_cast h1 (by ac_rfl)
-  obtain ⟨w2, h2⟩ := region_pop_cell64 (by omega) (by omega) h2in
-  rw [ptr_add_nat_r2, show bytes - 16 - 8 = bytes - 24 by omega] at h2
-  exact ⟨w0, w1, w2, sep_cast h2 (by ac_rfl)⟩
-
 theorem mkBaObj_totalBytes (r : BitVec 64) (rc : BitVec 32) (cap : Nat) (data : List UInt8) :
     (mkBaObj r rc cap data).totalBytes = baAllocBytes cap := by
   simp [LcnfObj.totalBytes, mkBaObj, sarrayTag, arrayTag, baAllocBytes]
@@ -199,29 +173,6 @@ private theorem ba_load_cap_mid {o : LcnfObj} (hc : BaCanon o) {A R : Mem 64 →
     region (o.addr + BitVec.ofNat 64 (24 + o.scalarData.length))
       (baAllocBytes o.cap - (24 + o.scalarData.length)) ⋆ A ⋆ R) (sep_cast hmS (by ac_rfl))
 
-private theorem arr_load_sz_mid {o : LcnfObj} (hc : ArrCanon o) {A R : Mem 64 → Prop} {m : Mem 64}
-    (hm : (A ⋆ lcnfObjMem o ⋆ R) m) :
-    loadVal m i64 (o.addr + 8#64) = some (BitVec.ofNat 64 o.fields.length) := by
-  have hmA : (lcnfObjMem o ⋆ (A ⋆ R)) m := sep_cast hm (by ac_rfl)
-  rw [lcnfObjMem_array_eq hc.2.2.2.2.2.1] at hmA
-  exact r2_c0_load_cell64_add8 (R := cell64 o.addr o.header ⋆
-    cell64 (o.addr + 16#64) (BitVec.ofNat 64 o.cap) ⋆
-    array64 (o.addr + 24#64) o.fields ⋆
-    region (o.addr + BitVec.ofNat 64 (24 + 8 * o.fields.length))
-      (8 * (o.cap - o.fields.length)) ⋆ A ⋆ R) (sep_cast hmA (by ac_rfl))
-
-private theorem arr_load_elem_mid {o : LcnfObj} (hc : ArrCanon o) {i : BitVec 64}
-    {A R : Mem 64 → Prop} {m : Mem 64} (hi : i.toNat < o.fields.length)
-    (hm : (A ⋆ lcnfObjMem o ⋆ R) m) :
-    loadVal m i64 (o.addr + 24#64 + 8#64 * i) = some o.fields[i.toNat] := by
-  have hmA : (lcnfObjMem o ⋆ (A ⋆ R)) m := sep_cast hm (by ac_rfl)
-  rw [lcnfObjMem_array_eq hc.2.2.2.2.2.1] at hmA
-  exact r2_c0_load_array64_add24_mul8 (R := cell64 o.addr o.header ⋆
-    cell64 (o.addr + 8#64) (BitVec.ofNat 64 o.fields.length) ⋆
-    cell64 (o.addr + 16#64) (BitVec.ofNat 64 o.cap) ⋆
-    region (o.addr + BitVec.ofNat 64 (24 + 8 * o.fields.length))
-      (8 * (o.cap - o.fields.length)) ⋆ A ⋆ R) (sep_cast hmA (by ac_rfl)) hi
-
 theorem BaCanon.arrSize_lt_64 {o : LcnfObj} (hc : BaCanon o) : o.arrSize < 2 ^ 64 := by
   have := hc.2.2.2.2.2.2.2.1
   have := hc.2.2.2.2.2.2.2.2
@@ -242,23 +193,6 @@ theorem uint8_ofNat_truncate8 (w : BitVec 64) :
   change (BitVec.setWidth 8 w).toNat % 256 = w.toNat % 256
   simp [BitVec.toNat_setWidth]
 
-theorem ba_rc_of_mask_eq1 {o : LcnfObj} (hwf : o.Wf)
-    (hm : (o.header &&& 4294967295#64) = 1#64) : o.rc = 1#32 := by
-  have hrcEq := LcnfObj.header_rc o hwf.2.2.2.1 hwf.2.2.2.2.1 hwf.2.2.2.2.2.1
-  rw [hrcEq] at hm
-  have htn : (BitVec.ofNat 64 o.rc.toNat).toNat = 1 := by rw [hm]; rfl
-  rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (Nat.lt_trans o.rc.isLt (by decide))] at htn
-  exact BitVec.eq_of_toNat_eq htn
-
-theorem ba_rc_ne1_of_mask {o : LcnfObj} (hwf : o.Wf)
-    (hm : (o.header &&& 4294967295#64) ≠ 1#64) : o.rc ≠ 1#32 := by
-  have hrcEq := LcnfObj.header_rc o hwf.2.2.2.1 hwf.2.2.2.2.1 hwf.2.2.2.2.2.1
-  intro h1
-  rw [h1] at hrcEq
-  apply hm
-  rw [hrcEq]
-  rfl
-
 /-! ## 2. `r2_alloc_sarray` & `r2_ensure_excl_ba` WP Proofs -/
 
 theorem r2_alloc_sarray_wp :
@@ -278,12 +212,12 @@ theorem r2_alloc_sarray_wp :
       have hszLe : ((24 + cap + 7 &&& 18446744073709551608 : BitVec 64)).toNat ≤ 268435448 := by
         rw [hszEq]; unfold baAllocBytes align8 baMaxCap at *; omega
       r2_call rtR2Env_lcnf_alloc
-      dsimp only [lcnfAllocSpec, vals, Tup.map, Arg.val]
+      dsimp only [lcnfAllocRemSpec, vals, Tup.map, Arg.val]
       have hid : align8 (baAllocBytes cap.toNat) = baAllocBytes cap.toNat :=
         align8_idemp (24 + cap.toNat)
       rw [hszEq, hid]
       refine ⟨st, R, by rw [← hszEq]; exact hszLe, ?_, ?_, hav, hm,
-        fun p st' m1 hp0 hp8 hpr hrem hm1 => ?_⟩
+        fun p st' m1 hp0 hp8 hpr hrem hrem2 hm1 => ?_⟩
       · have := baAllocBytes_ge cap.toNat; unfold rtMinObjBytes; omega
       · unfold baAllocBytes align8 rtMaxObjBytes baMaxCap at *; omega
       · have hm1' : (region p (baAllocBytes cap.toNat) ⋆ (rtC0Inv rt st' ⋆ R)) m1 :=
@@ -292,32 +226,9 @@ theorem r2_alloc_sarray_wp :
           have := baAllocBytes_ge cap.toNat; omega
         have hfit24 : baAllocBytes cap.toNat ≤ 2 ^ 64 := by
           unfold baAllocBytes align8 baMaxCap at *; omega
-        obtain ⟨w0, w1, w2, hp3⟩ := region_to_3cells_rem hge24 hfit24 hm1'
         change LeanQbe.T.wp _ _ _ _ _
-        have hpc : (cell64 p w0 ⋆ (cell64 (p + 8#64) w1 ⋆ cell64 (p + 16#64) w2 ⋆
-            region (p + 24#64) (baAllocBytes cap.toNat - 24) ⋆ rtC0Inv rt st' ⋆ R)) m1 :=
-          sep_cast hp3 (by ac_rfl)
-        apply wp_store_sep
-        · exact store_cell64 baHeaderWord hpc
-        · intro m2 hm2
-          r2_step
-          have hm2' : (cell64 (p + 8#64) w1 ⋆ (cell64 p baHeaderWord ⋆
-              cell64 (p + 16#64) w2 ⋆ region (p + 24#64) (baAllocBytes cap.toNat - 24) ⋆
-              rtC0Inv rt st' ⋆ R)) m2 := sep_cast hm2 (by ac_rfl)
-          apply wp_store_sep
-          · exact store_cell64 size hm2'
-          · intro m3 hm3
-            r2_step
-            have hm3' : (cell64 (p + 16#64) w2 ⋆ (cell64 p baHeaderWord ⋆
-                cell64 (p + 8#64) size ⋆ region (p + 24#64) (baAllocBytes cap.toNat - 24) ⋆
-                rtC0Inv rt st' ⋆ R)) m3 := sep_cast hm3 (by ac_rfl)
-            apply wp_store_sep
-            · exact store_cell64 cap hm3'
-            · intro m4 hm4
-              r2_steps
-              dsimp only [Arg.val] at hm4
-              rw [show (16 : BitVec 64) = 16#64 from rfl] at hm4
-              exact hk p st' m4 hp0 hp8 hpr hrem (sep_cast hm4 (by ac_rfl))
+        refine headerStores_wp (hdr := baHeaderWord) (p := p) hge24 hfit24 hm1' fun m4 hm4 => ?_
+        exact hk p st' m4 hp0 hp8 hpr hrem hrem2 (sep_cast hm4 (by ac_rfl))
   · rw [ite_eq_right_of_eq_false _ _ (eq_false hvalid)] at hPre
     r2_steps <;> first
       | exact hPre
@@ -354,10 +265,8 @@ private theorem ba_ensure_fast_ok {rt ba : BitVec 64} {st : RtC0State} {baObj : 
     · simp
     · omega
   rw [ite_eq_right_of_eq_false _ _ (eq_false hnotPanic)] at hk
-  have hcapEq : baEnsureCap baObj.arrSize baObj.cap expand = baObj.cap := by
-    rcases hfast with rfl | hlt
-    · simp [baEnsureCap]
-    · simp [baEnsureCap, hlt]
+  have hcapEq : baEnsureCap baObj.arrSize baObj.cap expand = baObj.cap :=
+    (baEnsureCap_eq_gen _ _ _).trans (ensureCapGen_of_fast hfast)
   have hmemEq : lcnfObjMem (mkBaObj ba 1#32 (baEnsureCap baObj.arrSize baObj.cap expand)
       baObj.scalarData) = lcnfObjMem baObj := by
     rw [hcapEq, ← haddr, ← hrc1, lcnfObjMem_mkBaObj_eq_of_canon hcanon]
@@ -375,49 +284,13 @@ private theorem ba_ensure_fast_ok {rt ba : BitVec 64} {st : RtC0State} {baObj : 
     · rw [hcapEq]; exact hlt
   · rw [hcapEq]; exact hcanon.2.2.2.2.2.2.2.2
 
-private theorem baEnsureCap_props {baObj : LcnfObj} (hcanon : BaCanon baObj)
-    {expand : BitVec 64}
-    (hnotPanic : ¬ (expand ≠ 0#64 ∧ baObj.cap ≤ baObj.arrSize ∧ baMaxCap ≤ baObj.cap)) :
-    baObj.arrSize ≤ baEnsureCap baObj.arrSize baObj.cap expand ∧
-      baEnsureCap baObj.arrSize baObj.cap expand ≤ baMaxCap ∧
-      (expand ≠ 0#64 → baObj.arrSize < baEnsureCap baObj.arrSize baObj.cap expand) := by
-  have hleCap := hcanon.2.2.2.2.2.2.2.1
-  have hmax := hcanon.2.2.2.2.2.2.2.2
-  by_cases hexp : expand = 0#64
-  · simp [baEnsureCap, hexp, hleCap, hmax]
-  · by_cases hlt : baObj.arrSize < baObj.cap
-    · unfold baMaxCap at hmax ⊢
-      have hcap : baEnsureCap baObj.arrSize baObj.cap expand = baObj.cap := by
-        simp [baEnsureCap, hexp, hlt]
-      rw [hcap]
-      exact ⟨hleCap, hmax, fun _ => hlt⟩
-    · unfold baMaxCap at hmax hnotPanic
-      have hnotge : ¬ (268435416 ≤ baObj.cap) :=
-        fun h => hnotPanic ⟨hexp, Nat.le_of_not_lt hlt, h⟩
-      have hltMax : baObj.cap < baMaxCap := by unfold baMaxCap; omega
-      by_cases hcap0 : baObj.cap = 0
-      · have hars0 : baObj.arrSize = 0 := by omega
-        have hcap : baEnsureCap baObj.arrSize baObj.cap expand = 8 := by
-          simp [baEnsureCap, hexp, hcap0, hars0]
-        rw [hcap]
-        unfold baMaxCap
-        exact ⟨by omega, by omega, fun _ => by omega⟩
-      · have hcap : baEnsureCap baObj.arrSize baObj.cap expand = min baMaxCap (baObj.cap * 2) := by
-          simp [baEnsureCap, hexp, hlt, hcap0]
-        rw [hcap]
-        unfold baMaxCap at hltMax ⊢
-        exact ⟨by omega, by omega, fun _ => by omega⟩
-
 theorem r2_ensure_excl_ba_wp :
     ∀ xs m Q X, r2EnsureExclBaSpec xs m Q X → Func.wp rtR2Env r2_ensure_excl_ba_body xs m Q X := by
   intro ⟨rt, ba, expand, ⟨⟩⟩ m Q X ⟨st, baObj, R, haddr, hcanon, hm, hPost⟩
   subst haddr
   have hwf := hcanon.wf
   have hsz64 := hcanon.arrSize_lt_64
-  have hcap64 := hcanon.cap_lt_64
   have harsMod : baObj.arrSize % 2 ^ 64 = baObj.arrSize := Nat.mod_eq_of_lt hsz64
-  have hcapMod : baObj.cap % 2 ^ 64 = baObj.cap := Nat.mod_eq_of_lt hcap64
-  have hrcEq := LcnfObj.header_rc baObj hwf.2.2.2.1 hwf.2.2.2.2.1 hwf.2.2.2.2.2.1
   dsimp only [Func.wp, r2_ensure_excl_ba_body]
   change LeanQbe.T.wp _ _ _ _ _
   apply wp_load_of (ba_load_header_mid hm)
@@ -425,362 +298,118 @@ theorem r2_ensure_excl_ba_wp :
   apply wp_load_of (ba_load_sz_mid hcanon hm)
   r2_step
   apply wp_load_of (ba_load_cap_mid hcanon hm)
-  apply wp_join_group
-    (P := fun _ m' => m' = m ∧ (baObj.rc ≠ 1#32 ∨ (expand ≠ 0#64 ∧ baObj.cap ≤ baObj.arrSize)))
-  · intro _ ⟨⟩ m' ⟨hmEq, hslow⟩
-    subst hmEq
-    change LeanQbe.T.wp _ _ _ _ _
-    by_cases hpanic : expand ≠ 0#64 ∧ baObj.cap ≤ baObj.arrSize ∧ baMaxCap ≤ baObj.cap
-    · rw [ite_eq_left_of_eq_true _ _ (eq_true hpanic)] at hPost
-      apply wp_join_group (P := fun _ _ => False)
-      · intro _ _ _ hFalse; exact hFalse.elim
-      · intro _ hJ
-        have hcapMax : baObj.cap = 268435416 := by
-          have := hcanon.2.2.2.2.2.2.2.2; unfold baMaxCap at *; omega
-        have harsMax : baObj.arrSize = 268435416 := by
-          have := hcanon.2.2.2.2.2.2.2.1; omega
-        r2_steps <;> first
-          | exact hPost
-          | (exfalso
-             simp only [harsMod, hcapMod, BitVec.toNat_ofNat] at *
-             try (have hcap0 : BitVec.ofNat 64 baObj.cap = 0 := by assumption
-                  have := congrArg BitVec.toNat hcap0
-                  rw [BitVec.toNat_ofNat, hcapMod] at this
-                  omega)
-             omega)
-    · rw [ite_eq_right_of_eq_false _ _ (eq_false hpanic)] at hPost
-      rcases hPost with ⟨hav, hpost⟩
-      have hcapProps := baEnsureCap_props hcanon hpanic
-      let newCap := baEnsureCap baObj.arrSize baObj.cap expand
-      have hszLe : baObj.arrSize ≤ newCap := hcapProps.1
-      have hcapMax : newCap ≤ baMaxCap := hcapProps.2.1
-      have hexLt : expand ≠ 0#64 → baObj.arrSize < newCap := hcapProps.2.2
-      have hcap64New : newCap < 2 ^ 64 := by unfold baMaxCap at hcapMax; omega
-      apply wp_join_group
-        (P := fun (xs : Tup Val [i64]) m1 => match xs with
-          | (nc, PUnit.unit) => m1 = m' ∧ nc = BitVec.ofNat 64 newCap)
-      · intro _ ⟨nc, ⟨⟩⟩ m1 ⟨rfl, hnc⟩
-        subst hnc
-        change LeanQbe.T.wp _ _ _ _ _
-        r2_call rtR2Env_r2_alloc_sarray
-        dsimp only [r2AllocSarraySpec, vals, Tup.map, Arg.val]
-        have hszTo : (BitVec.ofNat 64 baObj.arrSize).toNat = baObj.arrSize := by
-          rw [BitVec.toNat_ofNat, harsMod]
-        have hncTo : (BitVec.ofNat 64 newCap).toNat = newCap := by
-          rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hcap64New]
-        have hvalidA : (BitVec.ofNat 64 baObj.arrSize).toNat ≤ (BitVec.ofNat 64 newCap).toNat ∧
-            (BitVec.ofNat 64 newCap).toNat ≤ baMaxCap := by
-          rw [hszTo, hncTo]; exact ⟨hszLe, hcapMax⟩
-        rw [ite_eq_left_of_eq_true _ _ (eq_true hvalidA)]
-        refine ⟨st, lcnfObjMem baObj ⋆ R, ?_, sep_cast hm (by ac_rfl),
-          fun r st1 m1 hr0 hr8 hpr1 hrem1 hm1 => ?_⟩
-        · rw [hncTo]; exact hav hslow
-        · rw [hncTo] at hm1
-          change LeanQbe.T.wp _ _ _ _ _
-          r2_steps
-          have hlenData : baObj.scalarData.length = (BitVec.ofNat 64 baObj.arrSize).toNat := by
-            rw [hszTo]; exact hcanon.2.2.2.2.2.2.1.symm
-          have hgeData : baObj.scalarData.length ≤ baAllocBytes newCap - 24 := by
-            have := baAllocBytes_ge newCap; have := hcanon.2.2.2.2.2.2.1; omega
-          have hfitRem : baAllocBytes newCap - 24 ≤ 2 ^ 64 := by
-            unfold baAllocBytes align8 baMaxCap at *; omega
-          r2_call rtR2Env_r2_mem_copy_bytes
-          dsimp only [r2MemCopyBytesSpec, vals, Tup.map, Arg.val]
-          have hm1' : (bytes (baObj.addr + 24#64) baObj.scalarData ⋆
-              region (r + 24#64) (baAllocBytes newCap - 24) ⋆
-              (rtC0Inv rt st1 ⋆ cell64 r baHeaderWord ⋆
-                cell64 (r + 8#64) (BitVec.ofNat 64 baObj.arrSize) ⋆
-                cell64 (r + 16#64) (BitVec.ofNat 64 newCap) ⋆
-                cell64 baObj.addr baObj.header ⋆
-                cell64 (baObj.addr + 8#64) (BitVec.ofNat 64 baObj.arrSize) ⋆
-                cell64 (baObj.addr + 16#64) (BitVec.ofNat 64 baObj.cap) ⋆
-                region (baObj.addr + BitVec.ofNat 64 (24 + baObj.scalarData.length))
-                  (baAllocBytes baObj.cap - (24 + baObj.scalarData.length)) ⋆ R)) m1 := by
-            have h1S := lcnfObjMem_sarray_elim hcanon
-              (R := rtC0Inv rt st1 ⋆ cell64 r baHeaderWord ⋆
-                cell64 (r + 8#64) (BitVec.ofNat 64 baObj.arrSize) ⋆
-                cell64 (r + 16#64) (BitVec.ofNat 64 newCap) ⋆
-                region (r + 24#64) (baAllocBytes newCap - 24) ⋆ R)
-              (sep_cast hm1 (by ac_rfl))
-            exact sep_cast h1S (by ac_rfl)
-          refine ⟨baObj.scalarData, baAllocBytes newCap - 24, _, hlenData,
-            by rw [hszTo]; have := baAllocBytes_ge newCap; omega, hfitRem, hm1',
-            fun m2 hm2 => ?_⟩
-          change LeanQbe.T.wp _ _ _ _ _
-          have hlenB : BitVec.ofNat 64 baObj.arrSize =
-              BitVec.ofNat 64 baObj.scalarData.length := by rw [hcanon.2.2.2.2.2.2.1]
-          have hm2Bytes : (cell64 r baHeaderWord ⋆
-              cell64 (r + 8#64) (BitVec.ofNat 64 baObj.scalarData.length) ⋆
-              cell64 (r + 16#64) (BitVec.ofNat 64 newCap) ⋆
-              bytes (r + 24#64) baObj.scalarData ⋆
-              region (r + 24#64 + BitVec.ofNat 64 baObj.scalarData.length)
-                (baAllocBytes newCap - 24 - baObj.scalarData.length) ⋆
-              (rtC0Inv rt st1 ⋆
-                cell64 baObj.addr baObj.header ⋆
-                cell64 (baObj.addr + 8#64) (BitVec.ofNat 64 baObj.scalarData.length) ⋆
-                cell64 (baObj.addr + 16#64) (BitVec.ofNat 64 baObj.cap) ⋆
-                bytes (baObj.addr + 24#64) baObj.scalarData ⋆
-                region (baObj.addr + BitVec.ofNat 64 (24 + baObj.scalarData.length))
-                  (baAllocBytes baObj.cap - (24 + baObj.scalarData.length)) ⋆ R)) m2 := by
-            have hlenTo : (BitVec.ofNat 64 baObj.scalarData.length).toNat =
-                baObj.scalarData.length := by
-              have hlenLt64 : baObj.scalarData.length < 2 ^ 64 := by
-                rw [← hcanon.2.2.2.2.2.2.1]; exact hsz64
-              rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hlenLt64]
-            rw [hlenB] at hm2
-            rw [hlenTo] at hm2
-            rw [show (24 : BitVec 64) = 24#64 from rfl] at hm2
-            let regR := region (r + 24#64 + BitVec.ofNat 64 baObj.scalarData.length)
-              (baAllocBytes newCap - 24 - baObj.scalarData.length)
-            let regA := region (baObj.addr + BitVec.ofNat 64 (24 + baObj.scalarData.length))
-              (baAllocBytes baObj.cap - (24 + baObj.scalarData.length))
-            have hm2A : (bytes (baObj.addr + 24#64) baObj.scalarData ⋆
-                bytes (r + 24#64) baObj.scalarData ⋆ regR ⋆
-                (rtC0Inv rt st1 ⋆ cell64 r baHeaderWord ⋆
-                  cell64 (r + 8#64) (BitVec.ofNat 64 baObj.scalarData.length) ⋆
-                  cell64 (r + 16#64) (BitVec.ofNat 64 newCap) ⋆
-                  cell64 baObj.addr baObj.header ⋆
-                  cell64 (baObj.addr + 8#64) (BitVec.ofNat 64 baObj.scalarData.length) ⋆
-                  cell64 (baObj.addr + 16#64) (BitVec.ofNat 64 baObj.cap) ⋆
-                  regA ⋆ R)) m2 := hm2
-            change (cell64 r baHeaderWord ⋆
-              cell64 (r + 8#64) (BitVec.ofNat 64 baObj.scalarData.length) ⋆
-              cell64 (r + 16#64) (BitVec.ofNat 64 newCap) ⋆
-              bytes (r + 24#64) baObj.scalarData ⋆ regR ⋆
-              (rtC0Inv rt st1 ⋆ cell64 baObj.addr baObj.header ⋆
-                cell64 (baObj.addr + 8#64) (BitVec.ofNat 64 baObj.scalarData.length) ⋆
-                cell64 (baObj.addr + 16#64) (BitVec.ofNat 64 baObj.cap) ⋆
-                bytes (baObj.addr + 24#64) baObj.scalarData ⋆ regA ⋆ R)) m2
-            exact sep_cast hm2A (by ac_rfl)
-          have hnewM := mkBaObj_mem_of_parts hm2Bytes
-          have hmOld : (lcnfObjMem baObj ⋆
-              (rtC0Inv rt st1 ⋆ lcnfObjMem (mkBaObj r 1#32 newCap baObj.scalarData) ⋆ R)) m2 := by
-            rw [lcnfObjMem_sarray_eq hcanon.2.2.2.2.2.1, hcanon.2.2.2.2.2.2.1]
-            have htb : baObj.totalBytes = baAllocBytes baObj.cap := by
-              unfold LcnfObj.totalBytes
-              simp [hcanon.2.2.2.2.2.1, hcanon.2.2.2.2.1, sarrayTag, arrayTag, baAllocBytes]
-            rw [htb]
-            exact sep_cast hnewM (by ac_rfl)
-          let oldKeep :=
-            if baObj.rc = 1#32 then emp else lcnfObjMem (baObj.withRc (decNonExclRc baObj.rc))
-          apply wp_join_group (P := fun _ m3 =>
-            ∃ st3 : RtC0State, st3.PreservesMeta st1 ∧ st3.rem ≤ st1.rem ∧
-              (rtC0Inv rt st3 ⋆ lcnfObjMem (mkBaObj r 1#32 newCap baObj.scalarData) ⋆
-                oldKeep ⋆ R) m3)
-          · intro _ ⟨⟩ m3 ⟨st3, hpr3, hrem3, hm3⟩
-            r2_steps
-            refine hpost r st3 m3 hr0 hr8 (hpr1.trans hpr3) (by omega) ?_ hexLt hcapMax hm3
-            intro hrc1 hfast
-            rcases hslow with hne | ⟨hex, hge⟩
-            · exact absurd hrc1 hne
-            · rcases hfast with rfl | hlt
-              · exact absurd rfl hex
-              · omega
-          · intro Jret hJret
-            r2_steps
-            · have hrc1 : baObj.rc = 1#32 := ba_rc_of_mask_eq1 hwf (by assumption)
-              have hand0 : (baObj.addr &&& 1#64) = 0#64 := bv64_and1_zero_of_mod8 hcanon.2.1
-              have hnotAnd : ¬ (baObj.addr &&& 1#64) ≠ 0#64 := by simp [hand0]
-              r2_call rtR2Env_lcnf_free_obj
-              dsimp only [lcnfFreeObjSpec, vals, Tup.map, Arg.val]
-              rw [ite_eq_right_of_eq_false _ _ (eq_false hnotAnd)]
-              obtain ⟨f1, f2, hu, hd, hbaFree, hrest⟩ := hmOld
-              have hfreeLay := lcnfObjMem_to_freeObjLayout hwf hbaFree
-              have hmFree0 : (freeObjLayout baObj.addr baObj.totalBytes baObj.header ⋆
-                  (rtC0Inv rt st1 ⋆
-                    lcnfObjMem (mkBaObj r 1#32 newCap baObj.scalarData) ⋆ R)) m2 :=
-                ⟨f1, f2, hu, hd, hfreeLay, hrest⟩
-              have hmFree : (rtC0Inv rt st1 ⋆
-                  freeObjLayout baObj.addr baObj.totalBytes baObj.header ⋆
-                  (lcnfObjMem (mkBaObj r 1#32 newCap baObj.scalarData) ⋆ R)) m2 :=
-                sep_cast hmFree0 (by ac_rfl)
-              refine ⟨st1, baObj.header, baObj.totalBytes, _, hcanon.1, hcanon.2.1,
-                hwf.2.2.2.2.2.2.1, hwf.2.2.2.2.2.2.2.1, hwf.2.2.2.2.2.2.2.2.1, hmFree, ?_⟩
-              intro st2 m3 hpr2 hrem2 _ hm3
-              r2_steps
-              apply hJret
-              refine ⟨st2, hpr2, Nat.le_of_eq hrem2, ?_⟩
-              dsimp only [oldKeep]
-              rw [ite_eq_left_of_eq_true _ _ (eq_true hrc1)]
-              exact sep_cast hm3 (by ac_rfl)
-            · have hrcNe1 : baObj.rc ≠ 1#32 := ba_rc_ne1_of_mask hwf (by assumption)
-              have hgt1 : 1 < baObj.rc.toNat := by
-                have hc1 : 1 < (baObj.header &&& 4294967295#64).toNat := by assumption
-                rw [hrcEq, BitVec.toNat_ofNat,
-                  Nat.mod_eq_of_lt (Nat.lt_trans baObj.rc.isLt (by decide))] at hc1
-                exact hc1
-              have hgtInt : 1 < baObj.rc.toInt := by
-                have hlt231 : baObj.rc.toNat < 2147483648 := by
-                  have hc2 : (baObj.header &&& 4294967295#64).toNat < 2147483648 := by assumption
-                  rw [hrcEq, BitVec.toNat_ofNat,
-                    Nat.mod_eq_of_lt (Nat.lt_trans baObj.rc.isLt (by decide))] at hc2
-                  exact hc2
-                have h0 := hwf.2.2.1
-                rw [BitVec.toInt_eq_toNat_cond] at h0 ⊢; split at h0 <;> omega
-              have hmRcHdr := hm
-              rw [show (1 : BitVec 64) = 1#64 from rfl,
-                lcnfObjHeader_sub1 baObj hwf hgt1] at hmRcHdr
-              apply hJret
-              refine ⟨st1, RtC0State.PreservesMeta.refl st1, Nat.le_refl _, ?_⟩
-              dsimp only [oldKeep]
-              rw [ite_eq_right_of_eq_false _ _ (eq_false hrcNe1)]
-              simp only [decNonExclRc, hgtInt, ↓reduceIte]
-              have htb : (baObj.withRc (baObj.rc - 1#32)).totalBytes = baAllocBytes baObj.cap := by
-                unfold LcnfObj.totalBytes LcnfObj.withRc
-                simp [hcanon.2.2.2.2.2.1, hcanon.2.2.2.2.1, sarrayTag, arrayTag, baAllocBytes]
-              have htagRc : (baObj.withRc (baObj.rc - 1#32)).tag = sarrayTag :=
-                hcanon.2.2.2.2.2.1
-              rw [lcnfObjMem_sarray_eq htagRc, htb]
-              dsimp only [LcnfObj.withRc]
-              rw [hcanon.2.2.2.2.2.2.1]
-              exact sep_cast hmRcHdr (by ac_rfl)
-            · exfalso
-              have hnot : ¬ (baObj.header &&& 4294967295#64).toNat < 2147483648 := by assumption
-              have h0 := hwf.2.2.1
-              rw [hrcEq, BitVec.toNat_ofNat,
-                Nat.mod_eq_of_lt (Nat.lt_trans baObj.rc.isLt (by decide))] at hnot
-              rw [BitVec.toInt_eq_toNat_cond] at h0; split at h0 <;> omega
-            · have hrcNe1 : baObj.rc ≠ 1#32 := ba_rc_ne1_of_mask hwf (by assumption)
-              have hnot : ¬ 1 < (baObj.header &&& 4294967295#64).toNat := by assumption
-              have h0 := hwf.2.2.1
-              have hlt231 : baObj.rc.toNat < 2147483648 := by
-                rw [BitVec.toInt_eq_toNat_cond] at h0; split at h0 <;> omega
-              have hrc0Nat : baObj.rc.toNat = 0 := by
-                rw [hrcEq, BitVec.toNat_ofNat,
-                  Nat.mod_eq_of_lt (Nat.lt_trans baObj.rc.isLt (by decide))] at hnot
-                have hne1Nat : baObj.rc.toNat ≠ 1 := fun h => hrcNe1 (BitVec.eq_of_toNat_eq h)
-                omega
-              have hrc0 : baObj.rc = 0#32 := BitVec.eq_of_toNat_eq hrc0Nat
-              have hdec0 : decNonExclRc baObj.rc = baObj.rc := by simp [decNonExclRc, hrc0]
-              apply hJret
-              refine ⟨st1, RtC0State.PreservesMeta.refl st1, Nat.le_refl _, ?_⟩
-              dsimp only [oldKeep]
-              rw [ite_eq_right_of_eq_false _ _ (eq_false hrcNe1), hdec0]
-              have hself : baObj.withRc baObj.rc = baObj := by cases baObj; rfl
-              rw [hself]
-              exact sep_cast hmOld (by ac_rfl)
-      · intro Jnc hJnc
-        r2_steps
-        · exfalso
-          have hc0 : BitVec.ofNat 64 baObj.cap = 0 := by assumption
-          have h0 : baObj.cap = 0 := by
-            have := congrArg BitVec.toNat hc0
-            rw [BitVec.toNat_ofNat, hcapMod] at this; exact this
-          have h8 : (8#64 : BitVec 64).toNat ≤ baObj.arrSize % 2 ^ 64 := by assumption
-          rw [harsMod] at h8
-          have h8n : (8#64 : BitVec 64).toNat = 8 := rfl
-          have := hcanon.2.2.2.2.2.2.2.1; omega
-        · apply hJnc
-          refine ⟨rfl, ?_⟩
-          have hne : expand ≠ 0#64 := by assumption
-          have hc0 : BitVec.ofNat 64 baObj.cap = 0 := by assumption
-          have h0 : baObj.cap = 0 := by
-            have := congrArg BitVec.toNat hc0
-            rw [BitVec.toNat_ofNat, hcapMod] at this; exact this
-          have hars0 : baObj.arrSize = 0 := by have := hcanon.2.2.2.2.2.2.2.1; omega
-          simp [newCap, baEnsureCap, hne, h0, hars0]
-        · apply hJnc
-          refine ⟨rfl, ?_⟩
-          have hne : expand ≠ 0#64 := by assumption
-          have hlt : baObj.arrSize % 2 ^ 64 < baObj.cap % 2 ^ 64 := by assumption
-          rw [harsMod, hcapMod] at hlt
-          simp [newCap, baEnsureCap, hne, hlt]
-        · exfalso
-          have hne : expand ≠ 0#64 := by assumption
-          have hge : 268435416 ≤ baObj.cap % 2 ^ 64 := by assumption
-          have hnlt : ¬ baObj.arrSize % 2 ^ 64 < baObj.cap % 2 ^ 64 := by assumption
-          rw [hcapMod] at hge; rw [harsMod, hcapMod] at hnlt
-          unfold baMaxCap at hpanic; exact hpanic ⟨hne, by omega, hge⟩
-        · exfalso
-          have hgt : 268435416 < baObj.arrSize % 2 ^ 64 := by assumption
-          rw [harsMod] at hgt
-          have := hcanon.2.2.2.2.2.2.2.1; have := hcanon.2.2.2.2.2.2.2.2
-          unfold baMaxCap at *; omega
-        · exfalso
-          have hne : expand ≠ 0#64 := by assumption
-          have hge : 268435416 ≤ baObj.arrSize % 2 ^ 64 := by assumption
-          rw [harsMod] at hge
-          have := hcanon.2.2.2.2.2.2.2.1; have := hcanon.2.2.2.2.2.2.2.2
-          unfold baMaxCap at *; apply hpanic; exact ⟨hne, by omega, by omega⟩
-        · apply hJnc
-          refine ⟨rfl, ?_⟩
-          have hne : expand ≠ 0#64 := by assumption
-          have hnlt : ¬ baObj.arrSize % 2 ^ 64 < baObj.cap % 2 ^ 64 := by assumption
-          rw [harsMod, hcapMod] at hnlt
-          have hc0 : BitVec.ofNat 64 baObj.cap ≠ 0 := by assumption
-          have hcapNe0 : baObj.cap ≠ 0 := fun h0 => hc0 (by simp [h0])
-          have hgtMax : 268435416 < baObj.cap % 2 ^ 64 * BitVec.toNat (2 : BitVec 64) % 2 ^ 64 :=
-            by assumption
-          have hmul : baObj.cap % 2 ^ 64 * BitVec.toNat (2 : BitVec 64) % 2 ^ 64 = baObj.cap * 2 :=
-            by
-            rw [hcapMod]; have h2 : (2#64 : BitVec 64).toNat = 2 := rfl
-            rw [show BitVec.toNat (2 : BitVec 64) = 2 from h2, Nat.mod_eq_of_lt
-              (by have := hcanon.2.2.2.2.2.2.2.2; unfold baMaxCap at *; omega)]
-          rw [hmul] at hgtMax
-          have hmin : min baMaxCap (baObj.cap * 2) = 268435416 := by unfold baMaxCap; omega
-          simp [newCap, baEnsureCap, hne, hnlt, hcapNe0, hmin]
-        · exfalso
-          have hge2 : baObj.cap % 2 ^ 64 * BitVec.toNat (2 : BitVec 64) % 2 ^ 64 ≤
-              baObj.arrSize % 2 ^ 64 := by assumption
-          have hc0 : BitVec.ofNat 64 baObj.cap ≠ 0 := by assumption
-          have hcapNe0 : baObj.cap ≠ 0 := fun h0 => hc0 (by simp [h0])
-          have hmul : baObj.cap % 2 ^ 64 * BitVec.toNat (2 : BitVec 64) % 2 ^ 64 = baObj.cap * 2 :=
-            by
-            rw [hcapMod]; have h2 : (2#64 : BitVec 64).toNat = 2 := rfl
-            rw [show BitVec.toNat (2 : BitVec 64) = 2 from h2, Nat.mod_eq_of_lt
-              (by have := hcanon.2.2.2.2.2.2.2.2; unfold baMaxCap at *; omega)]
-          rw [hmul, harsMod] at hge2
-          have := hcanon.2.2.2.2.2.2.2.1; omega
-        · exfalso
-          have hge2 : baObj.cap % 2 ^ 64 * BitVec.toNat (2 : BitVec 64) % 2 ^ 64 ≤
-              baObj.arrSize % 2 ^ 64 := by assumption
-          have hc0 : BitVec.ofNat 64 baObj.cap ≠ 0 := by assumption
-          have hcapNe0 : baObj.cap ≠ 0 := fun h0 => hc0 (by simp [h0])
-          have hmul : baObj.cap % 2 ^ 64 * BitVec.toNat (2 : BitVec 64) % 2 ^ 64 = baObj.cap * 2 :=
-            by
-            rw [hcapMod]; have h2 : (2#64 : BitVec 64).toNat = 2 := rfl
-            rw [show BitVec.toNat (2 : BitVec 64) = 2 from h2, Nat.mod_eq_of_lt
-              (by have := hcanon.2.2.2.2.2.2.2.2; unfold baMaxCap at *; omega)]
-          rw [hmul, harsMod] at hge2
-          have := hcanon.2.2.2.2.2.2.2.1; omega
-        · apply hJnc
-          refine ⟨rfl, ?_⟩
-          have hne : expand ≠ 0#64 := by assumption
-          have hnlt : ¬ baObj.arrSize % 2 ^ 64 < baObj.cap % 2 ^ 64 := by assumption
-          rw [harsMod, hcapMod] at hnlt
-          have hc0 : BitVec.ofNat 64 baObj.cap ≠ 0 := by assumption
-          have hcapNe0 : baObj.cap ≠ 0 := fun h0 => hc0 (by simp [h0])
-          have hngt : ¬ 268435416 < baObj.cap % 2 ^ 64 * BitVec.toNat (2 : BitVec 64) % 2 ^ 64 :=
-            by assumption
-          have hmul : baObj.cap % 2 ^ 64 * BitVec.toNat (2 : BitVec 64) % 2 ^ 64 = baObj.cap * 2 :=
-            by
-            rw [hcapMod]; have h2 : (2#64 : BitVec 64).toNat = 2 := rfl
-            rw [show BitVec.toNat (2 : BitVec 64) = 2 from h2, Nat.mod_eq_of_lt
-              (by have := hcanon.2.2.2.2.2.2.2.2; unfold baMaxCap at *; omega)]
-          rw [hmul] at hngt
-          have hmin : min baMaxCap (baObj.cap * 2) = baObj.cap * 2 := by unfold baMaxCap; omega
-          simp only [newCap, baEnsureCap, hne, ↓reduceIte, hnlt, hcapNe0, hmin]
-          rw [show (2 : BitVec 64) = BitVec.ofNat 64 2 from rfl, ← BitVec.ofNat_mul]
-        · apply hJnc
-          refine ⟨rfl, ?_⟩
-          have hex : expand = 0#64 := by assumption
-          simp [newCap, baEnsureCap, hex]
-  · intro Jouter hJouter
-    r2_steps
-    · have hrc1 := ba_rc_of_mask_eq1 hwf (by assumption)
-      have hex : expand = 0#64 := by assumption
-      exact ba_ensure_fast_ok hcanon rfl hrc1 (Or.inl hex) hm hPost
-    · have hrc1 := ba_rc_of_mask_eq1 hwf (by assumption)
-      have hlt : baObj.arrSize % 2 ^ 64 < baObj.cap % 2 ^ 64 := by assumption
-      rw [harsMod, hcapMod] at hlt
-      exact ba_ensure_fast_ok hcanon rfl hrc1 (Or.inr hlt) hm hPost
-    · apply hJouter
-      refine ⟨rfl, Or.inr ⟨by assumption, ?_⟩⟩
-      have hnlt : ¬ baObj.arrSize % 2 ^ 64 < baObj.cap % 2 ^ 64 := by assumption
-      rw [harsMod, hcapMod] at hnlt
-      omega
-    · apply hJouter
-      exact ⟨rfl, Or.inl (ba_rc_ne1_of_mask hwf (by assumption))⟩
+  refine ensureExclCore_wp (init := 8) (maxc := baMaxCap) (by decide) (by decide) (by decide)
+    hcanon.2.2.2.2.2.2.2.1 hcanon.2.2.2.2.2.2.2.2
+    (fun hrc hfast => ba_ensure_fast_ok hcanon rfl (ba_rc_of_mask_eq1 hwf hrc) hfast hm hPost)
+    (fun hp => by rw [ite_eq_left_of_eq_true _ _ (eq_true hp)] at hPost; exact hPost)
+    (fun hslow hpanic _ => ?_)
+  rw [ite_eq_right_of_eq_false _ _ (eq_false hpanic)] at hPost
+  rcases hPost with ⟨hav, hpost⟩
+  have hslowRc := hslow.imp_left (ba_rc_ne1_of_mask hwf)
+  have hcapProps := ensureCapGen_props (init := 8) (maxc := baMaxCap) (by decide) (by decide)
+    hcanon.2.2.2.2.2.2.2.1 hcanon.2.2.2.2.2.2.2.2 hpanic
+  rw [← baEnsureCap_eq_gen] at hcapProps ⊢
+  let newCap := baEnsureCap baObj.arrSize baObj.cap expand
+  have hszLe : baObj.arrSize ≤ newCap := hcapProps.1
+  have hcapMax : newCap ≤ baMaxCap := hcapProps.2.1
+  have hcap64New : newCap < 2 ^ 64 := by unfold baMaxCap at hcapMax; omega
+  change LeanQbe.T.wp _ _ _ _ _
+  r2_call rtR2Env_r2_alloc_sarray
+  dsimp only [r2AllocSarraySpec, vals, Tup.map, Arg.val]
+  have hszTo : (BitVec.ofNat 64 baObj.arrSize).toNat = baObj.arrSize := by
+    rw [BitVec.toNat_ofNat, harsMod]
+  have hncTo : (BitVec.ofNat 64 newCap).toNat = newCap := by
+    rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hcap64New]
+  have hvalidA : (BitVec.ofNat 64 baObj.arrSize).toNat ≤ (BitVec.ofNat 64 newCap).toNat ∧
+      (BitVec.ofNat 64 newCap).toNat ≤ baMaxCap := by
+    rw [hszTo, hncTo]; exact ⟨hszLe, hcapMax⟩
+  rw [ite_eq_left_of_eq_true _ _ (eq_true hvalidA)]
+  refine ⟨st, lcnfObjMem baObj ⋆ R, ?_, sep_cast hm (by ac_rfl),
+    fun r st1 m1 hr0 hr8 hpr1 hrem1 _ hm1 => ?_⟩
+  · rw [hncTo]; exact hav hslowRc
+  rw [hncTo] at hm1
+  change LeanQbe.T.wp _ _ _ _ _
+  r2_steps
+  have hlenData : baObj.scalarData.length = (BitVec.ofNat 64 baObj.arrSize).toNat := by
+    rw [hszTo]; exact hcanon.2.2.2.2.2.2.1.symm
+  have hfitRem : baAllocBytes newCap - 24 ≤ 2 ^ 64 := by
+    unfold baAllocBytes align8 baMaxCap at *; omega
+  r2_call rtR2Env_r2_mem_copy_bytes
+  dsimp only [r2MemCopyBytesSpec, vals, Tup.map, Arg.val]
+  have hm1' : (bytes (baObj.addr + 24#64) baObj.scalarData ⋆
+      region (r + 24#64) (baAllocBytes newCap - 24) ⋆
+      (rtC0Inv rt st1 ⋆ cell64 r baHeaderWord ⋆
+        cell64 (r + 8#64) (BitVec.ofNat 64 baObj.arrSize) ⋆
+        cell64 (r + 16#64) (BitVec.ofNat 64 newCap) ⋆
+        cell64 baObj.addr baObj.header ⋆
+        cell64 (baObj.addr + 8#64) (BitVec.ofNat 64 baObj.arrSize) ⋆
+        cell64 (baObj.addr + 16#64) (BitVec.ofNat 64 baObj.cap) ⋆
+        region (baObj.addr + BitVec.ofNat 64 (24 + baObj.scalarData.length))
+          (baAllocBytes baObj.cap - (24 + baObj.scalarData.length)) ⋆ R)) m1 := by
+    have h1S := lcnfObjMem_sarray_elim hcanon
+      (R := rtC0Inv rt st1 ⋆ cell64 r baHeaderWord ⋆
+        cell64 (r + 8#64) (BitVec.ofNat 64 baObj.arrSize) ⋆
+        cell64 (r + 16#64) (BitVec.ofNat 64 newCap) ⋆
+        region (r + 24#64) (baAllocBytes newCap - 24) ⋆ R)
+      (sep_cast hm1 (by ac_rfl))
+    exact sep_cast h1S (by ac_rfl)
+  refine ⟨baObj.scalarData, baAllocBytes newCap - 24, _, hlenData,
+    by rw [hszTo]; have := baAllocBytes_ge newCap; omega, hfitRem, hm1', fun m2 hm2 => ?_⟩
+  change LeanQbe.T.wp _ _ _ _ _
+  have hlenB : BitVec.ofNat 64 baObj.arrSize = BitVec.ofNat 64 baObj.scalarData.length := by
+    rw [hcanon.2.2.2.2.2.2.1]
+  have hm2Bytes : (cell64 r baHeaderWord ⋆
+      cell64 (r + 8#64) (BitVec.ofNat 64 baObj.scalarData.length) ⋆
+      cell64 (r + 16#64) (BitVec.ofNat 64 newCap) ⋆
+      bytes (r + 24#64) baObj.scalarData ⋆
+      region (r + 24#64 + BitVec.ofNat 64 baObj.scalarData.length)
+        (baAllocBytes newCap - 24 - baObj.scalarData.length) ⋆
+      (rtC0Inv rt st1 ⋆
+        cell64 baObj.addr baObj.header ⋆
+        cell64 (baObj.addr + 8#64) (BitVec.ofNat 64 baObj.scalarData.length) ⋆
+        cell64 (baObj.addr + 16#64) (BitVec.ofNat 64 baObj.cap) ⋆
+        bytes (baObj.addr + 24#64) baObj.scalarData ⋆
+        region (baObj.addr + BitVec.ofNat 64 (24 + baObj.scalarData.length))
+          (baAllocBytes baObj.cap - (24 + baObj.scalarData.length)) ⋆ R)) m2 := by
+    have hlenTo : (BitVec.ofNat 64 baObj.scalarData.length).toNat =
+        baObj.scalarData.length := by
+      have hlenLt64 : baObj.scalarData.length < 2 ^ 64 := by
+        rw [← hcanon.2.2.2.2.2.2.1]; exact hsz64
+      rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hlenLt64]
+    rw [hlenB, hlenTo, show (24 : BitVec 64) = 24#64 from rfl] at hm2
+    let regR := region (r + 24#64 + BitVec.ofNat 64 baObj.scalarData.length)
+      (baAllocBytes newCap - 24 - baObj.scalarData.length)
+    let regA := region (baObj.addr + BitVec.ofNat 64 (24 + baObj.scalarData.length))
+      (baAllocBytes baObj.cap - (24 + baObj.scalarData.length))
+    have hm2A : (bytes (baObj.addr + 24#64) baObj.scalarData ⋆
+        bytes (r + 24#64) baObj.scalarData ⋆ regR ⋆
+        (rtC0Inv rt st1 ⋆ cell64 r baHeaderWord ⋆
+          cell64 (r + 8#64) (BitVec.ofNat 64 baObj.scalarData.length) ⋆
+          cell64 (r + 16#64) (BitVec.ofNat 64 newCap) ⋆
+          cell64 baObj.addr baObj.header ⋆
+          cell64 (baObj.addr + 8#64) (BitVec.ofNat 64 baObj.scalarData.length) ⋆
+          cell64 (baObj.addr + 16#64) (BitVec.ofNat 64 baObj.cap) ⋆ regA ⋆ R)) m2 := hm2
+    change (cell64 r baHeaderWord ⋆
+      cell64 (r + 8#64) (BitVec.ofNat 64 baObj.scalarData.length) ⋆
+      cell64 (r + 16#64) (BitVec.ofNat 64 newCap) ⋆
+      bytes (r + 24#64) baObj.scalarData ⋆ regR ⋆
+      (rtC0Inv rt st1 ⋆ cell64 baObj.addr baObj.header ⋆
+        cell64 (baObj.addr + 8#64) (BitVec.ofNat 64 baObj.scalarData.length) ⋆
+        cell64 (baObj.addr + 16#64) (BitVec.ofNat 64 baObj.cap) ⋆
+        bytes (baObj.addr + 24#64) baObj.scalarData ⋆ regA ⋆ R)) m2
+    exact sep_cast hm2A (by ac_rfl)
+  have hmOld : (lcnfObjMem baObj ⋆
+      (rtC0Inv rt st1 ⋆ (lcnfObjMem (mkBaObj r 1#32 newCap baObj.scalarData) ⋆ R))) m2 := by
+    rw [lcnfObjMem_sarray_eq hcanon.2.2.2.2.2.1, hcanon.2.2.2.2.2.2.1]
+    have htb : baObj.totalBytes = baAllocBytes baObj.cap := by
+      unfold LcnfObj.totalBytes
+      simp [hcanon.2.2.2.2.2.1, hcanon.2.2.2.2.1, sarrayTag, arrayTag, baAllocBytes]
+    rw [htb]
+    exact sep_cast (mkBaObj_mem_of_parts hm2Bytes) (by ac_rfl)
+  refine cowTail_wp hwf hmOld fun st3 m3 hpr3 hrem3 hm3 => ?_
+  exact hpost r st3 m3 hr0 hr8 (hpr1.trans hpr3) (by omega)
+    (fun h1 h2 => (slow_not_fast hslowRc h1 h2).elim) hcapProps.2.2 hcapMax
+    (sep_cast hm3 (by ac_rfl))
 
 /-! ## 3. `lcnf_ba_empty` & `lcnf_ba_mk_empty` WP Proofs -/
 
@@ -835,7 +464,7 @@ theorem lcnf_ba_empty_wp :
     have hba24 : baAllocBytes (0 : BitVec 64).toNat = 24 := by
       simp [baAllocBytes, align8]
     rw [hba24]
-    refine ⟨st, R, hav, hm, fun p st1 m1 hp0 hp8 hpr1 hrem1 hm1 => ?_⟩
+    refine ⟨st, R, hav, hm, fun p st1 m1 hp0 hp8 hpr1 hrem1 _ hm1 => ?_⟩
     change LeanQbe.T.wp _ _ _ _ _
     have hmObj1 : (rtC0Inv rt st1 ⋆ lcnfObjMem (mkBaObj p 1#32 0 []) ⋆ R) m1 := by
       have hpParts : (cell64 p baHeaderWord ⋆
@@ -917,7 +546,7 @@ theorem lcnf_ba_mk_empty_wp :
       have h0c : (0 : BitVec 64).toNat ≤ c64.toNat ∧ c64.toNat ≤ baMaxCap := by
         rw [hcEq]; exact ⟨Nat.zero_le _, hvalid⟩
       rw [ite_eq_left_of_eq_true _ _ (eq_true h0c)]
-      refine ⟨st, R, by rw [hcEq]; exact hav, hm, fun p st' m1 hp0 hp8 hpr hrem hm1 => ?_⟩
+      refine ⟨st, R, by rw [hcEq]; exact hav, hm, fun p st' m1 hp0 hp8 hpr hrem _ hm1 => ?_⟩
       r2_steps
       have hmObj : (rtC0Inv rt st' ⋆
           lcnfObjMem (mkBaObj p 1#32 (if (cap &&& 1#64) ≠ 0#64 then (cap >>> 1).toNat else 0) []) ⋆
@@ -978,7 +607,8 @@ theorem lcnf_ba_mk_wp :
   dsimp only [Func.wp, lcnf_ba_mk_body]
   change LeanQbe.T.wp _ _ _ _ _
   r2_step
-  have hloadSz := arr_load_sz_mid hcanon hmSplit
+  have hloadSz := arr_load_sz_mid hcanon (R := rtC0Inv rt st ⋆ (rest ⋆ R))
+    (sep_cast hmSplit (by ac_rfl))
   rw [haddr] at hloadSz
   apply wp_load_of hloadSz
   let n := objs[k].fields.length
@@ -994,7 +624,7 @@ theorem lcnf_ba_mk_wp :
       (BitVec.ofNat 64 n).toNat ≤ baMaxCap := by rw [hnTo]; exact ⟨Nat.le_refl _, hnMax⟩
   rw [ite_eq_left_of_eq_true _ _ (eq_true hnn)]
   refine ⟨st, lcnfObjMem objs[k] ⋆ (rest ⋆ R), by rw [hnTo]; exact hav,
-    sep_cast hmSplit (by ac_rfl), fun ba st1 m1 hba0 hba8 hpr1 hrem1 hm1 => ?_⟩
+    sep_cast hmSplit (by ac_rfl), fun ba st1 m1 hba0 hba8 hpr1 hrem1 _ hm1 => ?_⟩
   rw [hnTo] at hm1
   change LeanQbe.T.wp _ _ _ _ _
   let Inv : Tup Val [i64] → Mem 64 → Prop := fun xs m' => match xs with
@@ -1026,12 +656,12 @@ theorem lcnf_ba_mk_wp :
       · have hloadElem : loadVal m' i64 (arr + 24#64 + 8#64 * BitVec.ofNat 64 i) =
             some objs[k].fields[i] := by
           have hl := arr_load_elem_mid hcanon (i := BitVec.ofNat 64 i)
-            (A := bytes (ba + 24#64)
+            (R := bytes (ba + 24#64)
               ((objs[k].fields.take i).map (fun elem => UInt8.ofNat (elem >>> 1#64).toNat)) ⋆
               region (ba + 24#64 + BitVec.ofNat 64 i) (baAllocBytes n - 24 - i) ⋆
               cell64 ba baHeaderWord ⋆ cell64 (ba + 8#64) (BitVec.ofNat 64 n) ⋆
-              cell64 (ba + 16#64) (BitVec.ofNat 64 n) ⋆ rtC0Inv rt st1)
-            (R := rest ⋆ R) (by rw [hiTo]; exact hlt) (sep_cast hmLoop (by ac_rfl))
+              cell64 (ba + 16#64) (BitVec.ofNat 64 n) ⋆ rtC0Inv rt st1 ⋆ (rest ⋆ R))
+            (by rw [hiTo]; exact hlt) (sep_cast hmLoop (by ac_rfl))
           simpa [haddr, hiTo] using hl
         apply wp_load_of hloadElem
         r2_step

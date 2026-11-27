@@ -16,7 +16,7 @@ meta import LeanQbe.T.LeanLCNF.LcnfC0Demo
 # End-to-End SysV x86-64 Linked Certificate & Execution Suite (`demoNatStrLinkedMod`)
 
 Links `demoNatStrProgMod` (`DemoNatStr.{addNat, addToStr, fmtSumTagged}`, `3` fns) onto the
-pre-verified `86`-function `rtC0CoreCert` (`LcnfC0FullCertX64`) via `LcnfC0LinkKit`, checks
+pre-verified `80`-function `rtC0CoreCert` (`LcnfC0FullCertX64`) via `LcnfC0LinkKit`, checks
 architecture isolation (`0` Arm64 imports), bridges `demoNatStrLinkedMod_moduleOk` to
 `x64Target.Defined` + `x64Target.FnSpec`, and proves closed concrete x86-64 `Eventually`
 (`step1 demoNatStrX64Cert.host.exe`, `XPost := False`) execution witnesses for all three
@@ -47,7 +47,7 @@ open LeanQbe.T LeanQbe.T.LeanLCNF LeanQbe.T.Amd64 Kraken
   if !arm.isEmpty then
     throwError "LcnfC0LinkedX64Test leaked Arm64 imports: {arm.toList}"
 
-#guard demoNatStrLinkedMod.fns.length == 89
+#guard demoNatStrLinkedMod.fns.length == 83
 #guard demoNatStrLinkedMod.externs.isEmpty
 #guard demoNatStrLinkedMod.exits == ["lcnf_panic"]
 #guard demoNatStrLinkedMod.checkAcyclic
@@ -57,14 +57,14 @@ compile_linked_chunks! demoNatStrX64ProgCert x64Target x64Layout x64LegalTarget 
   demoNatStrProgMod 2 (ext := rtC0CoreAllExt) (exits := rtExitSyms) (nX := 64)
   (maxDirs := 600)
 
-/-- Full `89`-function SysV x86-64 linked certificate combining `rtC0CoreCert` (`86` fns) and
+/-- Full `83`-function SysV x86-64 linked certificate combining `rtC0CoreCert` (`80` fns) and
 `demoNatStrX64ProgCert` (`3` fns) via `LcnfC0LinkKit.linkRtC0Cert`. -/
 @[expose] noncomputable def demoNatStrX64Cert :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean
       demoNatStrLinkedMod [] rtExitSyms 64 (Nat.max 2048 2048) :=
   linkRtC0Cert rtC0CoreCert demoNatStrX64ProgCert (by t_kernel_rfl)
 
-theorem demoNatStrX64Cert_bounds_len : demoNatStrX64Cert.bounds.length = 89 := by
+theorem demoNatStrX64Cert_bounds_len : demoNatStrX64Cert.bounds.length = 83 := by
   exact demoNatStrX64Cert.bounds_length.trans (by decide)
 
 theorem demoNatStrX64Cert_bounds_le :
@@ -228,7 +228,7 @@ private theorem nvBnRtWf_ok :
     BigNumRtWf nvBnRtBase nvBnRtState nvBnScr nvBnScrLimbs := by
   have hlen : nvBnScrLimbs.length = 32 := List.length_replicate
   refine ⟨?_, by decide, by decide, by decide, ?_, ?_⟩
-  · unfold BigNumRt.RtC0State.Bounded48
+  · unfold RtC0State.Bounded48
     decide
   · rw [hlen]
     decide
@@ -240,7 +240,7 @@ private theorem nvBnNatA_rep_ok : natRep nvBnAddrNatA nvValNatA nvBnObjs := by
   simp only [natRep, hge, ↓reduceIte]
   refine ⟨by decide, nvBnNatA, by simp [nvBnObjs], rfl, ?_, rfl, rfl, rfl,
     by decide, by decide, by decide, ?_, by decide⟩
-  · unfold BigNumRt.LcnfObj.Wf BigNumRt.LcnfObj.totalBytes
+  · unfold LcnfObj.Wf LcnfObj.totalBytes
     decide
   · simp [nvBnNatA, limbsVal, nvValNatA]
 
@@ -249,7 +249,7 @@ private theorem nvBnNatB_rep_ok : natRep nvBnAddrNatB nvValNatB nvBnObjs := by
   simp only [natRep, hge, ↓reduceIte]
   refine ⟨by decide, nvBnNatB, by simp [nvBnObjs], rfl, ?_, rfl, rfl, rfl,
     by decide, by decide, by decide, ?_, by decide⟩
-  · unfold BigNumRt.LcnfObj.Wf BigNumRt.LcnfObj.totalBytes
+  · unfold LcnfObj.Wf LcnfObj.totalBytes
     decide
   · simp [nvBnNatB, limbsVal, nvValNatB]
 
@@ -272,14 +272,14 @@ theorem demoNatStrX64_addNat_bignum_run :
     Eventually (step1 demoNatStrX64Cert.host.exe)
       (fun st =>
         st.pc = (0x1234 : Int64) ∧
-        ∃ (p : BitVec 64) (st' : BigNumRt.RtC0State) (scrLimbs' : List (BitVec 64))
-          (objs' : List BigNumRt.LcnfObj) (obj : BigNumRt.LcnfObj) (m' : Mem 64),
+        ∃ (p : BitVec 64) (st' : RtC0State) (scrLimbs' : List (BitVec 64))
+          (objs' : List LcnfObj) (obj : LcnfObj) (m' : Mem 64),
           st.data.regs.get64 .rax = p ∧
           (p &&& 1#64) = 0#64 ∧ obj ∈ objs' ∧ obj.addr = p ∧
-          obj.tag = BigNumRt.mpzTag ∧ obj.other = 0 ∧
+          obj.tag = mpzTag ∧ obj.other = 0 ∧
           natRep p (nvValNatA + nvValNatB) objs' ∧
           (bigNumRtInv nvBnRtBase st' nvBnScr scrLimbs' ⋆
-            BigNumRt.lcnfHeap objs') m' ∧
+            lcnfHeap objs') m' ∧
           (st.data.dmem =⋆ Eq m' ⋆
             region (0x0ff8#64 - BitVec.ofNat 64 b) (b + 8) ⋆ emp))
       ⟨s0, Labels.label "l_LeanQbe_T_LeanLCNF_DemoNatStr_addNat"⟩ := by
@@ -289,12 +289,12 @@ theorem demoNatStrX64_addNat_bignum_run :
   let s0 : MachineData :=
     { x64InitState b [] args with dmem := nvBnMem.union (x64InitState b [] args).dmem }
   let Q : Post [i64] := fun (r, ()) m' =>
-    ∃ (st' : BigNumRt.RtC0State) (scrLimbs' : List (BitVec 64))
-      (objs' : List BigNumRt.LcnfObj) (obj : BigNumRt.LcnfObj),
+    ∃ (st' : RtC0State) (scrLimbs' : List (BitVec 64))
+      (objs' : List LcnfObj) (obj : LcnfObj),
       (r &&& 1#64) = 0#64 ∧ obj ∈ objs' ∧ obj.addr = r ∧
-      obj.tag = BigNumRt.mpzTag ∧ obj.other = 0 ∧
+      obj.tag = mpzTag ∧ obj.other = 0 ∧
       natRep r (nvValNatA + nvValNatB) objs' ∧
-      (bigNumRtInv nvBnRtBase st' nvBnScr scrLimbs' ⋆ BigNumRt.lcnfHeap objs') m'
+      (bigNumRtInv nvBnRtBase st' nvBnScr scrLimbs' ⋆ lcnfHeap objs') m'
   have hb : b ≤ 2048 :=
     Nat.le_trans (demoNatStrX64Cert.bound_le_max "l_LeanQbe_T_LeanLCNF_DemoNatStr_addNat")
       (by decide)

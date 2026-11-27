@@ -13,9 +13,9 @@ import LeanQbe.T.Logic.ControlComb
 /-!
 # Shard `F3` Pilot Lowered-Module `ModuleOk` & Per-Function WP Proofs (`LcnfC0FfiPilotProof2`)
 
-Composes the full `171`-function closed module
+Composes the full `165`-function closed module
 `pilotLinkedMod :=`
-`  plainModule (59) ++ rtC0CoreMod (86) ++ ffiMod (15) ++ pilotC0 (6) ++ pilotProg (5)`
+`  plainModule (59) ++ rtC0CoreMod (80) ++ ffiMod (15) ++ pilotC0 (6) ++ pilotProg (5)`
 with `0` externs (`exits := ["lcnf_panic"]`), proves `Func.wp pilotLinkedEnv` for all `5` lowered
 Lean pilot functions (`checkSatBA`, `checkSatNat`, `xorBA`, `xorNat`, `solveXorBA`), and
 establishes whole-module `pilotLinkedMod_moduleOk`.
@@ -55,11 +55,11 @@ public section
       (fun f => ({ name := f.name, as := f.as, rs := f.rs } : Extern))
     exits := rtExitSyms }
 
-/-- Canonical `171`-function linked function list (`59 + 101 + 6 + 5`). -/
+/-- Canonical `165`-function linked function list (`59 + 95 + 6 + 5`). -/
 @[expose] def pilotLinkedFns : List Fn :=
   plainModule.fns ++ rtC0WithFfiMod.fns ++ pilotC0_fns ++ pilotProgMod.fns
 
-/-- Closed `171`-function verified FFI pilot `Module` (`0` externs, `exits := ["lcnf_panic"]`). -/
+/-- Closed `165`-function verified FFI pilot `Module` (`0` externs, `exits := ["lcnf_panic"]`). -/
 @[expose] def pilotLinkedMod : Module :=
   { fns := pilotLinkedFns, externs := [], exits := rtExitSyms }
 
@@ -138,7 +138,7 @@ theorem pilotProgSpecEntries_nodup : (pilotProgSpecEntries.map SpecEntry.name).N
 /-- Specification environment for `pilotProgMod` (`5` lowered Lean pilot callers). -/
 @[expose] def pilotProgEnv : Env := Env.ofTable pilotProgSpecEntries
 
-/-- Closed `171`-function specification environment covering `plainModule`, `rtC0CoreMod`,
+/-- Closed `165`-function specification environment covering `plainModule`, `rtC0CoreMod`,
 `ffiMod`, `pilotC0_module`, and `pilotProgMod`. -/
 @[expose] def pilotLinkedEnv : Env := fun f as bs xs m Q X =>
   pilotC0Env f as bs xs m Q X ∨
@@ -158,21 +158,10 @@ theorem rtC0CoreMod_env_le_pilotLinkedEnv :
       pilotLinkedEnv f as bs xs m Q X :=
   fun _ _ _ _ _ _ _ h => Or.inr (Or.inl h)
 
-private theorem ffiEnv_ofTable_sub {tbl : List SpecEntry} {Γ' : Env}
-    (h : ∀ e ∈ tbl, ∀ xs m Q X, e.eff xs m Q X → Γ' e.name e.as e.rs xs m Q X) :
-    ∀ f as bs xs m Q X, Env.ofTable tbl f as bs xs m Q X → Γ' f as bs xs m Q X := by
-  induction tbl with
-  | nil => intro _ _ _ _ _ _ _ hf; exact hf.elim
-  | cons e es ih =>
-    intro f as bs xs m Q X hs
-    rcases hs with ⟨⟨rfl, rfl, rfl⟩, he⟩ | ⟨_, hrest⟩
-    · exact h e List.mem_cons_self xs m Q X he
-    · exact ih (fun e' he' => h e' (List.mem_cons_of_mem _ he')) f as bs xs m Q X hrest
-
 theorem ffiEnv_le_pilotLinkedEnv :
     ∀ f as bs xs m Q X,
       ffiEnv f as bs xs m Q X → pilotLinkedEnv f as bs xs m Q X := by
-  refine ffiEnv_ofTable_sub (fun e he xs m Q X h => ?_)
+  refine env_ofTable_sub (fun e he xs m Q X h => ?_)
   simp only [ffiSpecEntries, List.mem_cons, List.not_mem_nil, or_false] at he
   rcases he with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
     rfl | rfl | rfl | rfl

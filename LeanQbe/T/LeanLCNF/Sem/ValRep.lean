@@ -216,7 +216,7 @@ mutual
       (w < 64 ∧ bv = BitVec.setWidth 64 v <<< 1 ||| 1#64) ∨
       (w = 64 ∧ ∃ o ∈ objs, o.addr = bv ∧ o.Wf ∧ o.tag = 0 ∧
         o.fields = [] ∧ o.scalarData = writeNatLE v.toNat 8)
-  | .nat n, bv, objs => natRepR0 bv n objs
+  | .nat n, bv, objs => natRep bv n objs
   | .ctor cidx fields scal, bv, objs =>
       (fields = [] ∧ scal = [] ∧ cidx < 2 ^ 63 ∧ bv = BitVec.ofNat 64 (2 * cidx + 1)) ∨
       (¬(fields = [] ∧ scal = []) ∧
@@ -283,8 +283,8 @@ theorem objDataEq_baCanon {o o' : LcnfObj} (hd : ObjDataEq o o') (hc : BaCanon o
   exact ⟨ha ▸ hc1, ha ▸ hc2, hwf.2.2.1, hcs ▸ hc4, ho ▸ hc5, ht ▸ hc6,
     has ▸ hs ▸ hc7, has ▸ hc' ▸ hc8, hc' ▸ hc9⟩
 
-theorem objDataEq_mpzNatCanonR0 {o o' : LcnfObj} {n : Nat} (hd : ObjDataEq o o')
-    (hc : mpzNatCanonR0 o n) : mpzNatCanonR0 o' n := by
+theorem objDataEq_mpzNatCanon {o o' : LcnfObj} {n : Nat} (hd : ObjDataEq o o')
+    (hc : mpzNatCanon o n) : mpzNatCanon o' n := by
   rcases hd with ⟨_, hwf, ht, _, _, has, _, hl, _, ho, _⟩
   rcases hc with ⟨_, hc2, hc3, hc4, hc5, hc6, hc7, hc8, hc9⟩
   exact ⟨hwf, ht ▸ hc2, ho ▸ hc3, has ▸ hl ▸ hc4, hl ▸ hc5, hl ▸ hc6, hl ▸ hc7, hl ▸ hc8, hc9⟩
@@ -386,12 +386,12 @@ theorem objRep_mono_pred {P : BitVec 64 → Prop} {objs objs' : List LcnfObj}
       | nat m =>
         dsimp only [ObjRep] at hrep ⊢
         by_cases hm : m < 2 ^ 63
-        · simp only [natRepR0, hm, ↓reduceIte] at hrep ⊢
+        · simp only [natRep, hm, ↓reduceIte] at hrep ⊢
           exact hrep
-        · simp only [natRepR0, hm, ↓reduceIte] at hrep ⊢
+        · simp only [natRep, hm, ↓reduceIte] at hrep ⊢
           rcases hrep with ⟨hb0, o, ho, hoa, hc⟩
           obtain ⟨o', ho', hd⟩ := hpres o ho hc.1 (hoa ▸ hp hb0)
-          exact ⟨hb0, o', ho', hd.1.trans hoa, objDataEq_mpzNatCanonR0 hd hc⟩
+          exact ⟨hb0, o', ho', hd.1.trans hoa, objDataEq_mpzNatCanon hd hc⟩
       | ctor cidx fs sc =>
         rcases hrep with ⟨hfs, hsc, hc63, hbv⟩ | ⟨hne, o, ho, hoa, hwf, ht, ht244, hsc, hfr⟩
         · exact Or.inl ⟨hfs, hsc, hc63, hbv⟩
@@ -590,7 +590,7 @@ theorem objRep_not_smaller {objs : List LcnfObj} (hnd : (objs.map LcnfObj.addr).
             subst hfs0
             simp [valNodes, listValNodes] at hgt
         | nat m =>
-          dsimp only [ObjRep, natRepR0] at hr2
+          dsimp only [ObjRep, natRep] at hr2
           split at hr2
           · rw [hr2] at hbv0; exact boxNat_and1_ne_zero m hbv0
           · rcases hr2 with ⟨_, o', ho', hoa', hc⟩
@@ -646,7 +646,7 @@ theorem objRep_not_smaller {objs : List LcnfObj} (hnd : (objs.map LcnfObj.addr).
           have : arrayTag = 0 := htagA.symm.trans ht'
           exact absurd this (by decide)
       | nat m =>
-        dsimp only [ObjRep, natRepR0] at hr2
+        dsimp only [ObjRep, natRep] at hr2
         split at hr2
         · exact boxNat_and1_ne_zero m (hr2 ▸ hbv0)
         · rcases hr2 with ⟨_, o', ho', hoa', hc⟩

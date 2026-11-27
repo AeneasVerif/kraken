@@ -18,7 +18,6 @@ open Std Std.ExtHashMap
 open LeanQbe.T
 open LeanQbe.T.C0Step
 open LeanQbe.T.ProofUtil
-open BigNumRt
 
 local macro "sep_ac" : tactic =>
   `(tactic| exact sep_cast_ac (by assumption) (by ac_rfl))
@@ -264,12 +263,12 @@ private theorem mpz_single_limb_intRep
     rcases hobj0 with ⟨h1, h2, h3, h4, _, h6, h7, h8, h9, hrest⟩
     simp only [mpzTag, ↓reduceIte] at hrest ⊢
     have htb : obj.totalBytes = 24 := by
-      simp only [obj, LcnfObj.totalBytes, BigNumRt.mpzTag, BigNumRt.arrayTag,
-        BigNumRt.sarrayTag, BigNumRt.stringTag, show (250 : Nat) ≠ 246 by decide,
+      simp only [obj, LcnfObj.totalBytes, mpzTag, arrayTag,
+        sarrayTag, stringTag, show (250 : Nat) ≠ 246 by decide,
         show (250 : Nat) ≠ 248 by decide, show (250 : Nat) ≠ 249 by decide, ↓reduceIte]
     have htb0 : (mkMpz1Obj p 0 [0#64]).totalBytes = 24 := by
-      simp only [LcnfObj.totalBytes, BigNumRt.mpzTag, BigNumRt.arrayTag,
-        BigNumRt.sarrayTag, BigNumRt.stringTag, show (250 : Nat) ≠ 246 by decide,
+      simp only [LcnfObj.totalBytes, mpzTag, arrayTag,
+        sarrayTag, stringTag, show (250 : Nat) ≠ 246 by decide,
         show (250 : Nat) ≠ 248 by decide, show (250 : Nat) ≠ 249 by decide, ↓reduceIte]
     refine ⟨h1, h2, h3, h4, hoth_lt, h6, ?_, ?_, ?_, by simp [obj], hrest.2.1, hrest.2.2⟩
     · rw [htb]; rw [htb0] at h7; exact h7
@@ -656,7 +655,7 @@ private theorem lcnf_int_conv_op2_boxed_wp :
     · refine rtR1Env_bn_require_scratch ?_
       dsimp only [bnRequireScratchSpec, vals, Arg.val]
       refine ⟨scr, BitVec.ofNat 64 scrLimbs.length,
-        BigNumRt.rtC0Inv rt st ⋆ array64 scr scrLimbs ⋆ lcnfHeap objs ⋆ R,
+        rtC0Inv rt st ⋆ array64 scr scrLimbs ⋆ lcnfHeap objs ⋆ R,
         hwf.2.2.1, ?_, ?_, rfl, rfl⟩
       · rw [hadd1_eq, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hwf.2.2.2.2.1]; exact hscrLen
       · dsimp only [bigNumRtInv] at hm
@@ -670,7 +669,7 @@ private theorem lcnf_int_conv_op2_boxed_wp :
       have hm_add : (array64 (a + 16#64) objA.limbs ⋆ array64 scr scrLimbs ⋆
           (cell64 objA.addr objA.header ⋆ cell64 (objA.addr + 8#64) objA.mpzMeta ⋆
             lcnfHeap (objs.take idx) ⋆ lcnfHeap (objs.drop (idx + 1)) ⋆
-            BigNumRt.rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
+            rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
             cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆ R)) m := by
         rw [hAaddr]
         rw [hAaddr] at hm_foc
@@ -1001,7 +1000,7 @@ private theorem lcnf_int_conv_op39_wp :
       · refine rtR1Env_bn_require_scratch ?_
         dsimp only [bnRequireScratchSpec, vals, Arg.val]
         refine ⟨scr, BitVec.ofNat 64 scrLimbs.length,
-          BigNumRt.rtC0Inv rt st ⋆ array64 scr scrLimbs ⋆ lcnfHeap objs ⋆ R,
+          rtC0Inv rt st ⋆ array64 scr scrLimbs ⋆ lcnfHeap objs ⋆ R,
           hwf.2.2.1, ?_, ?_, rfl, rfl⟩
         · rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hna_lt, BitVec.toNat_ofNat,
             Nat.mod_eq_of_lt hwf.2.2.2.2.1]; exact hscrLen
@@ -1018,7 +1017,7 @@ private theorem lcnf_int_conv_op39_wp :
             (bigNumRtInv rt st scr scrLimbs' ⋆ lcnfHeap objs ⋆ R) m2) ?_ ?_
         · refine rtR1Env_bn_load_int ?_
           dsimp only [bnLoadIntSpec, vals, Arg.val]
-          refine ⟨z, objs, scrLimbs, BigNumRt.rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
+          refine ⟨z, objs, scrLimbs, rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
               cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆ R,
             hrep, hscrLen, ?_, fun xs' m2 hlen' hval' _ hm2 => ?_⟩
           · dsimp only [bigNumRtInv] at hm

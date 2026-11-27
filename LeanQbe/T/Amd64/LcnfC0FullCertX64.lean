@@ -12,10 +12,10 @@ public import LeanQbe.T.MainCertProof
 public import LeanQbe.T.AbiLemmas
 
 /-!
-# Whole-Module SysV x64 `LinkedCert` & `FnSpec` Bridge for `rtC0CoreMod` (86 Functions)
+# Whole-Module SysV x64 `LinkedCert` & `FnSpec` Bridge for `rtC0CoreMod` (80 Functions)
 
 Combines the seven verified x64 compilation slices (`LcnfC0FullCertX64S1`..`S7`) via balanced
-`LinkedCert.append` into `rtC0CoreCert` over the complete 86-function pure-C0 LCNF runtime
+`LinkedCert.append` into `rtC0CoreCert` over the complete 80-function pure-C0 LCNF runtime
 (`rtC0CoreMod`, `0` externs, `exits = ["lcnf_panic"]`, `nX = 64`), and bridges
 `rtC0CoreMod_moduleOk` (`rtC0CoreEnv`) to whole-module `x64Target.Defined` + `x64Target.FnSpec`
 and concrete machine-level runtime `FnSpec` theorems.
@@ -41,7 +41,7 @@ private theorem drop_take_drop {l : List Fn} {a b : Nat} :
   have h := (List.take_append_drop b (l.drop a)).symm
   rwa [List.drop_drop] at h
 
-/-- Complete kernel-checked SysV x64 compilation certificate for all `86` functions of
+/-- Complete kernel-checked SysV x64 compilation certificate for all `80` functions of
 `rtC0CoreMod` (`0` externs, `exits = ["lcnf_panic"]`, `nX = 64`). -/
 @[expose] noncomputable def rtC0CoreCert :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean
@@ -49,7 +49,7 @@ private theorem drop_take_drop {l : List Fn} {a b : Nat} :
   let mod12 : Module := { fns := rtC0CoreFlatMod.fns.take 30, exits := rtExitSyms }
   let mod34 : Module := { fns := (rtC0CoreFlatMod.fns.drop 30).take 9, exits := rtExitSyms }
   let mod14 : Module := { fns := rtC0CoreFlatMod.fns.take 39, exits := rtExitSyms }
-  let mod56 : Module := { fns := (rtC0CoreFlatMod.fns.drop 39).take 39, exits := rtExitSyms }
+  let mod56 : Module := { fns := (rtC0CoreFlatMod.fns.drop 39).take 33, exits := rtExitSyms }
   let mod57 : Module := { fns := rtC0CoreFlatMod.fns.drop 39, exits := rtExitSyms }
   let cert12 : LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean
       mod12 [] rtExitSyms 64 2048 :=
@@ -69,12 +69,12 @@ private theorem drop_take_drop {l : List Fn} {a b : Nat} :
   let cert56 : LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean
       mod56 (rtC0ExtBefore 39) rtExitSyms 64 2048 :=
     rtC0CertS5.append rtC0CertS6
-      (by exact drop_take_add (l := rtC0CoreFlatMod.fns) (a := 39) (b := 22) (c := 17))
+      (by exact drop_take_add (l := rtC0CoreFlatMod.fns) (a := 39) (b := 22) (c := 11))
       (by t_kernel_rfl)
   let cert57 : LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean
       mod57 (rtC0ExtBefore 39) rtExitSyms 64 2048 :=
     cert56.append rtC0CertS7
-      (by exact drop_take_drop (l := rtC0CoreFlatMod.fns) (a := 39) (b := 39))
+      (by exact drop_take_drop (l := rtC0CoreFlatMod.fns) (a := 39) (b := 33))
       (by t_kernel_rfl)
   cert14.append cert57
     (by
@@ -88,13 +88,13 @@ private theorem rtC0CoreMod_legalSig_check :
     checkLegalSigAll x64LegalTarget rtC0CoreMod.fns = true := by
   t_kernel_rfl
 
-/-- Every function signature in `rtC0CoreMod.fns` (`86` fns) is fixed by `x64LegalTarget.legalSig`.
+/-- Every function signature in `rtC0CoreMod.fns` (`80` fns) is fixed by `x64LegalTarget.legalSig`.
 -/
 theorem rtC0CoreMod_legalSig : LegalSigAll x64LegalTarget rtC0CoreMod.fns :=
   legalSigAll_of_check rtC0CoreMod_legalSig_check
 
-/-- Kernel check that `rtC0CoreCert.bounds` covers all `86` runtime functions. -/
-theorem rtC0CoreCert_bounds_len : rtC0CoreCert.bounds.length = 86 :=
+/-- Kernel check that `rtC0CoreCert.bounds` covers all `80` runtime functions. -/
+theorem rtC0CoreCert_bounds_len : rtC0CoreCert.bounds.length = 80 :=
   rtC0CoreCert.bounds_length.trans rtC0CoreFns_length
 
 /-- Kernel check that every runtime stack bound in `rtC0CoreCert` is at most `272` bytes. -/
@@ -111,7 +111,7 @@ private theorem rtC0CoreMod_hwp :
   obtain ⟨pre, post, hsp⟩ := List.mem_iff_append.mp hfn
   exact (rtC0CoreMod_moduleOk.fnsOk pre fn post hsp).2.2 xs m Q X hc
 
-/-- Whole-module legalized `x64Target.Defined` + `x64Target.FnSpec` across all `86` runtime
+/-- Whole-module legalized `x64Target.Defined` + `x64Target.FnSpec` across all `80` runtime
 functions on `rtC0CoreCert.host` (`nX = 64`), derived from `rtC0CoreMod_moduleOk`. -/
 theorem rtC0Core_all_fnSpec {fn : Fn} (hfn : fn ∈ rtC0CoreMod.fns) :
     x64Target.Defined rtC0CoreCert.host fn.name ∧
@@ -122,7 +122,7 @@ theorem rtC0Core_all_fnSpec {fn : Fn} (hfn : fn ∈ rtC0CoreMod.fns) :
   rtC0CoreCert.fnSpec_host rtC0CoreEnv rtC0CoreMod_checkAcyclic rtC0CoreMod_fns_wf
     rtC0CoreMod_hwp hfn
 
-/-- Whole-module source-signature `x64Target.Defined` + `x64Target.FnSpec` across all `86` runtime
+/-- Whole-module source-signature `x64Target.Defined` + `x64Target.FnSpec` across all `80` runtime
 functions on `rtC0CoreCert.host` (`nX = 64`), bridging `rtC0CoreMod_moduleOk` and
 `rtC0CoreMod_legalSig`. -/
 theorem rtC0Core_all_fnSpec_src {fn : Fn} (hfn : fn ∈ rtC0CoreMod.fns) :
@@ -138,7 +138,7 @@ theorem rtC0Core_all_fnSpec_src {fn : Fn} (hfn : fn ∈ rtC0CoreMod.fns) :
     List.mem_append_left _ (List.mem_map.mpr ⟨fn, hfn, rfl⟩)
   exact ⟨hdef, fnSpec_of_legalEnv_legalSig_eq has hrs hmem hsp⟩
 
-/-- Index-accessed whole-module source-signature `Defined` + `FnSpec` for all `i < 86`. -/
+/-- Index-accessed whole-module source-signature `Defined` + `FnSpec` for all `i < 80`. -/
 theorem rtC0Core_fnSpec_src_at_idx {i : Nat} (hi : i < rtC0CoreMod.fns.length) :
     x64Target.Defined rtC0CoreCert.host (rtC0CoreMod.fns[i]).name ∧
     x64Target.FnSpec rtC0CoreCert.host (rtC0CoreMod.fns[i]).name
@@ -206,7 +206,7 @@ theorem rtC0Core_nat_to_str_fnSpec :
     x64Target.Defined rtC0CoreCert.host "lcnf_nat_to_str" ∧
     x64Target.FnSpec rtC0CoreCert.host "lcnf_nat_to_str" lcnfNatToStrSpec
       (rtC0CoreCert.bound "lcnf_nat_to_str") 64 := by
-  have hsrc := rtC0Core_fnSpec_src_at_idx (i := 85) (by decide)
+  have hsrc := rtC0Core_fnSpec_src_at_idx (i := 79) (by decide)
   refine ⟨hsrc.1, Target.FnSpec.of_spec x64Target hsrc.2 ?_⟩
   rintro ⟨rt, n, ⟨⟩⟩ m Q X ⟨st, val, objs, R, hIn, hwf, hm, hrest⟩
   refine rtR2bEnv_le_rtC0CoreEnv _ _ _ _ _ _ _ (rtR2bEnv_lcnf_nat_to_str ?_)

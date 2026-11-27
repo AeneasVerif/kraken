@@ -35,7 +35,7 @@ open LeanQbe.T LeanQbe.T.LeanLCNF LeanQbe.T.Amd64
 
 #guard recDemoLcMod.decls.length == 1
 #guard recDemoTfs.length == 1
-#guard recDemoLinkedMod.fns.length == 87
+#guard recDemoLinkedMod.fns.length == 81
 #guard recDemoLinkedMod.externs.isEmpty
 #guard recDemoLinkedMod.exits == ["lcnf_panic"]
 #guard !(hasSelfTail "LeanQbe.T.LeanLCNF.RecDemo.listSum" 1 recDemoLcMod.decls[0]!.body)

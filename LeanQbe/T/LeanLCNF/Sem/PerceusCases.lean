@@ -343,7 +343,7 @@ public theorem casesTag_step {rt : BitVec 64} {rf : RcFrame} {σ : HState}
       obtain ⟨hnlt, hne_obj⟩ := hsafe'
       simp only [PVal.tag?, Option.some.injEq] at htag'
       dsimp only [ObjRep] at hobj
-      have hbv := (natRepR0_small hnlt).mp hobj
+      have hbv := (natRep_small hnlt).mp hobj
       have hodd : bv &&& 1#64 ≠ 0#64 := hbv ▸ boxNat_and1_ne_zero n
       have hnot_obj : ¬ (vx.ty = .object) := fun h => absurd (ho1 h) hodd
       have hshr : (bv >>> 1).toNat = n := hbv ▸ boxNat_shr1_toNat hnlt
@@ -417,7 +417,7 @@ private theorem tagged_obj_bv_odd {ty : LcTy} {pv : PVal} {bv : BitVec 64} {objs
   | nat n =>
     simp only [isTaggedPVal, decide_eq_true_eq] at htag
     dsimp only [ObjRep] at hobj
-    rw [(natRepR0_small htag).mp hobj]
+    rw [(natRep_small htag).mp hobj]
     exact boxNat_and1_ne_zero n
   | ctor cidx fs sc =>
     cases fs with

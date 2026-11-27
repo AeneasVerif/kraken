@@ -908,7 +908,7 @@ private theorem nonPersistRefs_zero_of_not_in_closed {objs : List LcnfObj}
 
 theorem heapClean_fresh_alloc {rt : BitVec 64} {σ : HState}
     (hc : HeapClean rt σ) {newObj : LcnfObj} {st' : RtC0State} {scrLimbs' : List (BitVec 64)}
-    (hbn : BigNumRtWfR0 rt st' σ.scr scrLimbs')
+    (hbn : BigNumRtWf rt st' σ.scr scrLimbs')
     (hwfNew : newObj.Wf) (hrcNew : newObj.rc.toNat < 2 ^ 31 - 1)
     (hfresh : ∀ o ∈ σ.objs, o.addr ≠ newObj.addr)
     (hwc : σ.objs.length + 1 ≤ st'.workCap)
@@ -1028,10 +1028,10 @@ theorem objDataEq_trans {o1 o2 o3 : LcnfObj} (h12 : ObjDataEq o1 o2) (h23 : ObjD
   exact ⟨a2.trans a1, w2, t2.trans t1, f2.trans f1, s2.trans s1, as2.trans as1,
     sl2.trans sl1, l2.trans l1, c2.trans c1, o2'.trans o1', cs2.trans cs1⟩
 
-theorem bigNumRtWfR0_of_preservesMeta {rt : BitVec 64} {st st' : RtC0State}
+theorem bigNumRtWf_of_preservesMeta {rt : BitVec 64} {st st' : RtC0State}
     {scr : BitVec 64} {scrLimbs : List (BitVec 64)}
-    (hwf : BigNumRtWfR0 rt st scr scrLimbs) (hp : st'.PreservesMeta st) :
-    BigNumRtWfR0 rt st' scr scrLimbs := by
+    (hwf : BigNumRtWf rt st scr scrLimbs) (hp : st'.PreservesMeta st) :
+    BigNumRtWf rt st' scr scrLimbs := by
   rcases hwf with ⟨h1, h2, h3, h4, h5, h6⟩
   refine ⟨?_, h2, h3, h4, h5, h6⟩
   unfold RtC0State.Bounded48 at h1 ⊢
