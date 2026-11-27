@@ -2,6 +2,7 @@ module
 
 public import LeanQbe.T.Arm64.IselCore
 public import LeanQbe.T.Arm64.IselScr
+public import LeanQbe.T.Arm64.IselCcmp
 
 /-!
 # AArch64 Scalar Instruction Selection (`GprIsa`)
@@ -414,5 +415,8 @@ def armOpScr (scr : List (Reg × BitVec 64)) {sig rs : List Ty} (code : OpCode s
   loadScr? := some armLoadScr
   loadZextIdxScr? := some armLoadZextIdxScr
   opScr? := some armOpScr
+  ccmp? := some armCcmp
+  selectNeg? := some armSelectNeg
+  zeroUpper32SelectNeg := true
 
 end LeanQbe.T.Arm64

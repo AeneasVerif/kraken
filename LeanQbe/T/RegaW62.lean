@@ -436,6 +436,8 @@ def recordDef (defs : Trie DefFact) :
     if Nat.blt 0 m && Nat.blt m n && Nat.ble n 64 then some (.sextVar m n x) else none
   | _, _, .zext m n, (.var x, ()) =>
     if Nat.blt 0 m && Nat.blt m n && Nat.ble n 64 then some (.zextVar m n x) else none
+  | _, _, .neg (.bits n), (.var x, ()) =>
+    if Nat.ble n 64 then some (.negVar n x) else none
   | _, _, _, _ => none
 
 /-- `recordDef`, except that under `cse` an `x ± c` over a scaled `addrSum` `x` is recorded as

@@ -978,7 +978,9 @@ theorem armSelectCondScr_wp [Host] {scr : List (Reg × BitVec 64)} {n : Nat}
                   refine armWp_append (armArgInScr_wp hn64 htmp ha hpa1 hscr) ?_
                   rintro s₁ ⟨hra₁, _, _, hdmem₁, hst₁, hfr₁, hscr₁⟩
                   have hfrScr : armMach.Frame armCondReads s s₁ armScratch [] maskNone :=
-                    hfr₁.weaken (fun r hr => by simp_all) (fun v => v.elim) rfl
+                    hfr₁.weaken (fun r hr => by
+                      simp only [List.mem_singleton] at hr; subst hr; exact htmp)
+                      (fun v => v.elim) rfl
                   simp only [emitClean_cons, emitClean_nil]
                   have hcnd : (if isSwap then armNegCond cond else cond).interp s₁.status =
                       if isSwap then !vc else vc := by
@@ -1045,49 +1047,244 @@ theorem armSelectCondScr_wp [Host] {scr : List (Reg × BitVec 64)} {n : Nat}
                         simp only [↓reduceIte, Bool.false_eq_true, Bool.not_true,
                           Bool.not_false] at himm hra₁ ⊢ <;>
                         first | rw [hra₁] | (rw [himm]; try decide)
-                by_cases hcb0 : (cb == 0#n) = true
-                · simp only [hcb0, ↓reduceIte, bind, Option.bind_eq_some_iff, Option.some.injEq,
-                    Prod.mk.injEq] at hc
-                  rcases hc with ⟨⟨ca', ra, scr'⟩, ha, rfl, rfl⟩
-                  exact fastImmOne 0 false .X16 x16_mem_scratch
-                    (hcb.symm.trans (beq_iff_eq.mp hcb0)) ha rfl rfl
-                · simp only [hcb0, Bool.false_eq_true, ↓reduceIte] at hc
-                  by_cases hcb1 : (cb == 1#n) = true
-                  · simp only [hcb1, ↓reduceIte, bind, Option.bind_eq_some_iff, Option.some.injEq,
+                have fastImmPair : ∀ (op : Nat) (isSwap : Bool) (tmp : XReg)
+                    (htmp : XRegOrSp.reg tmp ∈ armScratch)
+                    {ca' : List Instr} {ra : XReg} {scr' : List (Reg × BitVec 64)}
+                    (hrel : (if isSwap then va else vb) = match op with
+                      | 1 => (if isSwap then vb else va) + 1#n
+                      | 2 => ~~~(if isSwap then vb else va)
+                      | _ => -(if isSwap then vb else va))
+                    (ha : armArgInScr scr tmp (if isSwap then .imm cb else .imm ca) =
+                      some (ca', ra, scr'))
+                    (hc_eq : c = ca' ++ [match op with
+                      | 1 => armIselInsI (.CSINC (zr d (armWidthOf n)) (zr ra (armWidthOf n))
+                          (zr ra (armWidthOf n))
+                          (if isSwap then armNegCond cond else cond).toKraken)
+                      | 2 => armIselInsI (.CSINV (zr d (armWidthOf n)) (zr ra (armWidthOf n))
+                          (zr ra (armWidthOf n))
+                          (if isSwap then armNegCond cond else cond).toKraken)
+                      | _ => armIselInsI (.CSNEG (zr d (armWidthOf n)) (zr ra (armWidthOf n))
+                          (zr ra (armWidthOf n))
+                          (if isSwap then armNegCond cond else cond).toKraken)])
+                    (hsce : scrOut = scr'),
+                    _root_.Program.wp (emitClean c) (fun s' =>
+                      GprHoldsZ (armMach.getGpr s' (.reg d)) n (if vc then va else vb) ∧
+                      armMach.mem s' = armMach.mem s ∧
+                      armMach.Frame armCondReads s s' (.reg d :: armScratch) [] maskNone ∧
+                      ScrOk armMach armScratch scrOut s')
+                      (fun _ _ => False) s := by
+                  intro op isSwap tmp htmp ca' ra scr' hrel ha hceq hsce
+                  subst hceq hsce; rw [emitClean_append]
+                  have hpa1 : armMach.PArgHolds s (.bits n) (if isSwap then .imm cb else .imm ca)
+                      (if isSwap then vb else va) := by
+                    cases isSwap; exact hca; exact hcb
+                  refine armWp_append (armArgInScr_wp hn64 htmp ha hpa1 hscr) ?_
+                  rintro s₁ ⟨hra₁, _, _, hdmem₁, hst₁, hfr₁, hscr₁⟩
+                  have hfrScr : armMach.Frame armCondReads s s₁ armScratch [] maskNone :=
+                    hfr₁.weaken (fun r hr => by
+                      simp only [List.mem_singleton] at hr; subst hr; exact htmp)
+                      (fun v => v.elim) rfl
+                  simp only [emitClean_cons, emitClean_nil]
+                  have hcnd : (if isSwap then armNegCond cond else cond).interp s₁.status =
+                      if isSwap then !vc else vc := by
+                    rw [hst₁]; cases isSwap <;> simp [armNegCond_interp, hpc]
+                  have hrxw : (s₁.regs.getRegOrZr (.low (.reg ra) (armWidthOf n))).setWidth n =
+                      if isSwap then vb else va := by
+                    have h' : s₁.regs.getRegOrZr (.low (.reg ra) (armWidthOf n)) =
+                        (s₁.regs.getXReg ra).toBitVec.setWidth (armWidthOf n).bits := by
+                      cases armWidthOf n <;>
+                        (simp only [Reg64s.getRegOrZr, Reg64s.getRegOrZr64,
+                           RegOrZr.base, BitVec.take];
+                         apply BitVec.eq_of_getLsbD_eq; intro i hi; simp [hi])
+                    rw [h', BitVec.setWidth_setWidth_of_le _ hnw, hra₁]
+                  have hrx32 : s₁.regs.getRegOrZr (.low (.reg ra) .W32) =
+                      (s₁.regs.getXReg ra).toBitVec.setWidth 32 := by
+                    simp only [Reg64s.getRegOrZr, Reg64s.getRegOrZr64, RegOrZr.base, BitVec.take]
+                    apply BitVec.eq_of_getLsbD_eq; intro i hi; simp [hi]
+                  have h1w : (1#(armWidthOf n).bits).setWidth n = 1#n := by
+                    rcases mem_armWidths hn with rfl | rfl | rfl | rfl <;> decide
+                  have setW_add : ∀ {m k : Nat} (hle : k ≤ m) (x y : BitVec m),
+                      (x + y).setWidth k = x.setWidth k + y.setWidth k := by
+                    intro m k hle x y; apply BitVec.eq_of_toNat_eq
+                    simp only [BitVec.toNat_setWidth, BitVec.toNat_add]
+                    rw [Nat.mod_mod_of_dvd (x.toNat + y.toNat) (Nat.pow_dvd_pow 2 hle), Nat.add_mod]
+                  have setW_not : ∀ {m k : Nat} (hle : k ≤ m) (x : BitVec m),
+                      (~~~x).setWidth k = ~~~(x.setWidth k) := by
+                    intro m k hle x; apply BitVec.eq_of_getLsbD_eq; intro i hi
+                    simp [hi, Nat.lt_of_lt_of_le hi hle]
+                  have setW_neg : ∀ {m k : Nat} (hle : k ≤ m) (x : BitVec m),
+                      (-x).setWidth k = -(x.setWidth k) := by
+                    intro m k hle x
+                    have h : (-x).setWidth k + x.setWidth k = 0#k := by
+                      rw [← setW_add hle (-x) x, BitVec.add_comm (-x) x, ← BitVec.sub_eq_add_neg,
+                        BitVec.sub_self, BitVec.setWidth_zero]
+                    calc (-x).setWidth k = (-x).setWidth k + x.setWidth k - x.setWidth k := by
+                          rw [BitVec.add_sub_cancel]
+                      _ = 0#k - x.setWidth k := by rw [h]
+                      _ = -(x.setWidth k) := by rw [← BitVec.zero_sub]
+                  rcases op with _ | _ | _ | op
+                  · refine wrDstScr (armCsnegDir_wp (armWidthOf n) d (.reg ra) (.reg ra)
+                        (if isSwap then armNegCond cond else cond) s₁) hdmem₁ hfrScr hscr₁ ?_ ?_
+                    · rw [BitVec.setWidth_setWidth_of_le _ hn64, hcnd]
+                      cases isSwap <;> cases vc <;>
+                        simp only [↓reduceIte, Bool.false_eq_true, Bool.not_true,
+                          Bool.not_false] at hrel hrxw ⊢
+                      all_goals first
+                        | (rw [hrxw]; done)
+                        | (rw [setW_neg hnw, hrxw, ← hrel]; done)
+                    · intro hn32; subst hn32
+                      rw [show armWidthOf 32 = .W32 from rfl, hcnd, hrx32]
+                      cases isSwap <;> cases vc <;>
+                        simp only [↓reduceIte, Bool.false_eq_true, Bool.not_true,
+                          Bool.not_false, MemWidth.bits] at hrel hra₁ ⊢
+                      all_goals first
+                        | (rw [hra₁]; done)
+                        | (rw [hra₁, ← hrel]; done)
+                        | (rw [setW_neg (by decide : 32 ≤ 32), BitVec.setWidth_eq,
+                            hra₁, ← hrel]; done)
+                  · refine wrDstScr (armSelectDir_wp 1 (armWidthOf n) d (.reg ra) (.reg ra)
+                        (if isSwap then armNegCond cond else cond) s₁) hdmem₁ hfrScr hscr₁ ?_ ?_
+                    · rw [BitVec.setWidth_setWidth_of_le _ hn64, hcnd]
+                      cases isSwap <;> cases vc <;>
+                        simp only [↓reduceIte, Bool.false_eq_true, Bool.not_true,
+                          Bool.not_false] at hrel hrxw ⊢
+                      all_goals first
+                        | (rw [hrxw]; done)
+                        | (rw [setW_add hnw, hrxw, h1w, ← hrel]; done)
+                    · intro hn32; subst hn32
+                      rw [show armWidthOf 32 = .W32 from rfl, hcnd, hrx32]
+                      cases isSwap <;> cases vc <;>
+                        simp only [↓reduceIte, Bool.false_eq_true, Bool.not_true,
+                          Bool.not_false, RegWidth.bits, MemWidth.bits] at hrel hra₁ ⊢
+                      all_goals first | (rw [hra₁]; done) | (rw [hra₁, ← hrel]; done)
+                  · refine wrDstScr (armSelectDir_wp 2 (armWidthOf n) d (.reg ra) (.reg ra)
+                        (if isSwap then armNegCond cond else cond) s₁) hdmem₁ hfrScr hscr₁ ?_ ?_
+                    · rw [BitVec.setWidth_setWidth_of_le _ hn64, hcnd]
+                      cases isSwap <;> cases vc <;>
+                        simp only [↓reduceIte, Bool.false_eq_true, Bool.not_true,
+                          Bool.not_false] at hrel hrxw ⊢
+                      all_goals first
+                        | (rw [hrxw]; done)
+                        | (rw [setW_not hnw, hrxw, ← hrel]; done)
+                    · intro hn32; subst hn32
+                      rw [show armWidthOf 32 = .W32 from rfl, hcnd, hrx32]
+                      cases isSwap <;> cases vc <;>
+                        simp only [↓reduceIte, Bool.false_eq_true, Bool.not_true,
+                          Bool.not_false, MemWidth.bits] at hrel hra₁ ⊢
+                      all_goals first | (rw [hra₁]; done) | (rw [hra₁, ← hrel]; done)
+                  · refine wrDstScr (armCsnegDir_wp (armWidthOf n) d (.reg ra) (.reg ra)
+                        (if isSwap then armNegCond cond else cond) s₁) hdmem₁ hfrScr hscr₁ ?_ ?_
+                    · rw [BitVec.setWidth_setWidth_of_le _ hn64, hcnd]
+                      cases isSwap <;> cases vc <;>
+                        simp only [↓reduceIte, Bool.false_eq_true, Bool.not_true,
+                          Bool.not_false] at hrel hrxw ⊢
+                      all_goals first
+                        | (rw [hrxw]; done)
+                        | (rw [setW_neg hnw, hrxw, ← hrel]; done)
+                    · intro hn32; subst hn32
+                      rw [show armWidthOf 32 = .W32 from rfl, hcnd, hrx32]
+                      cases isSwap <;> cases vc <;>
+                        simp only [↓reduceIte, Bool.false_eq_true, Bool.not_true,
+                          Bool.not_false, MemWidth.bits] at hrel hra₁ ⊢
+                      all_goals first
+                        | (rw [hra₁]; done)
+                        | (rw [hra₁, ← hrel]; done)
+                        | (rw [setW_neg (by decide : 32 ≤ 32), BitVec.setWidth_eq,
+                            hra₁, ← hrel]; done)
+                by_cases hneg : (ca == -cb) = true
+                · simp only [hneg, ↓reduceIte] at hc
+                  have hneg' : va = -vb :=
+                    hca.symm.trans ((beq_iff_eq.mp hneg).trans (congrArg _ hcb))
+                  by_cases hle : Nat.ble cb.toNat ca.toNat = true
+                  · simp only [hle, ↓reduceIte, bind, Option.bind_eq_some_iff, Option.some.injEq,
+                      Prod.mk.injEq] at hc
+                    rcases hc with ⟨⟨cb', rb, scr'⟩, hb, rfl, rfl⟩
+                    exact fastImmPair 0 true .X17 x17_mem_scratch hneg' hb rfl rfl
+                  · have hlef : Nat.ble cb.toNat ca.toNat = false := Bool.eq_false_iff.mpr hle
+                    simp only [hlef, Bool.false_eq_true, ↓reduceIte, bind, Option.bind_eq_some_iff,
+                      Option.some.injEq, Prod.mk.injEq] at hc
+                    rcases hc with ⟨⟨ca', ra, scr'⟩, ha, rfl, rfl⟩
+                    have hneg2 : vb = -va := by rw [hneg', BitVec.neg_neg]
+                    exact fastImmPair 0 false .X16 x16_mem_scratch hneg2 ha rfl rfl
+                · simp only [hneg, Bool.false_eq_true, ↓reduceIte] at hc
+                  by_cases hcb0 : (cb == 0#n) = true
+                  · simp only [hcb0, ↓reduceIte, bind, Option.bind_eq_some_iff, Option.some.injEq,
                       Prod.mk.injEq] at hc
                     rcases hc with ⟨⟨ca', ra, scr'⟩, ha, rfl, rfl⟩
-                    exact fastImmOne 1 false .X16 x16_mem_scratch
-                      (hcb.symm.trans (beq_iff_eq.mp hcb1)) ha rfl rfl
-                  · simp only [hcb1, Bool.false_eq_true, ↓reduceIte] at hc
-                    by_cases hcbn1 : (cb == ~~~0#n) = true
-                    · simp only [hcbn1, ↓reduceIte, bind, Option.bind_eq_some_iff,
-                        Option.some.injEq, Prod.mk.injEq] at hc
+                    exact fastImmOne 0 false .X16 x16_mem_scratch
+                      (hcb.symm.trans (beq_iff_eq.mp hcb0)) ha rfl rfl
+                  · simp only [hcb0, Bool.false_eq_true, ↓reduceIte] at hc
+                    by_cases hcb1 : (cb == 1#n) = true
+                    · simp only [hcb1, ↓reduceIte, bind, Option.bind_eq_some_iff, Option.some.injEq,
+                        Prod.mk.injEq] at hc
                       rcases hc with ⟨⟨ca', ra, scr'⟩, ha, rfl, rfl⟩
-                      exact fastImmOne 2 false .X16 x16_mem_scratch
-                        (hcb.symm.trans (beq_iff_eq.mp hcbn1)) ha rfl rfl
-                    · simp only [hcbn1, Bool.false_eq_true, ↓reduceIte] at hc
-                      by_cases hca0 : (ca == 0#n) = true
-                      · simp only [hca0, ↓reduceIte, bind, Option.bind_eq_some_iff,
+                      exact fastImmOne 1 false .X16 x16_mem_scratch
+                        (hcb.symm.trans (beq_iff_eq.mp hcb1)) ha rfl rfl
+                    · simp only [hcb1, Bool.false_eq_true, ↓reduceIte] at hc
+                      by_cases hcbn1 : (cb == ~~~0#n) = true
+                      · simp only [hcbn1, ↓reduceIte, bind, Option.bind_eq_some_iff,
                           Option.some.injEq, Prod.mk.injEq] at hc
-                        rcases hc with ⟨⟨cb', rb, scr'⟩, hb, rfl, rfl⟩
-                        exact fastImmOne 0 true .X17 x17_mem_scratch
-                          (hca.symm.trans (beq_iff_eq.mp hca0)) hb rfl rfl
-                      · simp only [hca0, Bool.false_eq_true, ↓reduceIte] at hc
-                        by_cases hca1 : (ca == 1#n) = true
-                        · simp only [hca1, ↓reduceIte, bind, Option.bind_eq_some_iff,
+                        rcases hc with ⟨⟨ca', ra, scr'⟩, ha, rfl, rfl⟩
+                        exact fastImmOne 2 false .X16 x16_mem_scratch
+                          (hcb.symm.trans (beq_iff_eq.mp hcbn1)) ha rfl rfl
+                      · simp only [hcbn1, Bool.false_eq_true, ↓reduceIte] at hc
+                        by_cases hca0 : (ca == 0#n) = true
+                        · simp only [hca0, ↓reduceIte, bind, Option.bind_eq_some_iff,
                             Option.some.injEq, Prod.mk.injEq] at hc
                           rcases hc with ⟨⟨cb', rb, scr'⟩, hb, rfl, rfl⟩
-                          exact fastImmOne 1 true .X17 x17_mem_scratch
-                            (hca.symm.trans (beq_iff_eq.mp hca1)) hb rfl rfl
-                        · simp only [hca1, Bool.false_eq_true, ↓reduceIte] at hc
-                          by_cases hcan1 : (ca == ~~~0#n) = true
-                          · simp only [hcan1, ↓reduceIte, bind, Option.bind_eq_some_iff,
+                          exact fastImmOne 0 true .X17 x17_mem_scratch
+                            (hca.symm.trans (beq_iff_eq.mp hca0)) hb rfl rfl
+                        · simp only [hca0, Bool.false_eq_true, ↓reduceIte] at hc
+                          by_cases hca1 : (ca == 1#n) = true
+                          · simp only [hca1, ↓reduceIte, bind, Option.bind_eq_some_iff,
                               Option.some.injEq, Prod.mk.injEq] at hc
                             rcases hc with ⟨⟨cb', rb, scr'⟩, hb, rfl, rfl⟩
-                            exact fastImmOne 2 true .X17 x17_mem_scratch
-                              (hca.symm.trans (beq_iff_eq.mp hcan1)) hb rfl rfl
-                          · simp only [hcan1, Bool.false_eq_true, ↓reduceIte] at hc
-                            exact fallback hc
+                            exact fastImmOne 1 true .X17 x17_mem_scratch
+                              (hca.symm.trans (beq_iff_eq.mp hca1)) hb rfl rfl
+                          · simp only [hca1, Bool.false_eq_true, ↓reduceIte] at hc
+                            by_cases hcan1 : (ca == ~~~0#n) = true
+                            · simp only [hcan1, ↓reduceIte, bind, Option.bind_eq_some_iff,
+                                Option.some.injEq, Prod.mk.injEq] at hc
+                              rcases hc with ⟨⟨cb', rb, scr'⟩, hb, rfl, rfl⟩
+                              exact fastImmOne 2 true .X17 x17_mem_scratch
+                                (hca.symm.trans (beq_iff_eq.mp hcan1)) hb rfl rfl
+                            · simp only [hcan1, Bool.false_eq_true, ↓reduceIte] at hc
+                              by_cases hinc1 : (cb == ca + 1#n) = true
+                              · simp only [hinc1, ↓reduceIte, bind, Option.bind_eq_some_iff,
+                                  Option.some.injEq, Prod.mk.injEq] at hc
+                                rcases hc with ⟨⟨ca', ra, scr'⟩, ha, rfl, rfl⟩
+                                exact fastImmPair 1 false .X16 x16_mem_scratch
+                                  (by simp [hcb.symm, hca.symm, beq_iff_eq.mp hinc1])
+                                  ha rfl rfl
+                              · simp only [hinc1, Bool.false_eq_true, ↓reduceIte] at hc
+                                by_cases hinc2 : (ca == cb + 1#n) = true
+                                · simp only [hinc2, ↓reduceIte, bind, Option.bind_eq_some_iff,
+                                    Option.some.injEq, Prod.mk.injEq] at hc
+                                  rcases hc with ⟨⟨cb', rb, scr'⟩, hb, rfl, rfl⟩
+                                  exact fastImmPair 1 true .X17 x17_mem_scratch
+                                    (by simp [hca.symm, hcb.symm, beq_iff_eq.mp hinc2])
+                                    hb rfl rfl
+                                · simp only [hinc2, Bool.false_eq_true, ↓reduceIte] at hc
+                                  by_cases hnot : (cb == ~~~ca) = true
+                                  · simp only [hnot, ↓reduceIte] at hc
+                                    have hnot1 : vb = ~~~va :=
+                                      hcb.symm.trans ((beq_iff_eq.mp hnot).trans (congrArg _ hca))
+                                    by_cases hle : Nat.ble cb.toNat ca.toNat = true
+                                    · simp only [hle, ↓reduceIte, bind, Option.bind_eq_some_iff,
+                                        Option.some.injEq, Prod.mk.injEq] at hc
+                                      rcases hc with ⟨⟨cb', rb, scr'⟩, hb, rfl, rfl⟩
+                                      exact fastImmPair 2 true .X17 x17_mem_scratch
+                                        (by simp [hnot1, BitVec.not_not]) hb rfl rfl
+                                    · have hlef : Nat.ble cb.toNat ca.toNat = false :=
+                                        Bool.eq_false_iff.mpr hle
+                                      simp only [hlef, Bool.false_eq_true, ↓reduceIte, bind,
+                                        Option.bind_eq_some_iff, Option.some.injEq,
+                                        Prod.mk.injEq] at hc
+                                      rcases hc with ⟨⟨ca', ra, scr'⟩, ha, rfl, rfl⟩
+                                      exact fastImmPair 2 false .X16 x16_mem_scratch
+                                        hnot1 ha rfl rfl
+                                  · simp only [hnot, Bool.false_eq_true, ↓reduceIte] at hc
+                                    exact fallback hc
   | gpr r => cases r with
     | SP =>
       dsimp only [armSelectCondScrIns] at hc

@@ -68,6 +68,8 @@ theorem armLabelClean : Rega.LabelClean armTarget.toIsa where
   loadScr _ _ _ _ _ _ _ _ h1 h2 l := by cases h1; exact armLoadScr_noLab h2 l
   loadZextIdxScr _ _ _ _ _ _ _ _ _ _ _ h1 h2 l := by cases h1; exact armLoadZextIdxScr_noLab h2 l
   opScr _ _ _ _ _ _ _ _ _ _ _ h1 h2 l := by cases h1; exact armOpScr_noLab h2 l
+  ccmp _ _ _ _ _ _ _ _ _ _ h1 h2 l := by cases h1; exact armCcmp_noLab h2 l
+  selectNeg _ _ _ _ _ _ _ _ h1 h2 l := by cases h1; exact armSelectNeg_noLab h2 l
   clearFlags := armClearFlags_noLab
   vmov _ d := d.elim
   vmovi _ d := d.elim

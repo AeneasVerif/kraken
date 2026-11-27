@@ -427,6 +427,20 @@ structure GprIsa (Reg VReg Cond Directive : Type) where
   opScr? : Option (List (Reg × BitVec 64) → {sig rs : List Ty} → OpCode sig rs →
     Tup (PArg Reg VReg Cond) sig → Tup (PDst Reg VReg Cond) rs → VariantHint →
     Option (List Directive × FlagMask × List (Reg × BitVec 64))) := none
+  /-- Optional conditional-compare lowering for short-circuit `CCMP`/`CCMN` flag chains:
+  given `prevCond` (already in flags), `isOr`, `co`, `n`, `pa`, `pb`, returns
+  `some (dstCond, code, clob)` setting flags so `dstCond` holds iff
+  `(if isOr then prevCond || co.evalBits va vb else prevCond && co.evalBits va vb)`. -/
+  ccmp? : Option (Cond → Bool → CmpOp → (n : Nat) →
+    PArg Reg VReg Cond (.bits n) → PArg Reg VReg Cond (.bits n) →
+    Option (Cond × List Directive × FlagMask)) := none
+  /-- Optional conditional-negate lowering for `select pc x (-x)` / `select pc (-x) x` (`CSNEG`):
+  given width `n`, condition arg `pc`, source GPR `rx`, `negFirst` (`true` = `if pc then -rx
+  else rx`, `false` = `if pc then rx else -rx`), and destination `rd`, returns `(code, clob)`. -/
+  selectNeg? : Option ((n : Nat) → PArg Reg VReg Cond .bool → Reg → Bool → Reg →
+    Option (List Directive × FlagMask)) := none
+  /-- `true` when `selectNeg?` at `n = 32` zeroes bits `32..63` of `rd`. -/
+  zeroUpper32SelectNeg : Bool := false
 
 structure VecIsa (Reg VReg Cond Directive : Type) where
   vecScratch : List VReg
@@ -1191,6 +1205,29 @@ structure GprTarget {R V C D : Type} (M : Machine R V C D) (g : GprIsa R V C D)
               (if lf then (h1 ▸ vs).1 else (h1 ▸ vs).2.1)
               (if lf then (h1 ▸ vs).2.1 else (h1 ▸ vs).1) false)) ∧
         M.mem s' = M.mem s ∧ ScrOk M scratch scrOut s') post :=
+    by intros; contradiction
+  ccmp_spec : ∀ {fn h k prevCond isOr co n pa pb dstCond c clob va vb s post},
+    g.ccmp? = some fn →
+    fn prevCond isOr co n pa pb = some (dstCond, c, clob) →
+    (∀ r ∈ pa.gprs ++ pb.gprs, r ∉ scratch) →
+    M.PArgHolds s (.bits n) pa va → M.PArgHolds s (.bits n) pb vb →
+    M.FallsTo g.condReads h k c scratch [] clob s
+      (fun s' =>
+        M.evalCond s' dstCond =
+          (if isOr then M.evalCond s prevCond || co.evalBits va vb
+           else M.evalCond s prevCond && co.evalBits va vb) ∧
+        M.mem s' = M.mem s) post :=
+    by intros; contradiction
+  selectNeg_spec : ∀ {fn h k n pc rx negFirst rd c clob vc vx s post},
+    g.selectNeg? = some fn → fn n pc rx negFirst rd = some (c, clob) →
+    (∀ r ∈ pc.gprs, r ∉ scratch) → rx ∉ scratch → rd ∉ scratch →
+    M.PArgHolds s .bool pc vc → GprHolds (M.getGpr s rx) (.bits n) vx →
+    let res : BitVec n :=
+      if vc then (if negFirst then -vx else vx) else (if negFirst then vx else -vx)
+    M.FallsTo g.condReads h k c (rd :: scratch) [] clob s
+      (fun s' => GprHolds (M.getGpr s' rd) (.bits n) res ∧
+        (n = 32 → g.zeroUpper32SelectNeg = true → M.getGpr s' rd = res.setWidth 64) ∧
+        M.mem s' = M.mem s) post :=
     by intros; contradiction
 
 structure FramePreds {R V C D : Type} (M : Machine R V C D) : Type where

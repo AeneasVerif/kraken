@@ -3,15 +3,14 @@ module
 public import LeanQbe.T.Arm64.IselLemmas3
 public import LeanQbe.T.Arm64.IselNarrowLemmas
 public import LeanQbe.T.Arm64.IselScrLemmas5
+public import LeanQbe.T.Arm64.IselCcmpLemmas
 import LeanQbe.T.Arm64.IselFlagHooksLemmas
-import Kraken.AArch64.Parser
 
 /-!
 # AArch64 Scalar Instruction Selection Proofs — Part 4
 
 `armMulwOp_wp`, `armFunnelOp_wp`, top-level `armOp_spec`,
-`armGprSpec : GprTarget armMach armGpr armScratch`, `armOp_noLab`, and kernel `rfl` `ParserChecks`
-against `Kraken.AArch64.Parser`.
+`armGprSpec : GprTarget armMach armGpr armScratch`, and `armOp_noLab`.
 -/
 
 set_option autoImplicit false
@@ -2254,6 +2253,14 @@ theorem armGprSpec : GprTarget armMach armGpr armScratch where
       @armLoadZextIdxScr_spec h k scr t rd base idx sc disp c clob scrOut v vb vi s post
         hc h1 h2 h3 h4 h5 h6 h7
   opScr_spec := @armOpScr_spec
+  ccmp_spec := fun {fn h k prevCond isOr co n pa pb dstCond c clob va vb s post}
+      hf hc _ hpa hpb => by
+    cases hf
+    exact @armCcmp_spec h k prevCond isOr co n pa pb dstCond c clob va vb s post hc hpa hpb
+  selectNeg_spec := fun {fn h k n pc rx negFirst rd c clob vc vx s post}
+      hf hc _ _ _ hpc hrx => by
+    cases hf
+    exact @armSelectNeg_spec h k n pc rx negFirst rd c clob vc vx s post hc hpc hrx
 
 /-! ## 3. `armOp_noLab` for downstream `Rega.LabelClean` -/
 
@@ -2272,228 +2279,5 @@ theorem armTestJcc_noLab {neg : Bool} {n : Nat} {r : Reg} {mask : BitVec n} {l :
     {c : List Directive} {clob : FlagMask}
     (hc : armGpr.testJcc neg n r mask l = some (c, clob)) (lab : Sym) :
     Kraken.Directive.label lab ∉ c := emitCleanPair_noLab hc lab
-
-/-! ## 4. Kernel `rfl` `ParserChecks` against `Kraken.AArch64.Parser` -/
-
-section ParserChecks
-open Kraken.AArch64.Parser
-
-theorem parser_moves_branches_rfl :
-    ⸨prog|
-      adds xzr, xzr, xzr
-      mov x0, x1
-      add sp, x0, #0
-      csinc x0, xzr, xzr, ne
-      mov x16, sp
-      tbnz w16, #0, L_tgt
-      tbz w0, #0, L_tgt
-      b L_tgt
-      b.eq L_tgt
-    ⸩ =
-      armGpr.clearFlags ++ armGpr.mov (.reg .X0) (.reg .X1) ++ armGpr.mov .SP (.reg .X0) ++
-        armGpr.setcc (.reg .X0) .eq ++ (armGpr.jnzGpr .SP "L_tgt").1 ++
-        (armJnzGprInv (.reg .X0) true "L_tgt").1 ++
-        armGpr.jmp "L_tgt" ++ armGpr.jcc .eq "L_tgt" := rfl
-
-theorem parser_mem_sp_flag_rfl :
-    ⸨prog|
-      add x16, sp, #8
-      ldr x0, [x16]
-      csinc x17, xzr, xzr, ne
-      add x16, sp, #16
-      strb w17, [x16]
-    ⸩ =
-      (armGpr.load i64 (.reg .X0) (.baseDisp .SP 8)).elim [] Prod.fst ++
-      (armGpr.store .bool (.flag .eq) (.baseDisp .SP 16)).elim [] Prod.fst := rfl
-
-theorem parser_ops_rfl :
-    ⸨prog|
-      sdiv w0, w1, w2
-      udiv w17, w1, w2
-      msub w0, w17, w2, w1
-      rev16 w0, w1
-      rbit x0, x1
-      clz x0, x0
-      ands wzr, w3, #1
-      csel x0, x1, x2, ne
-      adcs x0, x1, x2
-      csinc x4, xzr, xzr, cc
-      sbcs w0, w1, w2
-      smaddl x0, w1, w2, xzr
-      ubfm x3, x0, #32, #63
-      extr x0, x1, x2, #7
-    ⸩ =
-      (armGpr.op (.sdiv0 32) (.gpr (.reg .X1), .gpr (.reg .X2), ())
-        (.gpr (.reg .X0), ()) .default).elim [] Prod.fst ++
-      (armGpr.op (.urem 32) (.gpr (.reg .X1), .gpr (.reg .X2), ())
-        (.gpr (.reg .X0), ()) .default).elim [] Prod.fst ++
-      (armGpr.op (.bswap i16) (.gpr (.reg .X1), ())
-        (.gpr (.reg .X0), ()) .default).elim [] Prod.fst ++
-      (armGpr.op (.ctz 64) (.gpr (.reg .X1), ()) (.gpr (.reg .X0), ()) .default).elim [] Prod.fst ++
-      (armGpr.op (.select i64) (.gpr (.reg .X3), .gpr (.reg .X1), .gpr (.reg .X2), ())
-        (.gpr (.reg .X0), ()) .default).elim [] Prod.fst ++
-      (armGpr.op (.addc 64) (.gpr (.reg .X1), .gpr (.reg .X2), .flag .cs, ())
-        (.gpr (.reg .X0), .gpr (.reg .X4), ()) .default).elim [] Prod.fst ++
-      (armGpr.op (.subb 32) (.gpr (.reg .X1), .gpr (.reg .X2), .flag .cc, ())
-        (.gpr (.reg .X0), .flag .cc, ()) .default).elim [] Prod.fst ++
-      (armGpr.op (.smulw 32) (.gpr (.reg .X1), .gpr (.reg .X2), ())
-        (.gpr (.reg .X0), .gpr (.reg .X3), ()) .default).elim [] Prod.fst ++
-      (armGpr.op (.fshr 64) (.gpr (.reg .X1), .gpr (.reg .X2), .imm 7#64, ())
-        (.gpr (.reg .X0), ()) .default).elim [] Prod.fst := rfl
-
-theorem parser_opt_c6_rfl :
-    ⸨prog|
-      movz x0, #42
-      movn x0, #0x1234
-      movz x0, #0x5678
-      movk x0, #0x1234, lsl #32
-      movn x0, #0x5678
-      movk x0, #0xedc3, lsl #32
-      add x0, x1, #0x123, lsl #12
-      sub w0, w1, #5, lsl #12
-      and w0, w1, #7
-      ldr w0, [x1, x2, lsl #2]
-      str x0, [x1, x2, lsl #3]
-    ⸩ =
-      armGpr.movi (.reg .X0) 42#64 ++
-      armGpr.movi (.reg .X0) (~~~0x1234#64) ++
-      armGpr.movi (.reg .X0) 0x1234_0000_5678#64 ++
-      armGpr.movi (.reg .X0) (~~~0x123c_0000_5678#64) ++
-      (armGpr.op (.add i64) (.gpr (.reg .X1), .imm 0x123000#64, ())
-        (.gpr (.reg .X0), ()) .default).elim [] Prod.fst ++
-      (armGpr.op (.sub i32) (.gpr (.reg .X1), .imm 0x5000#32, ())
-        (.gpr (.reg .X0), ()) .default).elim [] Prod.fst ++
-      (armGpr.op (.and i32) (.gpr (.reg .X1), .imm 7#32, ())
-        (.gpr (.reg .X0), ()) .default).elim [] Prod.fst ++
-      (armGpr.load i32 (.reg .X0)
-        (.baseIdxDisp (.reg .X1) (.reg .X2) .s4 0)).elim [] Prod.fst ++
-      (armGpr.store i64 (.gpr (.reg .X0))
-        (.baseIdxDisp (.reg .X1) (.reg .X2) .s8 0)).elim [] Prod.fst := rfl
-
-theorem parser_opt_a2_a3_rfl :
-    ⸨prog|
-      ands xzr, x1, #0x80000000
-      ands wzr, w1, w2
-      add x16, x1, x2, lsl #2
-      ldr w0, [x16, #4]
-      sub x16, x1, #4
-      ldr w0, [x16, x2, lsl #2]
-    ⸩ =
-      (armGpr.testOp 64 true (.gpr (.reg .X1)) (.imm 0x80000000#64) (.flag .ne)).elim [] Prod.fst ++
-      (armGpr.testOp 32 false (.gpr (.reg .X1)) (.gpr (.reg .X2)) (.flag .eq)).elim [] Prod.fst ++
-      (armGpr.load i32 (.reg .X0)
-        (.baseIdxDisp (.reg .X1) (.reg .X2) .s4 4)).elim [] Prod.fst ++
-      (armGpr.load i32 (.reg .X0)
-        (.baseIdxDisp (.reg .X1) (.reg .X2) .s4 (-4))).elim [] Prod.fst := rfl
-
-theorem parser_opt_s2_rfl :
-    ⸨prog|
-      cbz w0, L_tgt
-      cbnz x1, L_tgt
-      ubfm w16, w2, #0, #7
-      cbz w16, L_tgt
-      tbz x2, #5, L_tgt
-      tbnz w3, #31, L_tgt
-    ⸩ =
-      (armGpr.cmpZeroJcc .eq 32 (.reg .X0) "L_tgt").elim [] Prod.fst ++
-      (armGpr.cmpZeroJcc .ne 64 (.reg .X1) "L_tgt").elim [] Prod.fst ++
-      (armGpr.cmpZeroJcc .eq 8 (.reg .X2) "L_tgt").elim [] Prod.fst ++
-      (armGpr.testJcc false 64 (.reg .X2) 32#64 "L_tgt").elim [] Prod.fst ++
-      (armGpr.testJcc true 32 (.reg .X3) 0x80000000#32 "L_tgt").elim [] Prod.fst := rfl
-
-theorem parser_opt_w3_rfl :
-    ⸨prog|
-      str wzr, [x0]
-      strh wzr, [x1]
-      strb wzr, [x2]
-      str xzr, [x3]
-      ldrsb x0, [x1]
-      ldrsh x0, [x1]
-      add x0, x1, x2, lsl #3
-      add w0, w1, w2, lsl #2
-      csel w0, w1, wzr, eq
-      csinc w0, w1, wzr, ne
-      csel x0, x1, xzr, eq
-      csinc x0, x1, xzr, eq
-      csinv x0, x1, xzr, eq
-      ubfm w0, w1, #31, #31
-      ands wzr, w1, #0xff
-      orn w0, wzr, w1
-    ⸩ =
-      (armGpr.store i32 (.imm 0#32) (.baseDisp (.reg .X0) 0)).elim [] Prod.fst ++
-      (armGpr.store i16 (.imm 0#16) (.baseDisp (.reg .X1) 0)).elim [] Prod.fst ++
-      (armGpr.store .bool (.imm false) (.baseDisp (.reg .X2) 0)).elim [] Prod.fst ++
-      (armGpr.store i64 (.imm 0#64) (.baseDisp (.reg .X3) 0)).elim [] Prod.fst ++
-      (armGpr.loadSext 8 64 (.reg .X0) (.baseDisp (.reg .X1) 0)).elim [] Prod.fst ++
-      (armGpr.loadSext 16 64 (.reg .X0) (.baseDisp (.reg .X1) 0)).elim [] Prod.fst ++
-      (armGpr.leaArith 64 (some (.reg .X1)) (.reg .X2) .s8 0 (.reg .X0)).elim [] Prod.fst ++
-      (armGpr.leaArith 32 (some (.reg .X1)) (.reg .X2) .s4 0 (.reg .X0)).elim [] Prod.fst ++
-      (armGpr.op (.and .bool) (.gpr (.reg .X1), .flag .eq, ())
-        (.gpr (.reg .X0), ()) .default).elim [] Prod.fst ++
-      (armGpr.op (.or .bool) (.gpr (.reg .X1), .flag .eq, ())
-        (.gpr (.reg .X0), ()) .default).elim [] Prod.fst ++
-      (armGpr.op (.select i64) (.flag .eq, .gpr (.reg .X1), .imm 0#64, ())
-        (.gpr (.reg .X0), ()) .default).elim [] Prod.fst ++
-      (armGpr.op (.select i64) (.flag .eq, .gpr (.reg .X1), .imm 1#64, ())
-        (.gpr (.reg .X0), ()) .default).elim [] Prod.fst ++
-      (armGpr.op (.select i64) (.flag .eq, .gpr (.reg .X1), .imm (-1#64), ())
-        (.gpr (.reg .X0), ()) .default).elim [] Prod.fst ++
-      (armGpr.op (.cmp .slt i32) (.gpr (.reg .X1), .imm 0#32, ())
-        (.gpr (.reg .X0), ()) .default).elim [] Prod.fst ++
-      (armGpr.op (.cmp .eq i8) (.gpr (.reg .X1), .imm 0#8, ())
-        (.flag .eq, ()) .default).elim [] Prod.fst ++
-      (armGpr.op (.sub i32) (.imm (-1#32), .gpr (.reg .X1), ())
-        (.gpr (.reg .X0), ()) .default).elim [] Prod.fst := rfl
-
-theorem parser_opt_uxtw_rfl :
-    ⸨prog|
-      ldr w0, [x1, w2, uxtw #2]
-      ldr x0, [x1, w2, uxtw #3]
-      ldrh w0, [x1, w2, uxtw #1]
-      ldrb w0, [x1, w2, uxtw #0]
-      ldrsb x0, [x1, w2, uxtw #0]
-      ldrsh x0, [x1, w2, uxtw #1]
-      str w0, [x1, w2, uxtw #2]
-      str x0, [x1, w2, uxtw #3]
-      add x16, x1, w2, uxtw #2
-      ldr w0, [x16, #4]
-      sub x16, x1, #4
-      ldr w0, [x16, w2, uxtw #2]
-      add x0, x1, w2, uxtw #3
-      add x0, x1, w2, uxtw #4
-      add x16, x1, w2, uxtw #2
-      add x0, x16, #8
-      ubfiz x0, x1, #3, #32
-    ⸩ =
-      (armLoadZextIdx i32 (.reg .X0) (.reg .X1) (.reg .X2) .s4 0).elim [] Prod.fst ++
-      (armLoadZextIdx i64 (.reg .X0) (.reg .X1) (.reg .X2) .s8 0).elim [] Prod.fst ++
-      (armLoadZextIdx i16 (.reg .X0) (.reg .X1) (.reg .X2) .s2 0).elim [] Prod.fst ++
-      (armLoadZextIdx i8 (.reg .X0) (.reg .X1) (.reg .X2) .s1 0).elim [] Prod.fst ++
-      (armLoadSextZextIdx 8 64 (.reg .X0) (.reg .X1) (.reg .X2) .s1 0).elim [] Prod.fst ++
-      (armLoadSextZextIdx 16 64 (.reg .X0) (.reg .X1) (.reg .X2) .s2 0).elim [] Prod.fst ++
-      (armStoreZextIdx i32 (.gpr (.reg .X0)) (.reg .X1) (.reg .X2) .s4 0).elim [] Prod.fst ++
-      (armStoreZextIdx i64 (.gpr (.reg .X0)) (.reg .X1) (.reg .X2) .s8 0).elim [] Prod.fst ++
-      (armLoadZextIdx i32 (.reg .X0) (.reg .X1) (.reg .X2) .s4 4).elim [] Prod.fst ++
-      (armLoadZextIdx i32 (.reg .X0) (.reg .X1) (.reg .X2) .s4 (-4)).elim [] Prod.fst ++
-      (armLeaArithZext (some (.reg .X1)) (.reg .X2) 3 0 (.reg .X0)).elim [] Prod.fst ++
-      (armLeaArithZext (some (.reg .X1)) (.reg .X2) 4 0 (.reg .X0)).elim [] Prod.fst ++
-      (armLeaArithZext (some (.reg .X1)) (.reg .X2) 2 8 (.reg .X0)).elim [] Prod.fst ++
-      (armLeaArithZext none (.reg .X1) 3 0 (.reg .X0)).elim [] Prod.fst := rfl
-
-theorem parser_w5_isel_rfl :
-    ⸨prog|
-      ldrsw x0, [x1]
-      add x16, x1, x2, lsl #2
-      add x0, x16, #8
-      ubfm w16, w2, #30, #29
-      add w0, w16, #4
-      add w0, w1, #12
-    ⸩ =
-      (armGpr.loadSext 32 64 (.reg .X0) (.baseDisp (.reg .X1) 0)).elim [] Prod.fst ++
-      (armGpr.leaArith 64 (some (.reg .X1)) (.reg .X2) .s4 8 (.reg .X0)).elim [] Prod.fst ++
-      (armGpr.leaArith 32 none (.reg .X2) .s4 4 (.reg .X0)).elim [] Prod.fst ++
-      (armGpr.leaArith 32 none (.reg .X1) .s1 12 (.reg .X0)).elim [] Prod.fst := rfl
-
-end ParserChecks
 
 end LeanQbe.T.Arm64

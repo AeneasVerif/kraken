@@ -4,6 +4,7 @@ public import LeanQbe.T.RegaLemmas3a
 public import LeanQbe.T.RegaLemmasZero
 public import LeanQbe.T.RegaLemmasRemat
 public import LeanQbe.T.RegaLabClean
+public import LeanQbe.T.RegaCcmpLemmas
 
 /-!
 # `RegaLemmas` Part 3b: Slot Operations, `lowerOp_ok`, and Structural `LabelsUnique`
@@ -1490,6 +1491,23 @@ private theorem lowerOpBody_ok {zl : Bool}
   · obtain ⟨⟨c'', cl, z''⟩, htz, he⟩ := Option.map_eq_some_iff.mp hzero
     cases he
     refine tryMoviZero_ok hargsN hwpN hc htz
+      (fun hz s' ⟨rvs, hP, hdh⟩ hm hfr => fin hz s' [] ⟨rvs, hP, hdh,
+        (fun h => by cases hz.symm.trans h), (fun _ h => nomatch h),
+        (hflTr rvs (hA.flags_ok.kill hfr) hA.flags_lt.kill).1,
+        (hflTr rvs (hA.flags_ok.kill hfr) hA.flags_lt.kill).2⟩ hm (scrOk_nil _ _ _) hfr rfl)
+      (fun hz {rd} ht hd s' rv ⟨hP, hdef⟩ hrd_eq hm hfr => ?_)
+    subst ht; dsimp only at hd; subst hd
+    have hrda : isAllocGpr T.toIsa hints.saved rd = true := hdg rd (by simp [tupDstGprs])
+    refine lowerOp_z32_finish hA hI (hMgrow (rv, ())) hdef
+      (hflTr (rv, ()) (hA.flags_ok.kill hfr) hA.flags_lt.kill).1
+      (hflTr (rv, ()) (hA.flags_ok.kill hfr) hA.flags_lt.kill).2
+      hP hrd_eq hm hfr hrda (scrOk_nil _ _ _) fun rvs s'' hP'' hA'' hM'' hI'' => ?_
+    refine kont rvs s'' hP'' ?_ hM'' hI''
+    dsimp only; rw [hz]; dsimp only [tupDstGprs, tupFlatMap, PDst.gprs, tyEq]; exact hA''
+  rcases orElse_eq_some hpick with hsneg | hpick
+  · obtain ⟨⟨c'', cl, z''⟩, hsn, he⟩ := Option.map_eq_some_iff.mp hsneg
+    cases he
+    refine trySelectNeg_ok hA hargsN hdg' hwpN hc hsn
       (fun hz s' ⟨rvs, hP, hdh⟩ hm hfr => fin hz s' [] ⟨rvs, hP, hdh,
         (fun h => by cases hz.symm.trans h), (fun _ h => nomatch h),
         (hflTr rvs (hA.flags_ok.kill hfr) hA.flags_lt.kill).1,

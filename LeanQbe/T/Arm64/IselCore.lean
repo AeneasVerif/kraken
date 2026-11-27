@@ -965,6 +965,8 @@ def armSelectCondIns (n : Nat) (cond : ArmCond) (pa pb : PArg Reg Empty ArmCond 
     | 0 => armIselInsI (.CSEL (zr d w) (.low ra w) (.low rb w) cnd.toKraken)
     | 1 => armIselInsI (.CSINC (zr d w) (.low ra w) (.low rb w) cnd.toKraken)
     | _ => armIselInsI (.CSINV (zr d w) (.low ra w) (.low rb w) cnd.toKraken)
+  let mkNeg (rx : XReg) (cnd : ArmCond) : Instr :=
+    armIselInsI (.CSNEG (zr d w) (zr rx w) (zr rx w) cnd.toKraken)
   match pa, pb with
   | .imm ca, .imm cb =>
     if ca == cb then some (armMovImmI d (ca.setWidth 64))
@@ -972,6 +974,13 @@ def armSelectCondIns (n : Nat) (cond : ArmCond) (pa pb : PArg Reg Empty ArmCond 
     else if ca == 0#n && cb == 1#n then some [mkSel .XZR .XZR 1 cond]
     else if ca == ~~~0#n && cb == 0#n then some [mkSel .XZR .XZR 2 (armNegCond cond)]
     else if ca == 0#n && cb == ~~~0#n then some [mkSel .XZR .XZR 2 cond]
+    else if ca == -cb then
+      if Nat.ble cb.toNat ca.toNat then do
+        let (cb', rb) ← armArgInIns .X17 pb
+        some (cb' ++ [mkNeg rb (armNegCond cond)])
+      else do
+        let (ca', ra) ← armArgInIns .X16 pa
+        some (ca' ++ [mkNeg ra cond])
     else if cb == 0#n then do
       let (ca', ra) ← armArgInIns .X16 pa
       some (ca' ++ [mkSel (.reg ra) .XZR 0 cond])
@@ -990,6 +999,19 @@ def armSelectCondIns (n : Nat) (cond : ArmCond) (pa pb : PArg Reg Empty ArmCond 
     else if ca == ~~~0#n then do
       let (cb', rb) ← armArgInIns .X17 pb
       some (cb' ++ [mkSel (.reg rb) .XZR 2 (armNegCond cond)])
+    else if cb == ca + 1#n then do
+      let (ca', ra) ← armArgInIns .X16 pa
+      some (ca' ++ [mkSel (.reg ra) (.reg ra) 1 cond])
+    else if ca == cb + 1#n then do
+      let (cb', rb) ← armArgInIns .X17 pb
+      some (cb' ++ [mkSel (.reg rb) (.reg rb) 1 (armNegCond cond)])
+    else if cb == ~~~ca then
+      if Nat.ble cb.toNat ca.toNat then do
+        let (cb', rb) ← armArgInIns .X17 pb
+        some (cb' ++ [mkSel (.reg rb) (.reg rb) 2 (armNegCond cond)])
+      else do
+        let (ca', ra) ← armArgInIns .X16 pa
+        some (ca' ++ [mkSel (.reg ra) (.reg ra) 2 cond])
     else do
       let (ca', ra) ← armArgInIns .X16 pa
       let (cb', rb) ← armArgInIns .X17 pb

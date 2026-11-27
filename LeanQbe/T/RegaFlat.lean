@@ -338,7 +338,7 @@ def deferJnzNextFlat {rs : List Ty} (I : Isa) (h : I.Hints) (fn : Sym)
 
 def deferLeaNextFlat {rs : List Ty} (I : Isa) (h : I.Hints) (vd' : Nat) (ve' : Trie Nat)
     (nv ip : Nat) (st1 : SymState I) {ts : List Ty} (op : Op VNat ts) (k : TFlat rs) : Bool :=
-  if !isLeaDeferCand I.gpr.deferShiftAlu op.code then false
+  if !isLeaDeferCand I.gpr.deferShiftAlu I.gpr.selectNeg?.isSome op.code then false
   else
     match ts, k with
     | [_], .let_ (ts := ts2) op2 _ =>
@@ -350,7 +350,8 @@ def deferLeaNextFlat {rs : List Ty} (I : Isa) (h : I.Hints) (vd' : Nat) (ve' : T
           match resolveDsts I h ts2 (nv + 1) with
           | some dsts2 =>
             ((tryLeaArith I stAfter op2'.code op2'.args dsts2).isSome ||
-              (tryShiftCmpFuse I stAfter op2'.code op2'.args dsts2).isSome) &&
+              (tryShiftCmpFuse I stAfter op2'.code op2'.args dsts2).isSome ||
+              (trySelectNeg I stAfter op2'.code op2'.args dsts2).isSome) &&
               h.deferLea.getD ip false
           | none => false
         | none => false
@@ -426,13 +427,102 @@ def findGroupFwdsFlat {rs : List Ty} (I : Isa) (h : I.Hints) (st : SymState I)
 
 /-! ## 3. Core First-Order `lowerFlatExpr`, `lowerFlatBlocks`, `lowerFlatFn` -/
 
+def ccmpStepArm?Flat {rs : List Ty} (I : Isa) (h : I.Hints) (ipJump : Nat)
+    (st : SymState I) (targetJ : Nat) (brCond : I.Cond) (coStep : CmpOp)
+    {w : Nat} (a b : Arg VNat (.bits w))
+    (vDepth : Nat) (vEnv : Trie Nat) (lEnv : List Nat) (jumpArm : TFlat rs) :
+    Option (List I.Directive × SymState I × I.Cond × Bool) :=
+  if !preEmpty h ipJump then none
+  else (ccmpPickStep I st brCond coStep a b).bind fun (dstCond, code, cl, isNonCb) =>
+    let st1 := ccmpKillState I st cl
+    match zeroMoveJump?Flat I h ipJump st1 vDepth vEnv lEnv jumpArm with
+    | some j => if Nat.beq j targetJ then some (code, st1, dstCond, isNonCb) else none
+    | none => none
+
+def ccmpPickArms?Flat {rs : List Ty} (I : Isa) (h : I.Hints) (nv nl ipJnz : Nat)
+    (st : SymState I) (targetJ : Nat) (brCond : I.Cond) (co : CmpOp)
+    {w : Nat} (a b : Arg VNat (.bits w))
+    (vDepth : Nat) (vEnv : Trie Nat) (lEnv : List Nat) (t e : TFlat rs) :
+    Option (List I.Directive × SymState I × I.Cond × Bool × Bool × Nat × Nat) :=
+  ((ccmpStepArm?Flat I h (jnzIpTFlat nv nl ipJnz t e) st targetJ brCond co a b
+      vDepth vEnv lEnv t).map
+    fun (c, st1, dst, ncb) => (c, st1, dst, ncb, true, ipJnz + 1, 1)) <|>
+  ((ccmpStepArm?Flat I h (ipJnz + 1) st targetJ brCond co.neg a b
+      vDepth vEnv lEnv e).map
+    fun (c, st1, dst, ncb) => (c, st1, dst, ncb, false, ipJnz + 2, 0))
+
+def ccmpCanStep?Flat {rs : List Ty} (I : Isa) (h : I.Hints) (nv nl ip : Nat)
+    (st : SymState I) (targetJ : Nat) (brCond : I.Cond) (reqNonCb : Bool := false)
+    (vDepth : Nat) (vEnv : Trie Nat) (lEnv : List Nat) : TFlat rs → Bool
+  | .let_ (ts := [.bool]) op k =>
+    let op' := flatOp vDepth vEnv op
+    let vd' := vDepth + 1
+    let ve' := vEnv.insert vDepth nv
+    match k with
+    | .jnz (.var cx) t e =>
+      match ccmpAsCmp? op'.code op'.args with
+      | some ⟨_, co, a, b⟩ =>
+        Nat.beq (flatVar vd' ve' cx) nv && h.deferJnz.getD ip false &&
+          preEmpty h ip && preEmpty h (ip + 1) &&
+          match ccmpPickArms?Flat I h (nv + 1) nl (ip + 1) st targetJ brCond co a b
+              vd' ve' lEnv t e with
+          | some (_, _, _, ncb, _, _, _) => !reqNonCb || ncb
+          | none => false
+      | none => false
+    | _ => false
+  | .jnz (.var cx) t e =>
+    let cx' := flatVar vDepth vEnv cx
+    preEmpty h ip &&
+      match st.defs.find? cx' with
+      | some (.cmpZeroVar co w y) =>
+        match ccmpPickArms?Flat I h nv nl ip st targetJ brCond co (.var y) (.imm 0#w)
+            vDepth vEnv lEnv t e with
+        | some (_, _, _, ncb, _, _, _) => !reqNonCb || ncb
+        | none => false
+      | _ => false
+  | _ => false
+
+def ccmpStart?Flat {rs : List Ty} (I : Isa) (h : I.Hints) (nv nl ip : Nat)
+    (st1 : SymState I) (cond : JnzCond I)
+    (vDepth : Nat) (vEnv : Trie Nat) (lEnv : List Nat) (t e : TFlat rs) :
+    Option (List I.Directive × SymState I × I.Cond × Nat × Bool × Nat × Nat) :=
+  if I.gpr.ccmp?.isNone then none
+  else (ccmpStartCond? I cond).bind fun (cc0, c0, cl0, reqNonCb) =>
+    let st0 := ccmpKillState I st1 cl0
+    let tryDir (wantTrue : Bool) (jumpArm restArm : TFlat rs)
+        (ipJump ipRest ipExtra0 : Nat) :=
+      if !preEmpty h ipJump then none
+      else match zeroMoveJump?Flat I h ipJump st0 vDepth vEnv lEnv jumpArm with
+        | some targetJ =>
+          if !ccmpTargetNoFlag I h targetJ then none
+          else
+            let br0 := if wantTrue then cc0 else I.gpr.negCond cc0
+            if ccmpCanStep?Flat I h nv (nl + 1) ipRest st0 targetJ br0 reqNonCb
+                vDepth vEnv lEnv restArm then
+              some (c0, st0, br0, targetJ, wantTrue, ipRest, ipExtra0)
+            else none
+        | none => none
+    tryDir true t e (jnzIpTFlat nv nl ip t e) (ip + 1) 1 <|>
+      tryDir false e t (ip + 1) (ip + 2) 0
+
+def ccmpTailJcc?Flat {rs : List Ty} (I : Isa) (h : I.Hints) (fn : Sym) (nv nl ip ipEx : Nat)
+    (st1 : SymState I) (br1 : I.Cond) (targetJ : Nat) (ft : Option Nat) (fwd : Trie Nat)
+    (vDepth : Nat) (vEnv : Trie Nat) (lEnv : List Nat) (rest : TFlat rs) :
+    Option (List I.Directive × Nat × Nat × Nat) :=
+  if ft == some (tgtLab fwd targetJ) then
+    (zeroMoveJump?Flat I h ip st1 vDepth vEnv lEnv rest).map fun j' =>
+      (I.gpr.jcc (I.gpr.negCond br1) (lname fn (tgtLab fwd j')), nv, nl, ip + 1 + ipEx)
+  else none
+
 mutual
 /-- First-order register-allocation lowering over `TFlat rs`, maintaining lexical
 `(vDepth, vEnv, lEnv)` decoupled from sequential counters `(nv, nl, ip)`. -/
-def lowerFlatExpr (I : Isa) (h : I.Hints) (E : Ext) (fn : Sym) {rs : List Ty} :
-    TFlat rs → Nat → Trie Nat → List Nat → Nat → Nat → Nat → SymState I → Option Nat →
-    (fwd : Trie Nat := .empty) → (fwdTgts : Trie Bool := .empty) → Res I
-  | .let_ (ts := ts) op k, vDepth, vEnv, lEnv, nv, nl, ip, st, ft, fwd, fwdTgts =>
+def lowerFlatExpr (I : Isa) (h : I.Hints) (E : Ext) (fn : Sym) {rs : List Ty}
+    (tf : TFlat rs) (vDepth : Nat) (vEnv : Trie Nat) (lEnv : List Nat)
+    (nv nl ip : Nat) (st : SymState I) (ft : Option Nat)
+    (fwd : Trie Nat := .empty) (fwdTgts : Trie Bool := .empty) : Res I :=
+  match tf with
+  | .let_ (ts := ts) op k =>
     match stepPre I h ip st with
     | none => .error "let: pre"
     | some (mc, st1) =>
@@ -446,7 +536,7 @@ def lowerFlatExpr (I : Isa) (h : I.Hints) (E : Ext) (fn : Sym) {rs : List Ty} :
       | some (c, st2) =>
         prepend (mc ++ c)
           (lowerFlatExpr I h E fn k vd' ve' lEnv (nv + ts.length) nl (ip + 1) st2 ft fwd fwdTgts)
-  | .load t a k, vDepth, vEnv, lEnv, nv, nl, ip, st, ft, fwd, fwdTgts =>
+  | .load t a k =>
     match stepPre I h ip st with
     | none => .error "load: pre"
     | some (mc, st1) =>
@@ -458,7 +548,7 @@ def lowerFlatExpr (I : Isa) (h : I.Hints) (E : Ext) (fn : Sym) {rs : List Ty} :
       | some (c, st2) =>
         prepend (mc ++ c)
           (lowerFlatExpr I h E fn k vd' ve' lEnv (nv + 1) nl (ip + 1) st2 ft fwd fwdTgts)
-  | .store (t := t) v a k, vDepth, vEnv, lEnv, nv, nl, ip, st, ft, fwd, fwdTgts =>
+  | .store (t := t) v a k =>
     match stepPre I h ip st with
     | none => .error "store: pre"
     | some (mc, st1) =>
@@ -469,7 +559,7 @@ def lowerFlatExpr (I : Isa) (h : I.Hints) (E : Ext) (fn : Sym) {rs : List Ty} :
       | some (c, st2) =>
         prepend (mc ++ c)
           (lowerFlatExpr I h E fn k vDepth vEnv lEnv nv nl (ip + 1) st2 ft fwd fwdTgts)
-  | .call f (as := as) bs args k, vDepth, vEnv, lEnv, nv, nl, ip, st, ft, fwd, fwdTgts =>
+  | .call f (as := as) bs args k =>
     match stepPre I h ip st with
     | none => .error "call: pre"
     | some (mc, st1) =>
@@ -492,7 +582,7 @@ def lowerFlatExpr (I : Isa) (h : I.Hints) (E : Ext) (fn : Sym) {rs : List Ty} :
                   (lowerFlatExpr I h E fn k vd' ve' lEnv (nv + bs.length) nl (ip + 1) st4 ft
                     fwd fwdTgts)
         | _, _ => .error "call: abi"
-  | .jnz (.imm b) t e, vDepth, vEnv, lEnv, nv, nl, ip, st, ft, fwd, fwdTgts =>
+  | .jnz (.imm b) t e =>
     match stepPre I h ip st with
     | none => .error "jnz: pre"
     | some (mc, st1) =>
@@ -500,7 +590,7 @@ def lowerFlatExpr (I : Isa) (h : I.Hints) (E : Ext) (fn : Sym) {rs : List Ty} :
         lowerFlatExpr I h E fn t vDepth vEnv lEnv nv nl (ip + 1) st1 ft fwd fwdTgts
       else
         lowerFlatExpr I h E fn e vDepth vEnv lEnv nv nl (ip + 1) st1 ft fwd fwdTgts)
-  | .jnz (.var cx) t e, vDepth, vEnv, lEnv, nv, nl, ip, st, ft, fwd, fwdTgts =>
+  | .jnz (.var cx) t e =>
     match stepPre I h ip st with
     | none => .error "jnz: pre"
     | some (mc, st1) =>
@@ -508,25 +598,35 @@ def lowerFlatExpr (I : Isa) (h : I.Hints) (E : Ext) (fn : Sym) {rs : List Ty} :
       match findJnzCond I h.nslots st1 cx' with
       | none => .error "jnz: cond"
       | some cond =>
-        match jnzSetupFlat I h fn nl (jnzIpTFlat nv nl ip t e) (ip + 1) st1
-            vDepth vEnv lEnv t e ft cond fwd with
-        | none => .error "jnz: setup"
-        | some (inv, tgt?, br, stBr) =>
-          let ftT := match tgt? with | some j => some (tgtLab fwd j) | none => ft
-          let ftF := match tgt? with | some _ => ft | none => none
-          match lowerFlatExpr I h E fn e vDepth vEnv lEnv nv (nl + 1) (ip + 1) stBr
-              (if inv then ftT else ftF) fwd fwdTgts with
-          | .error err => .error err
-          | .ok (ce, nv1, nl1, ip1) =>
-            match lowerFlatExpr I h E fn t vDepth vEnv lEnv nv1 nl1 ip1 stBr
-                (if inv then ftF else ftT) fwd fwdTgts with
+        match ccmpStart?Flat I h nv nl ip st1 cond vDepth vEnv lEnv t e with
+        | some (c0, st0, br0, targetJ, wantTrue, ipRest, ipEx0) =>
+          prepend (mc ++ c0)
+            (if wantTrue then
+              lowerCcmpChainFlat I h E fn e vDepth vEnv lEnv nv (nl + 1) ipRest st0 br0
+                targetJ ipEx0 ft fwd fwdTgts
+             else
+              lowerCcmpChainFlat I h E fn t vDepth vEnv lEnv nv (nl + 1) ipRest st0 br0
+                targetJ ipEx0 ft fwd fwdTgts)
+        | none =>
+          match jnzSetupFlat I h fn nl (jnzIpTFlat nv nl ip t e) (ip + 1) st1
+              vDepth vEnv lEnv t e ft cond fwd with
+          | none => .error "jnz: setup"
+          | some (inv, tgt?, br, stBr) =>
+            let ftT := match tgt? with | some j => some (tgtLab fwd j) | none => ft
+            let ftF := match tgt? with | some _ => ft | none => none
+            match lowerFlatExpr I h E fn e vDepth vEnv lEnv nv (nl + 1) (ip + 1) stBr
+                (if inv then ftT else ftF) fwd fwdTgts with
             | .error err => .error err
-            | .ok (ct, nv2, nl2, ip2) =>
-              prepend mc (if inv then
-                finishJnzBranchFlat I fn lEnv nl tgt? e br ct ce nv2 nl2 ip2
-              else
-                finishJnzBranchFlat I fn lEnv nl tgt? t br ce ct nv2 nl2 ip2)
-  | .jump j args, vDepth, vEnv, lEnv, nv, nl, ip, st, ft, fwd, _ =>
+            | .ok (ce, nv1, nl1, ip1) =>
+              match lowerFlatExpr I h E fn t vDepth vEnv lEnv nv1 nl1 ip1 stBr
+                  (if inv then ftF else ftT) fwd fwdTgts with
+              | .error err => .error err
+              | .ok (ct, nv2, nl2, ip2) =>
+                prepend mc (if inv then
+                  finishJnzBranchFlat I fn lEnv nl tgt? e br ct ce nv2 nl2 ip2
+                else
+                  finishJnzBranchFlat I fn lEnv nl tgt? t br ce ct nv2 nl2 ip2)
+  | .jump j args =>
     let jLvl := flatLabel lEnv j
     match stepPre I h ip st, h.entry.find? jLvl with
     | some (mc, st1), some en =>
@@ -545,19 +645,19 @@ def lowerFlatExpr (I : Isa) (h : I.Hints) (E : Ext) (fn : Sym) {rs : List Ty} :
               .ok (mc ++ sc ++ (if ft == some jt then [] else I.gpr.jmp (lname fn jt)),
                    nv, nl, ip + 1)
     | _, _ => .error "jump: pre/entry"
-  | .ret vs, vDepth, vEnv, _, nv, nl, ip, st, _, _, _ =>
+  | .ret vs =>
     match stepPre I h ip st, I.assignRets rs with
     | some (mc, st1), some retLocs =>
       lowerTail I h E st1 mc I.frame.ret (flatArgs vDepth vEnv vs) retLocs nv nl ip
     | _, _ => .error "ret: pre/abi"
-  | .exit f (as := as) args, vDepth, vEnv, _, nv, nl, ip, st, _, _, _ =>
+  | .exit f (as := as) args =>
     match stepPre I h ip st, I.assignArgs as with
     | some (mc, st1), some argLocs =>
       if !E.exits.contains f then .error "exit: target"
       else lowerTail I h E st1 mc (I.frame.exitJmp f) (flatArgs vDepth vEnv args) argLocs nv nl ip
     | _, _ => .error "exit: pre/abi"
-  | .hlt, _, _, _, nv, nl, ip, _, _, _, _ => .ok ([], nv, nl, ip + 1)
-  | .group (sig := sig) bodies k, vDepth, vEnv, lEnv, nv, nl, ip, st, ft, fwd, fwdTgts =>
+  | .hlt => .ok ([], nv, nl, ip + 1)
+  | .group (sig := sig) bodies k =>
     let lEnv' := pushLLevels sig nl lEnv
     let (fwd', tgts') :=
       findGroupFwdsFlat I h st vDepth vEnv lEnv' bodies k nv nl ip fwd fwdTgts
@@ -569,14 +669,16 @@ def lowerFlatExpr (I : Isa) (h : I.Hints) (E : Ext) (fn : Sym) {rs : List Ty} :
       prepend ck
         (lowerFlatBlocks I h E fn bodies nl vDepth vEnv lEnv' nv1 nl1 ip1
           st.defs st.vecWidths ft fwd' tgts')
+termination_by structural tf
 
 /-- Mutual companion to `lowerFlatExpr` over `TBlocks rs sig`. -/
-def lowerFlatBlocks (I : Isa) (h : I.Hints) (E : Ext) (fn : Sym) {rs : List Ty} :
-    {sig : List (List Ty)} → TBlocks rs sig → Nat → Nat → Trie Nat → List Nat →
-    Nat → Nat → Nat → Trie DefFact → Trie SlotWidth → Option Nat →
-    (fwd : Trie Nat := .empty) → (fwdTgts : Trie Bool := .empty) → Res I
-  | _, .nil, _, _, _, _, nv, nl, ip, _, _, _, _, _ => .ok ([], nv, nl, ip)
-  | _, .cons (ts := ts) b bs, lid, vDepth, vEnv, lEnv, nv, nl, ip, defs, vw, ft, fwd, fwdTgts =>
+def lowerFlatBlocks (I : Isa) (h : I.Hints) (E : Ext) (fn : Sym) {rs : List Ty}
+    {sig : List (List Ty)} (bs : TBlocks rs sig) (lid vDepth : Nat) (vEnv : Trie Nat)
+    (lEnv : List Nat) (nv nl ip : Nat) (defs : Trie DefFact) (vw : Trie SlotWidth)
+    (ft : Option Nat) (fwd : Trie Nat := .empty) (fwdTgts : Trie Bool := .empty) : Res I :=
+  match bs with
+  | .nil => .ok ([], nv, nl, ip)
+  | .cons (ts := ts) b bs =>
     match fwd.find? lid with
     | some fwdTgt =>
       match blockTrampoline?Flat I h defs vw lid vDepth vEnv lEnv nv ip ts b with
@@ -606,6 +708,91 @@ def lowerFlatBlocks (I : Isa) (h : I.Hints) (E : Ext) (fn : Sym) {rs : List Ty} 
                 prepend (I.frame.label (lname fn lid) :: cb)
                   (lowerFlatBlocks I h E fn bs (lid + 1) vDepth vEnv lEnv nv1 nl1 ip1
                     defs vw ft fwd fwdTgts)
+termination_by structural bs
+
+def lowerCcmpChainFlat (I : Isa) (h : I.Hints) (E : Ext) (fn : Sym) {rs : List Ty}
+    (tf : TFlat rs) (vDepth : Nat) (vEnv : Trie Nat) (lEnv : List Nat)
+    (nv nl ip : Nat) (st : SymState I) (brCond : I.Cond) (targetJ ipExtra : Nat)
+    (ft : Option Nat) (fwd : Trie Nat) (fwdTgts : Trie Bool) : Res I :=
+  match tf with
+  | .let_ (ts := [.bool]) op k =>
+    let op' := flatOp vDepth vEnv op
+    let vd' := vDepth + 1
+    let ve' := vEnv.insert vDepth nv
+    match ccmpAsCmp? op'.code op'.args with
+    | some ⟨_, co, a, b⟩ =>
+      if !(h.deferJnz.getD ip false && preEmpty h ip) then .error "ccmp: step"
+      else lowerCcmpJnzFlat I h E fn k vd' ve' lEnv (nv + 1) nl (ip + 1) st
+        brCond targetJ ipExtra ft fwd fwdTgts nv co a b
+    | none => .error "ccmp: step"
+  | .jnz (.var cx) t eArm =>
+    if !preEmpty h ip then .error "ccmp: step"
+    else
+      let cx' := flatVar vDepth vEnv cx
+      match st.defs.find? cx' with
+      | some (.cmpZeroVar co w y) =>
+        match ccmpPickArms?Flat I h nv nl ip st targetJ brCond co (.var y) (.imm 0#w)
+            vDepth vEnv lEnv t eArm with
+        | none => .error "ccmp: step"
+        | some (code, st1, br1, _, wantTrue, ipRest, ipEx1) =>
+          let nl1 := nl + 1; let ipEx' := ipExtra + ipEx1
+          prepend code (if wantTrue then
+            if ccmpCanStep?Flat I h nv nl1 ipRest st1 targetJ br1 false
+                vDepth vEnv lEnv eArm then
+              lowerCcmpChainFlat I h E fn eArm vDepth vEnv lEnv nv nl1 ipRest st1 br1
+                targetJ ipEx' ft fwd fwdTgts
+            else match ccmpTailJcc?Flat I h fn nv nl1 ipRest ipEx' st1 br1 targetJ ft fwd
+                vDepth vEnv lEnv eArm with
+              | some res => .ok res
+              | none => finishCcmpTail I fn br1 targetJ fwd ipEx'
+                  (lowerFlatExpr I h E fn eArm vDepth vEnv lEnv nv nl1 ipRest st1 ft fwd fwdTgts)
+          else
+            if ccmpCanStep?Flat I h nv nl1 ipRest st1 targetJ br1 false
+                vDepth vEnv lEnv t then
+              lowerCcmpChainFlat I h E fn t vDepth vEnv lEnv nv nl1 ipRest st1 br1
+                targetJ ipEx' ft fwd fwdTgts
+            else match ccmpTailJcc?Flat I h fn nv nl1 ipRest ipEx' st1 br1 targetJ ft fwd
+                vDepth vEnv lEnv t with
+              | some res => .ok res
+              | none => finishCcmpTail I fn br1 targetJ fwd ipEx'
+                  (lowerFlatExpr I h E fn t vDepth vEnv lEnv nv nl1 ipRest st1 ft fwd fwdTgts))
+      | _ => .error "ccmp: step"
+  | _ => .error "ccmp: step"
+termination_by structural tf
+
+def lowerCcmpJnzFlat (I : Isa) (h : I.Hints) (E : Ext) (fn : Sym) {rs : List Ty}
+    (tf : TFlat rs) (vDepth : Nat) (vEnv : Trie Nat) (lEnv : List Nat)
+    (nv nl ipJnz : Nat) (st : SymState I) (brCond : I.Cond) (targetJ ipExtra : Nat)
+    (ft : Option Nat) (fwd : Trie Nat) (fwdTgts : Trie Bool)
+    (reqCx : Nat) (co : CmpOp) {w : Nat} (a b : Arg VNat (.bits w)) : Res I :=
+  match tf with
+  | .jnz (.var cx) t eArm =>
+    if !(Nat.beq (flatVar vDepth vEnv cx) reqCx && preEmpty h ipJnz) then .error "ccmp: step"
+    else match ccmpPickArms?Flat I h nv nl ipJnz st targetJ brCond co a b
+        vDepth vEnv lEnv t eArm with
+      | none => .error "ccmp: step"
+      | some (code, st1, br1, _, wantTrue, ipRest, ipEx1) =>
+        let nl1 := nl + 1; let ipEx' := ipExtra + ipEx1
+        prepend code (if wantTrue then
+          if ccmpCanStep?Flat I h nv nl1 ipRest st1 targetJ br1 false vDepth vEnv lEnv eArm then
+            lowerCcmpChainFlat I h E fn eArm vDepth vEnv lEnv nv nl1 ipRest st1 br1
+              targetJ ipEx' ft fwd fwdTgts
+          else match ccmpTailJcc?Flat I h fn nv nl1 ipRest ipEx' st1 br1 targetJ ft fwd
+              vDepth vEnv lEnv eArm with
+            | some res => .ok res
+            | none => finishCcmpTail I fn br1 targetJ fwd ipEx'
+                (lowerFlatExpr I h E fn eArm vDepth vEnv lEnv nv nl1 ipRest st1 ft fwd fwdTgts)
+        else
+          if ccmpCanStep?Flat I h nv nl1 ipRest st1 targetJ br1 false vDepth vEnv lEnv t then
+            lowerCcmpChainFlat I h E fn t vDepth vEnv lEnv nv nl1 ipRest st1 br1
+              targetJ ipEx' ft fwd fwdTgts
+          else match ccmpTailJcc?Flat I h fn nv nl1 ipRest ipEx' st1 br1 targetJ ft fwd
+              vDepth vEnv lEnv t with
+            | some res => .ok res
+            | none => finishCcmpTail I fn br1 targetJ fwd ipEx'
+                (lowerFlatExpr I h E fn t vDepth vEnv lEnv nv nl1 ipRest st1 ft fwd fwdTgts))
+  | _ => .error "ccmp: step"
+termination_by structural tf
 end
 
 /-- Direct `TFlatFn` entry point for `Rega` lowering, matching `Rega.lowerFn`. -/
