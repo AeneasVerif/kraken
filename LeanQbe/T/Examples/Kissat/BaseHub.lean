@@ -229,6 +229,13 @@ public import LeanQbe.T.Examples.Kissat.PlainSearchLemmas1
 public import LeanQbe.T.Examples.Kissat.PlainSpec
 public import LeanQbe.T.Examples.Kissat.PlainSpec1
 public import LeanQbe.T.Examples.Kissat.PlainSpec2
+public import LeanQbe.T.Examples.Kissat.Proof.Float64.Cert
+public import LeanQbe.T.Examples.Kissat.Proof.Float64.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Float64.Wp0
+public import LeanQbe.T.Examples.Kissat.Proof.Float64.Wp1
+public import LeanQbe.T.Examples.Kissat.Proof.Limits.Cert
+public import LeanQbe.T.Examples.Kissat.Proof.Limits.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Limits.Wp
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Arena
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Arena1
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Contracts
