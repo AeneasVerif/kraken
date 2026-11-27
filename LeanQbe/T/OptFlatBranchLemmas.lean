@@ -1012,17 +1012,38 @@ theorem condThreadWithPlanFlat_eq {as rs : List Ty} (plan : CTPlan) (tf : TFlat 
   · simp only [hval', Bool.false_eq_true, ↓reduceIte]
     exact (reifyFunc_denoteFunc_eq tf hwf).symm
 
+/-- `condThreadPassOnceFlat` agrees with `Func.condThreadPassOnce` on `changed` and `.1`. -/
+theorem condThreadPassOnceFlat_eq {as rs : List Ty} (tf : TFlat rs)
+    (splitOnly : Bool := false) (hwf : tf.wfCheck (pushTypes as []) [] = true) :
+    (condThreadPassOnceFlat as splitOnly tf).1 =
+        reifyFunc (Func.condThreadPassOnce splitOnly (denoteFunc (as := as) tf)).1 ∧
+      (condThreadPassOnceFlat as splitOnly tf).2 =
+        (Func.condThreadPassOnce splitOnly (denoteFunc (as := as) tf)).2 := by
+  dsimp only [condThreadPassOnceFlat, Func.condThreadPassOnce]
+  rw [reifyFunc_denoteFunc_eq tf hwf]
+  split
+  · exact ⟨condThreadWithPlanFlat_eq _ tf hwf, rfl⟩
+  · exact ⟨(reifyFunc_denoteFunc_eq tf hwf).symm, rfl⟩
+
 /-- `condThreadPassFlat as tf = reifyFunc (Func.condThreadPass (denoteFunc tf))` under
 `wfCheck = true`. -/
 theorem condThreadPassFlat_eq {as rs : List Ty} (tf : TFlat rs)
     (hwf : tf.wfCheck (pushTypes as []) [] = true) :
     condThreadPassFlat as tf =
       reifyFunc (Func.condThreadPass (denoteFunc (as := as) tf)) := by
-  dsimp only [condThreadPassFlat, Func.condThreadPass]
-  rw [reifyFunc_denoteFunc_eq tf hwf]
+  unfold Func.condThreadPass; dsimp only [condThreadPassFlat]
+  have h1 := condThreadPassOnceFlat_eq tf false hwf
+  rw [h1.2]
   split
-  · exact condThreadWithPlanFlat_eq _ tf hwf
-  · exact (reifyFunc_denoteFunc_eq tf hwf).symm
+  · have hwf1 : (Func.condThreadPassOnce false (denoteFunc (as := as) tf)).1.Wf :=
+      Func.condThreadPassOnce_wf false (Func.wf_of_denote tf rfl)
+    have hwfFlat : (condThreadPassOnceFlat as false tf).1.wfCheck (pushTypes as []) [] = true := by
+      rw [h1.1]; exact PassFlatKit.reifyFunc_wfCheck hwf1
+    have h2 := condThreadPassOnceFlat_eq (condThreadPassOnceFlat as false tf).1 true hwfFlat
+    rw [h2.1, h1.1]
+    exact congrArg reifyFunc (congrArg (fun g => (Func.condThreadPassOnce true g).1)
+      (Func.renorm_eq_self hwf1))
+  · exact h1.1
 
 flat_pass_corollaries condThreadPassFlat, Func.condThreadPass, Func.condThreadPass_wf,
   condThreadPassFlat_eq, denoteFunc_condThreadPassFlat, condThreadPassFlat_wfCheck,

@@ -1706,35 +1706,73 @@ theorem Func.condThreadWithPlan_callsOk {allowed : List SigEntry} {exits : List 
       plan (fun _ hp => nomatch hp) hc
   · exact hc
 
+/-- `Func.condThreadPassOnce` preserves relational well-formedness `Func.Wf`. -/
+theorem Func.condThreadPassOnce_wf {as rs : List Ty} (splitOnly : Bool) {f : Func as rs}
+    (_hf : f.Wf) : (Func.condThreadPassOnce splitOnly f).1.Wf := by
+  dsimp only [Func.condThreadPassOnce]
+  split
+  · exact Func.condThreadWithPlan_wf _ (Func.wf_of_denote (reifyFunc f) rfl)
+  · exact Func.wf_of_denote (reifyFunc f) rfl
+
+/-- `Func.condThreadPassOnce` refines `Func.wp` / `Func.spec` for any well-formed `f`. -/
+theorem Func.condThreadPassOnce_spec {as rs : List Ty} (splitOnly : Bool) {f : Func as rs}
+    (hf : f.Wf) {Γ : Env} {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
+    (h : Func.spec Γ f xs m Q X) :
+    Func.spec Γ (Func.condThreadPassOnce splitOnly f).1 xs m Q X := by
+  dsimp only [Func.condThreadPassOnce]
+  split
+  · exact Func.condThreadWithPlan_spec _ (Func.wf_of_denote (reifyFunc f) rfl)
+      (Func.renorm_spec hf h)
+  · exact Func.renorm_spec hf h
+
+/-- `Func.condThreadPassOnce` preserves `Expr.callsOk` for any well-formed `f`. -/
+theorem Func.condThreadPassOnce_callsOk {allowed : List SigEntry} {exits : List Sym}
+    {as rs : List Ty} (splitOnly : Bool) {f : Func as rs} (hf : f.Wf)
+    (hc : (f UnitV (fun _ => Unit) (Tup.units as)).callsOk allowed exits) :
+    ((Func.condThreadPassOnce splitOnly f).1 UnitV (fun _ => Unit)
+      (Tup.units as)).callsOk allowed exits := by
+  dsimp only [Func.condThreadPassOnce]
+  have hc' : ((denoteFunc (reifyFunc f)) UnitV (fun _ => Unit) (Tup.units as)).callsOk
+      allowed exits := by
+    simpa [denoteFunc, reifyFunc] using
+      denote_toTFlat_callsOk
+        (hf K UnitV KL (fun _ => Unit) (Tup.levels as 0) (Tup.units as))
+        as.length 0 (pushTup (Tup.units as) []) [] hc
+  split
+  · exact Func.condThreadWithPlan_callsOk _ (Func.wf_of_denote (reifyFunc f) rfl) hc'
+  · exact hc'
+
 /-- `Func.condThreadPass` preserves relational well-formedness `Func.Wf`. -/
 theorem Func.condThreadPass_wf {as rs : List Ty} {f : Func as rs} (hf : f.Wf) :
     (Func.condThreadPass f).Wf := by
-  dsimp only [Func.condThreadPass]
+  unfold Func.condThreadPass; dsimp only
+  have hf1 : (Func.condThreadPassOnce false f).1.Wf := Func.condThreadPassOnce_wf false hf
   split
-  · exact Func.condThreadWithPlan_wf _ hf
-  · exact Func.wf_of_denote (reifyFunc f) rfl
+  · exact Func.condThreadPassOnce_wf true hf1
+  · exact hf1
 
 /-- `Func.condThreadPass` refines `Func.wp` / `Func.spec` for any well-formed `f`. -/
 theorem Func.condThreadPass_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf)
     {Γ : Env} {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
     (h : Func.spec Γ f xs m Q X) : Func.spec Γ (Func.condThreadPass f) xs m Q X := by
-  dsimp only [Func.condThreadPass]
+  unfold Func.condThreadPass; dsimp only
+  have hf1 : (Func.condThreadPassOnce false f).1.Wf := Func.condThreadPassOnce_wf false hf
+  have hs1 := Func.condThreadPassOnce_spec false hf h
   split
-  · exact Func.condThreadWithPlan_spec _ hf h
-  · exact Func.renorm_spec hf h
+  · exact Func.condThreadPassOnce_spec true hf1 hs1
+  · exact hs1
 
 /-- `Func.condThreadPass` preserves `Expr.callsOk` for any well-formed `f`. -/
 theorem Func.condThreadPass_callsOk {allowed : List SigEntry} {exits : List Sym}
     {as rs : List Ty} {f : Func as rs} (hf : f.Wf)
     (hc : (f UnitV (fun _ => Unit) (Tup.units as)).callsOk allowed exits) :
     ((Func.condThreadPass f) UnitV (fun _ => Unit) (Tup.units as)).callsOk allowed exits := by
-  dsimp only [Func.condThreadPass]
+  unfold Func.condThreadPass; dsimp only
+  have hf1 : (Func.condThreadPassOnce false f).1.Wf := Func.condThreadPassOnce_wf false hf
+  have hc1 := Func.condThreadPassOnce_callsOk false hf hc
   split
-  · exact Func.condThreadWithPlan_callsOk _ hf hc
-  · simpa [denoteFunc, reifyFunc] using
-      denote_toTFlat_callsOk
-        (hf K UnitV KL (fun _ => Unit) (Tup.levels as 0) (Tup.units as))
-        as.length 0 (pushTup (Tup.units as) []) [] hc
+  · exact Func.condThreadPassOnce_callsOk true hf1 hc1
+  · exact hc1
 
 /-- `Func.condThreadOpt` preserves relational well-formedness `Func.Wf`. -/
 theorem Func.condThreadOpt_wf {as rs : List Ty} {f : Func as rs} (hf : f.Wf) :
