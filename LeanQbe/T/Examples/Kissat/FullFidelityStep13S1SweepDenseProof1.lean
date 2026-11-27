@@ -685,6 +685,7 @@ private theorem s13_bin_roundtrip_call_push {Γ : Env} {rs : List Ty} {Q : Post 
       s'.core.d_cur = s.core.d_cur → s'.core.d_val = s.core.d_val →
       s'.core.frame_trail = s.core.frame_trail → s'.core.frame_dec = s.core.frame_dec →
       s'.core.trail_end = s.core.trail_end → s'.core.propagated = s.core.propagated →
+      s'.core.probing = s.core.probing →
       s'.scratch.extend_len = s.scratch.extend_len →
       s'.scratch.walk_vals = s.scratch.walk_vals →
       s'.scratch.walk_best = s.scratch.walk_best →
@@ -716,7 +717,7 @@ private theorem s13_bin_roundtrip_call_push {Γ : Env} {rs : List Ty} {Q : Post 
   have hw' : FullWitnessInv c F0 F_cur s'.core :=
     { hw with arena := { hw.arena with len_ok := hw.arena.len_ok }, watches := hwat' }
   exact hk ok s' m' hlen' hw' rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
-    rfl rfl rfl rfl rfl rfl rfl hm'
+    rfl rfl rfl rfl rfl rfl rfl rfl hm'
 
 theorem s13_bin_roundtrip_emit_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     (hPush : ∀ a m Q X, Full.fullWatchPushSpec a m Q X →
@@ -739,6 +740,7 @@ theorem s13_bin_roundtrip_emit_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : X
       s'.core.d_cur = s.core.d_cur → s'.core.d_val = s.core.d_val →
       s'.core.frame_trail = s.core.frame_trail → s'.core.frame_dec = s.core.frame_dec →
       s'.core.trail_end = s.core.trail_end → s'.core.propagated = s.core.propagated →
+      s'.core.probing = s.core.probing →
       s'.scratch.extend_len = s.scratch.extend_len →
       s'.scratch.walk_vals = s.scratch.walk_vals →
       s'.scratch.walk_best = s.scratch.walk_best →
@@ -920,6 +922,7 @@ theorem s13_bin_roundtrip_emit_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : X
         sK.core.d_cur = s.core.d_cur ∧ sK.core.d_val = s.core.d_val ∧
         sK.core.frame_trail = s.core.frame_trail ∧ sK.core.frame_dec = s.core.frame_dec ∧
         sK.core.trail_end = s.core.trail_end ∧ sK.core.propagated = s.core.propagated ∧
+        sK.core.probing = s.core.probing ∧
         sK.scratch.extend_len = s.scratch.extend_len ∧
         sK.scratch.walk_vals = s.scratch.walk_vals ∧
         sK.scratch.walk_best = s.scratch.walk_best ∧
@@ -932,15 +935,15 @@ theorem s13_bin_roundtrip_emit_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : X
         c0_hsteps_nogrp
         refine hLoopK (0#64, ()) _ ⟨Nat.zero_le _, s0, hlen0, hw0, rfl, rfl, rfl, rfl, rfl,
           rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-          ?_⟩
+          rfl, ?_⟩
         let wstk0_c0 := s.core.wstk.set (BitVec.setWidth 64 0#32).toNat 0#32
         let s0_c0 : FullState :=
           { s with core := { s.core with wvec := wvecL, wstk := wstk0_c0,
                                          wlen := (1#64).toNat, wusable := 0#64, num_binary := nb } }
         change (FullMem c s0_c0 ⋆ R) _ at *; exact (by assumption))
       (fun Jk ⟨k, ⟨⟩⟩ mK ⟨hk_le, sK, hlenK, hwK, hcvK, hclK, hdmK, harK, halK, hvalK, hlvlK,
-          hflK, hfuK, hincK, hdcK, hdvK, hftK, hfdK, hteK, hprK, helK, hwvK, hwbK, hllK, hsbK,
-          hlmkK, hmrkK, hmK⟩ hLoopK => ?_)
+          hflK, hfuK, hincK, hdcK, hdvK, hftK, hfdK, hteK, hprK, hprbK, helK, hwvK, hwbK, hllK,
+          hsbK, hlmkK, hmrkK, hmK⟩ hLoopK => ?_)
     c0_hsplit
     · have hk_lt : k.toNat < nb.toNat := hc
       have hnb_bd : 2 * nb.toNat ≤ c.scratch_cap := hbp.2.1
@@ -994,8 +997,8 @@ theorem s13_bin_roundtrip_emit_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : X
         (by rw [hb_k]; omega)
         (by rw [ha_k, hb_k]; exact hpent) hmK ?_
       intro _ok1 sK1 mK1 hlenK1 hwK1 hcvK1 hclK1 hdmK1 harK1 halK1 hvalK1 hlvlK1 hflK1 hfuK1
-        hincK1 hdcK1 hdvK1 hftK1 hfdK1 hteK1 hprK1 helK1 hwvK1 hwbK1 hllK1 hsbK1 hlmkK1 hmrkK1
-        hmK1
+        hincK1 hdcK1 hdvK1 hftK1 hfdK1 hteK1 hprK1 hprbK1 helK1 hwvK1 hwbK1 hllK1 hsbK1 hlmkK1
+        hmrkK1 hmK1
       c0_hsteps_nogrp
       refine s13_bin_roundtrip_call_push hPush hlenK1 hwK1
         (by rw [hb_k, hcvK1, hcvK]; exact hpb)
@@ -1004,8 +1007,8 @@ theorem s13_bin_roundtrip_emit_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : X
         (by rw [ha_k, hb_k]; exact hpent_sw)
         hmK1 ?_
       intro _ok2 sK2 mK2 hlenK2 hwK2 hcvK2 hclK2 hdmK2 harK2 halK2 hvalK2 hlvlK2 hflK2 hfuK2
-        hincK2 hdcK2 hdvK2 hftK2 hfdK2 hteK2 hprK2 helK2 hwvK2 hwbK2 hllK2 hsbK2 hlmkK2 hmrkK2
-        hmK2
+        hincK2 hdcK2 hdvK2 hftK2 hfdK2 hteK2 hprK2 hprbK2 helK2 hwvK2 hwbK2 hllK2 hsbK2 hlmkK2
+        hmrkK2 hmK2
       c0_hsteps_nogrp
       exact hLoopK (k + 1#64, ()) mK2 (by dsimp only; omega)
         ⟨by omega, sK2, hlenK2, hwK2,
@@ -1017,10 +1020,10 @@ theorem s13_bin_roundtrip_emit_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : X
          hdcK2.trans (hdcK1.trans hdcK), hdvK2.trans (hdvK1.trans hdvK),
          hftK2.trans (hftK1.trans hftK), hfdK2.trans (hfdK1.trans hfdK),
          hteK2.trans (hteK1.trans hteK), hprK2.trans (hprK1.trans hprK),
-         helK2.trans (helK1.trans helK), hwvK2.trans (hwvK1.trans hwvK),
-         hwbK2.trans (hwbK1.trans hwbK), hllK2.trans (hllK1.trans hllK),
-         hsbK2.trans (hsbK1.trans hsbK), hlmkK2.trans (hlmkK1.trans hlmkK),
-         hmrkK2.trans (hmrkK1.trans hmrkK), hmK2⟩
+         hprbK2.trans (hprbK1.trans hprbK), helK2.trans (helK1.trans helK),
+         hwvK2.trans (hwvK1.trans hwvK), hwbK2.trans (hwbK1.trans hwbK),
+         hllK2.trans (hllK1.trans hllK), hsbK2.trans (hsbK1.trans hsbK),
+         hlmkK2.trans (hlmkK1.trans hlmkK), hmrkK2.trans (hmrkK1.trans hmrkK), hmK2⟩
     · c0_hsteps_nogrp
       have hlmK : FullLitMarksClear c sK :=
         ⟨by simpa only [FullMrkZero, hmrkK] using hlm.1,
@@ -1034,7 +1037,7 @@ theorem s13_bin_roundtrip_emit_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : X
           fun r hr => by
             simpa [fullArenaClauseRefs, fullArenaClauseRefsCore, harK, halK] using hr
       exact hExit sK mK hlenK hwK hlmK hndK hextK
-        hcvK hclK hdmK harK halK hvalK hlvlK hflK hfuK hincK hdcK hdvK hftK hfdK hteK hprK
+        hcvK hclK hdmK harK halK hvalK hlvlK hflK hfuK hincK hdcK hdvK hftK hfdK hteK hprK hprbK
         helK hwvK hwbK hllK hmK
 
 end LeanQbe.T.Examples.Kissat.FullFidelityStep13S1

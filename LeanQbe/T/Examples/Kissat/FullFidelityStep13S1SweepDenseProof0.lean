@@ -441,9 +441,9 @@ private theorem s13_enter_had_unfl_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
   · c0_hsteps_nogrp; s13a0_call hProp
     refine ⟨c, F0, F_cur1, ext1, sA, R, rfl, hcfg, hext1, hlenA, hwA, hsp1.2.2.2.2,
       fullM6HdrMem_unfocus_full hmA, ?_⟩
-    intro pr valsB flagsB lvlB rsnsB trlB tpB teB propB unassB unflB wvecB arenaB wstkB wlenB
-      wuB fuelB ctypeB crefB c0B c1B oomB ticksB wsortB phasesB delayedB extB mB sB
-      hlenB hwB _ harenaB _ hfuB _ _ hpr1 _ _ hextB_ok hextB_w2b hmB
+    intro pr extB valsB flagsB lvlB rsnsB trlB tpB teB propB unassB unflB wvecB arenaB wstkB wlenB
+      wuB fuelB ctypeB crefB c0B c1B oomB scB mB sB
+      hextB_ok hextB_w2b hlenB hwB _ harenaB hprB _ _ _ _ hfuB _ _ hpr1 _ _ hmB
     have hndB : FullArenaVarsNodup sB := fun r hr hng => by
       dsimp only [FullArenaVarsNodup, fullArenaClauseRefs] at hr ⊢
       rw [harenaB.2.1] at hr
@@ -452,12 +452,12 @@ private theorem s13_enter_had_unfl_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
       rw [show fullArenaClauseLits sB r = fullArenaClauseLitsCore sB.core r from rfl]
       exact ((harenaB.2.2 r hr).2.2.map (fun x => x / 2)).nodup_iff.mpr (hndA r hr hng)
     have hllB : FullLastLearnedWf sB := fun i hi => by
-      change sA.scratch.last_learned[i]?.getD 0xFFFFFFFF#32 = 0xFFFFFFFF#32 ∨
-        (sA.scratch.last_learned[i]?.getD 0xFFFFFFFF#32).toNat ∈ fullArenaClauseRefsCore sB.core
-      rw [harenaB.2.1]; exact hllA i hi
+      change scB.last_learned[i]?.getD 0xFFFFFFFF#32 = 0xFFFFFFFF#32 ∨
+        (scB.last_learned[i]?.getD 0xFFFFFFFF#32).toNat ∈ fullArenaClauseRefsCore sB.core
+      rw [hprB.1.1, harenaB.2.1]; exact hllA i hi
     have hfuB' : sB.core.fuel.toNat ≤ s.core.fuel.toNat := Nat.le_trans hfuB hfu1
     have hspB : FullSparseInv c F0 sB :=
-      ⟨⟨hlenB, F_cur1, hwB⟩, hsp1.2.1, hndB, ⟨hllB, hspA.2.2.2.1.2⟩, hsp1.2.2.2.2⟩
+      ⟨⟨hlenB, F_cur1, hwB⟩, hsp1.2.1, hndB, ⟨hllB, hprB.1.2 ▸ hspA.2.2.2.1.2⟩, hsp1.2.2.2.2⟩
     have hmB_f := fullM6HdrMem_focus_full hmB
     c0_hsteps_nogrp
     c0_hsplit

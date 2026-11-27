@@ -189,12 +189,12 @@ theorem full_forward_sub_m7_s13_wp (Γ : Env)
         · c0_hsteps_nogrp; s13b1_call hFlushLarge
           refine ⟨c, F0, F_cur, s3, R, rfl, hdw3.1, hdw3.2.1, hdw3.2.2.1, hdw3.2.2.2.1,
             hdw3.2.2.2.2.1, hm3, fun s4 m4 hlen4 hw4 hlm4 hnd4 hext4 hcv4 hcl4 hdm4 har4 hal4
-              _ _ _ hfl4 _ _ _ _ _ _ _ _ _ hsc4 hm4 => ?_⟩
+              _ _ _ hfl4 _ _ _ _ _ _ _ _ _ _ _ _ _ _ hrr4 _ _ _ _ _ _ hm4 => ?_⟩
           have hdw4 : FullDenseInvW c F0 F_cur s4 :=
             s13_fwd_denseInvW_of_flushLarge hdw3 hlen4 hw4 hlm4 hnd4 hext4 hcl4 hdm4
           have hrr4_ok : ∀ k < ncand.toNat,
               (s4.scratch.red_refs[k]?.getD 0#32).toNat ∈ fullArenaClauseRefs s4 := fun k hk => by
-            rw [show s4.scratch.red_refs = s3.scratch.red_refs from by rw [hsc4],
+            rw [show s4.scratch.red_refs = s3.scratch.red_refs from hrr4,
               show fullArenaClauseRefs s4 = fullArenaClauseRefs s3 from by
                 unfold fullArenaClauseRefs fullArenaClauseRefsCore; rw [har4, hal4]]
             exact hrr3 k hk

@@ -76,30 +76,36 @@ def step13PropagateM6Spec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
     h = c.hdr ∧ FullM6HdrCfgOk c ∧ M6HdrExtOk ext ∧ s.LengthsOk c ∧
     FullWitnessInv c F0 F_cur s.core ∧ s.core.dense_mode = 0#64 ∧
     (FullM6HdrMem c ext s ⋆ R) m ∧
-    ∀ r vals' flags' lvl' rsns' trl' tp' te' prop' unass' unfl' wvec' arena' wstk' wlen' wu'
-      fuel' ctype' cref' c0' c1' oom' ticks' wsort' phases' delayed' ext' m',
+    ∀ r ext' vals' flags' lvl' rsns' trl' tp' te' prop' unass' unfl' wvec' arena' wstk' wlen'
+      wu' fuel' ctype' cref' c0' c1' oom' (sc' : FullScratch) m',
       let s' : FullState :=
         { s with
           core :=
             { s.core with
               vals := vals', flags := flags', lvl := lvl', rsns := rsns', trl := trl',
               trail_pos := tp', trail_end := te', propagated := prop', unassigned := unass',
-              unflushed := unfl', wvec := wvec', arena := arena', wstk := wstk', wlen := wlen',
-              wusable := wu', fuel := fuel', confl_type := ctype', confl_ref := cref',
-              confl_lit0 := c0', confl_lit1 := c1', oom := oom' }
-          scratch :=
-            { s.scratch with
-              search_ticks := ticks', wsort := wsort', phases := phases', delayed := delayed' } }
+              unflushed := unfl', wvec := wvec', arena := arena', wstk := wstk',
+              wlen := wlen', wusable := wu', fuel := fuel', confl_type := ctype',
+              confl_ref := cref', confl_lit0 := c0', confl_lit1 := c1', oom := oom' }
+          scratch := sc' }
+      M6HdrExtOk ext' → (M6HdrExtInitOk ext → M6HdrExtInitOk ext' ∧ M6ExtW2bPres ext ext') →
       s'.LengthsOk c → FullWitnessInv c F0 F_cur s'.core →
       FullTrailExt s.core s'.core → FullArenaPermEq s.core s'.core →
-      (c.delayed_cap = 0 → delayed' = s.scratch.delayed) →
+      FullProbeScratchPres { s with scratch := { s.scratch with
+        search_ticks := sc'.search_ticks, wsort := sc'.wsort,
+        phases := sc'.phases, delayed := sc'.delayed } } s' →
+      sc'.red_refs = s.scratch.red_refs →
+      sc'.delayed_len = s.scratch.delayed_len →
+      (s.core.probing = 0#64 → sc' = { s.scratch with
+        search_ticks := sc'.search_ticks, wsort := sc'.wsort,
+        phases := sc'.phases, delayed := sc'.delayed }) →
+      (c.delayed_cap = 0 → sc'.delayed = s.scratch.delayed) →
       fuel'.toNat ≤ s.core.fuel.toNat → (r = 0#64 ∨ r = 1#64 ∨ r = 2#64) →
       (r = 0#64 → prop' = te' ∧ (s.core.oom = 0#64 → oom' = 0#64) ∧
         (s.core.propagated < s.core.trail_end → fuel'.toNat < s.core.fuel.toNat)) →
       (r = 1#64 → fuel'.toNat < s.core.fuel.toNat ∧ oom' = 0#64 ∧ FullConflictOkW F_cur s') →
       (r = 2#64 → oom' ≠ 0#64 ∨ fuel' = 0#64) →
-      (s.core.propagated = s.core.trail_end → r = 0#64 ∧ s' = s) →
-      M6HdrExtOk ext' → (M6HdrExtInitOk ext → M6HdrExtInitOk ext' ∧ M6ExtW2bPres ext ext') →
+      (s.core.propagated = s.core.trail_end → r = 0#64 ∧ ext' = ext ∧ s' = s) →
       (FullM6HdrMem c ext' s' ⋆ R) m' → Q (r, ()) m'
 
 /-- General `full_fwd_flush_large_m7` contract working in both sparse and dense modes
@@ -122,7 +128,18 @@ def step13FwdFlushLargeCoreSpec : Spec [i64] [] := fun (h, ()) m Q _ =>
       s'.core.num_binary = s.core.num_binary →
       s'.core.frame_trail = s.core.frame_trail → s'.core.frame_dec = s.core.frame_dec →
       s'.core.trail_end = s.core.trail_end → s'.core.propagated = s.core.propagated →
-      s'.scratch = s.scratch →
+      s'.core.probing = s.core.probing →
+      s'.scratch.last_learned = s.scratch.last_learned →
+      s'.scratch.extend_len = s.scratch.extend_len →
+      s'.scratch.walk_vals = s.scratch.walk_vals →
+      s'.scratch.walk_best = s.scratch.walk_best →
+      s'.scratch.red_refs = s.scratch.red_refs →
+      s'.scratch.tarjan_mark = s.scratch.tarjan_mark →
+      s'.scratch.tarjan_reach = s.scratch.tarjan_reach →
+      s'.scratch.scratch_buf = s.scratch.scratch_buf →
+      s'.scratch.work_stk1 = s.scratch.work_stk1 →
+      s'.scratch.work_stk2 = s.scratch.work_stk2 →
+      s'.scratch.sim_sig = s.scratch.sim_sig →
       (FullMem c s' ⋆ R) m' → Q () m'
 
 /-! ## 2. S1-C `K6HwmClean`, `step13K6InitSpec`, `step13K6AddClauseSpec` -/
@@ -392,6 +409,7 @@ def step13DenseBinRoundtripSpec : Spec [i64] [] := fun (h, ()) m Q _ =>
       s'.core.d_cur = s.core.d_cur → s'.core.d_val = s.core.d_val →
       s'.core.frame_trail = s.core.frame_trail → s'.core.frame_dec = s.core.frame_dec →
       s'.core.trail_end = s.core.trail_end → s'.core.propagated = s.core.propagated →
+      s'.core.probing = s.core.probing → FullArenaPermEq s.core s'.core →
       s'.scratch.extend_len = s.scratch.extend_len →
       s'.scratch.walk_vals = s.scratch.walk_vals →
       s'.scratch.walk_best = s.scratch.walk_best →
@@ -418,6 +436,7 @@ def step13WatchLargeClausesSpec : Spec [i64] [] := fun (h, ()) m Q _ =>
       s'.core.vals = s.core.vals → s'.core.lvl = s.core.lvl → s'.core.flags = s.core.flags →
       s'.core.fuel = s.core.fuel → s'.core.inconsistent = s.core.inconsistent →
       s'.core.d_cur = s.core.d_cur → s'.core.d_val = s.core.d_val →
+      s'.core.probing = s.core.probing → FullArenaPermEq s.core s'.core →
       s'.scratch.extend_len = s.scratch.extend_len →
       s'.scratch.walk_vals = s.scratch.walk_vals →
       s'.scratch.walk_best = s.scratch.walk_best →

@@ -48,12 +48,21 @@ private theorem m6_getElem_congr {α : Type} {xs : List α} {i j : Nat} (h : i =
     (hi : i < xs.length) (hj : j < xs.length) : xs[i]'hi = xs[j]'hj := by
   subst h; rfl
 
+private theorem s13_arenaPermEq_trans {k1 k2 k3 : FullCoreState}
+    (h1 : FullArenaPermEq k1 k2) (h2 : FullArenaPermEq k2 k3) : FullArenaPermEq k1 k3 :=
+  ⟨h2.1.trans h1.1, h2.2.1.trans h1.2.1, fun r hr =>
+    let ⟨s1, g1, p1⟩ := h1.2.2 r hr
+    let ⟨s2, g2, p2⟩ := h2.2.2 r (h1.2.1.symm ▸ hr)
+    ⟨s2.trans s1, g2.trans g1, p2.trans p1⟩⟩
+
 private theorem s13_rewatch_body_step {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
     {s sL : FullState} {p sz : Nat} {ar0 ar1 : List (BitVec 32)}
     (hlenL : sL.LengthsOk c) (hp_ref0 : p ∈ fullArenaClauseRefs s) (har0 : ar0.length = c.arena_cap)
+    (_hal0 : sL.core.arena_len = s.core.arena_len)
     (hw0 : FullWitnessInv c F0 F_cur { sL.core with arena := ar0 })
     (hrefs0 : fullArenaClauseRefs { sL with core := { sL.core with arena := ar0 } } =
       fullArenaClauseRefs s)
+    (hperm0 : FullArenaPermEq s.core { sL.core with arena := ar0 })
     (hgarb0 : fullArenaClauseGarb { sL with core := { sL.core with arena := ar0 } } p = false)
     (hsz0 : fullArenaClauseSize { sL with core := { sL.core with arena := ar0 } } p = sz)
     (hnd0 : FullArenaVarsNodup { sL with core := { sL.core with arena := ar0 } })
@@ -65,7 +74,7 @@ private theorem s13_rewatch_body_step {c : FullCfg} {F0 : CNF Nat} {F_cur : List
     ar1.length = c.arena_cap ∧ s1.LengthsOk c ∧ FullWitnessInv c F0 F_cur s1.core ∧
     fullArenaClauseRefs s1 = fullArenaClauseRefs s ∧ p ∈ fullArenaClauseRefsCore s1.core ∧
     fullArenaClauseGarb s1 p = false ∧
-    fullArenaClauseSize s1 p = sz ∧ FullArenaVarsNodup s1 := by
+    fullArenaClauseSize s1 p = sz ∧ FullArenaVarsNodup s1 ∧ FullArenaPermEq s.core s1.core := by
   intro s1
   let s0 : FullState := { sL with core := { sL.core with arena := ar0 } }
   have hlen0 : s0.core.LengthsOk c := { hlenL.core_ok with arena_len_arr := har0 }
@@ -76,8 +85,14 @@ private theorem s13_rewatch_body_step {c : FullCfg} {F0 : CNF Nat} {F_cur : List
   obtain ⟨hrefs1, hmeta1, hlits_oth1, hw1⟩ := modifyClauseBody_preserves_witness hlen0 hw0 href0
     (ar' := ar1) har1 (by rw [show fullArenaClauseSizeCore s0.core p = sz from hsz0]; exact hout)
     h2eq (fun l => hperm.mem_iff)
+  have hpe01 : FullArenaPermEq s0.core s1.core := by
+    refine ⟨rfl, hrefs1, fun r hr => ⟨(hmeta1 r hr).2.1, (hmeta1 r hr).2.2, ?_⟩⟩
+    by_cases hrp : r = p
+    · subst r; exact hperm
+    · rw [hlits_oth1 r hr hrp]
   refine ⟨har1, ⟨{ hlenL.core_ok with arena_len_arr := har1 }, hlenL.scratch_ok⟩, hw1,
-    hrefs1.trans hrefs0, by rw [hrefs1]; exact href0, ?_, hsz1.trans hsz0, ?_⟩
+    hrefs1.trans hrefs0, by rw [hrefs1]; exact href0, ?_, hsz1.trans hsz0, ?_,
+    s13_arenaPermEq_trans hperm0 hpe01⟩
   · change fullArenaClauseGarbCore s1.core p = false
     rw [(hmeta1 p href0).2.2]; exact hgarb0
   · intro r hr hng
@@ -93,10 +108,11 @@ private theorem s13_rewatch_swap_step {c : FullCfg} {F0 : CNF Nat} {F_cur : List
     {s sL : FullState} {p sz a b : Nat} {ar0 : List (BitVec 32)}
     (hlenL : sL.LengthsOk c) (hp_ref0 : p ∈ fullArenaClauseRefs s)
     (hsz_fit : p + 3 + sz ≤ sL.core.arena_len) (hal_le : sL.core.arena_len ≤ c.arena_cap)
-    (har0 : ar0.length = c.arena_cap)
+    (hal0 : sL.core.arena_len = s.core.arena_len) (har0 : ar0.length = c.arena_cap)
     (hw0 : FullWitnessInv c F0 F_cur { sL.core with arena := ar0 })
     (hrefs0 : fullArenaClauseRefs { sL with core := { sL.core with arena := ar0 } } =
       fullArenaClauseRefs s)
+    (hperm0 : FullArenaPermEq s.core { sL.core with arena := ar0 })
     (hgarb0 : fullArenaClauseGarb { sL with core := { sL.core with arena := ar0 } } p = false)
     (hsz0 : fullArenaClauseSize { sL with core := { sL.core with arena := ar0 } } p = sz)
     (hnd0 : FullArenaVarsNodup { sL with core := { sL.core with arena := ar0 } })
@@ -107,7 +123,7 @@ private theorem s13_rewatch_swap_step {c : FullCfg} {F0 : CNF Nat} {F_cur : List
     ar1.length = c.arena_cap ∧ FullWitnessInv c F0 F_cur s1.core ∧
     fullArenaClauseRefs s1 = fullArenaClauseRefs s ∧
     fullArenaClauseGarb s1 p = false ∧
-    fullArenaClauseSize s1 p = sz ∧ FullArenaVarsNodup s1 := by
+    fullArenaClauseSize s1 p = sz ∧ FullArenaVarsNodup s1 ∧ FullArenaPermEq s.core s1.core := by
   intro pa pb ar1 s1
   have h2eq : ar1[p + 2]? = ar0[p + 2]? := by
     dsimp only [ar1, pa, pb]; rw [List.getElem?_set_ne (by omega), List.getElem?_set_ne (by omega)]
@@ -117,13 +133,13 @@ private theorem s13_rewatch_swap_step {c : FullCfg} {F0 : CNF Nat} {F_cur : List
       (fullArenaClauseLitsCore { sL.core with arena := ar0 } p) := by
     unfold fullArenaClauseLitsCore; rw [hsz1, show fullArenaClauseSizeCore _ p = sz from hsz0]
     exact swapClauseLits_perm ha hb (by omega)
-  obtain ⟨h1, _, h3, h4, _, h6, h7, h8⟩ := s13_rewatch_body_step hlenL hp_ref0 har0 hw0 hrefs0
-    hgarb0 hsz0 hnd0 (ar1 := ar1) (by simp [ar1, har0])
+  obtain ⟨h1, _, h3, h4, _, h6, h7, h8, h9⟩ := s13_rewatch_body_step hlenL hp_ref0 har0 hal0 hw0
+    hrefs0 hperm0 hgarb0 hsz0 hnd0 (ar1 := ar1) (by simp [ar1, har0])
     (fun idx hidx => by
       dsimp only [ar1, pa, pb]
       rw [List.getElem?_set_ne (by omega), List.getElem?_set_ne (by omega)])
     h2eq hperm
-  exact ⟨h1, h3, h4, h6, h7, h8⟩
+  exact ⟨h1, h3, h4, h6, h7, h8, h9⟩
 
 private theorem s13_rewatch_lit_lt {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
     {k : FullCoreState} {p sz : Nat} (hsz_fit : p + 3 + sz ≤ k.arena.length)
@@ -139,10 +155,11 @@ private theorem s13_rewatch_set_saved_step {c : FullCfg} {F0 : CNF Nat} {F_cur :
     {s sL : FullState} {p : BitVec 64} {sz : Nat} {arA : List (BitVec 32)}
     (hlenL : sL.LengthsOk c) (hp_ref0 : p.toNat ∈ fullArenaClauseRefs s)
     (hsz_fit : p.toNat + 3 + sz ≤ sL.core.arena_len) (hal_le : sL.core.arena_len ≤ c.arena_cap)
-    (harA : arA.length = c.arena_cap)
+    (halA : sL.core.arena_len = s.core.arena_len) (harA : arA.length = c.arena_cap)
     (hwA : FullWitnessInv c F0 F_cur { sL.core with arena := arA })
     (hrefsA : fullArenaClauseRefs { sL with core := { sL.core with arena := arA } } =
       fullArenaClauseRefs s)
+    (hpermA : FullArenaPermEq s.core { sL.core with arena := arA })
     (hgarbA : fullArenaClauseGarb { sL with core := { sL.core with arena := arA } } p.toNat =
       false)
     (hszA : fullArenaClauseSize { sL with core := { sL.core with arena := arA } } p.toNat = sz)
@@ -152,7 +169,7 @@ private theorem s13_rewatch_set_saved_step {c : FullCfg} {F0 : CNF Nat} {F_cur :
     let sB : FullState := { sL with core := { sL.core with arena := arB } }
     arB.length = c.arena_cap ∧ sB.LengthsOk c ∧ FullWitnessInv c F0 F_cur sB.core ∧
     fullArenaClauseRefs sB = fullArenaClauseRefs s ∧ p.toNat ∈ fullArenaClauseRefsCore sB.core ∧
-    FullArenaVarsNodup sB := by
+    FullArenaVarsNodup sB ∧ FullArenaPermEq s.core sB.core := by
   intro arB sB
   have h2eq : arB[p.toNat + 2]? = arA[p.toNat + 2]? := List.getElem?_set_ne (by omega)
   have hszA' : fullArenaClauseSizeCore { sL.core with arena := arA } p.toNat = sz := hszA
@@ -166,10 +183,10 @@ private theorem s13_rewatch_set_saved_step {c : FullCfg} {F0 : CNF Nat} {F_cur :
           have harB' : arB.length = c.arena_cap := by simp [arB, harA]
           omega)
       (hszB.trans hszA'.symm) (fun j _ => List.getElem?_set_ne (by omega))
-  obtain ⟨h1, h2, h3, h4, h5, _, _, h8⟩ := s13_rewatch_body_step hlenL hp_ref0 harA hwA hrefsA
-    hgarbA hszA hndA (ar1 := arB) (by simp [arB, harA])
+  obtain ⟨h1, h2, h3, h4, h5, _, _, h8, h9⟩ := s13_rewatch_body_step hlenL hp_ref0 harA halA hwA
+    hrefsA hpermA hgarbA hszA hndA (ar1 := arB) (by simp [arB, harA])
     (fun idx hidx => List.getElem?_set_ne (by omega)) h2eq (hlitsB ▸ List.Perm.refl _)
-  exact ⟨h1, h2, h3, h4, h5, h8⟩
+  exact ⟨h1, h2, h3, h4, h5, h8, h9⟩
 
 private theorem s13_rewatch_push_step {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
     {k : FullCoreState} {lit w0 w1 : BitVec 32} {ok : Bool} {wvec' wstk' : List (BitVec 32)}
@@ -383,6 +400,7 @@ private theorem s13_watch_rank_swap_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
     (hal_le : sL.core.arena_len ≤ c.arena_cap) (harL_len : sL.core.arena.length = c.arena_cap)
     (hwL : FullWitnessInv c F0 F_cur sL.core)
     (hrefsL : fullArenaClauseRefs sL = fullArenaClauseRefs s)
+    (hpermL : FullArenaPermEq s.core sL.core)
     (hgarbL : fullArenaClauseGarb sL p.toNat = false)
     (hsz_eq : sz32.toNat = fullArenaClauseSizeCore sL.core p.toNat)
     (hndL : FullArenaVarsNodup sL) (hmL : (FullMem c sL ⋆ R) mL)
@@ -391,7 +409,7 @@ private theorem s13_watch_rank_swap_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
       let sA : FullState := { sL with core := { sL.core with arena := arA } }
       FullWitnessInv c F0 F_cur sA.core → fullArenaClauseRefs sA = fullArenaClauseRefs s →
       fullArenaClauseGarb sA p.toNat = false → fullArenaClauseSize sA p.toNat = sz32.toNat →
-      FullArenaVarsNodup sA → (FullMem c sA ⋆ R) mA → JA () mA) :
+      FullArenaVarsNodup sA → FullArenaPermEq s.core sA.core → (FullMem c sA ⋆ R) mA → JA () mA) :
     wp Γ Q X (s13WatchRankSwapExpr c p sz32 JA) mL := by
   unfold s13WatchRankSwapExpr
   dsimp only
@@ -467,8 +485,8 @@ private theorem s13_watch_rank_swap_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
         let s1 : FullState := { sL with core := { sL.core with arena := ar1 } }
         FullWitnessInv c F0 F_cur s1.core ∧ fullArenaClauseRefs s1 = fullArenaClauseRefs s ∧
         fullArenaClauseGarb s1 p.toNat = false ∧ fullArenaClauseSize s1 p.toNat = sz32.toNat ∧
-        FullArenaVarsNodup s1 ∧ (FullMem c s1 ⋆ R) m1) ?_ ?_
-    · rintro _ ⟨⟩ m1 ⟨ar1, har1, hw1, hrefs1, hgarb1, hsz1, hnd1, hm1⟩
+        FullArenaVarsNodup s1 ∧ FullArenaPermEq s.core s1.core ∧ (FullMem c s1 ⋆ R) m1) ?_ ?_
+    · rintro _ ⟨⟩ m1 ⟨ar1, har1, hw1, hrefs1, hgarb1, hsz1, hnd1, hperm1, hm1⟩
       clear hwL hrefsL hgarbL hndL hp_ref harL_len hl0_lt hv_bd hl_bd hp3_mod hp3_eq hp3_lt r0 hmL
       let s1 : FullState := { sL with core := { sL.core with arena := ar1 } }
       have hp_ref1 : p.toNat ∈ fullArenaClauseRefsCore s1.core := by
@@ -550,9 +568,9 @@ private theorem s13_watch_rank_swap_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
             let sA : FullState := { sL with core := { sL.core with arena := arA } }
             FullWitnessInv c F0 F_cur sA.core ∧ fullArenaClauseRefs sA = fullArenaClauseRefs s ∧
             fullArenaClauseGarb sA p.toNat = false ∧ fullArenaClauseSize sA p.toNat = sz32.toNat ∧
-            FullArenaVarsNodup sA ∧ (FullMem c sA ⋆ R) mA)
-          (fun _ ⟨⟩ mA ⟨arA, harA, hwA, hrefsA, hgarbA, hszA, hndA, hmA⟩ => by
-            c0_hsteps_nogrp; exact hJA arA mA harA hwA hrefsA hgarbA hszA hndA hmA)
+            FullArenaVarsNodup sA ∧ FullArenaPermEq s.core sA.core ∧ (FullMem c sA ⋆ R) mA)
+          (fun _ ⟨⟩ mA ⟨arA, harA, hwA, hrefsA, hgarbA, hszA, hndA, hpermA, hmA⟩ => by
+            c0_hsteps_nogrp; exact hJA arA mA harA hwA hrefsA hgarbA hszA hndA hpermA hmA)
           (fun J2s hJ2s => by
             c0_hsteps_nogrp; c0_hsplit
             · have hi1_lt' : i1.toNat < sz32.toNat := hi1_lt
@@ -564,9 +582,9 @@ private theorem s13_watch_rank_swap_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
               have hpi1_c0 : (p + 3#64 + BitVec.setWidth 64 i1).toNat =
                   p.toNat + 3 + i1.toNat := by bv_omega
               c0_hsteps_nogrp
-              obtain ⟨har2, hw2, hrefs2, hgarb2, hsz2, hnd2⟩ := s13_rewatch_swap_step hlenL
-                hp_ref0 hsz_fit hal_le har1 hw1 hrefs1 hgarb1 hsz1 hnd1 (a := 1) (b := i1.toNat)
-                (by omega) hi1_lt
+              obtain ⟨har2, hw2, hrefs2, hgarb2, hsz2, hnd2, hperm2⟩ := s13_rewatch_swap_step hlenL
+                hp_ref0 hsz_fit hal_le hperm1.1 har1 hw1 hrefs1 hperm1 hgarb1 hsz1 hnd1
+                (a := 1) (b := i1.toNat) (by omega) hi1_lt
               let ar2 :=
                 (ar1.set (p.toNat + 3 + 1) (ar1[p.toNat + 3 + i1.toNat]'(by omega))).set
                   (p.toNat + 3 + i1.toNat) (ar1[p.toNat + 3 + 1]'(by omega))
@@ -575,10 +593,10 @@ private theorem s13_watch_rank_swap_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
                 (by rw [hp4_c0, har1]; omega) (by rw [hpi1_c0, har1]; omega)
                 (by rw [har1]; omega)
                 (by rw [har1]; omega)
-              refine hJ2s () _ ⟨ar2, har2, hw2, hrefs2, hgarb2, hsz2, hnd2, ?_⟩
+              refine hJ2s () _ ⟨ar2, har2, hw2, hrefs2, hgarb2, hsz2, hnd2, hperm2, ?_⟩
               dsimp only [ar2, s1] at *; rw [← hm_eq]; exact (by assumption)
             · c0_hsteps_nogrp
-              exact hJ2s () m1 ⟨ar1, har1, hw1, hrefs1, hgarb1, hsz1, hnd1, hm1⟩)
+              exact hJ2s () m1 ⟨ar1, har1, hw1, hrefs1, hgarb1, hsz1, hnd1, hperm1, hm1⟩)
     · intro J1s hJ1s
       clear hRank r0
       c0_hsplit
@@ -590,9 +608,9 @@ private theorem s13_watch_rank_swap_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
         have hpi0_c0 : (p + 3#64 + BitVec.setWidth 64 i0).toNat =
             p.toNat + 3 + i0.toNat := by bv_omega
         c0_hsteps_nogrp
-        obtain ⟨har1, hw1, hrefs1, hgarb1, hsz1, hnd1⟩ := s13_rewatch_swap_step hlenL hp_ref0
-          hsz_fit hal_le harL_len hwL hrefsL hgarbL hsz_eq.symm hndL (a := 0) (b := i0.toNat)
-          (by omega) hi0_lt
+        obtain ⟨har1, hw1, hrefs1, hgarb1, hsz1, hnd1, hperm1⟩ := s13_rewatch_swap_step hlenL
+          hp_ref0 hsz_fit hal_le hpermL.1 harL_len hwL hrefsL hpermL hgarbL hsz_eq.symm hndL
+          (a := 0) (b := i0.toNat) (by omega) hi0_lt
         let ar1 :=
           (sL.core.arena.set (p.toNat + 3 + 0)
             (sL.core.arena[p.toNat + 3 + i0.toNat]'(by omega))).set
@@ -602,10 +620,11 @@ private theorem s13_watch_rank_swap_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
           (by rw [hp3_c0, harL_len]; omega) (by rw [hpi0_c0, harL_len]; omega)
           (by rw [harL_len]; omega)
           (by rw [harL_len]; omega)
-        refine hJ1s () _ ⟨ar1, har1, hw1, hrefs1, hgarb1, hsz1, hnd1, ?_⟩
+        refine hJ1s () _ ⟨ar1, har1, hw1, hrefs1, hgarb1, hsz1, hnd1, hperm1, ?_⟩
         dsimp only [ar1] at *; rw [← hm_eq]; exact (by assumption)
       · c0_hsteps_nogrp
-        exact hJ1s () mL ⟨sL.core.arena, harL_len, hwL, hrefsL, hgarbL, hsz_eq.symm, hndL, hmL⟩
+        exact hJ1s () mL ⟨sL.core.arena, harL_len, hwL, hrefsL, hgarbL, hsz_eq.symm, hndL, hpermL,
+          hmL⟩
 
 private theorem s13_watch_ret_wp {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
     {s : FullState} {R : Mem 64 → Prop} {Q : Post []}
@@ -618,7 +637,8 @@ private theorem s13_watch_ret_wp {c : FullCfg} {F0 : CNF Nat} {F_cur : List (Lis
       s'.core.vals = s.core.vals → s'.core.lvl = s.core.lvl →
       s'.core.flags = s.core.flags → s'.core.fuel = s.core.fuel →
       s'.core.inconsistent = s.core.inconsistent → s'.core.d_cur = s.core.d_cur →
-      s'.core.d_val = s.core.d_val → s'.scratch.extend_len = s.scratch.extend_len →
+      s'.core.d_val = s.core.d_val → s'.core.probing = s.core.probing →
+      FullArenaPermEq s.core s'.core → s'.scratch.extend_len = s.scratch.extend_len →
       s'.scratch.walk_vals = s.scratch.walk_vals →
       s'.scratch.walk_best = s.scratch.walk_best →
       s'.scratch.last_learned = s.scratch.last_learned → (FullMem c s' ⋆ R) m' → Q () m')
@@ -630,14 +650,15 @@ private theorem s13_watch_ret_wp {c : FullCfg} {F0 : CNF Nat} {F_cur : List (Lis
                               wlen := wlen', wusable := wu', oom := oom' }
         scratch := { s.scratch with wsort := ws' } }
     s'.LengthsOk c → FullWitnessInv c F0 F_cur s'.core → FullArenaVarsNodup s' →
-    fullArenaClauseRefs s' = fullArenaClauseRefs s → (FullMem c s' ⋆ R) m' → Q () m' := by
-  intro s' hlen' hw' hnd' hrefs' hm'
+    fullArenaClauseRefs s' = fullArenaClauseRefs s → FullArenaPermEq s.core s'.core →
+    (FullMem c s' ⋆ R) m' → Q () m' := by
+  intro s' hlen' hw' hnd' hrefs' hperm' hm'
   have hll_wf : FullLastLearnedWf s' := fun i hi => by
     change s.scratch.last_learned[i]?.getD 0xFFFFFFFF#32 = 0xFFFFFFFF#32 ∨
       (s.scratch.last_learned[i]?.getD 0xFFFFFFFF#32).toNat ∈ fullArenaClauseRefs s'
     rw [hrefs']; exact hext.1 i hi
   exact hQ s' m' hlen' hw' hlm hnd' ⟨hll_wf, hext.2⟩ rfl rfl rfl rfl rfl rfl rfl rfl rfl
-    rfl rfl rfl rfl rfl rfl hm'
+    rfl rfl rfl hperm' rfl rfl rfl rfl hm'
 
 private def s13WatchClausePostExpr (c : FullCfg) (p : Val i64) (JN : Cont []) :
     Expr Val Cont [] :=
@@ -709,7 +730,8 @@ private theorem s13_watch_clause_post_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
       s'.core.vals = s.core.vals → s'.core.lvl = s.core.lvl →
       s'.core.flags = s.core.flags → s'.core.fuel = s.core.fuel →
       s'.core.inconsistent = s.core.inconsistent → s'.core.d_cur = s.core.d_cur →
-      s'.core.d_val = s.core.d_val → s'.scratch.extend_len = s.scratch.extend_len →
+      s'.core.d_val = s.core.d_val → s'.core.probing = s.core.probing →
+      FullArenaPermEq s.core s'.core → s'.scratch.extend_len = s.scratch.extend_len →
       s'.scratch.walk_vals = s.scratch.walk_vals →
       s'.scratch.walk_best = s.scratch.walk_best →
       s'.scratch.last_learned = s.scratch.last_learned → (FullMem c s' ⋆ R) m' → Q () m')
@@ -720,6 +742,7 @@ private theorem s13_watch_clause_post_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
     (hwA : FullWitnessInv c F0 F_cur (s13WatchSt s arA wvecL wstkL wsL wlenL wuL oomL).core)
     (hrefsA : fullArenaClauseRefs (s13WatchSt s arA wvecL wstkL wsL wlenL wuL oomL) =
       fullArenaClauseRefs s)
+    (hpermA : FullArenaPermEq s.core (s13WatchSt s arA wvecL wstkL wsL wlenL wuL oomL).core)
     (hgarbA : fullArenaClauseGarb (s13WatchSt s arA wvecL wstkL wsL wlenL wuL oomL) p.toNat =
       false)
     (hszA : fullArenaClauseSize (s13WatchSt s arA wvecL wstkL wsL wlenL wuL oomL) p.toNat =
@@ -730,7 +753,7 @@ private theorem s13_watch_clause_post_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
       let sN : FullState := s13WatchSt s arN wvecN wstkN wsN wlenN wuN oomN
       sN.LengthsOk c ∧ FullWitnessInv c F0 F_cur sN.core ∧
       fullArenaClauseRefs sN = fullArenaClauseRefs s ∧
-      FullArenaVarsNodup sN ∧ (FullMem c sN ⋆ R) mN) → JN () mN) :
+      FullArenaVarsNodup sN ∧ FullArenaPermEq s.core sN.core ∧ (FullMem c sN ⋆ R) mN) → JN () mN) :
     wp Γ Q X (s13WatchClausePostExpr c p JN) mA := by
   unfold s13WatchClausePostExpr
   have harena_dim := c.harena; unfold dimacsBound at harena_dim
@@ -738,8 +761,9 @@ private theorem s13_watch_clause_post_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
   have hp1_lt : (p + 1#64).toNat < arA.length := by rw [hp1_eq, harA]; omega
   let arB := arA.set (p + 1#64).toNat 2#32
   let sB : FullState := s13WatchSt s arB wvecL wstkL wsL wlenL wuL oomL
-  obtain ⟨harB, hlenB, hwB, hrefsB_s, hrefB, hndB⟩ :=
-    s13_rewatch_set_saved_step hlenA hp_ref0 hsz_fit hal_le harA hwA hrefsA hgarbA hszA hndA hp1_eq
+  obtain ⟨harB, hlenB, hwB, hrefsB_s, hrefB, hndB, hpermB⟩ :=
+    s13_rewatch_set_saved_step hlenA hp_ref0 hsz_fit hal_le rfl harA hwA hrefsA hpermA
+      hgarbA hszA hndA hp1_eq
   have harB' : arB.length = c.arena_cap := by dsimp only [arB]; rw [List.length_set, harA]
   have hp3_eq : (p + 3#64).toNat = p.toNat + 3 := by bv_omega
   have hp4_eq : (p + 4#64).toNat = p.toNat + 4 := by bv_omega
@@ -768,7 +792,7 @@ private theorem s13_watch_clause_post_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
         ⟨{ hlenO.core_ok with vals_len := hlenO.core_ok.vals_len }, hlenO.scratch_ok⟩
       c0_hsteps_nogrp
       exact s13_watch_ret_wp hlm hext hQ arB wvecO wstkO wsO wlenO wuO 1#64 _ hlenO1
-        (fullWitnessInv_with_oom hwO 1#64) hndO hrefsO (by assumption))
+        (fullWitnessInv_with_oom hwO 1#64) hndO hrefsO hpermB (by assumption))
     (fun Joom hJoom => by
       c0_hsteps_nogrp; s13a0b_call hPush
       refine ⟨c, sB, R, rfl, hlenB, hwB_sp.layout, fun h => by exfalso; revert h; decide,
@@ -795,7 +819,7 @@ private theorem s13_watch_clause_post_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
         c0_hsplit
         · c0_hsteps!
           exact hJN m2
-            ⟨arB, wvec2, wstk2, wlen2, wu2, oomL, ws2, hlen2, hw2, hrefsB_s, hndB, hm2⟩
+            ⟨arB, wvec2, wstk2, wlen2, wu2, oomL, ws2, hlen2, hw2, hrefsB_s, hndB, hpermB, hm2⟩
         · c0_hsteps!
           exact hJoom () m2
             ⟨wvec2, wstk2, ws2, wlen2, wu2, hlen2, hw2, hrefsB_s, hndB, hm2⟩
@@ -839,7 +863,8 @@ private theorem s13_watch_clause_iter_wp {Γ : Env} {Q : Post []} {X : XPost}
     (hmaxv : c.max_vars < 2 * 2 ^ 28) (har_cap : c.arena_cap < 2 * 2 ^ 28)
     (hsL_def : ∀ sL : FullState, sL = s13WatchSt s arL wvecL wstkL wsL wlenL wuL oomL →
       sL.LengthsOk c ∧ FullWitnessInv c F0 F_cur sL.core ∧
-      fullArenaClauseRefs sL = fullArenaClauseRefs s ∧ FullArenaVarsNodup sL)
+      fullArenaClauseRefs sL = fullArenaClauseRefs s ∧ FullArenaVarsNodup sL ∧
+      FullArenaPermEq s.core sL.core)
     (hp_ref0 : p.toNat ∈ fullArenaClauseRefs s)
     (hp_lt_ar : p.toNat < arL.length) (hp2_eq : (p + 2#64).toNat = p.toNat + 2)
     (hp2_lt : (p + 2#64).toNat < arL.length)
@@ -850,16 +875,17 @@ private theorem s13_watch_clause_iter_wp {Γ : Env} {Q : Post []} {X : XPost}
       let sN : FullState := s13WatchSt s arN wvecN wstkN wsN wlenN wuN oomN
       sN.LengthsOk c → FullWitnessInv c F0 F_cur sN.core →
       fullArenaClauseRefs sN = fullArenaClauseRefs s → FullArenaVarsNodup sN →
-      (FullMem c sN ⋆ R) mN → JN () mN)
+      FullArenaPermEq s.core sN.core → (FullMem c sN ⋆ R) mN → JN () mN)
     (hQ : ∀ (s' : FullState) (m' : Mem 64),
       s'.LengthsOk c → FullWitnessInv c F0 F_cur s'.core →
       FullLitMarksClear c s' → FullArenaVarsNodup s' → FullExtScratchOk c s' →
       s'.core.cur_vars = s.core.cur_vars → s'.core.cur_level = s.core.cur_level →
       s'.core.dense_mode = s.core.dense_mode → s'.core.arena_len = s.core.arena_len →
-      s'.core.vals = s.core.vals → s'.core.lvl = s.core.lvl → s'.core.flags = s.core.flags →
-      s'.core.fuel = s.core.fuel → s'.core.inconsistent = s.core.inconsistent →
-      s'.core.d_cur = s.core.d_cur → s'.core.d_val = s.core.d_val →
-      s'.scratch.extend_len = s.scratch.extend_len →
+      s'.core.vals = s.core.vals → s'.core.lvl = s.core.lvl →
+      s'.core.flags = s.core.flags → s'.core.fuel = s.core.fuel →
+      s'.core.inconsistent = s.core.inconsistent → s'.core.d_cur = s.core.d_cur →
+      s'.core.d_val = s.core.d_val → s'.core.probing = s.core.probing →
+      FullArenaPermEq s.core s'.core → s'.scratch.extend_len = s.scratch.extend_len →
       s'.scratch.walk_vals = s.scratch.walk_vals →
       s'.scratch.walk_best = s.scratch.walk_best →
       s'.scratch.last_learned = s.scratch.last_learned → (FullMem c s' ⋆ R) m' → Q () m') :
@@ -867,7 +893,7 @@ private theorem s13_watch_clause_iter_wp {Γ : Env} {Q : Post []} {X : XPost}
     let sz32 := arL[(p + 2#64).toNat]'hp2_lt
     wp Γ Q X (s13WatchClauseIterExpr c p hdr sz32 at_root JN) mL := by
   let sL : FullState := s13WatchSt s arL wvecL wstkL wsL wlenL wuL oomL
-  obtain ⟨hlenL, hwL, hrefsL, hndL⟩ := hsL_def sL rfl
+  obtain ⟨hlenL, hwL, hrefsL, hndL, hpermL⟩ := hsL_def sL rfl
   have hp_ref : p.toNat ∈ fullArenaClauseRefsCore sL.core := by
     change p.toNat ∈ fullArenaClauseRefs sL; rw [hrefsL]; exact hp_ref0
   dsimp only [s13WatchClauseIterExpr]
@@ -911,27 +937,33 @@ private theorem s13_watch_clause_iter_wp {Γ : Env} {Q : Post []} {X : XPost}
             let sA : FullState := s13WatchSt s arA wvecL wstkL wsL wlenL wuL oomL
             FullWitnessInv c F0 F_cur sA.core ∧ fullArenaClauseRefs sA = fullArenaClauseRefs s ∧
             fullArenaClauseGarb sA p.toNat = false ∧ fullArenaClauseSize sA p.toNat = sz32.toNat ∧
-            FullArenaVarsNodup sA ∧ (FullMem c sA ⋆ R) mA) ?_ ?_
-        · rintro _ ⟨⟩ mA ⟨arA, harA, hwA, hrefsA, hgarbA, hszA, hndA, hmA⟩
+            FullArenaVarsNodup sA ∧ FullArenaPermEq s.core sA.core ∧ (FullMem c sA ⋆ R) mA) ?_ ?_
+        · rintro _ ⟨⟩ mA ⟨arA, harA, hwA, hrefsA, hgarbA, hszA, hndA, hpermA, hmA⟩
           exact s13_watch_clause_post_wp hPush (s13_watch_lengths_with_arena hlenL harA)
-            hlm hext hQ hp_ref0 hsz_ge3 hsz_fit hal_le harA hdm0 hwA hrefsA hgarbA hszA hndA hmA
-            (fun mN ⟨arN, wvecN, wstkN, wlenN, wuN, oomN, wsN, hlenN, hwN, hrefsN, hndN, hmN⟩ =>
-              hJN arN wvecN wstkN wlenN wuN oomN wsN mN hlenN hwN hrefsN hndN hmN)
+            hlm hext hQ hp_ref0 hsz_ge3 hsz_fit hal_le harA hdm0 hwA hrefsA hpermA hgarbA
+            hszA hndA hmA
+            (fun mN ⟨arN, wvecN, wstkN, wlenN, wuN, oomN, wsN, hlenN, hwN, hrefsN, hndN,
+                hpermN, hmN⟩ =>
+              hJN arN wvecN wstkN wlenN wuN oomN wsN mN hlenN hwN hrefsN hndN hpermN hmN)
         · intro JA hJA
           c0_hsplit
           · c0_hsteps!
-            exact hJA () mL ⟨arL, harL_len, hwL, hrefsL, hgarbL, hsz_eq.symm, hndL, hmL⟩
+            exact hJA () mL ⟨arL, harL_len, hwL, hrefsL, hgarbL, hsz_eq.symm, hndL, hpermL, hmL⟩
           · have hp2_c0 : (p.toNat + 2 % 2 ^ 64) % 2 ^ 64 = p.toNat + 2 := by bv_omega
             have hsz_c0 : sL.core.arena[(p.toNat + 2 % 2 ^ 64) % 2 ^ 64]'(by
                 rw [hp2_c0]; dsimp only [sL]; omega) = sz32 :=
               m6_getElem_congr (hp2_c0.trans hp2_eq.symm) _ hp2_lt
             refine s13_watch_rank_swap_wp hRank hmaxv har_cap hlenL hp_ref0 hp_ref
-              (sL := sL) (sz32 := sz32) hsz_ge3 hsz_fit hal_le harL_len hwL hrefsL hgarbL hsz_eq
-              hndL hmL (fun arA mA harA hwA hrefsA hgarbA hszA hndA hmA =>
-                hJA () mA ⟨arA, harA, hwA, hrefsA, hgarbA, hszA, hndA, hmA⟩)
-      · c0_hsteps!; exact hJN arL wvecL wstkL wlenL wuL oomL wsL mL hlenL hwL hrefsL hndL hmL
-    · c0_hsteps!; exact hJN arL wvecL wstkL wlenL wuL oomL wsL mL hlenL hwL hrefsL hndL hmL
-  · c0_hsteps!; exact hJN arL wvecL wstkL wlenL wuL oomL wsL mL hlenL hwL hrefsL hndL hmL
+              (sL := sL) (sz32 := sz32) hsz_ge3 hsz_fit hal_le harL_len hwL hrefsL hpermL
+              hgarbL hsz_eq hndL hmL
+              (fun arA mA harA hwA hrefsA hgarbA hszA hndA hpermA hmA =>
+                hJA () mA ⟨arA, harA, hwA, hrefsA, hgarbA, hszA, hndA, hpermA, hmA⟩)
+      · c0_hsteps!
+        exact hJN arL wvecL wstkL wlenL wuL oomL wsL mL hlenL hwL hrefsL hndL hpermL hmL
+    · c0_hsteps!
+      exact hJN arL wvecL wstkL wlenL wuL oomL wsL mL hlenL hwL hrefsL hndL hpermL hmL
+  · c0_hsteps!
+    exact hJN arL wvecL wstkL wlenL wuL oomL wsL mL hlenL hwL hrefsL hndL hpermL hmL
 
 private theorem s13_watch_next_join_wp {Γ : Env} {Q : Post []} {X : XPost}
     {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)} {s : FullState}
@@ -949,12 +981,13 @@ private theorem s13_watch_next_join_wp {Γ : Env} {Q : Post []} {X : XPost}
     (hrefsN : fullArenaClauseRefs (s13WatchSt s arN wvecN wstkN wsN wlenN wuN oomN) =
       fullArenaClauseRefs s)
     (hndN : FullArenaVarsNodup (s13WatchSt s arN wvecN wstkN wsN wlenN wuN oomN))
+    (hpermN : FullArenaPermEq s.core (s13WatchSt s arN wvecN wstkN wsN wlenN wuN oomN).core)
     (hmN : (FullMem c (s13WatchSt s arN wvecN wstkN wsN wlenN wuN oomN) ⋆ R) mN)
     (hJB : ∀ (bst : BitVec 64 × FullState) m', (∃ arB wvecB wstkB wlenB wuB oomB wsB,
       let sB : FullState := s13WatchSt s arB wvecB wstkB wsB wlenB wuB oomB
       bst.2 = sB ∧ sB.LengthsOk c ∧ FullWitnessInv c F0 F_cur sB.core ∧
       FullArenaVarsNodup sB ∧ fullArenaClauseRefs sB = fullArenaClauseRefs s ∧
-      (FullMem c sB ⋆ R) m') → JB (bst.1, ()) m')
+      FullArenaPermEq s.core sB.core ∧ (FullMem c sB ⋆ R) m') → JB (bst.1, ()) m')
     (hLoopL : ∀ (st' : BitVec 64 × FullState) m',
       s.core.arena_len - st'.1.toNat < s.core.arena_len - p.toNat →
       (st'.1.toNat ≤ s.core.arena_len ∧
@@ -963,7 +996,7 @@ private theorem s13_watch_next_join_wp {Γ : Env} {Q : Post []} {X : XPost}
           let sL' : FullState := s13WatchSt s arL' wvecL' wstkL' wsL' wlenL' wuL' oomL'
           st'.2 = sL' ∧ sL'.LengthsOk c ∧ FullWitnessInv c F0 F_cur sL'.core ∧
           fullArenaClauseRefs sL' = fullArenaClauseRefs s ∧
-          FullArenaVarsNodup sL' ∧ (FullMem c sL' ⋆ R) m') →
+          FullArenaVarsNodup sL' ∧ FullArenaPermEq s.core sL'.core ∧ (FullMem c sL' ⋆ R) m') →
       JL (st'.1, ()) m') :
     let np := BitVec.setWidth 64 (BitVec.ofNat 32 (fullArenaNextOff arL s.core.arena_len
       (BitVec.setWidth 32 p).toNat))
@@ -975,7 +1008,7 @@ private theorem s13_watch_next_join_wp {Γ : Env} {Q : Post []} {X : XPost}
   c0_hsteps_nogrp; c0_hsplit
   · c0_hsteps_nogrp
     exact hJB (p, sN) mN ⟨arN, wvecN, wstkN, wlenN, wuN, oomN, wsN, rfl, hlenN, hwN, hndN,
-      hrefsN, hmN⟩
+      hrefsN, hpermN, hmN⟩
   · have hnp_lt_32 : fullArenaNextOff arL s.core.arena_len p.toNat < 2 ^ 32 := by omega
     have hnp32_mod : fullArenaNextOff arL s.core.arena_len
         (BitVec.setWidth 32 p).toNat % 2 ^ 32 = fullArenaNextOff arL s.core.arena_len p.toNat := by
@@ -1015,7 +1048,7 @@ private theorem s13_watch_next_join_wp {Γ : Env} {Q : Post []} {X : XPost}
           rcases hnext_mem0 with hend | hmem
           · rw [hend] at hlt; exact absurd hlt (Nat.lt_irrefl _)
           · exact hmem,
-       arN, wvecN, wstkN, wlenN, wuN, oomN, wsN, rfl, hlenN, hwN, hrefsN, hndN, hmN⟩
+       arN, wvecN, wstkN, wlenN, wuN, oomN, wsN, rfl, hlenN, hwN, hrefsN, hndN, hpermN, hmN⟩
 
 private def s13WatchLoopStepExpr (c : FullCfg) (p : Val i64) (at_root : Val .bool)
     (JB JL : Cont [i64]) : Expr Val Cont [] :=
@@ -1057,12 +1090,13 @@ private theorem s13_watch_loop_step_wp {Γ : Env} {Q : Post []} {X : XPost}
     (hrefsL : fullArenaClauseRefs (s13WatchSt s arL wvecL wstkL wsL wlenL wuL oomL) =
       fullArenaClauseRefs s)
     (hndL : FullArenaVarsNodup (s13WatchSt s arL wvecL wstkL wsL wlenL wuL oomL))
+    (hpermL : FullArenaPermEq s.core (s13WatchSt s arL wvecL wstkL wsL wlenL wuL oomL).core)
     (hmL : (FullMem c (s13WatchSt s arL wvecL wstkL wsL wlenL wuL oomL) ⋆ R) mL)
     (hJB : ∀ (bst : BitVec 64 × FullState) m', (∃ arB wvecB wstkB wlenB wuB oomB wsB,
       let sB : FullState := s13WatchSt s arB wvecB wstkB wsB wlenB wuB oomB
       bst.2 = sB ∧ sB.LengthsOk c ∧ FullWitnessInv c F0 F_cur sB.core ∧
       FullArenaVarsNodup sB ∧ fullArenaClauseRefs sB = fullArenaClauseRefs s ∧
-      (FullMem c sB ⋆ R) m') → JB (bst.1, ()) m')
+      FullArenaPermEq s.core sB.core ∧ (FullMem c sB ⋆ R) m') → JB (bst.1, ()) m')
     (hLoopL : ∀ (st' : BitVec 64 × FullState) m',
       s.core.arena_len - st'.1.toNat < s.core.arena_len - p.toNat →
       (st'.1.toNat ≤ s.core.arena_len ∧
@@ -1071,7 +1105,7 @@ private theorem s13_watch_loop_step_wp {Γ : Env} {Q : Post []} {X : XPost}
           let sL' : FullState := s13WatchSt s arL' wvecL' wstkL' wsL' wlenL' wuL' oomL'
           st'.2 = sL' ∧ sL'.LengthsOk c ∧ FullWitnessInv c F0 F_cur sL'.core ∧
           fullArenaClauseRefs sL' = fullArenaClauseRefs s ∧
-          FullArenaVarsNodup sL' ∧ (FullMem c sL' ⋆ R) m') →
+          FullArenaVarsNodup sL' ∧ FullArenaPermEq s.core sL'.core ∧ (FullMem c sL' ⋆ R) m') →
       JL (st'.1, ()) m')
     (hQ : ∀ (s' : FullState) (m' : Mem 64),
       s'.LengthsOk c → FullWitnessInv c F0 F_cur s'.core →
@@ -1081,6 +1115,7 @@ private theorem s13_watch_loop_step_wp {Γ : Env} {Q : Post []} {X : XPost}
       s'.core.vals = s.core.vals → s'.core.lvl = s.core.lvl → s'.core.flags = s.core.flags →
       s'.core.fuel = s.core.fuel → s'.core.inconsistent = s.core.inconsistent →
       s'.core.d_cur = s.core.d_cur → s'.core.d_val = s.core.d_val →
+      s'.core.probing = s.core.probing → FullArenaPermEq s.core s'.core →
       s'.scratch.extend_len = s.scratch.extend_len →
       s'.scratch.walk_vals = s.scratch.walk_vals →
       s'.scratch.walk_best = s.scratch.walk_best →
@@ -1121,8 +1156,9 @@ private theorem s13_watch_loop_step_wp {Γ : Env} {Q : Post []} {X : XPost}
       let sN : FullState := s13WatchSt s arN wvecN wstkN wsN wlenN wuN oomN
       sN.LengthsOk c ∧ FullWitnessInv c F0 F_cur sN.core ∧
       fullArenaClauseRefs sN = fullArenaClauseRefs s ∧
-      FullArenaVarsNodup sN ∧ (FullMem c sN ⋆ R) mN) ?_ ?_
-  · rintro _ ⟨⟩ mN ⟨arN, wvecN, wstkN, wlenN, wuN, oomN, wsN, hlenN, hwN, hrefsN, hndN, hmN⟩
+      FullArenaVarsNodup sN ∧ FullArenaPermEq s.core sN.core ∧ (FullMem c sN ⋆ R) mN) ?_ ?_
+  · rintro _ ⟨⟩ mN ⟨arN, wvecN, wstkN, wlenN, wuN, oomN, wsN, hlenN, hwN, hrefsN, hndN,
+        hpermN, hmN⟩
     dsimp only [Prod.fst]
     have hnb2 : fullArenaNextOff sL.core.arena sL.core.arena_len p.toNat ≤
         sL.core.arena_len := by dsimp only [sL]; exact hnb.2
@@ -1135,14 +1171,15 @@ private theorem s13_watch_loop_step_wp {Γ : Env} {Q : Post []} {X : XPost}
         fullArenaNextOff sL.core.arena sL.core.arena_len p.toNat ∈ fullArenaClauseRefs s := by
       dsimp only [sL]; exact hnext_mem0
     exact s13_watch_next_join_wp (s := s) (arL := sL.core.arena) har_cap hal_le hp_lt hp_trunc
-      hnb2 hnp_eq' hnext_mem0' hlenN hwN hrefsN hndN hmN hJB hLoopL
+      hnb2 hnp_eq' hnext_mem0' hlenN hwN hrefsN hndN hpermN hmN hJB hLoopL
   · intro JN hJN
     dsimp only [Prod.fst]
     exact s13_watch_clause_iter_wp hRank hPush hmaxv har_cap
-      (fun _ hs => hs.symm ▸ ⟨hlenL, hwL, hrefsL, hndL⟩) hp_ref0 hp_lt_ar hp2_eq hp2_lt
+      (fun _ hs => hs.symm ▸ ⟨hlenL, hwL, hrefsL, hndL, hpermL⟩) hp_ref0 hp_lt_ar hp2_eq hp2_lt
       hal_le harL_len hdm0 hlm hext hmL
-      (fun arN wvecN wstkN wlenN wuN oomN wsN mN hlenN hwN hrefsN hndN hmN =>
-        hJN () mN ⟨arN, wvecN, wstkN, wlenN, wuN, oomN, wsN, hlenN, hwN, hrefsN, hndN, hmN⟩)
+      (fun arN wvecN wstkN wlenN wuN oomN wsN mN hlenN hwN hrefsN hndN hpermN hmN =>
+        hJN () mN
+          ⟨arN, wvecN, wstkN, wlenN, wuN, oomN, wsN, hlenN, hwN, hrefsN, hndN, hpermN, hmN⟩)
       hQ
 
 private def s13WatchBrkInv (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat))
@@ -1151,7 +1188,7 @@ private def s13WatchBrkInv (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)
     let sB : FullState := s13WatchSt s arB wvecB wstkB wsB wlenB wuB oomB
     st.2 = sB ∧ sB.LengthsOk c ∧ FullWitnessInv c F0 F_cur sB.core ∧
     FullArenaVarsNodup sB ∧ fullArenaClauseRefs sB = fullArenaClauseRefs s ∧
-    (FullMem c sB ⋆ R) mf
+    FullArenaPermEq s.core sB.core ∧ (FullMem c sB ⋆ R) mf
 
 private def s13WatchLpInv (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat))
     (s : FullState) (R : Mem 64 → Prop) (st : BitVec 64 × FullState) (mL : Mem 64) : Prop :=
@@ -1161,7 +1198,7 @@ private def s13WatchLpInv (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat))
     let sL : FullState := s13WatchSt s arL wvecL wstkL wsL wlenL wuL oomL
     st.2 = sL ∧ sL.LengthsOk c ∧ FullWitnessInv c F0 F_cur sL.core ∧
     fullArenaClauseRefs sL = fullArenaClauseRefs s ∧
-    FullArenaVarsNodup sL ∧ (FullMem c sL ⋆ R) mL
+    FullArenaVarsNodup sL ∧ FullArenaPermEq s.core sL.core ∧ (FullMem c sL ⋆ R) mL
 
 private def s13WatchLoopStepProj (hdr pArena pVals pLvl : Val i64) (at_root : Val .bool)
     (p : Val i64) (JB JL : Cont [i64]) : Expr Val Cont [] :=
@@ -1229,12 +1266,12 @@ theorem full_watch_large_clauses_fid_s13_wp (Γ : Env)
     (α := BitVec 64 × FullState) (fun st => (st.1, ())) (fun st => s.core.arena_len - st.1.toNat)
     (s13WatchLpInv c F0 F_cur s R) ?_ ?_ ?_
   · rintro B ⟨_pB, _sB⟩ mf ⟨arB, wvecB, wstkB, wlenB, wuB, oomB, wsB, _, hlenB, hwB, hndB,
-      hrefsB, hmf⟩
+      hrefsB, hpermB, hmf⟩
     c0_hsteps_nogrp
     exact s13_watch_ret_wp hlm hext hQ arB wvecB wstkB wsB wlenB wuB oomB mf
-      hlenB hwB hndB hrefsB hmf
+      hlenB hwB hndB hrefsB hpermB hmf
   · rintro B JL ⟨p, _stL⟩ mL hJB hLoopL ⟨_hp_le, hp_mem, arL, wvecL, wstkL, wlenL, wuL, oomL, wsL,
-      _, hlenL, hwL, hrefsL, hndL, hmL⟩
+      _, hlenL, hwL, hrefsL, hndL, hpermL, hmL⟩
     c0_hsplit
     · have hp_lt : p.toNat < s.core.arena_len := by
         have hlt := hc; rw [Nat.mod_eq_of_lt (by omega)] at hlt; exact hlt
@@ -1242,15 +1279,16 @@ theorem full_watch_large_clauses_fid_s13_wp (Γ : Env)
         (BitVec.ofNat 64 s.core.cur_level == 0) p B JL) mL
       rw [s13_watch_loop_step_eq]
       exact s13_watch_loop_step_wp hNext hRank hPush hmaxv har_cap hal_le hdm0 hlm hext
-        hp_lt hp_mem hlenL hwL hrefsL hndL hmL hJB hLoopL hQ
+        hp_lt hp_mem hlenL hwL hrefsL hndL hpermL hmL hJB hLoopL hQ
     · c0_hsteps_nogrp
       exact hJB (p, s13WatchSt s arL wvecL wstkL wsL wlenL wuL oomL) mL
-        ⟨arL, wvecL, wstkL, wlenL, wuL, oomL, wsL, rfl, hlenL, hwL, hndL, hrefsL, hmL⟩
+        ⟨arL, wvecL, wstkL, wlenL, wuL, oomL, wsL, rfl, hlenL, hwL, hndL, hrefsL, hpermL, hmL⟩
   · intro B JL hB hLoopL
     c0_hsteps_nogrp
     exact hLoopL (0#64, s) m
       ⟨Nat.zero_le _, fun hpos => FullReduceHelpers.fullArenaClauseRefs_zero_mem hw.arena hpos,
        s.core.arena, s.core.wvec, s.core.wstk, s.core.wlen, s.core.wusable, s.core.oom,
-       s.scratch.wsort, rfl, hlen, hw, rfl, hnd, hm⟩
+       s.scratch.wsort, rfl, hlen, hw, rfl, hnd,
+       ⟨rfl, rfl, fun _ _ => ⟨rfl, rfl, List.Perm.refl _⟩⟩, hm⟩
 
 end LeanQbe.T.Examples.Kissat.FullFidelityStep13S1

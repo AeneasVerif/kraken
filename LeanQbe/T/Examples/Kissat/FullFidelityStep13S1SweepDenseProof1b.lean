@@ -700,6 +700,7 @@ private theorem s13_bin_roundtrip_collect_wp {Γ : Env} {Q : Post []} {X : XPost
       s1.core.d_cur = s.core.d_cur → s1.core.d_val = s.core.d_val →
       s1.core.frame_trail = s.core.frame_trail → s1.core.frame_dec = s.core.frame_dec →
       s1.core.trail_end = s.core.trail_end → s1.core.propagated = s.core.propagated →
+      s1.core.probing = s.core.probing →
       s1.scratch.extend_len = s.scratch.extend_len →
       s1.scratch.walk_vals = s.scratch.walk_vals →
       s1.scratch.walk_best = s.scratch.walk_best →
@@ -772,7 +773,7 @@ private theorem s13_bin_roundtrip_collect_wp {Γ : Env} {Q : Post []} {X : XPost
           have hext' : FullExtScratchOk c s' := ⟨hextL.1, hextL.2⟩
           c0_hsteps_nogrp
           exact hExitOv s' m' hlen' hw' hlm' hnd' hext' rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
-            rfl rfl rfl rfl rfl rfl rfl rfl rfl hm'
+            rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl hm'
       · exact hm1_eq ▸ hCont nb scrL mL hlenL hbpL (by simpa [sL] using hmL_s))
     (fun Js_1 hJs1 => by
       c0_hsplit_np_nobound
@@ -1235,6 +1236,14 @@ private def s13EmitExpr (c : FullCfg) (nlits nb : Val i64) : Expr Val Cont [] :=
                   Blocks.nil) (fun Jk => Expr.jump Jk.fst (Arg.imm 0, ())))))))))))))))
     Blocks.nil) (fun Js => Expr.jump Js.fst (Arg.imm 0, ()))
 
+private theorem s13_arenaPermEq_of_eq {k k' : FullCoreState}
+    (har : k'.arena = k.arena) (hal : k'.arena_len = k.arena_len) : FullArenaPermEq k k' :=
+  ⟨hal, by unfold fullArenaClauseRefsCore; rw [har, hal], fun _ _ =>
+    ⟨by simp only [fullArenaClauseSizeCore, har],
+     by simp only [fullArenaClauseGarbCore, fullArenaHdrCore, har],
+     by simp only [fullArenaClauseLitsCore, fullArenaClauseSizeCore, har]
+        exact List.Perm.refl _⟩⟩
+
 /-- Step-13 `full_dense_bin_roundtrip_fid` satisfies `step13DenseBinRoundtripSpec`. -/
 theorem full_dense_bin_roundtrip_fid_s13_wp (Γ : Env)
     (hFlushLarge : ∀ a m Q X, step13FwdFlushLargeCoreSpec a m Q X →
@@ -1250,11 +1259,11 @@ theorem full_dense_bin_roundtrip_fid_s13_wp (Γ : Env)
   c0_hsteps_nogrp; c0_hsplit
   · c0_hsteps_nogrp
     exact hQ s m hlen hw hlm hnd hext rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
-      rfl rfl rfl rfl rfl hm
+      rfl rfl (s13_arenaPermEq_of_eq rfl rfl) rfl rfl rfl rfl hm
   · c0_hsteps_nogrp; s13a1b_call hFlushLarge
     refine ⟨c, F0, F_cur, s, R, rfl, hlen, hw, hlm, hnd, hext, hm, ?_⟩
     intro s1 m1 hlen1 hw1 hlm1 hnd1 hext1 hcv1 hcl1 hdm1 har1 hal1 hval1 hlvl1 hfl1 hfu1
-      _hoom1 hinc1 hdc1 hdv1 _hnb1 hft1 hfd1 hte1 hpr1 hsc1 hm1
+      _hoom1 hinc1 hdc1 hdv1 _hnb1 hft1 hfd1 hte1 hpr1 hprb1 hll1 hex1 hwv1 hwb1 _ _ _ _ _ _ _ hm1
     have hret1 : ∀ s' m',
         s'.LengthsOk c → FullWitnessInv c F0 F_cur s'.core →
         FullLitMarksClear c s' → FullArenaVarsNodup s' → FullExtScratchOk c s' →
@@ -1271,22 +1280,24 @@ theorem full_dense_bin_roundtrip_fid_s13_wp (Γ : Env)
         s'.scratch.walk_vals = s1.scratch.walk_vals →
         s'.scratch.walk_best = s1.scratch.walk_best →
         s'.scratch.last_learned = s1.scratch.last_learned →
+        s'.core.probing = s1.core.probing →
         (FullMem c s' ⋆ R) m' → Q () m' := by
       intro s' m' a1 a2 a3 a4 a5 b1 b2 b3 b4 b5 b6 b7 b8 b9 b10 b11 b12 b13 b14 b15 b16
-        c1 c2 c3 c4 hm'
+        c1 c2 c3 c4 b17 hm'
       exact hQ s' m' a1 a2 a3 a4 a5 (b1.trans hcv1) (b2.trans hcl1) (b3.trans hdm1)
         (b4.trans har1) (b5.trans hal1) (b6.trans hval1) (b7.trans hlvl1) (b8.trans hfl1)
         (b9.trans hfu1) (b10.trans hinc1) (b11.trans hdc1) (b12.trans hdv1)
         (b13.trans hft1) (b14.trans hfd1) (b15.trans hte1) (b16.trans hpr1)
-        (by rw [c1, hsc1]) (by rw [c2, hsc1]) (by rw [c3, hsc1]) (by rw [c4, hsc1]) hm'
+        (b17.trans hprb1) (s13_arenaPermEq_of_eq (b4.trans har1) (b5.trans hal1))
+        (c1.trans hex1) (c2.trans hwv1) (c3.trans hwb1) (c4.trans hll1) hm'
     c0_hsplit_np_nobound
     · c0_hsteps_nogrp
       exact hret1 s1 m1 hlen1 hw1 hlm1 hnd1 hext1 rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
-        rfl rfl rfl rfl rfl rfl rfl rfl hm1
+        rfl rfl rfl rfl rfl rfl rfl rfl rfl hm1
     · c0_hsplit_np_nobound
       · c0_hsteps_nogrp
         exact hret1 s1 m1 hlen1 hw1 hlm1 hnd1 hext1 rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
-          rfl rfl rfl rfl rfl rfl rfl rfl hm1
+          rfl rfl rfl rfl rfl rfl rfl rfl rfl hm1
       · have hwcap : 0 < c.wcap := by
           have := Nat.eq_zero_or_pos c.wcap
           rcases this with hz | hpos
@@ -1299,7 +1310,12 @@ theorem full_dense_bin_roundtrip_fid_s13_wp (Γ : Env)
           from by rw [hcv1]]
         refine s13_bin_roundtrip_collect_wp (X := X)
           (contE := s13EmitExpr c (BitVec.ofNat 64 s1.core.cur_vars <<< 1#64))
-          hSweepBins hlen1 hw1 hlm1 hnd1 hext1 hm1 hret1 ?_
+          hSweepBins hlen1 hw1 hlm1 hnd1 hext1 hm1
+          (fun sE mE a1 a2 a3 a4 a5 b1 b2 b3 b4 b5 b6 b7 b8 b9 b10 b11 b12 b13 b14 b15 b16
+              b17 c1 c2 c3 c4 hmE =>
+            hret1 sE mE a1 a2 a3 a4 a5 b1 b2 b3 b4 b5 b6 b7 b8 b9 b10 b11 b12 b13 b14 b15 b16
+              c1 c2 c3 c4 b17 hmE)
+          ?_
         intro nb scr' m' _ hlen' hbp' hm'
         have hlm' : FullLitMarksClear c { s1 with scratch :=
             { s1.scratch with scratch_buf := scr' } } := ⟨hlm1.1, hlm1.2⟩
@@ -1316,9 +1332,9 @@ theorem full_dense_bin_roundtrip_fid_s13_wp (Γ : Env)
           hPush hlen' hw1 hlm' hnd' hext' hwcap hcv_bd
           ⟨hbp'.1, hbp'.2.1, hbp'.2.2⟩ hm'
           (fun sF mF a1 a2 a3 a4 a5 b1 b2 b3 b4 b5 b6 b7 b8 b9 b10 b11 b12 b13 b14 b15 b16
-              c1 c2 c3 c4 hmF =>
+              b17 c1 c2 c3 c4 hmF =>
             hret1 sF mF a1 a2 a3 a4 a5 b1 b2 b3 b4 b5 b6 b7 b8 b9 b10 b11 b12 b13 b14 b15 b16
-              c1 c2 c3 c4 hmF)
+              c1 c2 c3 c4 b17 hmF)
 
 /-- Step-13 `full_dense_bin_sort_roundtrip_fid` satisfies
 `step13DenseBinSortRoundtripSpec`. -/
@@ -1336,11 +1352,11 @@ theorem full_dense_bin_sort_roundtrip_fid_s13_wp (Γ : Env)
   c0_hsteps_nogrp; c0_hsplit
   · c0_hsteps_nogrp
     exact hQ s m hlen hw hlm hnd hext rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
-      rfl rfl rfl rfl rfl hm
+      rfl rfl (s13_arenaPermEq_of_eq rfl rfl) rfl rfl rfl rfl hm
   · c0_hsteps_nogrp; s13a1b_call hFlushLarge
     refine ⟨c, F0, F_cur, s, R, rfl, hlen, hw, hlm, hnd, hext, hm, ?_⟩
     intro s1 m1 hlen1 hw1 hlm1 hnd1 hext1 hcv1 hcl1 hdm1 har1 hal1 hval1 hlvl1 hfl1 hfu1
-      _hoom1 hinc1 hdc1 hdv1 _hnb1 hft1 hfd1 hte1 hpr1 hsc1 hm1
+      _hoom1 hinc1 hdc1 hdv1 _hnb1 hft1 hfd1 hte1 hpr1 hprb1 hll1 hex1 hwv1 hwb1 _ _ _ _ _ _ _ hm1
     have hret1 : ∀ s' m',
         s'.LengthsOk c → FullWitnessInv c F0 F_cur s'.core →
         FullLitMarksClear c s' → FullArenaVarsNodup s' → FullExtScratchOk c s' →
@@ -1357,22 +1373,24 @@ theorem full_dense_bin_sort_roundtrip_fid_s13_wp (Γ : Env)
         s'.scratch.walk_vals = s1.scratch.walk_vals →
         s'.scratch.walk_best = s1.scratch.walk_best →
         s'.scratch.last_learned = s1.scratch.last_learned →
+        s'.core.probing = s1.core.probing →
         (FullMem c s' ⋆ R) m' → Q () m' := by
       intro s' m' a1 a2 a3 a4 a5 b1 b2 b3 b4 b5 b6 b7 b8 b9 b10 b11 b12 b13 b14 b15 b16
-        c1 c2 c3 c4 hm'
+        c1 c2 c3 c4 b17 hm'
       exact hQ s' m' a1 a2 a3 a4 a5 (b1.trans hcv1) (b2.trans hcl1) (b3.trans hdm1)
         (b4.trans har1) (b5.trans hal1) (b6.trans hval1) (b7.trans hlvl1) (b8.trans hfl1)
         (b9.trans hfu1) (b10.trans hinc1) (b11.trans hdc1) (b12.trans hdv1)
         (b13.trans hft1) (b14.trans hfd1) (b15.trans hte1) (b16.trans hpr1)
-        (by rw [c1, hsc1]) (by rw [c2, hsc1]) (by rw [c3, hsc1]) (by rw [c4, hsc1]) hm'
+        (b17.trans hprb1) (s13_arenaPermEq_of_eq (b4.trans har1) (b5.trans hal1))
+        (c1.trans hex1) (c2.trans hwv1) (c3.trans hwb1) (c4.trans hll1) hm'
     c0_hsplit_np_nobound
     · c0_hsteps_nogrp
       exact hret1 s1 m1 hlen1 hw1 hlm1 hnd1 hext1 rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
-        rfl rfl rfl rfl rfl rfl rfl rfl hm1
+        rfl rfl rfl rfl rfl rfl rfl rfl rfl hm1
     · c0_hsplit_np_nobound
       · c0_hsteps_nogrp
         exact hret1 s1 m1 hlen1 hw1 hlm1 hnd1 hext1 rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
-          rfl rfl rfl rfl rfl rfl rfl rfl hm1
+          rfl rfl rfl rfl rfl rfl rfl rfl rfl hm1
       · have hwcap : 0 < c.wcap := by
           have := Nat.eq_zero_or_pos c.wcap
           rcases this with hz | hpos
@@ -1389,7 +1407,12 @@ theorem full_dense_bin_sort_roundtrip_fid_s13_wp (Γ : Env)
               (fun _ => s13EmitExpr c (BitVec.ofNat 64 s1.core.cur_vars <<< 1#64) nb)
               Blocks.nil)
             (fun Js => shellSortExpr c.pScratchBuf nb Js.fst))
-          hSweepBins hlen1 hw1 hlm1 hnd1 hext1 hm1 hret1 ?_
+          hSweepBins hlen1 hw1 hlm1 hnd1 hext1 hm1
+          (fun sE mE a1 a2 a3 a4 a5 b1 b2 b3 b4 b5 b6 b7 b8 b9 b10 b11 b12 b13 b14 b15 b16
+              b17 c1 c2 c3 c4 hmE =>
+            hret1 sE mE a1 a2 a3 a4 a5 b1 b2 b3 b4 b5 b6 b7 b8 b9 b10 b11 b12 b13 b14 b15 b16
+              c1 c2 c3 c4 b17 hmE)
+          ?_
         intro nb scr' m' _ _hlen' hbp' hm'
         refine wp_join_group (ts := [])
           (fun () mS => ∃ scrS, BinPairsOk c F_cur s1 nb.toNat scrS ∧
@@ -1408,9 +1431,9 @@ theorem full_dense_bin_sort_roundtrip_fid_s13_wp (Γ : Env)
             exact s13_bin_roundtrip_emit_wp (s := sS)
               hPush hlenS hw1 hlmS hndS hextS hwcap hcv_bd hbpS hmS
               (fun sF mF a1 a2 a3 a4 a5 b1 b2 b3 b4 b5 b6 b7 b8 b9 b10 b11 b12 b13 b14 b15 b16
-                  c1 c2 c3 c4 hmF =>
+                  b17 c1 c2 c3 c4 hmF =>
                 hret1 sF mF a1 a2 a3 a4 a5 b1 b2 b3 b4 b5 b6 b7 b8 b9 b10 b11 b12 b13 b14 b15 b16
-                  c1 c2 c3 c4 hmF))
+                  c1 c2 c3 c4 b17 hmF))
           (fun Js hJs =>
             s13_bin_sort_shell_wp hbp' hm' fun scrS mS hbpS hmS =>
               hJs () mS ⟨scrS, hbpS, hmS⟩)
