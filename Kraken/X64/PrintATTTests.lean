@@ -44,6 +44,7 @@ def corpus : List String := [
   "addr32 movsb", "addr32 rep movsq", "addr32 stosl", "addr32 rep stosw",
   -- arithmetic
   "leaq 8(%rax,%rbx,4), %rcx", "leal (%eax), %ecx", "lea sym(%rip), %rax",
+  "leaq (,%rax,8), %rdx", "movq 16(,%rcx,4), %rax", "leal sym(,%ebx,2), %ecx",
   "addq $1, %rax", "addb %al, (%rsp)", "adcl (%rsp), %eax", "adcx %rax, %rbx",
   "adox (%rsp), %ecx", "incq %rax", "incb (%rsp)", "decw %ax", "negl %eax",
   "subq %rax, %rbx", "sbbb $1, %al", "cmpq $0, (%rsp)", "cmpl %eax, %ebx",

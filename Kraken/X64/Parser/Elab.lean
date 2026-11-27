@@ -366,6 +366,11 @@ def elabMem (stx : TSyntax `x64_mem) : X64ElabM Expr := withRef stx <| computing
         let idx ← elabLowReg idx
         pure (mkApp2 (mkConst ``AddrIndex.mk) idx (toExpr scale))
     mkAddrExpr disp (some base) idx?
+  | `(x64_mem| $[$disp?:x64_const]?(, $idxStx:x64_reg $[, $scStx?:num]?)) =>
+    let disp ← (elabConstExpr <$> disp?).getD (pure <| toExpr (ConstExpr.int64 0))
+    let scale ← (evalScale <$> scStx?).getD (pure .W8)
+    let idx ← elabLowReg idxStx
+    mkAddrExpr disp none (some (mkApp2 (mkConst ``AddrIndex.mk) idx (toExpr scale)))
   | `(x64_mem| $disp:x64_const) =>
     setOperandWidth (toExpr Width.W64)
     let d ← elabConstExpr disp
