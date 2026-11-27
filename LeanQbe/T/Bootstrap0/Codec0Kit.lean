@@ -1,7 +1,9 @@
 module
 
 public import LeanQbe.T.Logic.ByteArrayDecimal
+public import LeanQbe.T.Logic.ProofKit
 public meta import Lean.Elab.Tactic
+public meta import LeanQbe.T.Logic.ProofKit
 
 /-!
 # `Codec0Kit`: Arch-Free `UInt32`/`UInt64`/`UInt8` & Binary Codec Round-Trip Toolkit
@@ -22,83 +24,53 @@ set_option autoImplicit false
 namespace LeanQbe.T.Bootstrap0.Codec0Kit
 
 open LeanQbe.T.ByteArrayDecimal
+open LeanQbe.T.ProofKit
 
 /-! ## 1. `U32Kit`: `UInt8` / `UInt32` / `UInt64` Algebra & Bit-Packing -/
 
 public section
 
-theorem u8_ext {a b : UInt8} (h : a.toNat = b.toNat) : a = b :=
-  UInt8.eq_of_toBitVec_eq (BitVec.eq_of_toNat_eq h)
-
 theorem u32_ext {a b : UInt32} (h : a.toNat = b.toNat) : a = b :=
-  UInt32.eq_of_toBitVec_eq (BitVec.eq_of_toNat_eq h)
-
-theorem u8_ofNat_toNat_lt {n : Nat} (hn : n < 2 ^ 8) : (UInt8.ofNat n).toNat = n := by
-  rw [UInt8.toNat_ofNat', Nat.mod_eq_of_lt hn]
+  (U32Kit.u32_eq_iff a b).mpr h
 
 theorem u32_ofNat_toNat_lt {n : Nat} (hn : n < 2 ^ 32) : (UInt32.ofNat n).toNat = n := by
-  rw [UInt32.toNat_ofNat', Nat.mod_eq_of_lt hn]
+  c0_bv32_omega
 
-theorem u64_ofNat_toNat_lt {n : Nat} (hn : n < 2 ^ 64) : (UInt64.ofNat n).toNat = n := by
-  rw [UInt64.toNat_ofNat', Nat.mod_eq_of_lt hn]
+theorem u32_ofNat_eq {n : Nat} {c : UInt32} (h : n = c.toNat) : UInt32.ofNat n = c := by
+  c0_bv32_omega
 
-theorem u32_ofNat_eq {n : Nat} {c : UInt32} (h : n = c.toNat) : UInt32.ofNat n = c :=
-  u32_ext <| by rw [u32_ofNat_toNat_lt (by rw [h]; exact c.toNat_lt), h]
+theorem u32_eq_zero_of_toNat_eq_zero {x : UInt32} (h : x.toNat = 0) : x = 0 := by
+  c0_bv32_omega
 
-theorem u32_eq_zero_of_toNat_eq_zero {x : UInt32} (h : x.toNat = 0) : x = 0 :=
-  u32_ext (by simpa using h)
-
-theorem u32_ne_zero_of_toNat_pos {x : UInt32} (h : 0 < x.toNat) : x ≠ 0 :=
-  fun hz => by subst hz; simp at h
+theorem u32_ne_zero_of_toNat_pos {x : UInt32} (h : 0 < x.toNat) : x ≠ 0 := by
+  c0_bv32_omega
 
 theorem u32_toNat_pos_of_ne_zero {x : UInt32} (h : x ≠ 0) : 1 ≤ x.toNat := by
-  cases Nat.eq_zero_or_pos x.toNat with
-  | inl hz => exact absurd (u32_eq_zero_of_toNat_eq_zero hz) h
-  | inr hp => exact hp
+  c0_bv32_omega
 
 theorem u32_ofNat_succ_sub_one {k : Nat} (hk : k + 1 < 2 ^ 32) :
-    UInt32.ofNat (k + 1) ≠ 0 ∧ UInt32.ofNat (k + 1) - 1 = UInt32.ofNat k := by
-  refine ⟨u32_ne_zero_of_toNat_pos (by rw [u32_ofNat_toNat_lt hk]; omega), ?_⟩
-  apply u32_ext
-  have h1 : (1 : UInt32) ≤ UInt32.ofNat (k + 1) := by
-    rw [UInt32.le_iff_toNat_le, u32_ofNat_toNat_lt hk]; change 1 ≤ k + 1; omega
-  rw [UInt32.toNat_sub_of_le _ _ h1, u32_ofNat_toNat_lt hk, u32_ofNat_toNat_lt (by omega)]
-  change k + 1 - 1 = k; omega
+    UInt32.ofNat (k + 1) ≠ 0 ∧ UInt32.ofNat (k + 1) - 1 = UInt32.ofNat k :=
+  ⟨by c0_bv32_omega, by c0_bv32_omega⟩
 
 theorem u32_sub1_toNat {rem : UInt32} {n : Nat} (h : rem.toNat = n + 1) :
-    rem ≠ 0 ∧ (rem - 1).toNat = n := by
-  refine ⟨u32_ne_zero_of_toNat_pos (by omega), ?_⟩
-  have h1 : (1 : UInt32) ≤ rem := by rw [UInt32.le_iff_toNat_le]; change 1 ≤ rem.toNat; omega
-  rw [UInt32.toNat_sub_of_le rem 1 h1, h]; rfl
+    rem ≠ 0 ∧ (rem - 1).toNat = n :=
+  ⟨by c0_bv32_omega, by c0_bv32_omega⟩
 
 theorem u32_sub_ofNat {a b : Nat} (ha : a ≤ 0xffffffff) (hba : b ≤ a) :
     UInt32.ofNat a - UInt32.ofNat b = UInt32.ofNat (a - b) := by
-  apply u32_ext
-  have ha' := u32_ofNat_toNat_lt (by omega : a < 2 ^ 32)
-  have hb' := u32_ofNat_toNat_lt (by omega : b < 2 ^ 32)
-  have hle : UInt32.ofNat b ≤ UInt32.ofNat a := by
-    rw [UInt32.le_iff_toNat_le, ha', hb']; exact hba
-  rw [UInt32.toNat_sub_of_le _ _ hle, ha', hb', u32_ofNat_toNat_lt (by omega)]
+  c0_bv32_omega
 
 theorem u32_sub_ofNat_toNat {fuel : UInt32} {n : Nat} (h : n ≤ fuel.toNat) :
     (fuel - UInt32.ofNat n).toNat = fuel.toNat - n := by
-  have hlt := fuel.toNat_lt
-  have hle : UInt32.ofNat n ≤ fuel := by
-    rw [UInt32.le_iff_toNat_le, u32_ofNat_toNat_lt (by omega)]; exact h
-  rw [UInt32.toNat_sub_of_le fuel (UInt32.ofNat n) hle, u32_ofNat_toNat_lt (by omega)]
+  c0_bv32_omega
 
 theorem u32_sub1_ge {fuel : UInt32} {n : Nat} (h : 1 + n ≤ fuel.toNat) :
     n ≤ (fuel - 1).toNat := by
-  rw [show (1 : UInt32) = UInt32.ofNat 1 from rfl, u32_sub_ofNat_toNat (by omega)]; omega
+  c0_bv32_omega
 
 theorem u32_sub_sub_ofNat {fuel : UInt32} {a b : Nat} (h : a + b ≤ fuel.toNat) :
     fuel - UInt32.ofNat a - UInt32.ofNat b = fuel - UInt32.ofNat (a + b) := by
-  have hlt := fuel.toNat_lt
-  conv => lhs; rw [show fuel = UInt32.ofNat fuel.toNat from UInt32.ofNat_toNat.symm]
-  conv => rhs; rw [show fuel = UInt32.ofNat fuel.toNat from UInt32.ofNat_toNat.symm]
-  rw [u32_sub_ofNat (by omega) (by omega), u32_sub_ofNat (by omega) (by omega),
-    u32_sub_ofNat (by omega) (by omega)]
-  congr 1; omega
+  c0_bv32_omega
 
 theorem u32_sub1_sub {fuel : UInt32} {n : Nat} (h : 1 + n ≤ fuel.toNat) :
     fuel - 1 - UInt32.ofNat n = fuel - UInt32.ofNat (1 + n) :=
@@ -106,31 +78,20 @@ theorem u32_sub1_sub {fuel : UInt32} {n : Nat} (h : 1 + n ≤ fuel.toNat) :
 
 theorem u32_cnt_sub1_add {done : Nat} {rem : UInt32} (hrem : rem ≠ 0) :
     UInt32.ofNat done + 1 + (rem - 1) = UInt32.ofNat done + rem := by
-  rw [UInt32.add_assoc]
-  congr 1
-  apply u32_ext
-  have hpos := u32_toNat_pos_of_ne_zero hrem
-  have hle : (1 : UInt32) ≤ rem := UInt32.le_iff_toNat_le.mpr hpos
-  have hlt := rem.toNat_lt
-  rw [UInt32.toNat_add, UInt32.toNat_sub_of_le rem 1 hle,
-    show (1 : UInt32).toNat = 1 from rfl, Nat.mod_eq_of_lt (by omega)]
-  omega
+  rw [UInt32.add_assoc]; congr 1; c0_bv32_omega
 
 theorem u32_cnt_sub1_lt {done : Nat} {rem : UInt32} (hrem : rem ≠ 0)
     (hlt : done + 1 + rem.toNat < 2 ^ 32) :
     done + 1 + 1 + (rem - 1).toNat < 2 ^ 32 := by
-  have hpos := u32_toNat_pos_of_ne_zero hrem
-  have hle : (1 : UInt32) ≤ rem := UInt32.le_iff_toNat_le.mpr hpos
-  rw [UInt32.toNat_sub_of_le rem 1 hle, show (1 : UInt32).toNat = 1 from rfl]
-  omega
+  c0_bv32_omega
 
-theorem u8_eq_ofNat_of_le_ne {b : UInt8} {k : Nat} (hk : k < 2 ^ 8) (hle : b.toNat ≤ k)
-    (hne : ∀ i, i < k → b ≠ UInt8.ofNat i) : b = UInt8.ofNat k := by
-  apply u8_ext
-  rw [u8_ofNat_toNat_lt hk]
-  cases Nat.lt_or_eq_of_le hle with
-  | inl h => exact absurd UInt8.ofNat_toNat.symm (hne b.toNat h)
-  | inr h => exact h
+theorem u32_toNat_sub_of_le_toNat (x y : UInt32) (h : y.toNat ≤ x.toNat) :
+    (x - y).toNat = x.toNat - y.toNat :=
+  U32Kit.u32_toNat_sub_of_eq x y rfl rfl h
+
+theorem u64_toNat_sub_of_le_toNat (x y : UInt64) (h : y.toNat ≤ x.toNat) :
+    (x - y).toNat = x.toNat - y.toNat :=
+  U32Kit.u64_toNat_sub_of_eq x y rfl rfl h
 
 theorem nat_cases_le_step {P : Nat → Prop} {n k : Nat} (hle : n ≤ k + 1)
     (hk : P (k + 1)) (hrest : n ≤ k → P n) : P n :=
@@ -144,77 +105,8 @@ theorem u8_cases_le {P : UInt8 → Prop} (b : UInt8) (k : Nat) (hk : b.toNat ≤
   rw [← UInt8.ofNat_toNat (x := b)]
   exact h b.toNat hk
 
-private theorem testBit_u32_shl (x k : UInt32) (hk : k.toNat < 32) (i : Nat) :
-    (x <<< k).toNat.testBit i =
-      (decide (i < 32) && decide (k.toNat ≤ i) && x.toNat.testBit (i - k.toNat)) := by
-  rw [UInt32.toNat_shiftLeft, Nat.mod_eq_of_lt hk]
-  change ((x.toNat <<< k.toNat) % 2 ^ 32).testBit i = _
-  rw [Nat.testBit_mod_two_pow, Nat.testBit_shiftLeft]
-  by_cases hi : i < 32 <;> by_cases hki : k.toNat ≤ i <;> simp [hi, hki]
-
-private theorem testBit_u32_shr (x k : UInt32) (hk : k.toNat < 32) (i : Nat) :
-    (x >>> k).toNat.testBit i = x.toNat.testBit (k.toNat + i) := by
-  rw [UInt32.toNat_shiftRight, Nat.mod_eq_of_lt hk, Nat.testBit_shiftRight]
-
-private theorem testBit_u32_toUInt8 (x : UInt32) (i : Nat) :
-    x.toUInt8.toNat.testBit i = (decide (i < 8) && x.toNat.testBit i) := by
-  rw [UInt32.toNat_toUInt8]; exact Nat.testBit_mod_two_pow x.toNat 8 i
-
-private theorem testBit_u64_shl (x k : UInt64) (hk : k.toNat < 64) (i : Nat) :
-    (x <<< k).toNat.testBit i =
-      (decide (i < 64) && decide (k.toNat ≤ i) && x.toNat.testBit (i - k.toNat)) := by
-  rw [UInt64.toNat_shiftLeft, Nat.mod_eq_of_lt hk]
-  change ((x.toNat <<< k.toNat) % 2 ^ 64).testBit i = _
-  rw [Nat.testBit_mod_two_pow, Nat.testBit_shiftLeft]
-  by_cases hi : i < 64 <;> by_cases hki : k.toNat ≤ i <;> simp [hi, hki]
-
-private theorem testBit_u64_shr (x k : UInt64) (hk : k.toNat < 64) (i : Nat) :
-    (x >>> k).toNat.testBit i = x.toNat.testBit (k.toNat + i) := by
-  rw [UInt64.toNat_shiftRight, Nat.mod_eq_of_lt hk, Nat.testBit_shiftRight]
-
-private theorem testBit_u64_toUInt32 (x : UInt64) (i : Nat) :
-    x.toUInt32.toNat.testBit i = (decide (i < 32) && x.toNat.testBit i) := by
-  rw [UInt64.toNat_toUInt32]; exact Nat.testBit_mod_two_pow x.toNat 32 i
-
-private theorem testBit_u8_ge8 (b : UInt8) {i : Nat} (hi : 8 ≤ i) :
-    b.toNat.testBit i = false :=
-  Nat.testBit_lt_two_pow (Nat.lt_of_lt_of_le b.toNat_lt (Nat.pow_le_pow_right (by omega) hi))
-
-private theorem testBit_u32_ge32 (x : UInt32) {i : Nat} (hi : 32 ≤ i) :
-    x.toNat.testBit i = false :=
-  Nat.testBit_lt_two_pow (Nat.lt_of_lt_of_le x.toNat_lt (Nat.pow_le_pow_right (by omega) hi))
-
-private theorem testBit_u64_ge64 (x : UInt64) {i : Nat} (hi : 64 ≤ i) :
-    x.toNat.testBit i = false :=
-  Nat.testBit_lt_two_pow (Nat.lt_of_lt_of_le x.toNat_lt (Nat.pow_le_pow_right (by omega) hi))
-
-private theorem testBit_u32_pack4 (b0 b1 b2 b3 : UInt8) (i : Nat) :
-    ((b0.toUInt32 ||| (b1.toUInt32 <<< 8)) |||
-      ((b2.toUInt32 ||| (b3.toUInt32 <<< 8)) <<< 16)).toNat.testBit i =
-    if i < 8 then b0.toNat.testBit i
-    else if i < 16 then b1.toNat.testBit (i - 8)
-    else if i < 24 then b2.toNat.testBit (i - 16)
-    else if i < 32 then b3.toNat.testBit (i - 24)
-    else false := by
-  have h8 : (8 : UInt32).toNat = 8 := rfl
-  have h16 : (16 : UInt32).toNat = 16 := rfl
-  simp only [UInt32.toNat_or, Nat.testBit_or, testBit_u32_shl _ 16 (by decide),
-    testBit_u32_shl _ 8 (by decide), UInt8.toNat_toUInt32, h8, h16]
-  rcases (show i < 8 ∨ (8 ≤ i ∧ i < 16) ∨ (16 ≤ i ∧ i < 24) ∨ (24 ≤ i ∧ i < 32) ∨
-      32 ≤ i by omega) with h0 | ⟨h1a, h1b⟩ | ⟨h2a, h2b⟩ | ⟨h3a, h3b⟩ | h4
-  · simp [h0, show ¬ (8 ≤ i) by omega, show ¬ (16 ≤ i) by omega]
-  · simp [show ¬ (i < 8) by omega, h1a, h1b, show i < 32 by omega, show ¬ (16 ≤ i) by omega,
-      testBit_u8_ge8 b0 (i := i) h1a]
-  · simp [show ¬ (i < 8) by omega, show ¬ (i < 16) by omega, h2a, h2b, show i < 32 by omega,
-      show i - 16 < 32 by omega, show ¬ (8 ≤ i - 16) by omega,
-      testBit_u8_ge8 b0 (i := i) (by omega), testBit_u8_ge8 b1 (i := i - 8) (by omega)]
-  · simp [show ¬ (i < 8) by omega, show ¬ (i < 16) by omega, show ¬ (i < 24) by omega, h3b,
-      show i - 16 < 32 by omega, show 8 ≤ i - 16 by omega, show 16 ≤ i by omega,
-      show i - 16 - 8 = i - 24 by omega, testBit_u8_ge8 b0 (i := i) (by omega),
-      testBit_u8_ge8 b1 (i := i - 8) (by omega), testBit_u8_ge8 b2 (i := i - 16) (by omega)]
-  · simp [show ¬ (i < 8) by omega, show ¬ (i < 16) by omega, show ¬ (i < 24) by omega,
-      show ¬ (i < 32) by omega, testBit_u8_ge8 b0 (i := i) (by omega),
-      testBit_u8_ge8 b1 (i := i - 8) (by omega)]
+private theorem bv8_getLsbD_ge (b : UInt8) {k : Nat} (hk : 8 ≤ k) : b.toBitVec.getLsbD k = false :=
+  Nat.testBit_lt_two_pow (Nat.lt_of_lt_of_le b.toBitVec.isLt (Nat.pow_le_pow_right (by omega) hk))
 
 theorem u32_pack_unpack_bytes (b0 b1 b2 b3 : UInt8) :
     let lo := b0.toUInt32 ||| (b1.toUInt32 <<< 8)
@@ -223,64 +115,61 @@ theorem u32_pack_unpack_bytes (b0 b1 b2 b3 : UInt8) :
     v.toUInt8 = b0 ∧ (v >>> 8).toUInt8 = b1 ∧
       (v >>> 16).toUInt8 = b2 ∧ (v >>> 24).toUInt8 = b3 := by
   refine ⟨?_, ?_, ?_, ?_⟩ <;> (
-    apply u8_ext; apply Nat.eq_of_testBit_eq; intro i
-    simp only [testBit_u32_toUInt8, testBit_u32_shr _ 8 (by decide),
-      testBit_u32_shr _ 16 (by decide), testBit_u32_shr _ 24 (by decide), testBit_u32_pack4]
-    have h8 : (8 : UInt32).toNat = 8 := rfl
-    have h16 : (16 : UInt32).toNat = 16 := rfl
-    have h24 : (24 : UInt32).toNat = 24 := rfl
-    by_cases hi : i < 8
-    · simp [hi, h8, h16, h24, show ¬ (8 + i < 8) by omega, show 8 + i < 16 by omega,
-        show ¬ (16 + i < 8) by omega, show ¬ (16 + i < 16) by omega, show 16 + i < 24 by omega,
-        show ¬ (24 + i < 8) by omega, show ¬ (24 + i < 16) by omega,
-        show ¬ (24 + i < 24) by omega, show 24 + i < 32 by omega]
-    · simp [hi, testBit_u8_ge8 _ (i := i) (Nat.le_of_not_lt hi)])
+    apply UInt8.toBitVec_inj.mp; apply BitVec.eq_of_getLsbD_eq; intro i hi
+    simp [UInt32.toBitVec_or, UInt32.toBitVec_shiftLeft, UInt32.toBitVec_shiftRight,
+      UInt32.toBitVec_toUInt8, UInt8.toBitVec_toUInt32, BitVec.shiftLeft_eq',
+      BitVec.ushiftRight_eq', hi, show i < 32 by omega, show 8 + i < 32 by omega,
+      show 16 + i < 32 by omega, show 24 + i < 32 by omega, show ¬ (8 + i < 8) by omega,
+      show ¬ (16 + i < 8) by omega, show ¬ (24 + i < 8) by omega, show ¬ (8 + i ≥ 16) by omega,
+      show ¬ (16 + i < 16) by omega, show ¬ (24 + i < 16) by omega,
+      show ¬ (24 + i - 16 < 8) by omega, show 24 + i - 16 - 8 = i by omega,
+      bv8_getLsbD_ge _ (by omega : 8 ≤ 16 + i),
+      bv8_getLsbD_ge _ (by omega : 8 ≤ 16 + i - 8),
+      bv8_getLsbD_ge _ (by omega : 8 ≤ 24 + i),
+      bv8_getLsbD_ge _ (by omega : 8 ≤ 24 + i - 8),
+      bv8_getLsbD_ge _ (by omega : 8 ≤ 24 + i - 16)])
 
 theorem u32_of_u8_pack (v : UInt32) :
     (v.toUInt8.toUInt32 ||| ((v >>> 8).toUInt8.toUInt32 <<< 8)) |||
       (((v >>> 16).toUInt8.toUInt32 ||| ((v >>> 24).toUInt8.toUInt32 <<< 8)) <<< 16) = v := by
-  apply u32_ext; apply Nat.eq_of_testBit_eq; intro i
-  rw [testBit_u32_pack4]
-  simp only [testBit_u32_toUInt8, testBit_u32_shr _ 8 (by decide),
-    testBit_u32_shr _ 16 (by decide), testBit_u32_shr _ 24 (by decide)]
-  have h8 : (8 : UInt32).toNat = 8 := rfl
-  have h16 : (16 : UInt32).toNat = 16 := rfl
-  have h24 : (24 : UInt32).toNat = 24 := rfl
-  rw [h8, h16, h24]
-  rcases (show i < 8 ∨ (8 ≤ i ∧ i < 16) ∨ (16 ≤ i ∧ i < 24) ∨ (24 ≤ i ∧ i < 32) ∨
-      32 ≤ i by omega) with h0 | ⟨h1a, h1b⟩ | ⟨h2a, h2b⟩ | ⟨h3a, h3b⟩ | h4
-  · simp [h0]
-  · simp [show ¬ (i < 8) by omega, h1b, show i - 8 < 8 by omega, Nat.add_sub_cancel' h1a]
-  · simp [show ¬ (i < 8) by omega, show ¬ (i < 16) by omega, h2b, show i - 16 < 8 by omega,
-      Nat.add_sub_cancel' h2a]
-  · simp [show ¬ (i < 8) by omega, show ¬ (i < 16) by omega, show ¬ (i < 24) by omega, h3b,
-      show i - 24 < 8 by omega, Nat.add_sub_cancel' h3a]
-  · simp [show ¬ (i < 8) by omega, show ¬ (i < 16) by omega, show ¬ (i < 24) by omega,
-      show ¬ (i < 32) by omega, testBit_u32_ge32 v (i := i) h4]
+  apply UInt32.toBitVec_inj.mp; apply BitVec.eq_of_getLsbD_eq; intro i hi
+  simp only [UInt32.toBitVec_or, UInt32.toBitVec_shiftLeft, UInt32.toBitVec_shiftRight,
+    UInt32.toBitVec_toUInt8, UInt8.toBitVec_toUInt32, BitVec.shiftLeft_eq',
+    BitVec.ushiftRight_eq', BitVec.getLsbD_or, BitVec.getLsbD_shiftLeft,
+    BitVec.getLsbD_ushiftRight, BitVec.getLsbD_setWidth]
+  rcases (show i < 8 ∨ (8 ≤ i ∧ i < 16) ∨ (16 ≤ i ∧ i < 24) ∨ (24 ≤ i ∧ i < 32) by omega) with
+    h0 | ⟨h1a, h1b⟩ | ⟨h2a, h2b⟩ | ⟨h3a, h3b⟩
+  · simp [hi, h0, show ¬ (16 ≤ i) by omega]
+  · simp [hi, show ¬ (i < 8) by omega, show ¬ (16 ≤ i) by omega,
+      show i - 8 < 8 by omega, show i - 8 < 32 by omega, Nat.add_sub_cancel' h1a]
+  · simp [hi, h2a, show ¬ (i < 8) by omega, show ¬ (i - 8 < 8) by omega,
+      show i - 16 < 8 by omega, show i - 16 < 32 by omega, Nat.add_sub_cancel' h2a]
+  · simp [hi, show ¬ (i < 8) by omega, show ¬ (i < 16) by omega, show ¬ (i - 8 < 8) by omega,
+      show ¬ (i - 16 < 8) by omega, show i - 16 < 32 by omega, show 16 ≤ i by omega,
+      show i - 16 - 8 = i - 24 by omega, show i - 24 < 8 by omega,
+      show i - 24 < 32 by omega, Nat.add_sub_cancel' h3a]
 
 theorem u64_pack_unpack_u32 (lo hi : UInt32) :
     let v := lo.toUInt64 ||| (hi.toUInt64 <<< 32)
     v.toUInt32 = lo ∧ (v >>> 32).toUInt32 = hi := by
   refine ⟨?_, ?_⟩ <;> (
-    apply u32_ext; apply Nat.eq_of_testBit_eq; intro i
-    simp only [testBit_u64_toUInt32, testBit_u64_shr _ 32 (by decide), UInt64.toNat_or,
-      Nat.testBit_or, testBit_u64_shl _ 32 (by decide), UInt32.toNat_toUInt64]
-    have h32 : (32 : UInt64).toNat = 32 := rfl; rw [h32]
-    by_cases hi32 : i < 32
-    · simp [hi32, show ¬ (32 ≤ i) by omega, show 32 + i < 64 by omega,
-        testBit_u32_ge32 lo (i := 32 + i) (by omega)]
-    · simp [hi32, testBit_u32_ge32 _ (i := i) (Nat.le_of_not_lt hi32)])
+    apply UInt32.toBitVec_inj.mp; apply BitVec.eq_of_getLsbD_eq; intro i hlt
+    simp [UInt64.toBitVec_or, UInt64.toBitVec_shiftLeft, UInt64.toBitVec_shiftRight,
+      UInt64.toBitVec_toUInt32, UInt32.toBitVec_toUInt64, BitVec.shiftLeft_eq',
+      BitVec.ushiftRight_eq', hlt, show i < 64 by omega,
+      show 32 + i < 64 by omega, show ¬ (32 + i < 32) by omega])
 
 theorem u64_of_u32_pack (v : UInt64) :
     v.toUInt32.toUInt64 ||| ((v >>> 32).toUInt32.toUInt64 <<< 32) = v := by
-  apply u64_ext; apply Nat.eq_of_testBit_eq; intro i
-  simp only [UInt64.toNat_or, Nat.testBit_or, testBit_u64_shl _ 32 (by decide),
-    UInt32.toNat_toUInt64, testBit_u64_toUInt32, testBit_u64_shr _ 32 (by decide)]
-  have h32 : (32 : UInt64).toNat = 32 := rfl; rw [h32]
-  rcases (show i < 32 ∨ (32 ≤ i ∧ i < 64) ∨ 64 ≤ i by omega) with h0 | ⟨h1a, h1b⟩ | h2
-  · simp [h0, show ¬ (32 ≤ i) by omega]
-  · simp [show ¬ (i < 32) by omega, h1a, h1b, show i - 32 < 32 by omega, Nat.add_sub_cancel' h1a]
-  · simp [show ¬ (i < 32) by omega, show ¬ (i < 64) by omega, testBit_u64_ge64 v (i := i) h2]
+  apply UInt64.toBitVec_inj.mp; apply BitVec.eq_of_getLsbD_eq; intro i hi
+  simp only [UInt64.toBitVec_or, UInt64.toBitVec_shiftLeft, UInt64.toBitVec_shiftRight,
+    UInt64.toBitVec_toUInt32, UInt32.toBitVec_toUInt64, BitVec.shiftLeft_eq',
+    BitVec.ushiftRight_eq', BitVec.getLsbD_or, BitVec.getLsbD_shiftLeft,
+    BitVec.getLsbD_ushiftRight, BitVec.getLsbD_setWidth]
+  rcases (show i < 32 ∨ (32 ≤ i ∧ i < 64) by omega) with h0 | ⟨h1a, h1b⟩
+  · simp [hi, h0]
+  · simp [hi, show ¬ (i < 32) by omega, show i - 32 < 32 by omega, show i - 32 < 64 by omega,
+      Nat.add_sub_cancel' h1a]
 
 end
 
@@ -612,260 +501,11 @@ theorem workloop_leaf_of_steps {α φ ρ : Type}
 
 end
 
-/-! ## 3. Meta Infrastructure: `c0_bv32_omega`, Tag/Slice Tactics, & `emit_dir_equiv!` -/
+/-! ## 3. Meta Infrastructure: Tag/Slice Tactics & `emit_dir_equiv!` -/
 
 public section
 
 open Lean Meta Elab Tactic Command
-
-private meta def evalNatExpr? (e : Lean.Expr) : MetaM (Option Nat) :=
-  Meta.getNatValue? e
-
-private meta def propFactsFromLCtx : MetaM (List Lean.Expr) := do
-  let mut facts : List Lean.Expr := []
-  for decl in ← getLCtx do
-    if !decl.isImplementationDetail then
-      if ← isProp decl.type then
-        facts := decl.toExpr :: facts
-  return facts
-
-private meta def tryProveWithOmega? (goalTy : Lean.Expr) : MetaM (Option Lean.Expr) := do
-  withoutModifyingState do
-    try
-      let facts ← propFactsFromLCtx
-      let mvar ← mkFreshExprSyntheticOpaqueMVar goalTy
-      Lean.Elab.Tactic.Omega.omega facts mvar.mvarId!
-      let prf ← instantiateMVars mvar
-      if prf.hasExprMVar then return none
-      return some prf
-    catch _ =>
-      return none
-
-/-- Reduce `a % b` to `a` whenever `omega` proves `a < b`. -/
-simproc ↓ c0ModLt32Simproc ((_ : Nat) % _) := fun e => do
-  unless e.isAppOfArity ``HMod.hMod 6 do return .continue
-  let args := e.getAppArgs
-  unless args[0]!.isConstOf ``Nat && args[1]!.isConstOf ``Nat && args[2]!.isConstOf ``Nat do
-    return .continue
-  let aE := args[4]!
-  let bE := args[5]!
-  let condTy ← mkAppM ``LT.lt #[aE, bE]
-  let some hlt ← tryProveWithOmega? condTy | return .continue
-  let prf := mkApp3 (mkConst ``Nat.mod_eq_of_lt) aE bE hlt
-  return .visit { expr := aE, proof? := some prf }
-
-/-- Reduce `2 ^ k` for concrete `Nat` exponents `k ≤ 64`. -/
-simproc c0Pow32Simproc ((2 : Nat) ^ _) := fun e => do
-  unless e.isAppOfArity ``HPow.hPow 6 do return .continue
-  let args := e.getAppArgs
-  unless args[0]!.isConstOf ``Nat && args[1]!.isConstOf ``Nat && args[2]!.isConstOf ``Nat do
-    return .continue
-  let some b ← evalNatExpr? args[4]! | return .continue
-  let some k ← evalNatExpr? args[5]! | return .continue
-  if b == 2 && k ≤ 64 then
-    let valE := mkNatLit (2 ^ k)
-    return .done { expr := valE, proof? := none }
-  return .continue
-
-private meta def mkUintLitSimproc (toNatNm : Name) (bound : Nat) (e : Lean.Expr) :
-    SimpM Simp.Step := do
-  unless e.isAppOfArity toNatNm 1 do return .continue
-  let inner := e.appArg!
-  let some nE :=
-    if inner.isAppOfArity ``OfNat.ofNat 3 then some (inner.getArg! 1)
-    else if inner.isAppOfArity ``UInt8.ofNat 1 || inner.isAppOfArity ``UInt32.ofNat 1 ||
-        inner.isAppOfArity ``UInt64.ofNat 1 then some inner.appArg!
-    else none | return .continue
-  let some n ← evalNatExpr? nE | return .continue
-  if n < bound then
-    return .done { expr := mkNatLit n, proof? := none }
-  return .continue
-
-simproc c0U8OfNatSimproc (UInt8.toNat _) := mkUintLitSimproc ``UInt8.toNat (2 ^ 8)
-simproc c0U32OfNatSimproc (UInt32.toNat _) := mkUintLitSimproc ``UInt32.toNat (2 ^ 32)
-simproc c0U64OfNatSimproc (UInt64.toNat _) := mkUintLitSimproc ``UInt64.toNat (2 ^ 64)
-
-theorem u8_toNat_sub_of_le_toNat (x y : UInt8) (h : y.toNat ≤ x.toNat) :
-    (x - y).toNat = x.toNat - y.toNat :=
-  UInt8.toNat_sub_of_le x y (UInt8.le_iff_toNat_le.mpr h)
-
-theorem u32_toNat_sub_of_le_toNat (x y : UInt32) (h : y.toNat ≤ x.toNat) :
-    (x - y).toNat = x.toNat - y.toNat :=
-  UInt32.toNat_sub_of_le x y (UInt32.le_iff_toNat_le.mpr h)
-
-theorem u64_toNat_sub_of_le_toNat (x y : UInt64) (h : y.toNat ≤ x.toNat) :
-    (x - y).toNat = x.toNat - y.toNat :=
-  UInt64.toNat_sub_of_le x y (UInt64.le_iff_toNat_le.mpr h)
-
-private meta def mkUintSubSimproc (toNatNm subThmNm : Name) (e : Lean.Expr) :
-    SimpM Simp.Step := do
-  unless e.isAppOfArity toNatNm 1 do return .continue
-  let inner := e.appArg!
-  unless inner.isAppOfArity ``HSub.hSub 6 do return .continue
-  let args := inner.getAppArgs
-  let xE := args[4]!
-  let yE := args[5]!
-  let xToNat := mkApp (mkConst toNatNm) xE
-  let yToNat := mkApp (mkConst toNatNm) yE
-  let condTy ← mkAppM ``LE.le #[yToNat, xToNat]
-  let some hle ← tryProveWithOmega? condTy | return .continue
-  let prf := mkApp3 (mkConst subThmNm) xE yE hle
-  let rhs ← mkAppM ``HSub.hSub #[xToNat, yToNat]
-  return .visit { expr := rhs, proof? := some prf }
-
-simproc ↓ c0SubU8Simproc (UInt8.toNat (_ - _)) :=
-  mkUintSubSimproc ``UInt8.toNat ``u8_toNat_sub_of_le_toNat
-
-simproc ↓ c0SubU32Simproc (UInt32.toNat (_ - _)) :=
-  mkUintSubSimproc ``UInt32.toNat ``u32_toNat_sub_of_le_toNat
-
-simproc ↓ c0SubU64Simproc (UInt64.toNat (_ - _)) :=
-  mkUintSubSimproc ``UInt64.toNat ``u64_toNat_sub_of_le_toNat
-
-theorem u8_lt_two_pow (x : UInt8) : x.toNat < 2 ^ 8 := x.toNat_lt
-theorem u32_lt_two_pow (x : UInt32) : x.toNat < 2 ^ 32 := x.toNat_lt
-theorem u64_lt_two_pow (x : UInt64) : x.toNat < 2 ^ 64 := x.toNat_lt_size
-
-private meta def collectUintTerms (e : Lean.Expr) (seen : Std.HashSet (Name × Lean.Expr)) :
-    MetaM (Std.HashSet (Name × Lean.Expr)) := do
-  let ref ← IO.mkRef seen
-  e.forEach fun sub => do
-    if sub.hasLooseBVars then return
-    if sub.isAppOfArity ``UInt8.toNat 1 then
-      ref.modify (·.insert (``UInt8, sub.appArg!))
-    else if sub.isAppOfArity ``UInt32.toNat 1 then
-      ref.modify (·.insert (``UInt32, sub.appArg!))
-    else if sub.isAppOfArity ``UInt64.toNat 1 then
-      ref.modify (·.insert (``UInt64, sub.appArg!))
-  ref.get
-
-private meta def injectUintBounds (mvar : MVarId) : MetaM MVarId :=
-  mvar.withContext do
-    let mut items : Std.HashSet (Name × Lean.Expr) := {}
-    items ← collectUintTerms (← mvar.getType) items
-    for decl in ← getLCtx do
-      if !decl.isImplementationDetail then
-        if ← isProp decl.type then
-          items ← collectUintTerms decl.type items
-        else
-          let ty ← whnf decl.type
-          if let some tyNm :=
-              if ty.isConstOf ``UInt8 then some ``UInt8
-              else if ty.isConstOf ``UInt32 then some ``UInt32
-              else if ty.isConstOf ``UInt64 then some ``UInt64
-              else none then
-            if !decl.toExpr.hasLooseBVars then
-              items := items.insert (tyNm, decl.toExpr)
-    let mut cur := mvar
-    let mut idx : Nat := 0
-    for (tyNm, xE) in items do
-      let (toNatNm, ltThmNm, w) :=
-        if tyNm == ``UInt8 then (``UInt8.toNat, ``u8_lt_two_pow, 8)
-        else if tyNm == ``UInt32 then (``UInt32.toNat, ``u32_lt_two_pow, 32)
-        else (``UInt64.toNat, ``u64_lt_two_pow, 64)
-      let term := mkApp (mkConst toNatNm) xE
-      let boundTy ← mkAppM ``LT.lt #[term, ← mkAppM ``HPow.hPow #[mkNatLit 2, mkNatLit w]]
-      let already ← cur.withContext do
-        (← getLCtx).anyM fun d => do
-          if d.isImplementationDetail then return false
-          withoutModifyingState (isDefEq d.type boundTy)
-      if !already then
-        let prf := mkApp (mkConst ltThmNm) xE
-        cur ← cur.assert (Lean.Name.mkSimple s!"_u_lt_{idx}") boundTy prf
-        let (_, cur') ← cur.intro1P
-        cur := cur'
-        idx := idx + 1
-    return cur
-
-theorem u8_eq_iff (a b : UInt8) : a = b ↔ a.toNat = b.toNat :=
-  ⟨congrArg UInt8.toNat, u8_ext⟩
-
-theorem u32_eq_iff (a b : UInt32) : a = b ↔ a.toNat = b.toNat :=
-  ⟨congrArg UInt32.toNat, u32_ext⟩
-
-theorem u64_eq_iff (a b : UInt64) : a = b ↔ a.toNat = b.toNat :=
-  ⟨congrArg UInt64.toNat, u64_ext⟩
-
-theorem u8_ne_iff (a b : UInt8) : a ≠ b ↔ a.toNat ≠ b.toNat := by
-  simp [u8_eq_iff]
-
-theorem u32_ne_iff (a b : UInt32) : a ≠ b ↔ a.toNat ≠ b.toNat := by
-  simp [u32_eq_iff]
-
-theorem u64_ne_iff (a b : UInt64) : a ≠ b ↔ a.toNat ≠ b.toNat := by
-  simp [u64_eq_iff]
-
-theorem u8_toNat_ofNat_lit {n : Nat} : (UInt8.ofNat n).toNat = n % 2 ^ 8 :=
-  UInt8.toNat_ofNat'
-
-theorem u32_toNat_ofNat_lit {n : Nat} : (UInt32.ofNat n).toNat = n % 2 ^ 32 :=
-  UInt32.toNat_ofNat'
-
-theorem u64_toNat_ofNat_lit {n : Nat} : (UInt64.ofNat n).toNat = n % 2 ^ 64 :=
-  UInt64.toNat_ofNat'
-
-theorem u8_toNat_ofNat_nat {n : Nat} : (OfNat.ofNat n : UInt8).toNat = n % 2 ^ 8 :=
-  UInt8.toNat_ofNat'
-
-theorem u32_toNat_ofNat_nat {n : Nat} : (OfNat.ofNat n : UInt32).toNat = n % 2 ^ 32 :=
-  UInt32.toNat_ofNat'
-
-theorem u64_toNat_ofNat_nat {n : Nat} : (OfNat.ofNat n : UInt64).toNat = n % 2 ^ 64 :=
-  UInt64.toNat_ofNat'
-
-private meta def runBv32OmegaSimpPass (includeSub : Bool) : TacticM Unit := do
-  if (← getGoals).isEmpty then return
-  let (g, tail) := match ← getGoals with | g :: gs => (g, gs) | [] => unreachable!
-  let resGoal? ← g.withContext do
-    let mut thms : SimpTheorems := {}
-    for c in [
-      ``u8_eq_iff, ``u32_eq_iff, ``u64_eq_iff,
-      ``u8_ne_iff, ``u32_ne_iff, ``u64_ne_iff,
-      ``UInt8.le_iff_toNat_le, ``UInt32.le_iff_toNat_le, ``UInt64.le_iff_toNat_le,
-      ``UInt8.lt_iff_toNat_lt, ``UInt32.lt_iff_toNat_lt, ``UInt64.lt_iff_toNat_lt,
-      ``u8_toNat_ofNat_lit, ``u32_toNat_ofNat_lit, ``u64_toNat_ofNat_lit,
-      ``u8_toNat_ofNat_nat, ``u32_toNat_ofNat_nat, ``u64_toNat_ofNat_nat,
-      ``UInt8.toNat_zero, ``UInt32.toNat_zero, ``UInt64.toNat_zero,
-      ``UInt8.toNat_add, ``UInt32.toNat_add, ``UInt64.toNat_add,
-      ``UInt8.toNat_mul, ``UInt32.toNat_mul, ``UInt64.toNat_mul,
-      ``UInt8.toNat_toUInt32, ``UInt8.toNat_toUInt64,
-      ``UInt32.toNat_toUInt64, ``UInt64.toNat_toUInt32,
-      ``Nat.mul_one, ``Nat.one_mul, ``Nat.add_zero, ``Nat.zero_add, ``Nat.mod_mod] do
-      thms ← thms.addConst c
-    let mut simprocs : Simp.Simprocs := {}
-    for post in [false, true] do
-      simprocs ← simprocs.add ``c0Pow32Simproc post
-      simprocs ← simprocs.add ``c0U8OfNatSimproc post
-      simprocs ← simprocs.add ``c0U32OfNatSimproc post
-      simprocs ← simprocs.add ``c0U64OfNatSimproc post
-    simprocs ← simprocs.add ``c0SubU8Simproc includeSub
-    simprocs ← simprocs.add ``c0SubU32Simproc includeSub
-    simprocs ← simprocs.add ``c0SubU64Simproc includeSub
-    simprocs ← simprocs.add ``c0ModLt32Simproc true
-    let ctx ← Simp.mkContext
-      (config := { failIfUnchanged := false, maxSteps := 100000 })
-      (simpTheorems := #[thms])
-    let propIds := (← getLCtx).foldl (init := #[]) fun acc d =>
-      if !d.isImplementationDetail then acc.push d.fvarId else acc
-    let (res?, _) ← simpGoal g ctx #[simprocs] (simplifyTarget := true) (fvarIdsToSimp := propIds)
-    return res?
-  match resGoal? with
-  | none => setGoals tail
-  | some (_, g') => setGoals (g' :: tail)
-
-/-- Normalize `UInt8` / `UInt32` / `UInt64` equalities, inequalities, additions, multiplications,
-widening casts, and subtractions to `Nat` bounds and close via `omega` (`std3` axioms only). -/
-elab "c0_bv32_omega" : tactic => do
-  evalTactic (← `(tactic| try (first | rfl | assumption)))
-  if (← getGoals).isEmpty then return
-  let (g, tail) := match ← getGoals with | g :: gs => (g, gs) | [] => unreachable!
-  let g ← injectUintBounds g
-  setGoals (g :: tail)
-  runBv32OmegaSimpPass (includeSub := false)
-  if (← getGoals).isEmpty then return
-  runBv32OmegaSimpPass (includeSub := true)
-  if (← getGoals).isEmpty then return
-  evalTactic (← `(tactic| first | rfl | assumption | omega))
 
 /-- Automatically decide and rewrite any ground `if c then a else b` in the goal. -/
 elab "c0_decide_ite" : tactic => do
