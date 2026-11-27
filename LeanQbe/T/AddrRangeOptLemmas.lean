@@ -42,6 +42,7 @@ private theorem addrRangeSweep_let {V : Ty → Type} {L : List Ty → Type} {ts 
     (k : Tup (ARVal V) ts → Expr (ARVal V) L rs) :
     addrRangeSweep curD next plan (.let_ op k) =
       let kPlan := plan.step1
+      let foldD := plan.foldDisp
       match op.arStep curD next with
       | .elim res => addrRangeSweep curD next kPlan (k res)
       | .emit1 op' wrap =>
@@ -54,21 +55,35 @@ private theorem addrRangeSweep_let {V : Ty → Type} {L : List Ty → Type} {ts 
         .let_ (op2 (.shl (.bits n)) inv (.imm (BitVec.ofNat n sh))) fun (t1, ()) =>
         .let_ (op2 (if isSub then .sub (.bits n) else .add (.bits n)) base (.var t1))
           fun (t2, ()) =>
-        .let_ (op2 (.shl (.bits n)) iv (.imm (BitVec.ofNat n sh))) fun (t3, ()) =>
-        .let_ (op2 (.add (.bits n)) (.var t2) (.var t3)) fun (t4, ()) =>
         if disp == 0#n then
+          .let_ (op2 (.shl (.bits n)) iv (.imm (BitVec.ofNat n sh))) fun (t3, ()) =>
+          .let_ (op2 (.add (.bits n)) (.var t2) (.var t3)) fun (t4, ()) =>
+          addrRangeSweep curD (next + 1) kPlan (k (ARVal.fresh t4 next ivD, ()))
+        else if foldD then
+          .let_ (op2 (.add (.bits n)) (.var t2) (.imm disp)) fun (t2d, ()) =>
+          .let_ (op2 (.shl (.bits n)) iv (.imm (BitVec.ofNat n sh))) fun (t3, ()) =>
+          .let_ (op2 (.add (.bits n)) (.var t2d) (.var t3)) fun (t4, ()) =>
           addrRangeSweep curD (next + 1) kPlan (k (ARVal.fresh t4 next ivD, ()))
         else
+          .let_ (op2 (.shl (.bits n)) iv (.imm (BitVec.ofNat n sh))) fun (t3, ()) =>
+          .let_ (op2 (.add (.bits n)) (.var t2) (.var t3)) fun (t4, ()) =>
           .let_ (op2 (.add (.bits n)) (.var t4) (.imm disp)) fun (t5, ()) =>
           addrRangeSweep curD (next + 1) kPlan (k (ARVal.fresh t5 next ivD, ()))
       | .addrPlain n isSub base inv iv invD ivD disp =>
         .let_ (op2 (if isSub then .sub (.bits n) else .add (.bits n)) base inv) fun (t1, ()) =>
-        .let_ (op2 (.add (.bits n)) (.var t1) iv) fun (t2, ()) =>
         if disp == 0#n then
+          .let_ (op2 (.add (.bits n)) (.var t1) iv) fun (t2, ()) =>
           addrRangeSweep curD (next + 1) kPlan
             (k (⟨.var t2, .var next, ivD, { addr? := some (.addVV (.var t1) invD iv ivD 0#n) }⟩,
               ()))
+        else if foldD then
+          .let_ (op2 (.add (.bits n)) (.var t1) (.imm disp)) fun (t1d, ()) =>
+          .let_ (op2 (.add (.bits n)) (.var t1d) iv) fun (t2, ()) =>
+          addrRangeSweep curD (next + 1) kPlan
+            (k (⟨.var t2, .var next, ivD, { addr? := some (.addVV (.var t1d) invD iv ivD 0#n) }⟩,
+              ()))
         else
+          .let_ (op2 (.add (.bits n)) (.var t1) iv) fun (t2, ()) =>
           .let_ (op2 (.add (.bits n)) (.var t2) (.imm disp)) fun (t3, ()) =>
           addrRangeSweep curD (next + 1) kPlan
             (k (⟨.var t3, .var next, ivD, { addr? := some (.addVV (.var t1) invD iv ivD disp) }⟩,
@@ -112,11 +127,18 @@ private theorem arStep_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {m
         (.let_ (op2 (.shl (.bits n)) inv (.imm (BitVec.ofNat n sh))) fun (t1, ()) =>
          .let_ (op2 (if isSub then .sub (.bits n) else .add (.bits n)) base (.var t1))
            fun (t2, ()) =>
-         .let_ (op2 (.shl (.bits n)) iv (.imm (BitVec.ofNat n sh))) fun (t3, ()) =>
-         .let_ (op2 (.add (.bits n)) (.var t2) (.var t3)) fun (t4, ()) =>
          if disp == 0#n then
+           .let_ (op2 (.shl (.bits n)) iv (.imm (BitVec.ofNat n sh))) fun (t3, ()) =>
+           .let_ (op2 (.add (.bits n)) (.var t2) (.var t3)) fun (t4, ()) =>
+           addrRangeSweep curD (b + 1) plan.step1 (k₁' (ARVal.fresh t4 b ivD, ()))
+         else if plan.foldDisp then
+           .let_ (op2 (.add (.bits n)) (.var t2) (.imm disp)) fun (t2d, ()) =>
+           .let_ (op2 (.shl (.bits n)) iv (.imm (BitVec.ofNat n sh))) fun (t3, ()) =>
+           .let_ (op2 (.add (.bits n)) (.var t2d) (.var t3)) fun (t4, ()) =>
            addrRangeSweep curD (b + 1) plan.step1 (k₁' (ARVal.fresh t4 b ivD, ()))
          else
+           .let_ (op2 (.shl (.bits n)) iv (.imm (BitVec.ofNat n sh))) fun (t3, ()) =>
+           .let_ (op2 (.add (.bits n)) (.var t2) (.var t3)) fun (t4, ()) =>
            .let_ (op2 (.add (.bits n)) (.var t4) (.imm disp)) fun (t5, ()) =>
            addrRangeSweep curD (b + 1) plan.step1 (k₁' (ARVal.fresh t5 b ivD, ()))) m := by
     intro n isSub base inv iv ivD sh hsh disp k₁' k₂' ih' hw'
@@ -133,12 +155,23 @@ private theorem arStep_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {m
       | true =>
         simp only [↓reduceIte]; have hd0' : disp = 0#n := eq_of_beq hd0
         subst hd0'; simp only [BitVec.add_zero] at hw'
+        dsimp only [wp, Op.wp, OpCode.wp, op2, vals, Arg.val, lift2, Ty.hasFloat]
+        simp only [Bool.false_eq_true, ↓reduceIte, hsh_mod]
         exact ih' _ _ (b + 1) (fupd ρ b _) (hG.freshOne ivD _) hw'
       | false =>
         simp only [Bool.false_eq_true, ↓reduceIte]
-        dsimp only [wp, Op.wp, OpCode.wp, op2, vals, Arg.val, lift2, Ty.hasFloat]
-        simp only [Bool.false_eq_true, ↓reduceIte]
-        exact ih' _ _ (b + 1) (fupd ρ b _) (hG.freshOne ivD _) hw'
+        cases hfold : plan.foldDisp with
+        | true =>
+          simp only [↓reduceIte]
+          dsimp only [wp, Op.wp, OpCode.wp, op2, vals, Arg.val, lift2, Ty.hasFloat]
+          simp only [Bool.false_eq_true, ↓reduceIte, hsh_mod]
+          rw [BitVec.add_assoc, BitVec.add_comm _ disp, ← BitVec.add_assoc] at hw'
+          exact ih' _ _ (b + 1) (fupd ρ b _) (hG.freshOne ivD _) hw'
+        | false =>
+          simp only [Bool.false_eq_true, ↓reduceIte]
+          dsimp only [wp, Op.wp, OpCode.wp, op2, vals, Arg.val, lift2, Ty.hasFloat]
+          simp only [Bool.false_eq_true, ↓reduceIte, hsh_mod]
+          exact ih' _ _ (b + 1) (fupd ρ b _) (hG.freshOne ivD _) hw'
   have haddrPlain : ∀ {n : Nat} (isSub : Bool) (base inv iv : Arg Val (.bits n))
       (invD ivD : Nat) (disp : BitVec n)
       {k₁' : Tup (ARVal Val) [.bits n] → Expr (ARVal Val) Cont rs}
@@ -149,12 +182,19 @@ private theorem arStep_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {m
           else ((base.val + inv.val) + iv.val) + disp), ())) m),
       wp Γ Q X
         (.let_ (op2 (if isSub then .sub (.bits n) else .add (.bits n)) base inv) fun (t1, ()) =>
-         .let_ (op2 (.add (.bits n)) (.var t1) iv) fun (t2, ()) =>
          if disp == 0#n then
+           .let_ (op2 (.add (.bits n)) (.var t1) iv) fun (t2, ()) =>
            addrRangeSweep curD (b + 1) plan.step1
              (k₁' (⟨.var t2, .var b, ivD,
                { addr? := some (.addVV (.var t1) invD iv ivD 0#n) }⟩, ()))
+         else if plan.foldDisp then
+           .let_ (op2 (.add (.bits n)) (.var t1) (.imm disp)) fun (t1d, ()) =>
+           .let_ (op2 (.add (.bits n)) (.var t1d) iv) fun (t2, ()) =>
+           addrRangeSweep curD (b + 1) plan.step1
+             (k₁' (⟨.var t2, .var b, ivD,
+               { addr? := some (.addVV (.var t1d) invD iv ivD 0#n) }⟩, ()))
          else
+           .let_ (op2 (.add (.bits n)) (.var t1) iv) fun (t2, ()) =>
            .let_ (op2 (.add (.bits n)) (.var t2) (.imm disp)) fun (t3, ()) =>
            addrRangeSweep curD (b + 1) plan.step1
              (k₁' (⟨.var t3, .var b, ivD,
@@ -168,15 +208,28 @@ private theorem arStep_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {m
       | true =>
         simp only [↓reduceIte]; have hd0' : disp = 0#n := eq_of_beq hd0
         subst hd0'; simp only [BitVec.add_zero] at hw'
+        dsimp only [wp, Op.wp, OpCode.wp, op2, vals, Arg.val, lift2, Ty.hasFloat]
+        simp only [Bool.false_eq_true, ↓reduceIte]
         exact ih' _ _ (b + 1) _ ((hG.upd _).cons ⟨rfl, fupd_eq ρ b _, Nat.lt_succ_self b,
           addrOptGood_of (fun _ h => by injection h with h; subst h; simp [AddrDefGood, Arg.val])⟩)
           hw'
       | false =>
         simp only [Bool.false_eq_true, ↓reduceIte]
-        dsimp only [wp, Op.wp, OpCode.wp, op2, vals, Arg.val, lift2, Ty.hasFloat]
-        simp only [Bool.false_eq_true, ↓reduceIte]
-        exact ih' _ _ (b + 1) _ ((hG.upd _).cons ⟨rfl, fupd_eq ρ b _, Nat.lt_succ_self b,
-          addrOptGood_of (fun _ h => by injection h with h; subst h; rfl)⟩) hw'
+        cases hfold : plan.foldDisp with
+        | true =>
+          simp only [↓reduceIte]
+          dsimp only [wp, Op.wp, OpCode.wp, op2, vals, Arg.val, lift2, Ty.hasFloat]
+          simp only [Bool.false_eq_true, ↓reduceIte]
+          rw [BitVec.add_assoc, BitVec.add_comm _ disp, ← BitVec.add_assoc] at hw'
+          exact ih' _ _ (b + 1) _ ((hG.upd _).cons ⟨rfl, fupd_eq ρ b _, Nat.lt_succ_self b,
+            addrOptGood_of (fun _ h => by
+              injection h with h; subst h; simp [AddrDefGood, Arg.val])⟩) hw'
+        | false =>
+          simp only [Bool.false_eq_true, ↓reduceIte]
+          dsimp only [wp, Op.wp, OpCode.wp, op2, vals, Arg.val, lift2, Ty.hasFloat]
+          simp only [Bool.false_eq_true, ↓reduceIte]
+          exact ih' _ _ (b + 1) _ ((hG.upd _).cons ⟨rfl, fupd_eq ρ b _, Nat.lt_succ_self b,
+            addrOptGood_of (fun _ h => by injection h with h; subst h; rfl)⟩) hw'
   cases code with
   | add t =>
     cases t with
@@ -1223,45 +1276,73 @@ theorem addrRangeSweep_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Typ
           fun (t2₁, ()) (t2₂, ()) => ?_
         have hsub2 : ∀ p ∈ G', p ∈ (⟨.bits _, t2₁, t2₂⟩ :: ⟨.bits _, t1₁, t1₂⟩ :: G') :=
           fun _ hq => List.mem_cons_of_mem _ (hsub1 _ hq)
-        refine .let_ (.mk _ (.cons (hiv.weaken hsub2) (.cons (.imm (t := .bits _) _) .nil)))
-          fun (t3₁, ()) (t3₂, ()) => ?_
-        refine .let_ (.mk _ (.cons (.var (List.mem_cons_of_mem _ List.mem_cons_self))
-          (.cons (.var List.mem_cons_self) .nil))) fun (t4₁, ()) (t4₂, ()) => ?_
-        have hsub4 : ∀ p ∈ G',
-            p ∈ (⟨.bits _, t4₁, t4₂⟩ :: ⟨.bits _, t3₁, t3₂⟩ ::
-                 ⟨.bits _, t2₁, t2₂⟩ :: ⟨.bits _, t1₁, t1₂⟩ :: G') :=
-          fun _ hq => List.mem_cons_of_mem _ (List.mem_cons_of_mem _ (hsub2 _ hq))
         cases hdisp : (disp == 0#_) with
         | true =>
           simp only [↓reduceIte]
+          refine .let_ (.mk _ (.cons (hiv.weaken hsub2) (.cons (.imm (t := .bits _) _) .nil)))
+            fun (t3₁, ()) (t3₂, ()) => ?_
+          refine .let_ (.mk _ (.cons (.var (List.mem_cons_of_mem _ List.mem_cons_self))
+            (.cons (.var List.mem_cons_self) .nil))) fun (t4₁, ()) (t4₂, ()) => ?_
+          have hsub4 : ∀ p ∈ G',
+              p ∈ (⟨.bits _, t4₁, t4₂⟩ :: ⟨.bits _, t3₁, t3₂⟩ ::
+                   ⟨.bits _, t2₁, t2₂⟩ :: ⟨.bits _, t1₁, t1₂⟩ :: G') :=
+            fun _ hq => List.mem_cons_of_mem _ (List.mem_cons_of_mem _ (hsub2 _ hq))
           exact ih (ARVal.fresh t4₁ b ivD, ()) (ARVal.fresh t4₂ b ivD, ())
             (by dsimp only [Tup.zip, List.cons_append, List.nil_append]
                 exact (hG.weaken hsub4).cons (ARValRel.fresh b ivD List.mem_cons_self))
             curD (b + 1) _
         | false =>
           simp only [Bool.false_eq_true, ↓reduceIte]
-          refine .let_ (.mk _ (.cons (.var List.mem_cons_self)
-            (.cons (.imm (t := .bits _) disp) .nil)))
-            fun (t5₁, ()) (t5₂, ()) => ?_
-          have hsub5 : ∀ p ∈ G',
-              p ∈ (⟨.bits _, t5₁, t5₂⟩ :: ⟨.bits _, t4₁, t4₂⟩ :: ⟨.bits _, t3₁, t3₂⟩ ::
-                   ⟨.bits _, t2₁, t2₂⟩ :: ⟨.bits _, t1₁, t1₂⟩ :: G') :=
-            fun _ hq => List.mem_cons_of_mem _ (hsub4 _ hq)
-          exact ih (ARVal.fresh t5₁ b ivD, ()) (ARVal.fresh t5₂ b ivD, ())
-            (by dsimp only [Tup.zip, List.cons_append, List.nil_append]
-                exact (hG.weaken hsub5).cons (ARValRel.fresh b ivD List.mem_cons_self))
-            curD (b + 1) _
+          cases hfold : plan.foldDisp with
+          | true =>
+            simp only [↓reduceIte]
+            refine .let_ (.mk _ (.cons (.var List.mem_cons_self)
+              (.cons (.imm (t := .bits _) disp) .nil)))
+              fun (t2d₁, ()) (t2d₂, ()) => ?_
+            have hsub2d : ∀ p ∈ G',
+                p ∈ (⟨.bits _, t2d₁, t2d₂⟩ :: ⟨.bits _, t2₁, t2₂⟩ :: ⟨.bits _, t1₁, t1₂⟩ :: G') :=
+              fun _ hq => List.mem_cons_of_mem _ (hsub2 _ hq)
+            refine .let_ (.mk _ (.cons (hiv.weaken hsub2d) (.cons (.imm (t := .bits _) _) .nil)))
+              fun (t3₁, ()) (t3₂, ()) => ?_
+            refine .let_ (.mk _ (.cons (.var (List.mem_cons_of_mem _ List.mem_cons_self))
+              (.cons (.var List.mem_cons_self) .nil))) fun (t4₁, ()) (t4₂, ()) => ?_
+            have hsub5 : ∀ p ∈ G',
+                p ∈ (⟨.bits _, t4₁, t4₂⟩ :: ⟨.bits _, t3₁, t3₂⟩ :: ⟨.bits _, t2d₁, t2d₂⟩ ::
+                     ⟨.bits _, t2₁, t2₂⟩ :: ⟨.bits _, t1₁, t1₂⟩ :: G') :=
+              fun _ hq => List.mem_cons_of_mem _ (List.mem_cons_of_mem _ (hsub2d _ hq))
+            exact ih (ARVal.fresh t4₁ b ivD, ()) (ARVal.fresh t4₂ b ivD, ())
+              (by dsimp only [Tup.zip, List.cons_append, List.nil_append]
+                  exact (hG.weaken hsub5).cons (ARValRel.fresh b ivD List.mem_cons_self))
+              curD (b + 1) _
+          | false =>
+            simp only [Bool.false_eq_true, ↓reduceIte]
+            refine .let_ (.mk _ (.cons (hiv.weaken hsub2) (.cons (.imm (t := .bits _) _) .nil)))
+              fun (t3₁, ()) (t3₂, ()) => ?_
+            refine .let_ (.mk _ (.cons (.var (List.mem_cons_of_mem _ List.mem_cons_self))
+              (.cons (.var List.mem_cons_self) .nil))) fun (t4₁, ()) (t4₂, ()) => ?_
+            refine .let_ (.mk _ (.cons (.var List.mem_cons_self)
+              (.cons (.imm (t := .bits _) disp) .nil)))
+              fun (t5₁, ()) (t5₂, ()) => ?_
+            have hsub5 : ∀ p ∈ G',
+                p ∈ (⟨.bits _, t5₁, t5₂⟩ :: ⟨.bits _, t4₁, t4₂⟩ :: ⟨.bits _, t3₁, t3₂⟩ ::
+                     ⟨.bits _, t2₁, t2₂⟩ :: ⟨.bits _, t1₁, t1₂⟩ :: G') :=
+              fun _ hq => List.mem_cons_of_mem _ (List.mem_cons_of_mem _
+                (List.mem_cons_of_mem _ (hsub2 _ hq)))
+            exact ih (ARVal.fresh t5₁ b ivD, ()) (ARVal.fresh t5₂ b ivD, ())
+              (by dsimp only [Tup.zip, List.cons_append, List.nil_append]
+                  exact (hG.weaken hsub5).cons (ARValRel.fresh b ivD List.mem_cons_self))
+              curD (b + 1) _
       | addrPlain isSub hb hinv hiv invD ivD disp =>
         refine .let_ (.mk _ (.cons hb (.cons hinv .nil))) fun (t1₁, ()) (t1₂, ()) => ?_
         have hsub1 : ∀ p ∈ G', p ∈ (⟨.bits _, t1₁, t1₂⟩ :: G') :=
           fun _ hq => List.mem_cons_of_mem _ hq
-        refine .let_ (.mk _ (.cons (.var List.mem_cons_self) (.cons (hiv.weaken hsub1) .nil)))
-          fun (t2₁, ()) (t2₂, ()) => ?_
-        have hsub2 : ∀ p ∈ G', p ∈ (⟨.bits _, t2₁, t2₂⟩ :: ⟨.bits _, t1₁, t1₂⟩ :: G') :=
-          fun _ hq => List.mem_cons_of_mem _ (hsub1 _ hq)
         cases hdisp : (disp == 0#_) with
         | true =>
           simp only [↓reduceIte]
+          refine .let_ (.mk _ (.cons (.var List.mem_cons_self) (.cons (hiv.weaken hsub1) .nil)))
+            fun (t2₁, ()) (t2₂, ()) => ?_
+          have hsub2 : ∀ p ∈ G', p ∈ (⟨.bits _, t2₁, t2₂⟩ :: ⟨.bits _, t1₁, t1₂⟩ :: G') :=
+            fun _ hq => List.mem_cons_of_mem _ (hsub1 _ hq)
           exact ih
             (⟨.var t2₁, .var b, ivD, { addr? := some (.addVV (.var t1₁) invD _ ivD 0#_) }⟩, ())
             (⟨.var t2₂, .var b, ivD, { addr? := some (.addVV (.var t1₂) invD _ ivD 0#_) }⟩, ())
@@ -1273,22 +1354,51 @@ theorem addrRangeSweep_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Typ
             curD (b + 1) _
         | false =>
           simp only [Bool.false_eq_true, ↓reduceIte]
-          refine .let_ (.mk _ (.cons (.var List.mem_cons_self)
-            (.cons (.imm (t := .bits _) disp) .nil)))
-            fun (t3₁, ()) (t3₂, ()) => ?_
-          have hsub3 : ∀ p ∈ G',
-              p ∈ (⟨.bits _, t3₁, t3₂⟩ :: ⟨.bits _, t2₁, t2₂⟩ :: ⟨.bits _, t1₁, t1₂⟩ :: G') :=
-            fun _ hq => List.mem_cons_of_mem _ (hsub2 _ hq)
-          exact ih
-            (⟨.var t3₁, .var b, ivD, { addr? := some (.addVV (.var t1₁) invD _ ivD disp) }⟩, ())
-            (⟨.var t3₂, .var b, ivD, { addr? := some (.addVV (.var t1₂) invD _ ivD disp) }⟩, ())
-            (by dsimp only [Tup.zip, List.cons_append, List.nil_append]
-                exact (hG.weaken hsub3).cons
-                  ⟨.var List.mem_cons_self, rfl, rfl,
-                    ⟨AddrDefRel.addVV (.var (List.mem_cons_of_mem _
-                      (List.mem_cons_of_mem _ List.mem_cons_self)))
-                      invD (hiv.weaken hsub3) ivD disp, trivial⟩⟩)
-            curD (b + 1) _
+          cases hfold : plan.foldDisp with
+          | true =>
+            simp only [↓reduceIte]
+            refine .let_ (.mk _ (.cons (.var List.mem_cons_self)
+              (.cons (.imm (t := .bits _) disp) .nil)))
+              fun (t1d₁, ()) (t1d₂, ()) => ?_
+            have hsub1d : ∀ p ∈ G',
+                p ∈ (⟨.bits _, t1d₁, t1d₂⟩ :: ⟨.bits _, t1₁, t1₂⟩ :: G') :=
+              fun _ hq => List.mem_cons_of_mem _ (hsub1 _ hq)
+            refine .let_ (.mk _ (.cons (.var List.mem_cons_self) (.cons (hiv.weaken hsub1d) .nil)))
+              fun (t2₁, ()) (t2₂, ()) => ?_
+            have hsub3 : ∀ p ∈ G',
+                p ∈ (⟨.bits _, t2₁, t2₂⟩ :: ⟨.bits _, t1d₁, t1d₂⟩ :: ⟨.bits _, t1₁, t1₂⟩ :: G') :=
+              fun _ hq => List.mem_cons_of_mem _ (hsub1d _ hq)
+            exact ih
+              (⟨.var t2₁, .var b, ivD,
+                { addr? := some (.addVV (.var t1d₁) invD _ ivD 0#_) }⟩, ())
+              (⟨.var t2₂, .var b, ivD,
+                { addr? := some (.addVV (.var t1d₂) invD _ ivD 0#_) }⟩, ())
+              (by dsimp only [Tup.zip, List.cons_append, List.nil_append]
+                  exact (hG.weaken hsub3).cons
+                    ⟨.var List.mem_cons_self, rfl, rfl,
+                      ⟨AddrDefRel.addVV (.var (List.mem_cons_of_mem _ List.mem_cons_self))
+                        invD (hiv.weaken hsub3) ivD 0#_, trivial⟩⟩)
+              curD (b + 1) _
+          | false =>
+            simp only [Bool.false_eq_true, ↓reduceIte]
+            refine .let_ (.mk _ (.cons (.var List.mem_cons_self) (.cons (hiv.weaken hsub1) .nil)))
+              fun (t2₁, ()) (t2₂, ()) => ?_
+            refine .let_ (.mk _ (.cons (.var List.mem_cons_self)
+              (.cons (.imm (t := .bits _) disp) .nil)))
+              fun (t3₁, ()) (t3₂, ()) => ?_
+            have hsub3 : ∀ p ∈ G',
+                p ∈ (⟨.bits _, t3₁, t3₂⟩ :: ⟨.bits _, t2₁, t2₂⟩ :: ⟨.bits _, t1₁, t1₂⟩ :: G') :=
+              fun _ hq => List.mem_cons_of_mem _ (List.mem_cons_of_mem _ (hsub1 _ hq))
+            exact ih
+              (⟨.var t3₁, .var b, ivD, { addr? := some (.addVV (.var t1₁) invD _ ivD disp) }⟩, ())
+              (⟨.var t3₂, .var b, ivD, { addr? := some (.addVV (.var t1₂) invD _ ivD disp) }⟩, ())
+              (by dsimp only [Tup.zip, List.cons_append, List.nil_append]
+                  exact (hG.weaken hsub3).cons
+                    ⟨.var List.mem_cons_self, rfl, rfl,
+                      ⟨AddrDefRel.addVV (.var (List.mem_cons_of_mem _
+                        (List.mem_cons_of_mem _ List.mem_cons_self)))
+                        invD (hiv.weaken hsub3) ivD disp, trivial⟩⟩)
+              curD (b + 1) _
   | load t ha _ ih =>
     intro _ hG curD b _
     exact .load t (ha.arOut hG) fun v₁ v₂ => ih _ _ (hG.freshOne curD v₁ v₂ b) curD (b + 1) _
@@ -1329,10 +1439,10 @@ theorem addrRangeSweep_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Typ
 
 /-! ## Closed-function theorems (`Func.addrRangeOpt_wf`, `Func.addrRangeOpt_spec`) -/
 
-/-- `Func.addrRangeOpt` preserves relational well-formedness. -/
-theorem Func.addrRangeOpt_wf {as rs : List Ty} {f : Func as rs} (hf : f.Wf) :
-    (Func.addrRangeOpt f).Wf := by
-  dsimp only [Func.addrRangeOpt]
+/-- `Func.addrRangeOptWith` preserves relational well-formedness. -/
+theorem Func.addrRangeOptWith_wf (foldDisp : Bool) {as rs : List Ty} {f : Func as rs}
+    (hf : f.Wf) : (Func.addrRangeOptWith foldDisp f).Wf := by
+  dsimp only [Func.addrRangeOptWith]
   split
   · intro V₁ V₂ L₁ L₂ xs₁ xs₂
     have hwf := hf (ARVal V₁) (ARVal V₂) L₁ L₂ (freshARVals 0 as xs₁ 0) (freshARVals 0 as xs₂ 0)
@@ -1342,11 +1452,11 @@ theorem Func.addrRangeOpt_wf {as rs : List Ty} {f : Func as rs} (hf : f.Wf) :
     exact addrRangeSweep_wf hwf hrel 0 as.length _
   · exact hf
 
-/-- `Func.addrRangeOpt` refines function contracts. -/
-theorem Func.addrRangeOpt_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
-    {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
-    (h : Func.spec Γ f xs m Q X) : Func.spec Γ (Func.addrRangeOpt f) xs m Q X := by
-  dsimp only [Func.addrRangeOpt]
+/-- `Func.addrRangeOptWith` refines function contracts. -/
+theorem Func.addrRangeOptWith_spec (foldDisp : Bool) {as rs : List Ty} {f : Func as rs}
+    (hf : f.Wf) {Γ : Env} {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
+    (h : Func.spec Γ f xs m Q X) : Func.spec Γ (Func.addrRangeOptWith foldDisp f) xs m Q X := by
+  dsimp only [Func.addrRangeOptWith]
   split
   · have hwf := hf (ARVal Val) Val Cont Cont (freshARVals 0 as xs 0) xs
     have hgood : ARGood (fupdTup (fun _ _ => default) 0 xs) as.length
@@ -1355,5 +1465,16 @@ theorem Func.addrRangeOpt_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {�
         (fun _ hp => nomatch hp) 0 xs
     exact addrRangeSweep_wp hwf (fun _ hp => nomatch hp) 0 as.length _ _ hgood m h
   · exact h
+
+/-- `Func.addrRangeOpt` preserves relational well-formedness. -/
+theorem Func.addrRangeOpt_wf {as rs : List Ty} {f : Func as rs} (hf : f.Wf) :
+    (Func.addrRangeOpt f).Wf :=
+  Func.addrRangeOptWith_wf false hf
+
+/-- `Func.addrRangeOpt` refines function contracts. -/
+theorem Func.addrRangeOpt_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
+    {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
+    (h : Func.spec Γ f xs m Q X) : Func.spec Γ (Func.addrRangeOpt f) xs m Q X :=
+  Func.addrRangeOptWith_spec false hf h
 
 end LeanQbe.T

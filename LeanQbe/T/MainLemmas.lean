@@ -644,7 +644,7 @@ theorem compile_of_compileModule {I : Isa} {lt : LegalTarget} {raBytes : Nat}
 private theorem fn_mid_body_eq (lt : LegalTarget) (f : Fn) :
     (f.mid lt).body =
       Func.renorm (Func.lateCondThread (Func.renorm (Func.lateLoopRotate
-        (Func.renorm (Func.lateCfgPre (Func.renorm (Func.lateCorePost
+        (Func.renorm (Func.lateCfgPreWith lt.foldAddrDisp (Func.renorm (Func.lateCorePost
           (Func.renorm (Func.lateCorePre (Func.legal lt (Func.earlyOpt f.body))))))))))) := by
   dsimp only [Fn.mid, Fn.midFromEarly, Fn.earlyOpt]
   exact Fn.midStage_eq lt f.earlyOpt
@@ -677,8 +677,8 @@ theorem fn_mid_spec {lt : LegalTarget} {f : Fn} (hwf : f.Wf)
     (Func.lateCorePre_spec (Func.legal_wf lt hwf₁) hmono)
   have h2 := Func.renorm_spec (Func.lateCorePost_wf (Func.renorm_wf _))
     (Func.lateCorePost_spec (Func.renorm_wf _) h1)
-  have h3 := Func.renorm_spec (Func.lateCfgPre_wf (Func.renorm_wf _))
-    (Func.lateCfgPre_spec (Func.renorm_wf _) h2)
+  have h3 := Func.renorm_spec (Func.lateCfgPreWith_wf lt.foldAddrDisp (Func.renorm_wf _))
+    (Func.lateCfgPreWith_spec lt.foldAddrDisp (Func.renorm_wf _) h2)
   have h4 := Func.renorm_spec (Func.lateLoopRotate_wf (Func.renorm_wf _))
     (Func.lateLoopRotate_spec (Func.renorm_wf _) h3)
   have h5 := Func.renorm_spec (Func.lateCondThread_wf (Func.renorm_wf _))

@@ -559,12 +559,15 @@ def recordAddVarImm (defs : Trie DefFact) (x : Nat) (c : BitVec 64) : DefFact :=
     else .addrSum b idx sh (d + c)
   | _ => .addImm64 x c
 
-def recordAddScale (dfx : DefFact) (dfy? : Option DefFact) (y : Nat) : Option DefFact :=
+def recordAddScale (defs : Trie DefFact) (dfx : DefFact) (dfy? : Option DefFact) (y : Nat) :
+    Option DefFact :=
   match dfx with
   | .scaleOff idx sh d1 =>
     if Nat.ble sh 3 then
       match dfy? with
-      | some (.addImm64 b d2) => some (.addrSum b idx sh (d1 + d2))
+      | some (.addImm64 b d2) =>
+        if isScaledAddrSum defs b then some (.addrSum y idx sh d1)
+        else some (.addrSum b idx sh (d1 + d2))
       | _ => some (.addrSum y idx sh d1)
     else none
   | _ => none
@@ -584,8 +587,8 @@ def recordAddVarVar (defs : Trie DefFact) (x y : Nat) : DefFact :=
   | some (.imm64 c), _ => recordAddVarImm defs y c
   | _, some (.imm64 c) => recordAddVarImm defs x c
   | _, _ =>
-    let s1 := dfx?.bind (recordAddScale · dfy? y)
-    let s2 := dfy?.bind (recordAddScale · dfx? x)
+    let s1 := dfx?.bind (recordAddScale defs · dfy? y)
+    let s2 := dfy?.bind (recordAddScale defs · dfx? x)
     let b1 := dfx?.bind (recordAddBase · y dfy?)
     let b2 := dfy?.bind (recordAddBase · x dfx?)
     (s1 <|> s2 <|> b1 <|> b2).getD (.addrSum x y 0 0)

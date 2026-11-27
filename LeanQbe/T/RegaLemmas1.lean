@@ -1890,35 +1890,35 @@ private theorem defOk_addVarImm {G : VCtx} {nv x : Nat} {vx c : BitVec 64}
       exact ⟨vx, List.mem_cons_of_mem _ hm, rfl⟩
 
 private theorem defOk_addScale {G : VCtx} {nv x y : Nat} {vx vy : BitVec 64}
-    {dfx : DefFact} {dfy? : Option DefFact} {df : DefFact}
+    {defs : Trie DefFact} {dfx : DefFact} {dfy? : Option DefFact} {df : DefFact}
     (hx : DefOk G x dfx) (hy : ∀ d, dfy? = some d → DefOk G y d)
     (hlt : ∀ p ∈ G, p.2.2 < nv) (hmx : ⟨i64, vx, x⟩ ∈ G) (hmy : ⟨i64, vy, y⟩ ∈ G)
-    (h : recordAddScale dfx dfy? y = some df) :
+    (h : recordAddScale defs dfx dfy? y = some df) :
     DefOk (⟨i64, vx + vy, nv⟩ :: G) nv df := by
   unfold recordAddScale at h
   cases dfx with
   | scaleOff idx sh d1 =>
     dsimp only at h
     split at h
-    · cases dfy? with
-      | some dy =>
-        cases dy with
-        | addImm64 b d2 =>
-          cases h; intro v hv; cases mem_cons_top hlt hv
-          obtain ⟨vi, hi, hvx⟩ := hx vx hmx
-          obtain ⟨vb, hb, hvy⟩ := (hy (.addImm64 b d2) rfl).2 vy hmy
-          refine ⟨vb, vi, List.mem_cons_of_mem _ hb, List.mem_cons_of_mem _ hi, ?_⟩
-          rw [hvx, hvy]; ac_rfl
-        | _ =>
-          cases h; intro v hv; cases mem_cons_top hlt hv
-          obtain ⟨vi, hi, hvx⟩ := hx vx hmx
-          refine ⟨vy, vi, List.mem_cons_of_mem _ hmy, List.mem_cons_of_mem _ hi, ?_⟩
-          rw [hvx]; ac_rfl
-      | none =>
-        cases h; intro v hv; cases mem_cons_top hlt hv
+    · have hfall : DefOk (⟨i64, vx + vy, nv⟩ :: G) nv (.addrSum y idx sh d1) := by
+        intro v hv; cases mem_cons_top hlt hv
         obtain ⟨vi, hi, hvx⟩ := hx vx hmx
         refine ⟨vy, vi, List.mem_cons_of_mem _ hmy, List.mem_cons_of_mem _ hi, ?_⟩
         rw [hvx]; ac_rfl
+      cases dfy? with
+      | some dy =>
+        cases dy with
+        | addImm64 b d2 =>
+          by_cases hc : isScaledAddrSum defs b = true
+          · simp only [hc, ↓reduceIte, Option.some.injEq] at h; subst h; exact hfall
+          · simp only [hc, Bool.false_eq_true, ↓reduceIte, Option.some.injEq] at h; subst h
+            intro v hv; cases mem_cons_top hlt hv
+            obtain ⟨vi, hi, hvx⟩ := hx vx hmx
+            obtain ⟨vb, hb, hvy⟩ := (hy (.addImm64 b d2) rfl).2 vy hmy
+            refine ⟨vb, vi, List.mem_cons_of_mem _ hb, List.mem_cons_of_mem _ hi, ?_⟩
+            rw [hvx, hvy]; ac_rfl
+        | _ => cases h; exact hfall
+      | none => cases h; exact hfall
     · simp at h
   | _ => simp at h
 
@@ -1956,8 +1956,8 @@ private theorem defOk_addVarVar {G : VCtx} {nv x y : Nat} {vx vy : BitVec 64}
     {defs : Trie DefFact} (hdefs : ∀ z d, defs.find? z = some d → DefOk G z d)
     (hlt : ∀ p ∈ G, p.2.2 < nv) (hmx : ⟨i64, vx, x⟩ ∈ G) (hmy : ⟨i64, vy, y⟩ ∈ G) :
     DefOk (⟨i64, vx + vy, nv⟩ :: G) nv (recordAddVarVar defs x y) := by
-  let s1 := (defs.find? x).bind (recordAddScale · (defs.find? y) y)
-  let s2 := (defs.find? y).bind (recordAddScale · (defs.find? x) x)
+  let s1 := (defs.find? x).bind (recordAddScale defs · (defs.find? y) y)
+  let s2 := (defs.find? y).bind (recordAddScale defs · (defs.find? x) x)
   let b1 := (defs.find? x).bind (recordAddBase · y (defs.find? y))
   let b2 := (defs.find? y).bind (recordAddBase · x (defs.find? x))
   have fall : DefOk (⟨i64, vx + vy, nv⟩ :: G) nv (.addrSum x y 0 0) := by

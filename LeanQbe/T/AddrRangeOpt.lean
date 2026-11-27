@@ -52,10 +52,11 @@ namespace LeanQbe.T
 /-! ## Phase 1 (untrusted): `TFlat` loop-block tree and candidate pre-scan -/
 
 mutual
-/-- Structural mirror of `Expr` marking looping blocks inside each `.group`. -/
+/-- Structural mirror of `Expr` marking looping blocks inside each `.group` and per-site
+displacement-folding decisions (`foldDisp` on `.let_` nodes). -/
 inductive LoopTree : Type
   | leaf : LoopTree
-  | node1 (k : LoopTree) : LoopTree
+  | node1 (foldDisp : Bool) (k : LoopTree) : LoopTree
   | node2 (t e : LoopTree) : LoopTree
   | groupNode (bs : LoopBlocks) (k : LoopTree) : LoopTree
 
@@ -74,44 +75,374 @@ def isCandOp (inLoop : Bool) : {as rs : List Ty} → OpCode as rs → Bool
   | _, _, .or .bool => true
   | _, _, _ => false
 
+/-- True iff `code` is an in-loop 64-bit `add` candidate. -/
+def isInLoopAdd64 (inLoop : Bool) : {as rs : List Ty} → OpCode as rs → Bool
+  | _, _, .add (.bits 64) => inLoop
+  | _, _, _ => false
+
 mutual
-/-- Build a `LoopTree` and a candidate flag (`true` iff the function contains an in-loop
-64-bit `add` or any `.and .bool` / `.or .bool`). -/
-def buildLoopTree (inLoop : Bool) {rs : List Ty} : TFlat rs → LoopTree × Bool
+/-- Build a `LoopTree`, candidate flag (`hasWork`), and in-loop 64-bit `add` flag (`hasAdd64`). -/
+def buildLoopTreeAux (inLoop : Bool) {rs : List Ty} : TFlat rs → LoopTree × Bool × Bool
   | .let_ op k =>
-    let (tk, wk) := buildLoopTree inLoop k
-    (.node1 tk, isCandOp inLoop op.code || wk)
+    let (tk, wk, ak) := buildLoopTreeAux inLoop k
+    (.node1 false tk, isCandOp inLoop op.code || wk, isInLoopAdd64 inLoop op.code || ak)
   | .load _ _ k | .store _ _ k | .call _ _ _ k =>
-    let (tk, wk) := buildLoopTree inLoop k
-    (.node1 tk, wk)
+    let (tk, wk, ak) := buildLoopTreeAux inLoop k
+    (.node1 false tk, wk, ak)
   | .jnz _ t e =>
-    let (tt, wt) := buildLoopTree inLoop t
-    let (te, we) := buildLoopTree inLoop e
-    (.node2 tt te, wt || we)
-  | .jump _ _ | .ret _ | .exit _ _ | .hlt => (.leaf, false)
+    let (tt, wt, at_) := buildLoopTreeAux inLoop t
+    let (te, we, ae) := buildLoopTreeAux inLoop e
+    (.node2 tt te, wt || we, at_ || ae)
+  | .jump _ _ | .ret _ | .exit _ _ | .hlt => (.leaf, false, false)
   | .group bodies k =>
     let loopMask := Licm.computeLoopMask bodies
-    let (tbs, wbs) := buildLoopBlocks inLoop loopMask bodies
-    let (tk, wk) := buildLoopTree inLoop k
-    (.groupNode tbs tk, wbs || wk)
+    let (tbs, wbs, abs) := buildLoopBlocksAux inLoop loopMask bodies
+    let (tk, wk, ak) := buildLoopTreeAux inLoop k
+    (.groupNode tbs tk, wbs || wk, abs || ak)
 
-/-- Block-list companion of `buildLoopTree`. -/
-def buildLoopBlocks (inLoop : Bool) (loopMask : List Nat) {rs : List Ty} :
-    {sig : List (List Ty)} → TBlocks rs sig → LoopBlocks × Bool
-  | [], .nil => (.nil, false)
+/-- Block-list companion of `buildLoopTreeAux`. -/
+def buildLoopBlocksAux (inLoop : Bool) (loopMask : List Nat) {rs : List Ty} :
+    {sig : List (List Ty)} → TBlocks rs sig → LoopBlocks × Bool × Bool
+  | [], .nil => (.nil, false, false)
   | _ :: sig, .cons b bs =>
     let isL := loopMask.contains sig.length
-    let (tb, wb) := buildLoopTree (inLoop || isL) b
-    let (tbs, wbs) := buildLoopBlocks inLoop loopMask bs
-    (.cons isL tb tbs, wb || wbs)
+    let (tb, wb, ab) := buildLoopTreeAux (inLoop || isL) b
+    let (tbs, wbs, abs) := buildLoopBlocksAux inLoop loopMask bs
+    (.cons isL tb tbs, wb || wbs, ab || abs)
 end
+
+/-- Build a `LoopTree` and a candidate flag (`true` iff the function contains an in-loop
+64-bit `add` or any `.and .bool` / `.or .bool`). -/
+def buildLoopTree (inLoop : Bool) {rs : List Ty} (tf : TFlat rs) : LoopTree × Bool :=
+  let (t, w, _) := buildLoopTreeAux inLoop tf
+  (t, w)
+
+/-- Untrusted key identifying a hoisted invariant base `(isSub, baseUid, invUid, sh)`
+(`sh = 0` for `addrPlain`; `0 < sh < 64` for `addrShl`). -/
+structure DispKey where
+  isSub : Bool
+  baseUid : Nat
+  invUid : Nat
+  sh : Nat
+  deriving BEq
+
+/-- Displacement uniqueness state for a `DispKey` across all reassociated sites in a function. -/
+inductive DispState where
+  | unique (d : BitVec 64)
+  | conflict
+
+/-- Record `(key, disp)` in a displacement uniqueness table. -/
+def DispTable.record (tbl : List (DispKey × DispState)) (key : DispKey)
+    (disp : BitVec 64) : List (DispKey × DispState) :=
+  match tbl with
+  | [] => [(key, .unique disp)]
+  | (k, st) :: rest =>
+    if k == key then
+      let st' := match st with
+        | .unique d => if d == disp then .unique d else .conflict
+        | .conflict => .conflict
+      (k, st') :: rest
+    else (k, st) :: DispTable.record rest key disp
+
+/-- True iff `key` has a single unique non-zero displacement across the function. -/
+def DispTable.isUniqueNonZero (tbl : List (DispKey × DispState)) (key : DispKey) : Bool :=
+  match tbl.find? (fun p => p.1 == key) with
+  | some (_, .unique d) => d != 0#64
+  | _ => false
+
+/-- Untrusted 64-bit linear-address summary for Phase-1 displacement uniqueness analysis. -/
+inductive PlanAddr where
+  | addVC (x dx : Nat) (disp : BitVec 64)
+  | shlVC (x dx sh : Nat) (disp : BitVec 64)
+  | addVV (x dx y dy : Nat) (disp : BitVec 64)
+  | subVV (x dx y dy : Nat) (disp : BitVec 64)
+  | shlAddVV (x dx y dy sh : Nat) (disp : BitVec 64)
+  | shlSubVV (x dx y dy sh : Nat) (disp : BitVec 64)
+
+/-- Shift displacement of a `PlanAddr` by `c`. -/
+def PlanAddr.shiftDisp (c : BitVec 64) : PlanAddr → PlanAddr
+  | .addVC x dx d => .addVC x dx (d + c)
+  | .shlVC x dx sh d => .shlVC x dx sh (d + c)
+  | .addVV x dx y dy d => .addVV x dx y dy (d + c)
+  | .subVV x dx y dy d => .subVV x dx y dy (d + c)
+  | .shlAddVV x dx y dy sh d => .shlAddVV x dx y dy sh (d + c)
+  | .shlSubVV x dx y dy sh d => .shlSubVV x dx y dy sh (d + c)
+
+/-- Per-variable untrusted Phase-1 summary `(uid, depth, addr?)`. -/
+structure PlanVal where
+  uid : Nat
+  depth : Nat
+  addr? : Option PlanAddr := none
+
+/-- Look up a de Bruijn index `i` at `inDepth` in `env`. -/
+def planLookup (inDepth : Nat) (env : Trie PlanVal) (i : Nat) : PlanVal :=
+  let lvl := inDepth - 1 - i
+  env.getD lvl ⟨lvl, 0, none⟩
+
+/-- Maximum loop depth across `TFlat` arguments. -/
+def planTupMaxDepth (inDepth : Nat) (env : Trie PlanVal) :
+    {ts : List Ty} → Tup (Arg (fun _ => Nat)) ts → Nat
+  | [], () => 0
+  | _ :: _, (.imm _, as) => planTupMaxDepth inDepth env as
+  | _ :: _, (.var i, as) =>
+    Nat.max (planLookup inDepth env i).depth (planTupMaxDepth inDepth env as)
+
+/-- Insert `n` fresh `PlanVal` entries at depth `d` starting from `inDepth` and `uid`. -/
+def planInsertFresh (d : Nat) : Nat → Nat → Nat → Trie PlanVal → Nat × Trie PlanVal
+  | 0, _, uid, env => (uid, env)
+  | k + 1, inD, uid, env =>
+    planInsertFresh d k (inD + 1) (uid + 1) (env.insert inD ⟨uid, d, none⟩)
+
+/-- Mirror `tryAddrReassocOne` in Phase-1 `uid` space, returning
+`(key, disp, ivD, plainT1InvD?)`. -/
+def planTryReassocOne (inDepth : Nat) (env : Trie PlanVal)
+    (baseArg offArg : Arg (fun _ => Nat) (.bits 64)) :
+    Option (DispKey × BitVec 64 × Nat × Option (Nat × Nat)) :=
+  match baseArg, offArg with
+  | .var bi, .var oi =>
+    let bv := planLookup inDepth env bi
+    let ov := planLookup inDepth env oi
+    match ov.addr? with
+    | some (.shlAddVV x dx y dy sh disp) =>
+      if Nat.blt (Nat.max bv.depth dx) dy then
+        some (⟨false, bv.uid, x, sh⟩, disp, dy, none)
+      else if Nat.blt (Nat.max bv.depth dy) dx then
+        some (⟨false, bv.uid, y, sh⟩, disp, dx, none)
+      else none
+    | some (.shlSubVV _ dx y dy sh disp) =>
+      if Nat.blt (Nat.max bv.depth dy) dx then
+        some (⟨true, bv.uid, y, sh⟩, disp, dx, none)
+      else none
+    | some (.addVV x dx y dy disp) =>
+      if Nat.blt (Nat.max bv.depth dx) dy then
+        some (⟨false, bv.uid, x, 0⟩, disp, dy, some (Nat.max bv.depth dx, y))
+      else if Nat.blt (Nat.max bv.depth dy) dx then
+        some (⟨false, bv.uid, y, 0⟩, disp, dx, some (Nat.max bv.depth dy, x))
+      else none
+    | some (.subVV x dx y dy disp) =>
+      if Nat.blt (Nat.max bv.depth dy) dx then
+        some (⟨true, bv.uid, y, 0⟩, disp, dx, some (Nat.max bv.depth dy, x))
+      else none
+    | _ => none
+  | _, _ => none
+
+/-- Mirror `recordAddProv` for 64-bit `add` in Phase-1 `uid` space. -/
+def planRecordAdd (inDepth : Nat) (env : Trie PlanVal)
+    (a b : Arg (fun _ => Nat) (.bits 64)) : Option PlanAddr :=
+  match a, b with
+  | .var ai, .var bi =>
+    let av := planLookup inDepth env ai
+    let bv := planLookup inDepth env bi
+    match av.addr?, bv.addr? with
+    | some (.addVC x dx d1), some (.addVC y dy d2) => some (.addVV x dx y dy (d1 + d2))
+    | some (.addVC x dx d1), _ => some (.addVV x dx bv.uid bv.depth d1)
+    | _, some (.addVC y dy d2) => some (.addVV av.uid av.depth y dy d2)
+    | some (.shlVC x dx sh1 d1), some (.shlVC y dy sh2 d2) =>
+      if sh1 == sh2 then some (.shlAddVV x dx y dy sh1 (d1 + d2))
+      else some (.addVV av.uid av.depth bv.uid bv.depth 0#64)
+    | _, _ => some (.addVV av.uid av.depth bv.uid bv.depth 0#64)
+  | .var ai, .imm c =>
+    let av := planLookup inDepth env ai
+    match av.addr? with
+    | some ad => some (ad.shiftDisp c)
+    | none => some (.addVC av.uid av.depth c)
+  | .imm c, .var bi =>
+    let bv := planLookup inDepth env bi
+    match bv.addr? with
+    | some ad => some (ad.shiftDisp c)
+    | none => some (.addVC bv.uid bv.depth c)
+  | .imm _, .imm _ => none
+
+/-- Mirror `recordSubProv` for 64-bit `sub` in Phase-1 `uid` space. -/
+def planRecordSub (inDepth : Nat) (env : Trie PlanVal)
+    (a b : Arg (fun _ => Nat) (.bits 64)) : Option PlanAddr :=
+  match a, b with
+  | .var ai, .var bi =>
+    let av := planLookup inDepth env ai
+    let bv := planLookup inDepth env bi
+    match av.addr?, bv.addr? with
+    | some (.addVC x dx d1), some (.addVC y dy d2) => some (.subVV x dx y dy (d1 - d2))
+    | some (.addVC x dx d1), _ => some (.subVV x dx bv.uid bv.depth d1)
+    | _, some (.addVC y dy d2) => some (.subVV av.uid av.depth y dy (-d2))
+    | some (.shlVC x dx sh1 d1), some (.shlVC y dy sh2 d2) =>
+      if sh1 == sh2 then some (.shlSubVV x dx y dy sh1 (d1 - d2))
+      else some (.subVV av.uid av.depth bv.uid bv.depth 0#64)
+    | _, _ => some (.subVV av.uid av.depth bv.uid bv.depth 0#64)
+  | .var ai, .imm c =>
+    let av := planLookup inDepth env ai
+    match av.addr? with
+    | some ad => some (ad.shiftDisp (-c))
+    | none => some (.addVC av.uid av.depth (-c))
+  | _, _ => none
+
+/-- Mirror `recordShlProv` for 64-bit `shl` in Phase-1 `uid` space. -/
+def planRecordShl (inDepth : Nat) (env : Trie PlanVal)
+    (a b : Arg (fun _ => Nat) (.bits 64)) : Option PlanAddr :=
+  match a, b with
+  | .var ai, .imm k =>
+    let kn := k.toNat
+    if 0 < kn && kn < 64 then
+      let av := planLookup inDepth env ai
+      match av.addr? with
+      | some (.addVC x dx d) => some (.shlVC x dx kn (d <<< kn))
+      | some (.shlVC x dx sh d) =>
+        if sh + kn < 64 then some (.shlVC x dx (sh + kn) (d <<< kn)) else none
+      | some (.addVV x dx y dy d) => some (.shlAddVV x dx y dy kn (d <<< kn))
+      | some (.subVV x dx y dy d) => some (.shlSubVV x dx y dy kn (d <<< kn))
+      | some (.shlAddVV x dx y dy sh d) =>
+        if sh + kn < 64 then some (.shlAddVV x dx y dy (sh + kn) (d <<< kn)) else none
+      | some (.shlSubVV x dx y dy sh d) =>
+        if sh + kn < 64 then some (.shlSubVV x dx y dy (sh + kn) (d <<< kn)) else none
+      | none => some (.shlVC av.uid av.depth kn 0#64)
+    else none
+  | _, _ => none
+
+mutual
+/-- Intermediate tree tagging `.let_` nodes with optional `DispKey` before resolving uniqueness. -/
+inductive SiteTree : Type
+  | leaf : SiteTree
+  | node1 (key? : Option DispKey) (k : SiteTree) : SiteTree
+  | node2 (t e : SiteTree) : SiteTree
+  | groupNode (bs : SiteBlocks) (k : SiteTree) : SiteTree
+
+/-- Block-list companion of `SiteTree`. -/
+inductive SiteBlocks : Type
+  | nil : SiteBlocks
+  | cons (isLoop : Bool) (hd : SiteTree) (tl : SiteBlocks) : SiteBlocks
+end
+
+mutual
+/-- Resolve `SiteTree` into `LoopTree` using the completed function-wide `DispTable`. -/
+def finalizeSiteTree (tbl : List (DispKey × DispState)) : SiteTree → LoopTree
+  | .leaf => .leaf
+  | .node1 key? k =>
+    let f := match key? with
+      | some key => DispTable.isUniqueNonZero tbl key
+      | none => false
+    .node1 f (finalizeSiteTree tbl k)
+  | .node2 t e => .node2 (finalizeSiteTree tbl t) (finalizeSiteTree tbl e)
+  | .groupNode bs k => .groupNode (finalizeSiteBlocks tbl bs) (finalizeSiteTree tbl k)
+
+/-- Block-list companion of `finalizeSiteTree`. -/
+def finalizeSiteBlocks (tbl : List (DispKey × DispState)) : SiteBlocks → LoopBlocks
+  | .nil => .nil
+  | .cons isL hd tl => .cons isL (finalizeSiteTree tbl hd) (finalizeSiteBlocks tbl tl)
+end
+
+/-- Step one `.let_` operation during Phase-1 displacement collection. -/
+def planLetStep (curD inDepth uid : Nat) (env : Trie PlanVal)
+    (tbl : List (DispKey × DispState)) {ts : List Ty} (op : Op (fun _ => Nat) ts) :
+    Option DispKey × Nat × Trie PlanVal × List (DispKey × DispState) :=
+  let outD := if op.code.isLicmPure then planTupMaxDepth inDepth env op.args else curD
+  let ⟨code, args⟩ := op
+  match code, args with
+  | .add (.bits 64), (a, b, ()) =>
+    let hit := if 0 < curD then
+        match planTryReassocOne inDepth env a b with
+        | some r => some r
+        | none => planTryReassocOne inDepth env b a
+      else none
+    match hit with
+    | some (key, disp, ivD, plainInfo) =>
+      let tbl' := DispTable.record tbl key disp
+      match plainInfo with
+      | none => (some key, uid + 1, env.insert inDepth ⟨uid, ivD, none⟩, tbl')
+      | some (invD, ivUid) =>
+        let t1Uid := uid
+        let resUid := uid + 1
+        (some key, uid + 2,
+          env.insert inDepth ⟨resUid, ivD, some (.addVV t1Uid invD ivUid ivD disp)⟩, tbl')
+    | none =>
+      (none, uid + 1, env.insert inDepth ⟨uid, outD, planRecordAdd inDepth env a b⟩, tbl)
+  | .sub (.bits 64), (a, b, ()) =>
+    (none, uid + 1, env.insert inDepth ⟨uid, outD, planRecordSub inDepth env a b⟩, tbl)
+  | .shl (.bits 64), (a, b, ()) =>
+    (none, uid + 1, env.insert inDepth ⟨uid, outD, planRecordShl inDepth env a b⟩, tbl)
+  | .copy (.bits 64), (.var ai, ()) =>
+    let av := planLookup inDepth env ai
+    (none, uid + 1, env.insert inDepth ⟨uid, outD, av.addr?⟩, tbl)
+  | _, _ =>
+    let (uid', env') := planInsertFresh outD ts.length inDepth uid env
+    (none, uid', env', tbl)
+
+mutual
+/-- Walk `TFlat` alongside `LoopTree` to collect all reassociated `(DispKey, disp)` sites. -/
+def collectDispSites (curD : Nat) {rs : List Ty} :
+    LoopTree → TFlat rs → Nat → Nat → Trie PlanVal → List (DispKey × DispState) →
+    SiteTree × Nat × List (DispKey × DispState)
+  | plan, .let_ (ts := ts) op k, inD, uid, env, tbl =>
+    let kPlan := match plan with | .node1 _ pk => pk | _ => .leaf
+    let (key?, uid', env', tbl') := planLetStep curD inD uid env tbl op
+    let (tk, uid'', tbl'') := collectDispSites curD kPlan k (inD + ts.length) uid' env' tbl'
+    (.node1 key? tk, uid'', tbl'')
+  | plan, .load _ _ k, inD, uid, env, tbl =>
+    let kPlan := match plan with | .node1 _ pk => pk | _ => .leaf
+    let (tk, uid', tbl') :=
+      collectDispSites curD kPlan k (inD + 1) (uid + 1) (env.insert inD ⟨uid, curD, none⟩) tbl
+    (.node1 none tk, uid', tbl')
+  | plan, .store _ _ k, inD, uid, env, tbl =>
+    let kPlan := match plan with | .node1 _ pk => pk | _ => .leaf
+    let (tk, uid', tbl') := collectDispSites curD kPlan k inD uid env tbl
+    (.node1 none tk, uid', tbl')
+  | plan, .call _ bs _ k, inD, uid, env, tbl =>
+    let kPlan := match plan with | .node1 _ pk => pk | _ => .leaf
+    let (uid', env') := planInsertFresh curD bs.length inD uid env
+    let (tk, uid'', tbl') := collectDispSites curD kPlan k (inD + bs.length) uid' env' tbl
+    (.node1 none tk, uid'', tbl')
+  | plan, .jnz _ t e, inD, uid, env, tbl =>
+    let (pt, pe) := match plan with | .node2 pt pe => (pt, pe) | _ => (.leaf, .leaf)
+    let (st, uid1, tbl1) := collectDispSites curD pt t inD uid env tbl
+    let (se, uid2, tbl2) := collectDispSites curD pe e inD uid1 env tbl1
+    (.node2 st se, uid2, tbl2)
+  | _, .jump _ _, _, uid, _, tbl | _, .ret _, _, uid, _, tbl
+  | _, .exit _ _, _, uid, _, tbl | _, .hlt, _, uid, _, tbl => (.leaf, uid, tbl)
+  | plan, .group bodies k, inD, uid, env, tbl =>
+    let (bsPlan, kPlan) := match plan with
+      | .groupNode bs pk => (bs, pk)
+      | _ => (.nil, .leaf)
+    let (sbs, uid1, tbl1) := collectDispSitesB curD bsPlan bodies inD uid env tbl
+    let (sk, uid2, tbl2) := collectDispSites curD kPlan k inD uid1 env tbl1
+    (.groupNode sbs sk, uid2, tbl2)
+
+/-- Block-list companion of `collectDispSites`. -/
+def collectDispSitesB (curD : Nat) {rs : List Ty} :
+    LoopBlocks → {sig : List (List Ty)} → TBlocks rs sig → Nat → Nat → Trie PlanVal →
+    List (DispKey × DispState) → SiteBlocks × Nat × List (DispKey × DispState)
+  | _, [], .nil, _, uid, _, tbl => (.nil, uid, tbl)
+  | bsPlan, ts :: _, .cons b bs, inD, uid, env, tbl =>
+    let (isL, ph, pt) := match bsPlan with
+      | .cons isL ph pt => (isL, ph, pt)
+      | .nil => (false, .leaf, .nil)
+    let bd := if isL then curD + 1 else curD
+    let (uid1, env1) := planInsertFresh bd ts.length inD uid env
+    let (sh, uid2, tbl1) := collectDispSites bd ph b (inD + ts.length) uid1 env1 tbl
+    let (st, uid3, tbl2) := collectDispSitesB curD pt bs inD uid2 env tbl1
+    (.cons isL sh st, uid3, tbl2)
+end
+
+/-- Build a `LoopTree` with per-site unique-displacement folding flags (when `foldDisp = true`)
+and candidate flag. -/
+def buildAddrPlan (foldDisp : Bool) (nArgs : Nat) {rs : List Ty} (tf : TFlat rs) :
+    LoopTree × Bool :=
+  let (plan, hasWork, hasAdd64) := buildLoopTreeAux false tf
+  if !hasWork then (plan, false)
+  else if !foldDisp || !hasAdd64 then (plan, true)
+  else
+    let (uid0, env0) := planInsertFresh 0 nArgs 0 0 .empty
+    let (stree, _, tbl) := collectDispSites 0 plan tf nArgs uid0 env0 []
+    (finalizeSiteTree tbl stree, true)
 
 end AddrRangeOpt
 
 /-- Extract child plan for single-continuation nodes. -/
 def LoopTree.step1 : LoopTree → LoopTree
-  | .node1 k => k
+  | .node1 _ k => k
   | _ => .leaf
+
+/-- Extract per-site displacement-folding flag for `.let_` nodes. -/
+def LoopTree.foldDisp : LoopTree → Bool
+  | .node1 f _ => f
+  | _ => false
 
 /-- Extract branch plans for `.jnz` nodes. -/
 def LoopTree.step2 : LoopTree → LoopTree × LoopTree
@@ -540,6 +871,7 @@ def addrRangeSweep {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
     (curD next : Nat) (plan : LoopTree) : Expr (ARVal V) L rs → Expr V L rs
   | .let_ (ts := ts) op k =>
     let kPlan := plan.step1
+    let foldD := plan.foldDisp
     match op.arStep curD next with
     | .elim res => addrRangeSweep curD next kPlan (k res)
     | .emit1 op' wrap =>
@@ -551,20 +883,33 @@ def addrRangeSweep {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
     | .addrShl n isSub base inv iv ivD sh _ disp =>
       .let_ (op2 (.shl (.bits n)) inv (.imm (BitVec.ofNat n sh))) fun (t1, ()) =>
       .let_ (op2 (if isSub then .sub (.bits n) else .add (.bits n)) base (.var t1)) fun (t2, ()) =>
-      .let_ (op2 (.shl (.bits n)) iv (.imm (BitVec.ofNat n sh))) fun (t3, ()) =>
-      .let_ (op2 (.add (.bits n)) (.var t2) (.var t3)) fun (t4, ()) =>
       if disp == 0#n then
+        .let_ (op2 (.shl (.bits n)) iv (.imm (BitVec.ofNat n sh))) fun (t3, ()) =>
+        .let_ (op2 (.add (.bits n)) (.var t2) (.var t3)) fun (t4, ()) =>
+        addrRangeSweep curD (next + 1) kPlan (k (ARVal.fresh t4 next ivD, ()))
+      else if foldD then
+        .let_ (op2 (.add (.bits n)) (.var t2) (.imm disp)) fun (t2d, ()) =>
+        .let_ (op2 (.shl (.bits n)) iv (.imm (BitVec.ofNat n sh))) fun (t3, ()) =>
+        .let_ (op2 (.add (.bits n)) (.var t2d) (.var t3)) fun (t4, ()) =>
         addrRangeSweep curD (next + 1) kPlan (k (ARVal.fresh t4 next ivD, ()))
       else
+        .let_ (op2 (.shl (.bits n)) iv (.imm (BitVec.ofNat n sh))) fun (t3, ()) =>
+        .let_ (op2 (.add (.bits n)) (.var t2) (.var t3)) fun (t4, ()) =>
         .let_ (op2 (.add (.bits n)) (.var t4) (.imm disp)) fun (t5, ()) =>
         addrRangeSweep curD (next + 1) kPlan (k (ARVal.fresh t5 next ivD, ()))
     | .addrPlain n isSub base inv iv invD ivD disp =>
       .let_ (op2 (if isSub then .sub (.bits n) else .add (.bits n)) base inv) fun (t1, ()) =>
-      .let_ (op2 (.add (.bits n)) (.var t1) iv) fun (t2, ()) =>
       if disp == 0#n then
+        .let_ (op2 (.add (.bits n)) (.var t1) iv) fun (t2, ()) =>
         addrRangeSweep curD (next + 1) kPlan
           (k (⟨.var t2, .var next, ivD, { addr? := some (.addVV (.var t1) invD iv ivD 0#n) }⟩, ()))
+      else if foldD then
+        .let_ (op2 (.add (.bits n)) (.var t1) (.imm disp)) fun (t1d, ()) =>
+        .let_ (op2 (.add (.bits n)) (.var t1d) iv) fun (t2, ()) =>
+        addrRangeSweep curD (next + 1) kPlan
+          (k (⟨.var t2, .var next, ivD, { addr? := some (.addVV (.var t1d) invD iv ivD 0#n) }⟩, ()))
       else
+        .let_ (op2 (.add (.bits n)) (.var t1) iv) fun (t2, ()) =>
         .let_ (op2 (.add (.bits n)) (.var t2) (.imm disp)) fun (t3, ()) =>
         addrRangeSweep curD (next + 1) kPlan
           (k (⟨.var t3, .var next, ivD, { addr? := some (.addVV (.var t1) invD iv ivD disp) }⟩, ()))
@@ -604,12 +949,18 @@ def addrRangeSweepB {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
 end
 
 /-- Run loop-aware address reassociation and range-check collapse on a closed function `Func`,
-bypassing the PHOAS sweep when no candidate sites exist. -/
-def Func.addrRangeOpt {as rs : List Ty} (f : Func as rs) : Func as rs :=
-  let (plan, hasWork) := AddrRangeOpt.buildLoopTree false (reifyFunc f)
+folding unique non-zero constant displacements into hoisted base pointers when `foldDisp` is
+`true` and bypassing the PHOAS sweep when no candidate sites exist. -/
+def Func.addrRangeOptWith (foldDisp : Bool) {as rs : List Ty} (f : Func as rs) : Func as rs :=
+  let (plan, hasWork) := AddrRangeOpt.buildAddrPlan foldDisp as.length (reifyFunc f)
   if hasWork then
     fun V L xs => addrRangeSweep 0 as.length plan (f (ARVal V) L (freshARVals 0 as xs 0))
   else
     f
+
+/-- Run `Func.addrRangeOptWith false` (target-neutral default preserving x86-64 SIB
+displacements). -/
+def Func.addrRangeOpt {as rs : List Ty} (f : Func as rs) : Func as rs :=
+  Func.addrRangeOptWith false f
 
 end LeanQbe.T

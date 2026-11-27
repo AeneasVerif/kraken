@@ -28,7 +28,7 @@ open OptFlatPlanKit
 
 /-- Result of lowering one `ARStep K ts`: emitted `TFlat` prefix builder plus updated state
 `(next', inDepth', inEnv', outDepth')`. -/
-def applyARStep {rs : List Ty} (next : Nat) {ts : List Ty} (step : ARStep K ts)
+def applyARStep {rs : List Ty} (next : Nat) (foldDisp : Bool) {ts : List Ty} (step : ARStep K ts)
     (inDepth : Nat) (inEnv : Trie ((t : Ty) × ARVal K t)) (outDepth : Nat) :
     (TFlat rs → TFlat rs) × Nat × Nat × Trie ((t : Ty) × ARVal K t) × Nat :=
   match ts, step with
@@ -57,6 +57,16 @@ def applyARStep {rs : List Ty} (next : Nat) {ts : List Ty} (step : ARStep K ts)
       (mk, next + 1, inDepth + 1,
         insertTupEnv (ts := [.bits n]) inDepth inEnv (ARVal.fresh (outDepth + 3) next ivD, ()),
         outDepth + 4)
+    else if foldDisp then
+      let mk := fun k =>
+        TFlat.let_ (op2 (.shl (.bits n)) (idxArg outDepth inv) (.imm (BitVec.ofNat n sh)))
+          (.let_ (op2 op2Code (idxArg (outDepth + 1) base) (.var 0))
+            (.let_ (op2 (.add (.bits n)) (.var 0) (.imm disp))
+              (.let_ (op2 (.shl (.bits n)) (idxArg (outDepth + 3) iv) (.imm (BitVec.ofNat n sh)))
+                (.let_ (op2 (.add (.bits n)) (.var 1) (.var 0)) k))))
+      (mk, next + 1, inDepth + 1,
+        insertTupEnv (ts := [.bits n]) inDepth inEnv (ARVal.fresh (outDepth + 4) next ivD, ()),
+        outDepth + 5)
     else
       let mk := fun k =>
         TFlat.let_ (op2 (.shl (.bits n)) (idxArg outDepth inv) (.imm (BitVec.ofNat n sh)))
@@ -78,6 +88,16 @@ def applyARStep {rs : List Ty} (next : Nat) {ts : List Ty} (step : ARStep K ts)
           (.let_ (op2 (.add (.bits n)) (.var 0) (idxArg (outDepth + 1) iv)) k)
       (mk, next + 1, inDepth + 1,
         insertTupEnv (ts := [.bits n]) inDepth inEnv (v, ()), outDepth + 2)
+    else if foldDisp then
+      let v : ARVal K (.bits n) :=
+        ⟨.var (outDepth + 2), .var next, ivD,
+          { addr? := some (.addVV (.var (outDepth + 1)) invD iv ivD 0#n) }⟩
+      let mk := fun k =>
+        TFlat.let_ (op2 op1Code (idxArg outDepth base) (idxArg outDepth inv))
+          (.let_ (op2 (.add (.bits n)) (.var 0) (.imm disp))
+            (.let_ (op2 (.add (.bits n)) (.var 0) (idxArg (outDepth + 2) iv)) k))
+      (mk, next + 1, inDepth + 1,
+        insertTupEnv (ts := [.bits n]) inDepth inEnv (v, ()), outDepth + 3)
     else
       let v : ARVal K (.bits n) :=
         ⟨.var (outDepth + 2), .var next, ivD,
@@ -96,7 +116,7 @@ def addrRangeSweepFlat {rs : List Ty} (curD next : Nat) (plan : LoopTree) :
   | .let_ (ts := ts) op k, inDepth, inEnv, outDepth =>
     let arOp : Op (ARVal K) ts := ⟨op.code, resolveEnvArgs inDepth inEnv op.args⟩
     let (mk, next', inDepth', inEnv', outDepth') :=
-      applyARStep next (arOp.arStep curD next) inDepth inEnv outDepth
+      applyARStep next plan.foldDisp (arOp.arStep curD next) inDepth inEnv outDepth
     mk (addrRangeSweepFlat curD next' plan.step1 k inDepth' inEnv' outDepth')
   | .load t a k, inDepth, inEnv, outDepth =>
     let a' := (resolveEnvArg inDepth inEnv a).arOut
@@ -152,13 +172,19 @@ def addrRangeSweepBFlat {rs : List Ty} (curD next : Nat) (bsPlan : LoopBlocks) :
 end
 
 /-- Direct `TFlat` loop-aware address reassociation and range-check collapse matching
-`reifyFunc (Func.addrRangeOpt (denoteFunc tf))`. -/
-def addrRangeOptFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs) : TFlat rs :=
-  let (plan, hasWork) := AddrRangeOpt.buildLoopTree false tf
+`reifyFunc (Func.addrRangeOptWith foldDisp (denoteFunc tf))`. -/
+def addrRangeOptFlatWith (foldDisp : Bool) (as : List Ty) {rs : List Ty} (tf : TFlat rs) :
+    TFlat rs :=
+  let (plan, hasWork) := AddrRangeOpt.buildAddrPlan foldDisp as.length tf
   if hasWork then
     addrRangeSweepFlat 0 as.length plan tf as.length
       (initEnv (fun x next => ARVal.fresh x next 0) as) as.length
   else tf
+
+/-- Direct `TFlat` loop-aware address reassociation and range-check collapse matching
+`reifyFunc (Func.addrRangeOpt (denoteFunc tf))`. -/
+def addrRangeOptFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs) : TFlat rs :=
+  addrRangeOptFlatWith false as tf
 
 /-- `TFlatFn` wrapper for `addrRangeOptFlat`. -/
 def addrRangeOptFlatFn (f : TFlatFn) : TFlatFn :=

@@ -1239,15 +1239,15 @@ private theorem extractLea64_varVar_aux {G : VCtx} {defs : Trie DefFact}
     (hdefs : ∀ x d, defs.find? x = some d → DefOk G x d) {x y : Nat} {vx vy : BitVec 64}
     (hmx : ⟨i64, vx, x⟩ ∈ G) (hmy : ⟨i64, vy, y⟩ ∈ G)
     {base? : Option Nat} {idx : Nat} {sc : AddrScale} {disp : Int64}
-    (hs12 : ∀ df, (defs.find? x).bind (recordAddScale · (defs.find? y) y) = some df →
+    (hs12 : ∀ df, (defs.find? x).bind (recordAddScale defs · (defs.find? y) y) = some df →
       ∃ b i sh d, df = .addrSum b i sh d ∧ ∃ vb vi : BitVec 64,
         ⟨i64, vb, b⟩ ∈ G ∧ ⟨i64, vi, i⟩ ∈ G ∧ vx + vy = vb + (vi <<< sh) + d)
     (hb12 : ∀ df, (defs.find? x).bind (recordAddBase · y (defs.find? y)) = some df →
       ∃ b i sh d, df = .addrSum b i sh d ∧ ∃ vb vi : BitVec 64,
         ⟨i64, vb, b⟩ ∈ G ∧ ⟨i64, vi, i⟩ ∈ G ∧ vx + vy = vb + (vi <<< sh) + d) :
     ∀ {df},
-      ((defs.find? x).bind (recordAddScale · (defs.find? y) y) <|>
-       (defs.find? y).bind (recordAddScale · (defs.find? x) x) <|>
+      ((defs.find? x).bind (recordAddScale defs · (defs.find? y) y) <|>
+       (defs.find? y).bind (recordAddScale defs · (defs.find? x) x) <|>
        (defs.find? x).bind (recordAddBase · y (defs.find? y)) <|>
        (defs.find? y).bind (recordAddBase · x (defs.find? x))).getD
          (.addrSum x y 0 0) = df →
@@ -1265,8 +1265,8 @@ private theorem extractLea64_varVar_aux {G : VCtx} {defs : Trie DefFact}
   intro df hdf h
   have hsum : ∃ b i sh d, df = .addrSum b i sh d ∧ ∃ vb vi : BitVec 64,
       ⟨i64, vb, b⟩ ∈ G ∧ ⟨i64, vi, i⟩ ∈ G ∧ vx + vy = vb + (vi <<< sh) + d := by
-    cases hu : ((defs.find? x).bind (recordAddScale · (defs.find? y) y) <|>
-        (defs.find? y).bind (recordAddScale · (defs.find? x) x) <|>
+    cases hu : ((defs.find? x).bind (recordAddScale defs · (defs.find? y) y) <|>
+        (defs.find? y).bind (recordAddScale defs · (defs.find? x) x) <|>
         (defs.find? x).bind (recordAddBase · y (defs.find? y)) <|>
         (defs.find? y).bind (recordAddBase · x (defs.find? x))) with
     | none =>
@@ -1284,10 +1284,16 @@ private theorem extractLea64_varVar_aux {G : VCtx} {defs : Trie DefFact}
           dsimp only at hk; split at hk; · cases hdx : defs.find? x with
             | some dx => cases dx with
               | addImm64 b d2 =>
-                rw [hdx] at hk; simp only [Option.some.injEq] at hk; subst hk
-                obtain ⟨vi, hi, hvy⟩ := hdefs y _ hdy vy hmy
-                obtain ⟨vb, hb, hvx⟩ := (hdefs x _ hdx).2 vx hmx
-                exact ⟨b, idx0, sh0, d1 + d2, rfl, vb, vi, hb, hi, by rw [hvy, hvx]; ac_rfl⟩
+                rw [hdx] at hk; dsimp only at hk
+                by_cases hc : isScaledAddrSum defs b = true
+                · simp only [hc, ↓reduceIte, Option.some.injEq] at hk; subst hk
+                  obtain ⟨vi, hi, hvy⟩ := hdefs y _ hdy vy hmy
+                  exact ⟨x, idx0, sh0, d1, rfl, vx, vi, hmx, hi, by rw [hvy]; ac_rfl⟩
+                · simp only [hc, Bool.false_eq_true, ↓reduceIte, Option.some.injEq] at hk
+                  subst hk
+                  obtain ⟨vi, hi, hvy⟩ := hdefs y _ hdy vy hmy
+                  obtain ⟨vb, hb, hvx⟩ := (hdefs x _ hdx).2 vx hmx
+                  exact ⟨b, idx0, sh0, d1 + d2, rfl, vb, vi, hb, hi, by rw [hvy, hvx]; ac_rfl⟩
               | _ =>
                 rw [hdx] at hk; simp only [Option.some.injEq] at hk; subst hk
                 obtain ⟨vi, hi, hvy⟩ := hdefs y _ hdy vy hmy
@@ -1391,8 +1397,8 @@ private theorem recordAddVarVar_eq_comb {defs : Trie DefFact} {x y : Nat}
     (hx : ∀ c, defs.find? x ≠ some (.imm64 c))
     (hy : ∀ c, defs.find? y ≠ some (.imm64 c)) :
     recordAddVarVar defs x y =
-      ((defs.find? x).bind (recordAddScale · (defs.find? y) y) <|>
-       (defs.find? y).bind (recordAddScale · (defs.find? x) x) <|>
+      ((defs.find? x).bind (recordAddScale defs · (defs.find? y) y) <|>
+       (defs.find? y).bind (recordAddScale defs · (defs.find? x) x) <|>
        (defs.find? x).bind (recordAddBase · y (defs.find? y)) <|>
        (defs.find? y).bind (recordAddBase · x (defs.find? x))).getD (.addrSum x y 0 0) := by
   unfold recordAddVarVar
@@ -1490,11 +1496,17 @@ theorem extractLea64_ok {G : VCtx} {defs : Trie DefFact}
               dsimp only at hk; split at hk; · cases hdy : defs.find? y with
                 | some dy => cases dy with
                   | addImm64 b d2 =>
-                    simp only [hdy, Option.some.injEq] at hk; subst hk
-                    obtain ⟨vi, hi, hvx⟩ := hdefs x _ hdx _ hmx
-                    obtain ⟨vb, hb, hvy⟩ := (hdefs y _ hdy).2 _ hmy
-                    exact ⟨b, idx0, sh0, d1 + d2, rfl, vb, vi, hb, hi, by
-                      rw [hvx, hvy]; ac_rfl⟩
+                    simp only [hdy] at hk
+                    by_cases hc : isScaledAddrSum defs b = true
+                    · simp only [hc, ↓reduceIte, Option.some.injEq] at hk; subst hk
+                      obtain ⟨vi, hi, hvx⟩ := hdefs x _ hdx _ hmx
+                      exact ⟨y, idx0, sh0, d1, rfl, _, vi, hmy, hi, by rw [hvx]; ac_rfl⟩
+                    · simp only [hc, Bool.false_eq_true, ↓reduceIte, Option.some.injEq] at hk
+                      subst hk
+                      obtain ⟨vi, hi, hvx⟩ := hdefs x _ hdx _ hmx
+                      obtain ⟨vb, hb, hvy⟩ := (hdefs y _ hdy).2 _ hmy
+                      exact ⟨b, idx0, sh0, d1 + d2, rfl, vb, vi, hb, hi, by
+                        rw [hvx, hvy]; ac_rfl⟩
                   | _ =>
                     simp only [hdy, Option.some.injEq] at hk; subst hk
                     obtain ⟨vi, hi, hvx⟩ := hdefs x _ hdx _ hmx

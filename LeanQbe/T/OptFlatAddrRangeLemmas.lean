@@ -43,6 +43,7 @@ private theorem arSweep_let_eq {V : Ty → Type} {L : List Ty → Type} {ts rs :
     (k : Tup (ARVal V) ts → Expr (ARVal V) L rs) :
     addrRangeSweep curD next plan (.let_ op k) =
       let kPlan := plan.step1
+      let foldD := plan.foldDisp
       match op.arStep curD next with
       | .elim res => addrRangeSweep curD next kPlan (k res)
       | .emit1 op' wrap =>
@@ -55,21 +56,35 @@ private theorem arSweep_let_eq {V : Ty → Type} {L : List Ty → Type} {ts rs :
         .let_ (op2 (.shl (.bits n)) inv (.imm (BitVec.ofNat n sh))) fun (t1, ()) =>
         .let_ (op2 (if isSub then .sub (.bits n) else .add (.bits n)) base (.var t1))
           fun (t2, ()) =>
-        .let_ (op2 (.shl (.bits n)) iv (.imm (BitVec.ofNat n sh))) fun (t3, ()) =>
-        .let_ (op2 (.add (.bits n)) (.var t2) (.var t3)) fun (t4, ()) =>
         if disp == 0#n then
+          .let_ (op2 (.shl (.bits n)) iv (.imm (BitVec.ofNat n sh))) fun (t3, ()) =>
+          .let_ (op2 (.add (.bits n)) (.var t2) (.var t3)) fun (t4, ()) =>
+          addrRangeSweep curD (next + 1) kPlan (k (ARVal.fresh t4 next ivD, ()))
+        else if foldD then
+          .let_ (op2 (.add (.bits n)) (.var t2) (.imm disp)) fun (t2d, ()) =>
+          .let_ (op2 (.shl (.bits n)) iv (.imm (BitVec.ofNat n sh))) fun (t3, ()) =>
+          .let_ (op2 (.add (.bits n)) (.var t2d) (.var t3)) fun (t4, ()) =>
           addrRangeSweep curD (next + 1) kPlan (k (ARVal.fresh t4 next ivD, ()))
         else
+          .let_ (op2 (.shl (.bits n)) iv (.imm (BitVec.ofNat n sh))) fun (t3, ()) =>
+          .let_ (op2 (.add (.bits n)) (.var t2) (.var t3)) fun (t4, ()) =>
           .let_ (op2 (.add (.bits n)) (.var t4) (.imm disp)) fun (t5, ()) =>
           addrRangeSweep curD (next + 1) kPlan (k (ARVal.fresh t5 next ivD, ()))
       | .addrPlain n isSub base inv iv invD ivD disp =>
         .let_ (op2 (if isSub then .sub (.bits n) else .add (.bits n)) base inv) fun (t1, ()) =>
-        .let_ (op2 (.add (.bits n)) (.var t1) iv) fun (t2, ()) =>
         if disp == 0#n then
+          .let_ (op2 (.add (.bits n)) (.var t1) iv) fun (t2, ()) =>
           addrRangeSweep curD (next + 1) kPlan
             (k (⟨.var t2, .var next, ivD,
               { addr? := some (.addVV (.var t1) invD iv ivD 0#n) }⟩, ()))
+        else if foldD then
+          .let_ (op2 (.add (.bits n)) (.var t1) (.imm disp)) fun (t1d, ()) =>
+          .let_ (op2 (.add (.bits n)) (.var t1d) iv) fun (t2, ()) =>
+          addrRangeSweep curD (next + 1) kPlan
+            (k (⟨.var t2, .var next, ivD,
+              { addr? := some (.addVV (.var t1d) invD iv ivD 0#n) }⟩, ()))
         else
+          .let_ (op2 (.add (.bits n)) (.var t1) iv) fun (t2, ()) =>
           .let_ (op2 (.add (.bits n)) (.var t2) (.imm disp)) fun (t3, ()) =>
           addrRangeSweep curD (next + 1) kPlan
             (k (⟨.var t3, .var next, ivD,
@@ -135,14 +150,24 @@ private theorem addrRangeSweepFlat_both :
             (congrArg (TFlat.let_ _) (congrArg (TFlat.let_ _)
               (ih (curD, next + 1, plan.step1) (ctxTypes_pushTup_rev _ hΓ)
                 (trieCtxMatch_insertTupEnv hm (ts := [.bits n]) _) hk))))
-        · simp only [applyARStep, hdisp, Bool.false_eq_true, ↓reduceIte, toTFlat, idxArgs,
-            op2, Tup.levels, List.length, idxArg_imm_eq, idxArg_succ_self, idxArg_add2_self,
-            Nat.zero_add, Nat.add_assoc,
-            show (1 : Nat) + 1 = 2 from rfl, show (1 : Nat) + 3 = 4 from rfl]
-          exact congrArg (TFlat.let_ _) (congrArg (TFlat.let_ _)
-            (congrArg (TFlat.let_ _) (congrArg (TFlat.let_ _) (congrArg (TFlat.let_ _)
-              (ih (curD, next + 1, plan.step1) (ctxTypes_pushTup_rev _ hΓ)
-                (trieCtxMatch_insertTupEnv hm (ts := [.bits n]) _) hk)))))
+        · by_cases hfold : plan.foldDisp = true
+          · simp only [applyARStep, hdisp, hfold, Bool.false_eq_true, ↓reduceIte, toTFlat,
+              idxArgs, op2, Tup.levels, List.length, idxArg_imm_eq, idxArg_succ_self,
+              idxArg_add2_self, Nat.zero_add, Nat.add_assoc,
+              show (1 : Nat) + 1 = 2 from rfl, show (1 : Nat) + 2 = 3 from rfl,
+              show (1 : Nat) + 3 = 4 from rfl]
+            exact congrArg (TFlat.let_ _) (congrArg (TFlat.let_ _)
+              (congrArg (TFlat.let_ _) (congrArg (TFlat.let_ _) (congrArg (TFlat.let_ _)
+                (ih (curD, next + 1, plan.step1) (ctxTypes_pushTup_rev _ hΓ)
+                  (trieCtxMatch_insertTupEnv hm (ts := [.bits n]) _) hk)))))
+          · simp only [applyARStep, hdisp, hfold, Bool.false_eq_true, ↓reduceIte, toTFlat,
+              idxArgs, op2, Tup.levels, List.length, idxArg_imm_eq, idxArg_succ_self,
+              idxArg_add2_self, Nat.zero_add, Nat.add_assoc,
+              show (1 : Nat) + 1 = 2 from rfl, show (1 : Nat) + 3 = 4 from rfl]
+            exact congrArg (TFlat.let_ _) (congrArg (TFlat.let_ _)
+              (congrArg (TFlat.let_ _) (congrArg (TFlat.let_ _) (congrArg (TFlat.let_ _)
+                (ih (curD, next + 1, plan.step1) (ctxTypes_pushTup_rev _ hΓ)
+                  (trieCtxMatch_insertTupEnv hm (ts := [.bits n]) _) hk)))))
       | addrPlain n isSub base inv iv invD ivD disp =>
         by_cases hdisp : (disp == 0#n) = true
         · simp only [applyARStep, hdisp, ↓reduceIte, toTFlat, idxArgs, op2, Tup.levels,
@@ -150,12 +175,19 @@ private theorem addrRangeSweepFlat_both :
           exact congrArg (TFlat.let_ _) (congrArg (TFlat.let_ _)
             (ih (curD, next + 1, plan.step1) (ctxTypes_pushTup_rev _ hΓ)
               (trieCtxMatch_insertTupEnv hm (ts := [.bits n]) _) hk))
-        · simp only [applyARStep, hdisp, Bool.false_eq_true, ↓reduceIte, toTFlat, idxArgs,
-            op2, Tup.levels, List.length, idxArg_imm_eq, idxArg_succ_self,
-            Nat.zero_add, Nat.add_assoc, show (1 : Nat) + 1 = 2 from rfl]
-          exact congrArg (TFlat.let_ _) (congrArg (TFlat.let_ _) (congrArg (TFlat.let_ _)
-            (ih (curD, next + 1, plan.step1) (ctxTypes_pushTup_rev _ hΓ)
-              (trieCtxMatch_insertTupEnv hm (ts := [.bits n]) _) hk))),
+        · by_cases hfold : plan.foldDisp = true
+          · simp only [applyARStep, hdisp, hfold, Bool.false_eq_true, ↓reduceIte, toTFlat,
+              idxArgs, op2, Tup.levels, List.length, idxArg_imm_eq, idxArg_succ_self,
+              Nat.zero_add, Nat.add_assoc, show (1 : Nat) + 1 = 2 from rfl]
+            exact congrArg (TFlat.let_ _) (congrArg (TFlat.let_ _) (congrArg (TFlat.let_ _)
+              (ih (curD, next + 1, plan.step1) (ctxTypes_pushTup_rev _ hΓ)
+                (trieCtxMatch_insertTupEnv hm (ts := [.bits n]) _) hk)))
+          · simp only [applyARStep, hdisp, hfold, Bool.false_eq_true, ↓reduceIte, toTFlat,
+              idxArgs, op2, Tup.levels, List.length, idxArg_imm_eq, idxArg_succ_self,
+              Nat.zero_add, Nat.add_assoc, show (1 : Nat) + 1 = 2 from rfl]
+            exact congrArg (TFlat.let_ _) (congrArg (TFlat.let_ _) (congrArg (TFlat.let_ _)
+              (ih (curD, next + 1, plan.step1) (ctxTypes_pushTup_rev _ hΓ)
+                (trieCtxMatch_insertTupEnv hm (ts := [.bits n]) _) hk))),
     fun ⟨curD, next, plan⟩ t a k hΓ _ _ hm hwf ih => by
       obtain ⟨ha, hk⟩ := wf_load hwf
       simp only [denote]; rw [denoteArg_eq_some_resolveEnvArg hΓ hm a ha]
@@ -219,19 +251,38 @@ private theorem addrRangeSweepFlat_both :
 
 public section
 
-theorem addrRangeOptFlat_eq {as rs : List Ty} (tf : TFlat rs)
+theorem addrRangeOptFlatWith_eq (foldDisp : Bool) {as rs : List Ty} (tf : TFlat rs)
     (hwf : tf.wfCheck (pushTypes as []) [] = true) :
-    addrRangeOptFlat as tf = reifyFunc (Func.addrRangeOpt (denoteFunc (as := as) tf)) := by
-  dsimp only [addrRangeOptFlat, Func.addrRangeOpt]
+    addrRangeOptFlatWith foldDisp as tf =
+      reifyFunc (Func.addrRangeOptWith foldDisp (denoteFunc (as := as) tf)) := by
+  dsimp only [addrRangeOptFlatWith, Func.addrRangeOptWith]
   rw [reifyFunc_denoteFunc_eq tf hwf]
-  by_cases hw : (AddrRangeOpt.buildLoopTree false tf).2 = true
+  by_cases hw : (AddrRangeOpt.buildAddrPlan foldDisp as.length tf).2 = true
   · simp only [hw, ↓reduceIte]
     exact (addrRangeSweepFlat_both.1 tf
-      (0, as.length, (AddrRangeOpt.buildLoopTree false tf).1)
+      (0, as.length, (AddrRangeOpt.buildAddrPlan foldDisp as.length tf).1)
       (CtxTypes.push _ .nil) .nil CtxLevels.nil
       (trieCtxMatch_initEnv (fun x next => ARVal.fresh x next 0) as) hwf).symm
   · simp only [hw, Bool.false_eq_true, ↓reduceIte]
     exact (reifyFunc_denoteFunc_eq tf hwf).symm
+
+theorem denoteFunc_addrRangeOptFlatWith (foldDisp : Bool) {as rs : List Ty} (tf : TFlat rs)
+    (hwf : tf.wfCheck (pushTypes as []) [] = true) :
+    denoteFunc (as := as) (addrRangeOptFlatWith foldDisp as tf) =
+      Func.addrRangeOptWith foldDisp (denoteFunc (as := as) tf) :=
+  denoteFunc_of_flat_eq (Func.addrRangeOptWith_wf foldDisp) tf hwf
+    (addrRangeOptFlatWith_eq foldDisp tf hwf)
+
+theorem addrRangeOptFlatWith_wfCheck (foldDisp : Bool) {as rs : List Ty} (tf : TFlat rs)
+    (hwf : tf.wfCheck (pushTypes as []) [] = true) :
+    (addrRangeOptFlatWith foldDisp as tf).wfCheck (pushTypes as []) [] = true :=
+  wfCheck_of_flat_eq (Func.addrRangeOptWith_wf foldDisp) tf hwf
+    (addrRangeOptFlatWith_eq foldDisp tf hwf)
+
+theorem addrRangeOptFlat_eq {as rs : List Ty} (tf : TFlat rs)
+    (hwf : tf.wfCheck (pushTypes as []) [] = true) :
+    addrRangeOptFlat as tf = reifyFunc (Func.addrRangeOpt (denoteFunc (as := as) tf)) :=
+  addrRangeOptFlatWith_eq false tf hwf
 
 flat_pass_corollaries addrRangeOptFlat, Func.addrRangeOpt, Func.addrRangeOpt_wf,
   addrRangeOptFlat_eq, denoteFunc_addrRangeOptFlat, addrRangeOptFlat_wfCheck,
