@@ -475,6 +475,7 @@ private theorem ret_step_var {m : LcModule} {env : RcModEnv} {retTy : LcTy} {Δr
         | some vx =>
           (vx.ty.isScalar == retTy.isScalar) && (vx.ty.width == retTy.width) &&
             ((retTy.needsRc == vx.ty.needsRc) || (retTy == .tagged && vx.ty == .tobject) ||
+              (retTy == .tobject && vx.ty == .tagged) ||
               (!retTy.isScalar && !retTy.needsRc && vx.noRc)) &&
             decide ((retTy == .object) = true → (vx.ty == .object) = true) &&
             decide ((retTy == .tagged) = true → (vx.ty == .tagged) = true)
@@ -564,13 +565,14 @@ private theorem ret_step_var {m : LcModule} {env : RcModEnv} {retTy : LcTy} {Δr
         exact ⟨bv, hw_bv, htag_odd trivial⟩
       · have hvy_no : vy.noRc = true := by
           have hnr_f : retTy.needsRc = false := Bool.eq_false_iff.mpr hnnr
-          rcases hnrc_chk with (h1 | h2) | h3
+          rcases hnrc_chk with ((h1 | h2) | h2') | h3
           · have hvy_nr : vy.ty.needsRc = false := h1.symm.trans hnr_f
             cases hvyno : vy.noRc with
             | true => rfl
             | false =>
               exact absurd (hno vy (RcCtx.get?_mem hgety).1 hvyno) (by simp [hvy_nr])
           · exact absurd h2.1 (fun h => htag ((lcTy_beq_iff retTy .tagged).mp h))
+          · exact absurd h2'.1 (fun h => hnnr ((lcTy_beq_iff retTy .tobject).mp h ▸ rfl))
           · exact h3.2
         obtain ⟨bv, hw_bv, hno_bv, _⟩ := hnorc_y hvy_ns
         exact ⟨bv, hw_bv, hno_bv hvy_no⟩

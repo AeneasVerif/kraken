@@ -76,6 +76,7 @@ public import LeanQbe.T.LeanLCNF.LcnfC0TreeDemo
 public import LeanQbe.T.LeanLCNF.LcnfC0TreeDemoProof
 public import LeanQbe.T.LeanLCNF.Lower
 public import LeanQbe.T.LeanLCNF.Lower1
+public import LeanQbe.T.LeanLCNF.Sem.E2E
 public import LeanQbe.T.LeanLCNF.Sem.H
 public import LeanQbe.T.LeanLCNF.Sem.HBase
 public import LeanQbe.T.LeanLCNF.Sem.HPrim
@@ -127,6 +128,7 @@ public import LeanQbe.T.LeanLCNF.Sem.PerceusSim
 public import LeanQbe.T.LeanLCNF.Sem.RcCheck
 public import LeanQbe.T.LeanLCNF.Sem.SpecNorm
 public import LeanQbe.T.LeanLCNF.Sem.SpecNormProof
+public import LeanQbe.T.LeanLCNF.Sem.Tactic
 public import LeanQbe.T.LeanLCNF.Sem.ValRep
 
 set_option autoImplicit false
