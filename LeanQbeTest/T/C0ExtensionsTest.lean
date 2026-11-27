@@ -26,7 +26,7 @@ Verifies all 5 integrated C0 frontend extensions individually and in full compos
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace LeanQbeTest.T.C0ExtensionsTest
 

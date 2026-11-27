@@ -236,7 +236,7 @@ theorem c0_guard_mem_hstraight (Γ : Env) (X : XPost) (out v0 x y : BitVec 64)
 
 end
 
-@[expose] public section
+public section
 
 /-- Build an `n`-level early-return guard cascade (`jnz` -> `.ret err`) followed by `.ret ok`. -/
 def mkGuardCascade : Nat → Val i64 → Val i64 → Expr Val Cont [i64]
@@ -307,7 +307,7 @@ u64 multi_branch_join(u64 a, u64 b) {
 }
 "
 
-@[expose] public section
+public section
 
 structure SumLoopSt where
   idx : Nat

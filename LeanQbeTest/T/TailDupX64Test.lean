@@ -24,7 +24,7 @@ unconditional `jmp` and `.label` directives.
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace LeanQbeTest.T.TailDupX64Test
 

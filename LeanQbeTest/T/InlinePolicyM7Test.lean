@@ -26,7 +26,7 @@ Verifies:
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace LeanQbeTest.T.InlinePolicyM7Test
 

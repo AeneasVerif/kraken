@@ -22,7 +22,7 @@ This module imports only `Kraken.X64` (`LeanQbe.T.Amd64.*`), never `Kraken.AArch
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace LeanQbeTest.T.WasmAuditX64
 

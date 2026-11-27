@@ -10,8 +10,7 @@ meta import LeanQbe.T.Examples.Kissat.FullM4BumpProof
 meta import LeanQbe.T.PrintCpp
 meta import LeanQbe.T.PrintQbe
 meta import LeanQbe.T.Legal
-import all Kraken.Mem
-import all Kraken.Separation
+import LeanQbe.T.Logic.MemLemmas
 
 /-!
 # Verification, Backend Compilation Guards, and Axiom Audit for Kissat M4 (`FullM4Bump`)
@@ -27,7 +26,7 @@ import all Kraken.Separation
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace LeanQbeTest.T.KissatM4BumpTest
 

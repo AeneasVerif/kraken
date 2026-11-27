@@ -26,7 +26,7 @@ Verifies constant division and remainder lowering (`udiv`, `urem`, `sdiv`, `srem
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace LeanQbe.T.DivConstTest
 

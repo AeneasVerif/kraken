@@ -4,13 +4,12 @@ public import LeanQbe.T.Arm64.Snippet
 public import LeanQbe.T.Arm64.TargLemmas
 public import LeanQbe.T.MainLateInline
 public import LeanQbe.T.Logic.MemLemmas
+import all Kraken.Separation
 public import LeanQbe.T.Notation
 public import LeanQbe.T.NotationSugar
 public import LeanQbe.T.Examples.Kissat.Dimacs
 public import LeanQbe.T.Examples.Kissat.FullM7HotTernary
 import LeanQbe.T.FlatLemmas
-import all Kraken.Mem
-import all Kraken.Separation
 public meta import Lean
 public meta import LeanQbe.T.OptPolicy
 public meta import LeanQbe.T.Main
@@ -49,7 +48,7 @@ Tests end-to-end on `armTarget` (`armLegalTarget`, `armLayout`, `armInit`):
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace LeanQbeTest.T.SnippetPhase1Arm64Test
 
@@ -238,7 +237,8 @@ def loadChainExpr {V : Ty → Type} {L : List Ty → Type} (ptr : V i64) :
 def xorListExprGo {V : Ty → Type} {L : List Ty → Type}
     (cont : V i64 → Expr V L [i64]) (acc : V i64) : List (V i64) → Expr V L [i64]
   | [] => cont acc
-  | v :: vs' => Expr.let_ ⟨.xor i64, (.var acc, .var v, ())⟩ fun (acc', ()) => xorListExprGo cont acc' vs'
+  | v :: vs' =>
+    Expr.let_ ⟨.xor i64, (.var acc, .var v, ())⟩ fun (acc', ()) => xorListExprGo cont acc' vs'
 
 def xorListExpr {V : Ty → Type} {L : List Ty → Type} (fallback : V i64)
     (vs : List (V i64)) (cont : V i64 → Expr V L [i64]) : Expr V L [i64] :=
@@ -275,7 +275,8 @@ def makeStressHarness (snipName : Sym) (as rs : List Ty) (marked : Bool) : Fn :=
           (.var x0, .var x1, .var x2, .var x3, ()) fun (r0, ()) => wrapEnd r0
       | [.bits 64, .bits 64], [.bits 64, .bits 64] =>
         Expr.call snipName (as := [i64, i64]) (bs := [i64, i64]) (.var x0, .var x1, ())
-          fun (r0, r1, ()) => Expr.let_ ⟨.xor i64, (.var r0, .var r1, ())⟩ fun (rx, ()) => wrapEnd rx
+          fun (r0, r1, ()) =>
+            Expr.let_ ⟨.xor i64, (.var r0, .var r1, ())⟩ fun (rx, ()) => wrapEnd rx
       | [.bits 64, .bits 64, .bits 64, .bits 64], [.bits 64, .bits 64] =>
         Expr.call snipName (as := [i64, i64, i64, i64]) (bs := [i64, i64])
           (.var x0, .var x1, .var x2, .var x3, ()) fun (r0, r1, ()) =>
@@ -397,11 +398,13 @@ def liftIsoVerdictKind (s : Fn) : Option String :=
     fns := [makeColdHelper, sn_callinc, caller]
     externs := [{ name := "ext1", as := [i64], rs := [i64] }]
   }
-  let polOf (nm : Sym) : SnippetOptPolicy := if nm == sn_callinc.name then .predictable else .default
+  let polOf (nm : Sym) : SnippetOptPolicy :=
+    if nm == sn_callinc.name then .predictable else .default
   let forcePol : InlinePolicy := {
     lateInlineSnippetsPolicy [sn_callinc.name] with
       leafMax := 1000, singleSiteMax := 1000, maxCallerSize := 10000, maxCalleeCalls := 10,
-      maxTotalDup := 10000, leafNoLoopMaxDup := 10000, maxCallerCalls := 10, exemptNoLoopMax := 10000
+      maxTotalDup := 10000, leafNoLoopMaxDup := 10000,
+      maxCallerCalls := 10, exemptNoLoopMax := 10000
   }
   let mForce := m.midThenLateInline armLegalTarget polOf forcePol
   let outerForce := (mForce.fns.find? (·.name == "__caller")).getD caller
@@ -411,7 +414,8 @@ def liftIsoVerdictKind (s : Fn) : Option String :=
     | .error "snippet_contains_call" => true
     | _ => false
   let auditRejected :=
-    match auditSnippetInOuter armIsa sMid outerForce hOuterForce (SnippetBudget.predictable "callinc") with
+    match auditSnippetInOuter armIsa sMid outerForce hOuterForce
+        (SnippetBudget.predictable "callinc") with
     | .error ds => ds.any (·.kind == "call_in_snippet")
     | .ok _ => false
   spliceRejected && auditRejected
@@ -731,7 +735,8 @@ theorem certArm64_fnSpec :
     armLegalTarget certModArm64 certPolicyArm64 certInlPolArm64 certΓArm64 [] [] 0 certHintsArm64
     certCodeArm64 certBoundsArm64 0 certArm64_cm
     ⟨[], by
-      change certCodeArm64 ++ [] = armTarget.mach.prog (armLayout.layoutOf (certCodeArm64 ++ []) certArm64_small)
+      change certCodeArm64 ++ [] =
+        armTarget.mach.prog (armLayout.layoutOf (certCodeArm64 ++ []) certArm64_small)
       exact (armLayout.prog_layoutOf (certCodeArm64 ++ []) certArm64_small).symm⟩
     certArm64_labelsUnique certModArm64_modOk (fun _ hx => nomatch hx)
     (And.intro (fun _ hx => nomatch hx) (fun _ hx => nomatch hx)) (fun _ hx => nomatch hx)

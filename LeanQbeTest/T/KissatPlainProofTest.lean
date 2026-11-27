@@ -2,8 +2,7 @@ module
 
 public import LeanQbe.T.Examples.Kissat.PlainLemmas
 meta import LeanQbe.T.Examples.Kissat.PlainLemmas
-import all Kraken.Mem
-import all Kraken.Separation
+import LeanQbe.T.Logic.MemLemmas
 
 /-!
 # Verification, Non-Vacuity, and Axiom Audit for Kissat `D-Plain` (`PlainLemmas`)
@@ -19,7 +18,7 @@ import all Kraken.Separation
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace LeanQbeTest.T.KissatPlainProofTest
 

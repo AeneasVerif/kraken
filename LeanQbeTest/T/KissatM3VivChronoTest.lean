@@ -10,8 +10,7 @@ meta import LeanQbe.T.Examples.Kissat.FullM3VivChronoLemmas
 meta import LeanQbe.T.PrintCpp
 meta import LeanQbe.T.PrintQbe
 meta import LeanQbe.T.Legal
-import all Kraken.Mem
-import all Kraken.Separation
+import LeanQbe.T.Logic.MemLemmas
 
 /-!
 # Verification, Compilation Checks, and Axiom Audit for Kissat M3 (`FullM3VivChrono`)
@@ -29,7 +28,7 @@ import all Kraken.Separation
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace LeanQbeTest.T.KissatM3VivChronoTest
 

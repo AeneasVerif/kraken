@@ -43,7 +43,7 @@ Counted as non-blank lines of this file:
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace LeanQbeTest.T.C0AgreesTest
 

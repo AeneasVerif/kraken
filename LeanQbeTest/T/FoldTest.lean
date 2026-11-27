@@ -22,7 +22,7 @@ Covers constant folding and algebraic simplification in `LeanQbe.T`:
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.FoldTest
 

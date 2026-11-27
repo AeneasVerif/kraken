@@ -8,8 +8,7 @@ public import LeanQbe.T.MainLinkSplice
 public import LeanQbe.T.Logic.ProofKit
 public import LeanQbeTest.T.XcapBridgeTest
 import LeanQbe.T.FlatLemmas
-import all Kraken.Mem
-import all Kraken.Separation
+import LeanQbe.T.Logic.MemLemmas
 public meta import Lean
 public meta import LeanQbe.T.MainCertElab
 public meta import LeanQbe.T.MainSplice

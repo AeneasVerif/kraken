@@ -32,7 +32,6 @@ check compiles through the verified `Rega.lowerFn` via `checkCompile`); the AArc
 
 set_option autoImplicit false
 
-@[expose] public section
 
 namespace LeanQbeTest.T.FlagRaOptTest
 

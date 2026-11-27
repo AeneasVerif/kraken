@@ -18,7 +18,7 @@ import all Kraken.Mem
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.RegaLitmus
 open LeanQbe.T
@@ -176,7 +176,8 @@ def initMem (ws : List (BitVec 64 × List UInt8)) : Mem 64 :=
 def initFMem (ws : List (BitVec 64 × List UInt8)) : FMem :=
   ws.foldl (fun f p => fmemOps.put f p.1 p.2) (fun _ => none)
 
-theorem initMem_rel (ws : List (BitVec 64 × List UInt8)) (hws : ws.all (Nat.ble ·.2.length 64) = true) :
+theorem initMem_rel (ws : List (BitVec 64 × List UInt8))
+    (hws : ws.all (Nat.ble ·.2.length 64) = true) :
     MemRel (initMem ws) (initFMem ws) := by
   suffices ∀ (ws : List (BitVec 64 × List UInt8)) (m : Mem 64) (f : FMem), MemRel m f →
       ws.all (Nat.ble ·.2.length 64) = true →
@@ -513,7 +514,8 @@ theorem inc_hook : HookHyps hostCarryCall hintsInc {} fnInc codeInc 0 0 :=
   ⟨inc_wf, inc_lower, carryCall_layout.1, labelsUnique_of_ok labels_ok_all.2.2.2.2.2.2.1,
     Nat.le_of_ble_eq_true (by t_kernel_rfl), Nat.le_of_ble_eq_true (by t_kernel_rfl)⟩
 theorem carryCall_hook :
-    HookHyps hostCarryCall hintsCarryCall extCarryCall fnCarryCall codeCarryCall codeInc.length 24 :=
+    HookHyps hostCarryCall hintsCarryCall extCarryCall fnCarryCall
+      codeCarryCall codeInc.length 24 :=
   ⟨carryCall_wf, carryCall_lower, carryCall_layout.2.1,
     labelsUnique_of_ok labels_ok_all.2.2.2.2.2.2.1,
     Nat.le_of_ble_eq_true (by t_kernel_rfl), Nat.le_of_ble_eq_true (by t_kernel_rfl)⟩
@@ -549,10 +551,12 @@ theorem inc_defined : litmusTarget.Defined hostCarryCall "inc" := ⟨0, carryCal
 section Correct
 variable (Γ : Env)
 
-theorem HookHyps.correct {host : LHost} {hints : isa.Hints} {f : Fn} {code : List Instr} {k₀ n : Nat}
+theorem HookHyps.correct {host : LHost} {hints : isa.Hints} {f : Fn}
+    {code : List Instr} {k₀ n : Nat}
     (H : HookHyps host hints {} f code k₀ n) :
     litmusTarget.FnSpec host f.name (Func.spec Γ f.body) n 0 :=
-  Rega.lowerFn_correct litmusTarget host hints {} f Γ n 0 (fun _ => 0) H.wf H.lower H.infixAt H.unique
+  Rega.lowerFn_correct litmusTarget host hints {} f Γ n 0 (fun _ => 0)
+    H.wf H.lower H.infixAt H.unique
     H.frame_le H.stack (fun _ _ _ h => nomatch h) (fun _ h => nomatch h)
 
 theorem branches_correct :
@@ -629,7 +633,8 @@ theorem addrCall_correct (hΓ : Γ "inc" [i64] [i64] = Func.spec Γ fnInc.body) 
 theorem carryCall_correct (hΓ : Γ "inc" [i64] [i64] = Func.spec Γ fnInc.body) :
     litmusTarget.FnSpec hostCarryCall fnCarryCall.name (Func.spec Γ fnCarryCall.body) 24 0 := by
   have H := carryCall_hook
-  refine Rega.lowerFn_correct litmusTarget hostCarryCall hintsCarryCall extCarryCall fnCarryCall Γ 24 0
+  refine Rega.lowerFn_correct litmusTarget hostCarryCall hintsCarryCall
+    extCarryCall fnCarryCall Γ 24 0
     (fun _ => 0) H.wf H.lower H.infixAt H.unique H.frame_le H.stack ?_ (fun _ h => nomatch h)
   intro g as bs hg
   simp only [extCarryCall, List.mem_singleton, Prod.mk.injEq] at hg

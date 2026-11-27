@@ -38,7 +38,7 @@ The synthetic functions are lowered as written (no mid-end), so their shape is f
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace LeanQbeTest.T.SpillB5Test
 

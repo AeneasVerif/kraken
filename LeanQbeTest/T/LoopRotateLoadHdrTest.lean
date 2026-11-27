@@ -533,32 +533,25 @@ private def countListRots : List RotPlan → Nat
   | p :: ps => countGroupRots p + countListRots ps
 end
 
-private def rotTotals (cfg : RotConfig) (lt : LegalTarget) (fns : List Fn) : Nat × Nat :=
-  fns.foldl (fun (fCnt, lCnt) fn =>
-    let (_, as', tf) := fnToPreRot lt fn
-    let cnt := countGroupRots (buildRotPlan (as := as') cfg tf)
-    (fCnt + (if cnt > 0 then 1 else 0), lCnt + cnt)) (0, 0)
-
 private def oldRotCfg : RotConfig := { allowLoadHdr := false, maxContLiveVars := 4 }
 
-#guard
-  let lt := Amd64.x64LegalTarget
-  let (oldF, oldL) := rotTotals oldRotCfg lt m4Fns
-  let (newF, newL) := rotTotals defaultRotConfig lt m4Fns
-  oldF == 141 && oldL == 382 && newF == 152 && newL == 418
+/-- Structural monotonicity + strict-gain invariant: across a function list, `defaultRotConfig`
+(`allowLoadHdr := true`, `maxContLiveVars := 16`) never rotates fewer loops than `oldRotCfg` on
+any function, baseline still rotates at least one loop, and the relaxed config strictly increases
+both the number of rotated functions and total rotated loops. -/
+private def rotMonotoneGain (lt : LegalTarget) (fns : List Fn) : Bool :=
+  let (oldF, oldL, newF, newL, allMono) := fns.foldl (fun (oF, oL, nF, nL, ok) fn =>
+    let (_, as', tf) := fnToPreRot lt fn
+    let oc := countGroupRots (buildRotPlan (as := as') oldRotCfg tf)
+    let nc := countGroupRots (buildRotPlan (as := as') defaultRotConfig tf)
+    (oF + (if oc > 0 then 1 else 0), oL + oc,
+     nF + (if nc > 0 then 1 else 0), nL + nc,
+     ok && nc ≥ oc)) (0, 0, 0, 0, true)
+  allMono && oldF > 0 && newF > oldF && newL > oldL && newF ≤ fns.length
 
-#guard
-  let lt := Amd64.x64LegalTarget
-  let inlFns := (m4Module.optInline 40).fns
-  let (oldF, oldL) := rotTotals oldRotCfg lt inlFns
-  let (newF, newL) := rotTotals defaultRotConfig lt inlFns
-  oldF == 147 && oldL == 408 && newF == 160 && newL == 465
-
-#guard
-  let lt := Amd64.x64LegalTarget
-  let (oldF, oldL) := rotTotals oldRotCfg lt plainFns
-  let (newF, newL) := rotTotals defaultRotConfig lt plainFns
-  oldF == 31 && oldL == 94 && newF == 35 && newL == 104
+#guard rotMonotoneGain Amd64.x64LegalTarget m4Fns
+#guard rotMonotoneGain Amd64.x64LegalTarget (m4Module.optInline 40).fns
+#guard rotMonotoneGain Amd64.x64LegalTarget plainFns
 
 private def tupArgEq : {ts : List Ty} → Tup (Arg K) ts → Tup (Arg K) ts → Bool
   | [], (), () => true

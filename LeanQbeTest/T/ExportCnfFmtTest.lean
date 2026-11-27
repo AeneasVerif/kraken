@@ -66,7 +66,7 @@ open LeanQbe.T.Examples.Kissat.ExportCnfFmt
 
 /-! ## 2. Pure Round-Trip and `interpModule` Functional Checks -/
 
-@[expose] public section
+public section
 
 /-- Concrete byte vector for `"p cnf 0 1\n0\n"` (`12` bytes). -/
 def nvEmptyClauseBytes : List UInt8 :=

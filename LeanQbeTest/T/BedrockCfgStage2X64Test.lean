@@ -7,8 +7,7 @@ public import LeanQbe.T.MainSplice
 public import LeanQbe.T.Logic.ProofKit
 public import LeanQbeTest.T.BedrockCfgStage2Test
 import LeanQbe.T.FlatLemmas
-import all Kraken.Mem
-import all Kraken.Separation
+import LeanQbe.T.Logic.MemLemmas
 public meta import Lean
 public meta import LeanQbe.T.MainCertElab
 public meta import LeanQbe.T.MainSplice

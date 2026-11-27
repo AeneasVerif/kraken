@@ -35,7 +35,7 @@ Verifies test-fusion and base-index-displacement addressing through `armTarget` 
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace LeanQbeTest.T.Arm64IselA23Test
 

@@ -2,8 +2,7 @@ module
 
 public import LeanQbe.T.Examples.Kissat.FullM4BcpProof
 meta import LeanQbe.T.Examples.Kissat.FullM4BcpProof
-import all Kraken.Mem
-import all Kraken.Separation
+import LeanQbe.T.Logic.MemLemmas
 
 /-!
 # Audit & Verification for Kissat M4 Hot-Loop BCP (`FullM4Bcp*`)
@@ -18,7 +17,7 @@ import all Kraken.Separation
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace LeanQbeTest.T.KissatM4BcpTest
 

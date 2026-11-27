@@ -22,7 +22,7 @@ meta import LeanQbe.T.PrintQbe
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace LeanQbeTest.T.LcnfP5Test
 

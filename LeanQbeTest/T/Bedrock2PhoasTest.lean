@@ -7,6 +7,7 @@ public import LeanQbe.T.Bedrock2.FromKraken
 public import LeanQbe.T.MainLemmas
 public import Kraken.Bedrock2.Test.Cases
 import LeanQbe.T.RegaLemmas3
+import LeanQbe.T.Logic.MemLemmas
 import all Kraken.Separation
 
 /-!
@@ -33,7 +34,7 @@ Exercises every layer of `LeanQbe.T.Bedrock2`:
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace LeanQbeTest.T.Bedrock2PhoasTest
 

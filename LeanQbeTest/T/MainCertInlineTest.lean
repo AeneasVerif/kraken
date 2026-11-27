@@ -4,11 +4,10 @@ public import LeanQbe.T.MainCertInline
 public import LeanQbe.T.MainCertFlat
 public import LeanQbe.T.Amd64.TargLemmas
 public import LeanQbe.T.Logic.MemLemmas
+import all Kraken.Separation
 public import LeanQbeTest.T.Common.Fixtures
 public import Std.Sat.CNF
 import LeanQbe.T.FlatLemmas
-import all Kraken.Mem
-import all Kraken.Separation
 public meta import Lean
 public meta import LeanQbe.T.MainCertInline
 public meta import LeanQbe.T.MainCertFlatElab
@@ -35,7 +34,7 @@ and `optInline` corollaries) end-to-end on `x64Target`:
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace LeanQbeTest.T.MainCertInlineTest
 

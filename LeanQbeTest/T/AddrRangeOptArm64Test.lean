@@ -23,7 +23,7 @@ Verifies end-to-end compilation through `armTarget` (`Rega.lowerFn` + `checkComp
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace LeanQbeTest.T.AddrRangeOptArm64Test
 

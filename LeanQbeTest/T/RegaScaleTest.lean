@@ -18,14 +18,14 @@ computed externally by `Spill.hints` (spliced as pure literal expressions via `L
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace LeanQbe.T.RegaScaleTest
 open LeanQbe.T
 
-abbrev MockDir := Nat × Nat × Nat × Sym
+public abbrev MockDir := Nat × Nat × Nat × Sym
 
-def mkScaleIsa (nAlloc : Nat) : Isa where
+@[expose] public def mkScaleIsa (nAlloc : Nat) : Isa where
   Reg := Nat
   VReg := Nat
   Cond := Nat
@@ -81,8 +81,8 @@ def mkScaleIsa (nAlloc : Nat) : Isa where
     ret := [(22, 0, 0, "")]
   }
 
-def scaleIsa : Isa := mkScaleIsa 14
-def smallIsa : Isa := mkScaleIsa 4
+@[expose] public def scaleIsa : Isa := mkScaleIsa 14
+@[expose] public def smallIsa : Isa := mkScaleIsa 4
 
 /-! ## Benchmark Functions (`sl250`, `sl1000`, `sl2000`, `bl50`, `bl250`, `bl250_cross`, `spill20`) -/
 
@@ -106,10 +106,12 @@ def mkBlocks {V : Ty → Type} {L : List Ty → Type} :
       (mkBlocks _ a ls)
 
 def fn_bl50 : Fn := ⟨"bl50", [i64], [i64], fun _ _ (a, ()) =>
-  .group (sig := List.replicate 50 [i64]) (fun Js => mkBlocks 50 a Js) (fun Js => .jump Js.1 (.var a, ()))⟩
+  .group (sig := List.replicate 50 [i64]) (fun Js => mkBlocks 50 a Js)
+    (fun Js => .jump Js.1 (.var a, ()))⟩
 
 def fn_bl250 : Fn := ⟨"bl250", [i64], [i64], fun _ _ (a, ()) =>
-  .group (sig := List.replicate 250 [i64]) (fun Js => mkBlocks 250 a Js) (fun Js => .jump Js.1 (.var a, ()))⟩
+  .group (sig := List.replicate 250 [i64]) (fun Js => mkBlocks 250 a Js)
+    (fun Js => .jump Js.1 (.var a, ()))⟩
 
 def mkBlocksCross {V : Ty → Type} {L : List Ty → Type} (l0 : L [i64]) (a : V i64) :
     (k : Nat) → Tup L (List.replicate k [i64]) → Blocks V L [i64] (List.replicate k [i64])
@@ -130,7 +132,8 @@ def mkBlocksCross {V : Ty → Type} {L : List Ty → Type} (l0 : L [i64]) (a : V
       (mkBlocksCross l0 a (k + 1) ls)
 
 def fn_bl250_cross : Fn := ⟨"bl250_cross", [i64], [i64], fun _ _ (a, ()) =>
-  .group (sig := List.replicate 250 [i64]) (fun Js => mkBlocksCross Js.1 a 250 Js) (fun Js => .jump Js.1 (.var a, ()))⟩
+  .group (sig := List.replicate 250 [i64]) (fun Js => mkBlocksCross Js.1 a 250 Js)
+    (fun Js => .jump Js.1 (.var a, ()))⟩
 
 def mkSpillSum {V : Ty → Type} {L : List Ty → Type} : List (V i64) → V i64 → Expr V L [i64]
   | [], acc => .ret (.var acc, ())
@@ -160,7 +163,8 @@ elab "splice_lower " hName:ident cName:ident isaId:ident fnId:ident : command =>
     let hVal ← unsafe evalExpr (Hints Nat Nat Nat) hTy hTerm
     let hLit := toExpr hVal
     let dirTy := toTypeExpr (Nat × Nat × Nat × String)
-    let resTy := mkApp2 (mkConst ``Except [0, 0]) (mkConst ``String) (mkApp (mkConst ``List [0]) dirTy)
+    let resTy := mkApp2 (mkConst ``Except [0, 0]) (mkConst ``String)
+      (mkApp (mkConst ``List [0]) dirTy)
     let isaE ← elabTerm isaId none
     let fnE ← elabTerm fnId none
     let extE ← elabTerm (← `(({} : Rega.Ext))) none
@@ -189,13 +193,20 @@ splice_lower hints_bl250 code_bl250 scaleIsa fn_bl250
 splice_lower hints_bl250_cross code_bl250_cross scaleIsa fn_bl250_cross
 splice_lower hints_spill20 code_spill20 smallIsa fn_spill20
 
-theorem sl250_lower : Rega.lowerFn scaleIsa hints_sl250 {} fn_sl250 = .ok code_sl250 := by t_kernel_rfl
-theorem sl1000_lower : Rega.lowerFn scaleIsa hints_sl1000 {} fn_sl1000 = .ok code_sl1000 := by t_kernel_rfl
-theorem sl2000_lower : Rega.lowerFn scaleIsa hints_sl2000 {} fn_sl2000 = .ok code_sl2000 := by t_kernel_rfl
+theorem sl250_lower :
+    Rega.lowerFn scaleIsa hints_sl250 {} fn_sl250 = .ok code_sl250 := by t_kernel_rfl
+theorem sl1000_lower :
+    Rega.lowerFn scaleIsa hints_sl1000 {} fn_sl1000 = .ok code_sl1000 := by t_kernel_rfl
+theorem sl2000_lower :
+    Rega.lowerFn scaleIsa hints_sl2000 {} fn_sl2000 = .ok code_sl2000 := by t_kernel_rfl
 theorem bl50_lower : Rega.lowerFn scaleIsa hints_bl50 {} fn_bl50 = .ok code_bl50 := by t_kernel_rfl
-theorem bl250_lower : Rega.lowerFn scaleIsa hints_bl250 {} fn_bl250 = .ok code_bl250 := by t_kernel_rfl
-theorem bl250_cross_lower : Rega.lowerFn scaleIsa hints_bl250_cross {} fn_bl250_cross = .ok code_bl250_cross := by t_kernel_rfl
-theorem spill20_lower : Rega.lowerFn smallIsa hints_spill20 {} fn_spill20 = .ok code_spill20 := by t_kernel_rfl
+theorem bl250_lower :
+    Rega.lowerFn scaleIsa hints_bl250 {} fn_bl250 = .ok code_bl250 := by t_kernel_rfl
+theorem bl250_cross_lower :
+    Rega.lowerFn scaleIsa hints_bl250_cross {} fn_bl250_cross = .ok code_bl250_cross := by
+  t_kernel_rfl
+theorem spill20_lower :
+    Rega.lowerFn smallIsa hints_spill20 {} fn_spill20 = .ok code_spill20 := by t_kernel_rfl
 theorem spill20_spills : hints_spill20.nslots > 0 := by decide
 
 #print axioms sl1000_lower

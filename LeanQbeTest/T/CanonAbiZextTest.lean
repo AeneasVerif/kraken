@@ -27,7 +27,7 @@ verified `Rega.lowerFn` via `checkCompile`) for:
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace LeanQbeTest.T.CanonAbiZextTest
 
