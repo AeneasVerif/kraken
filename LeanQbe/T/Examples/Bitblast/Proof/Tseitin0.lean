@@ -204,10 +204,105 @@ theorem marksToBool_set_one (ms : List UInt8) (i : Nat) :
 theorem coiMarkLoop_succ {g : Aig} {k : Nat} (hk : k < g.nodes.size) (marks : Array Bool) :
     coiMarkLoop g (k + 1) marks =
       coiMarkLoop g k (if marks.getD (g.A + 1 + k) false then
-        let gate := g.nodes[k]
-        (marks.setIfInBounds (gate.1 >>> 1).toNat true).setIfInBounds (gate.2 >>> 1).toNat true
+        match detectIte g k hk with
+        | some (c, t, f) =>
+          ((marks.setIfInBounds (c >>> 1).toNat true).setIfInBounds
+            (t >>> 1).toNat true).setIfInBounds (f >>> 1).toNat true
+        | none =>
+          let gate := g.nodes[k]
+          (marks.setIfInBounds (gate.1 >>> 1).toNat true).setIfInBounds (gate.2 >>> 1).toNat true
       else marks) := by
-  simp only [coiMarkLoop, hk, ↓reduceDIte]
+  simp only [coiMarkLoop, hk, ↓reduceDIte]; rfl
+
+/-- Shared PHOAS AST for inline `detectIte` used in `bv_coi_mark` and `bv_dimacs_write`. -/
+@[expose] def detectIteExpr {V L} {rs : List Ty} (aigPtr : V i64) (A lhs rhs : V i32)
+    (cont : Tup V [i32, i32, i32, i32] → Expr V L rs) : Expr V L rs :=
+  Expr.group (sig := [[i32, i32, i32, i32]])
+    (fun _ => Blocks.cons cont Blocks.nil) fun Js =>
+  Expr.let_ ⟨OpCode.and i32, (Arg.var lhs, Arg.var rhs, ())⟩ fun p1 =>
+  Expr.let_ ⟨OpCode.and i32, (Arg.var p1.1, Arg.imm 1#32, ())⟩ fun p2 =>
+  Expr.let_ ⟨OpCode.cmp CmpOp.ne i32 Ty.bool rfl, (Arg.var p2.1, Arg.imm 0#32, ())⟩ fun p3 =>
+  Expr.jnz (Arg.var p3.1)
+    (Expr.let_ ⟨OpCode.lshr i32, (Arg.var lhs, Arg.imm 1#32, ())⟩ fun ln =>
+    Expr.let_ ⟨OpCode.lshr i32, (Arg.var rhs, Arg.imm 1#32, ())⟩ fun rn =>
+    Expr.group (sig := [[i32, i32, i32, i32]])
+      (fun _ => Blocks.cons (fun p =>
+        Expr.jump Js.1 (Arg.var p.1, Arg.var p.2.1, Arg.var p.2.2.1, Arg.var p.2.2.2.1, ()))
+        Blocks.nil) fun Js1 =>
+    Expr.let_ ⟨OpCode.cmp CmpOp.ugt i32 Ty.bool rfl, (Arg.var ln.1, Arg.var A, ())⟩ fun c1 =>
+    Expr.jnz (Arg.var c1.1)
+      (Expr.let_ ⟨OpCode.cmp CmpOp.ugt i32 Ty.bool rfl, (Arg.var rn.1, Arg.var A, ())⟩ fun c2 =>
+      Expr.jnz (Arg.var c2.1)
+        (Expr.let_ ⟨OpCode.zext 32 64, (Arg.var ln.1, ())⟩ fun ln64 =>
+        Expr.let_ ⟨OpCode.mul i64, (Arg.var ln64.1, Arg.imm 8#64, ())⟩ fun loff =>
+        Expr.let_ ⟨OpCode.add i64, (Arg.var aigPtr, Arg.var loff.1, ())⟩ fun lptr =>
+        Expr.load i64 (Arg.var lptr.1) fun lp =>
+        Expr.let_ ⟨OpCode.zext 32 64, (Arg.var rn.1, ())⟩ fun rn64 =>
+        Expr.let_ ⟨OpCode.mul i64, (Arg.var rn64.1, Arg.imm 8#64, ())⟩ fun roff =>
+        Expr.let_ ⟨OpCode.add i64, (Arg.var aigPtr, Arg.var roff.1, ())⟩ fun rptr =>
+        Expr.load i64 (Arg.var rptr.1) fun rp =>
+        Expr.let_ ⟨OpCode.and i64, (Arg.var lp, Arg.imm 4294967295#64, ())⟩ fun l0a =>
+        Expr.let_ ⟨OpCode.trunc 64 32, (Arg.var l0a.1, ())⟩ fun l0 =>
+        Expr.let_ ⟨OpCode.sext 32 64, (Arg.imm 32#32, ())⟩ fun s1 =>
+        Expr.let_ ⟨OpCode.lshr i64, (Arg.var lp, Arg.var s1.1, ())⟩ fun l1a =>
+        Expr.let_ ⟨OpCode.trunc 64 32, (Arg.var l1a.1, ())⟩ fun l1 =>
+        Expr.let_ ⟨OpCode.and i64, (Arg.var rp, Arg.imm 4294967295#64, ())⟩ fun r0a =>
+        Expr.let_ ⟨OpCode.trunc 64 32, (Arg.var r0a.1, ())⟩ fun r0 =>
+        Expr.let_ ⟨OpCode.sext 32 64, (Arg.imm 32#32, ())⟩ fun s2 =>
+        Expr.let_ ⟨OpCode.lshr i64, (Arg.var rp, Arg.var s2.1, ())⟩ fun r1a =>
+        Expr.let_ ⟨OpCode.trunc 64 32, (Arg.var r1a.1, ())⟩ fun r1 =>
+        Expr.group (sig := [[i32, i32, i32, i32]])
+          (fun _ => Blocks.cons (fun p =>
+            Expr.jump Js1.1 (Arg.var p.1, Arg.var p.2.1, Arg.var p.2.2.1, Arg.var p.2.2.2.1, ()))
+            Blocks.nil) fun Js2 =>
+        Expr.let_ ⟨OpCode.xor i32, (Arg.var r0.1, Arg.imm 1#32, ())⟩ fun nr0 =>
+        Expr.let_ ⟨OpCode.cmp CmpOp.eq i32 Ty.bool rfl,
+          (Arg.var l0.1, Arg.var nr0.1, ())⟩ fun m1 =>
+        Expr.jnz (Arg.var m1.1)
+          (Expr.let_ ⟨OpCode.xor i32, (Arg.var l1.1, Arg.imm 1#32, ())⟩ fun nl1 =>
+          Expr.let_ ⟨OpCode.xor i32, (Arg.var r1.1, Arg.imm 1#32, ())⟩ fun nr1 =>
+          Expr.jump Js2.1 (Arg.imm 1#32, Arg.var l0.1, Arg.var nl1.1, Arg.var nr1.1, ()))
+          (Expr.group (sig := [[i32, i32, i32, i32]])
+            (fun _ => Blocks.cons (fun p =>
+              Expr.jump Js2.1
+                (Arg.var p.1, Arg.var p.2.1, Arg.var p.2.2.1, Arg.var p.2.2.2.1, ()))
+              Blocks.nil) fun Js3 =>
+          Expr.let_ ⟨OpCode.xor i32, (Arg.var r1.1, Arg.imm 1#32, ())⟩ fun nr1 =>
+          Expr.let_ ⟨OpCode.cmp CmpOp.eq i32 Ty.bool rfl,
+            (Arg.var l0.1, Arg.var nr1.1, ())⟩ fun m2 =>
+          Expr.jnz (Arg.var m2.1)
+            (Expr.let_ ⟨OpCode.xor i32, (Arg.var l1.1, Arg.imm 1#32, ())⟩ fun nl1 =>
+            Expr.let_ ⟨OpCode.xor i32, (Arg.var r0.1, Arg.imm 1#32, ())⟩ fun nr0 =>
+            Expr.jump Js3.1 (Arg.imm 1#32, Arg.var l0.1, Arg.var nl1.1, Arg.var nr0.1, ()))
+            (Expr.group (sig := [[i32, i32, i32, i32]])
+              (fun _ => Blocks.cons (fun p =>
+                Expr.jump Js3.1
+                  (Arg.var p.1, Arg.var p.2.1, Arg.var p.2.2.1, Arg.var p.2.2.2.1, ()))
+                Blocks.nil) fun Js4 =>
+            Expr.let_ ⟨OpCode.xor i32, (Arg.var r0.1, Arg.imm 1#32, ())⟩ fun nr0 =>
+            Expr.let_ ⟨OpCode.cmp CmpOp.eq i32 Ty.bool rfl,
+              (Arg.var l1.1, Arg.var nr0.1, ())⟩ fun m3 =>
+            Expr.jnz (Arg.var m3.1)
+              (Expr.let_ ⟨OpCode.xor i32, (Arg.var l0.1, Arg.imm 1#32, ())⟩ fun nl0 =>
+              Expr.let_ ⟨OpCode.xor i32, (Arg.var r1.1, Arg.imm 1#32, ())⟩ fun nr1 =>
+              Expr.jump Js4.1 (Arg.imm 1#32, Arg.var l1.1, Arg.var nl0.1, Arg.var nr1.1, ()))
+              (Expr.group (sig := [[i32, i32, i32, i32]])
+                (fun _ => Blocks.cons (fun p =>
+                  Expr.jump Js4.1
+                    (Arg.var p.1, Arg.var p.2.1, Arg.var p.2.2.1, Arg.var p.2.2.2.1, ()))
+                  Blocks.nil) fun Js5 =>
+              Expr.let_ ⟨OpCode.xor i32, (Arg.var r1.1, Arg.imm 1#32, ())⟩ fun nr1 =>
+              Expr.let_ ⟨OpCode.cmp CmpOp.eq i32 Ty.bool rfl,
+                (Arg.var l1.1, Arg.var nr1.1, ())⟩ fun m4 =>
+              Expr.jnz (Arg.var m4.1)
+                (Expr.let_ ⟨OpCode.xor i32, (Arg.var l0.1, Arg.imm 1#32, ())⟩ fun nl0 =>
+                Expr.let_ ⟨OpCode.xor i32, (Arg.var r0.1, Arg.imm 1#32, ())⟩ fun nr0 =>
+                Expr.jump Js5.1 (Arg.imm 1#32, Arg.var l1.1, Arg.var nl0.1, Arg.var nr0.1, ()))
+                (Expr.jump Js5.1
+                  (Arg.imm 0#32, Arg.imm 0#32, Arg.imm 0#32, Arg.imm 0#32, ()))))))
+        (Expr.jump Js1.1 (Arg.imm 0#32, Arg.imm 0#32, Arg.imm 0#32, Arg.imm 0#32, ())))
+      (Expr.jump Js1.1 (Arg.imm 0#32, Arg.imm 0#32, Arg.imm 0#32, Arg.imm 0#32, ())))
+    (Expr.jump Js.1 (Arg.imm 0#32, Arg.imm 0#32, Arg.imm 0#32, Arg.imm 0#32, ()))
 
 end
 
@@ -392,9 +487,192 @@ end
     storeOk m i8 a ∧ (bytes a [UInt8.ofBitVec v] ⋆ R) (storeMem m i8 a v) :=
   store_region_one v hm
 
-/-! ## 3. Foundational WP Theorems (`bv_coi_mark` .. `bv_write_clause_end`) -/
+@[local c0_load] private theorem c0_load_array64_u32_mul8 {a : BitVec 64} {i : BitVec 32}
+    {xs : List (BitVec 64)} {R : Mem 64 → Prop} {m : Mem 64}
+    (h : (array64 a xs ⋆ R) m) (hi : i.toNat < xs.length) :
+    loadVal m i64 (a + i.setWidth 64 * 8#64) = some (xs[i.toNat]'hi) := by
+  have heq : i.setWidth 64 * 8#64 = BitVec.ofNat 64 (8 * i.toNat) := BitVec.eq_of_toNat_eq <| by
+    have := i.isLt
+    simp [BitVec.toNat_mul, Nat.mod_eq_of_lt (by omega : 8 * i.toNat < 2 ^ 64), Nat.mul_comm]
+  rw [heq]; exact loadVal_array64 hi h
+
+/-! ## 3. Foundational WP Theorems (`wp_detectIteExpr`, `bv_coi_mark` .. `bv_write_clause_end`) -/
 
 public section
+
+/-- Reusable WP proof for `detectIteExpr` matching `Ref.Tseitin.detectIte`. -/
+theorem wp_detectIteExpr {rs : List Ty} (Γ : Env) (Q : Post rs) (X : XPost)
+    (aigPtr : Val i64) (A : Val i32) (g : Aig) (aigUsed : List (BitVec 64))
+    (R : Mem 64 → Prop) (m : Mem 64) (k : Nat) (hk : k < g.nodes.size)
+    (hA : A.toNat = g.A) (hwf : g.Wf) (haig_w : AigWordsMatch g aigUsed)
+    (haig_l : aigUsed.length = g.A + 1 + g.nodes.size)
+    (hm : (array64 aigPtr aigUsed ⋆ R) m)
+    (cont : Tup Val [i32, i32, i32, i32] → Expr Val Cont rs)
+    (hSome : ∀ c t f, detectIte g k hk = some (c, t, f) →
+      wp Γ Q X (cont (1#32, c.toBitVec, t.toBitVec, f.toBitVec, ())) m)
+    (hNone : detectIte g k hk = none →
+      wp Γ Q X (cont (0#32, 0#32, 0#32, 0#32, ())) m) :
+    wp Γ Q X (detectIteExpr aigPtr A (g.nodes[k]'hk).1.toBitVec (g.nodes[k]'hk).2.toBitVec cont)
+      m := by
+  let P : Val i32 × Val i32 × Val i32 × Val i32 → Mem 64 → Prop :=
+    fun st ml => ml = m ∧
+      match detectIte g k hk with
+      | some (c, t, f) => st = (1#32, c.toBitVec, t.toBitVec, f.toBitVec)
+      | none => st = (0#32, 0#32, 0#32, 0#32)
+  have hP_cont : ∀ (st : Val i32 × Val i32 × Val i32 × Val i32) (ml : Mem 64),
+      P st ml → wp Γ Q X (cont (st.1, st.2.1, st.2.2.1, st.2.2.2, ())) ml := by
+    intro st ml ⟨hml, hst⟩; subst hml
+    cases hd : detectIte g k hk with
+    | none => rw [hd] at hst; subst hst; exact hNone hd
+    | some ctf => rcases ctf with ⟨c, t, f⟩; rw [hd] at hst; subst hst; exact hSome c t f hd
+  have h1ne : ∀ x y : UInt32,
+      (x.toBitVec &&& y.toBitVec &&& 1#32 ≠ 0#32) ↔ ((x &&& y &&& 1) != 0) = true := by
+    intro x y; simp only [bne_iff_ne]
+    exact ⟨fun h hz => h (congrArg UInt32.toBitVec hz),
+      fun h hz => h (UInt32.eq_of_toBitVec_eq hz)⟩
+  have heq_xor : ∀ x y : UInt32,
+      (x.toBitVec = y.toBitVec ^^^ 1#32) ↔ (x == (y ^^^ 1)) = true := by
+    intro x y; simp only [beq_iff_eq]
+    exact ⟨fun h => UInt32.eq_of_toBitVec_eq h, fun h => congrArg UInt32.toBitVec h⟩
+  have hshr1_eq : ∀ x : UInt32, (x.toBitVec >>> (1 : Nat)).toNat = (x >>> 1).toNat := fun _ => rfl
+  have hshr1_div : ∀ x : UInt32, x.toBitVec.toNat / 2 ^ OfNat.ofNat 1 = (x >>> 1).toNat := by
+    intro x
+    change x.toBitVec.toNat / 2 ^ 1 = (x.toBitVec >>> (1 : Nat)).toNat
+    rw [BitVec.toNat_ushiftRight, Nat.shiftRight_eq_div_pow]
+  unfold detectIteExpr
+  refine wp_join_state (ts := [i32, i32, i32, i32])
+    (fun s => (s.1, s.2.1, s.2.2.1, s.2.2.2, ())) P
+    (fun _ st ml h => by exact hP_cont st ml h) fun _ hJ0 => ?_
+  c0_hstraight; c0_hsplit
+  · have hneg : (((g.nodes[k]'hk).1 &&& (g.nodes[k]'hk).2 &&& 1) != 0) = true :=
+      (h1ne _ _).mp hc
+    clear hc
+    c0_hstraight
+    refine wp_join_state (ts := [i32, i32, i32, i32])
+      (fun s => (s.1, s.2.1, s.2.2.1, s.2.2.2, ())) P
+      (fun _ st ml h => by c0_hsteps; exact hJ0 st ml h) fun _ hJ1 => ?_
+    c0_hstraight; c0_hsplit
+    · have hln_gt : g.A < ((g.nodes[k]'hk).1 >>> 1).toNat := by
+        rw [← hA, ← hshr1_div]; exact hc
+      clear hc
+      have hln_lt_g : ((g.nodes[k]'hk).1 >>> 1).toNat < g.A + 1 + k := (hwf k hk).1
+      have hln_sub : ((g.nodes[k]'hk).1 >>> 1).toNat - (g.A + 1) < g.nodes.size := by omega
+      c0_hstraight; c0_hsplit
+      · have hrn_gt : g.A < ((g.nodes[k]'hk).2 >>> 1).toNat := by
+          rw [← hA, ← hshr1_div]; exact hc
+        clear hc
+        have hrn_lt_g : ((g.nodes[k]'hk).2 >>> 1).toNat < g.A + 1 + k := (hwf k hk).2
+        have hrn_sub : ((g.nodes[k]'hk).2 >>> 1).toNat - (g.A + 1) < g.nodes.size := by omega
+        have hln_aw : ((g.nodes[k]'hk).1.toBitVec >>> (1 : Nat)).toNat < aigUsed.length := by
+          rw [hshr1_eq]; omega
+        have hrn_aw : ((g.nodes[k]'hk).2.toBitVec >>> (1 : Nat)).toNat < aigUsed.length := by
+          rw [hshr1_eq]; omega
+        have hln_eq : g.A + 1 + (((g.nodes[k]'hk).1 >>> 1).toNat - (g.A + 1)) =
+            ((g.nodes[k]'hk).1 >>> 1).toNat := by omega
+        have hrn_eq : g.A + 1 + (((g.nodes[k]'hk).2 >>> 1).toNat - (g.A + 1)) =
+            ((g.nodes[k]'hk).2 >>> 1).toNat := by omega
+        have hlp_get : aigUsed[((g.nodes[k]'hk).1.toBitVec >>> (1 : Nat)).toNat]'hln_aw =
+            packAigGate (g.nodes[((g.nodes[k]'hk).1 >>> 1).toNat - (g.A + 1)]'hln_sub).1
+              (g.nodes[((g.nodes[k]'hk).1 >>> 1).toNat - (g.A + 1)]'hln_sub).2 := by
+          have hg := haig_w.gate_eq _ hln_sub
+          simpa only [hln_eq, hshr1_eq] using hg
+        have hrp_get : aigUsed[((g.nodes[k]'hk).2.toBitVec >>> (1 : Nat)).toNat]'hrn_aw =
+            packAigGate (g.nodes[((g.nodes[k]'hk).2 >>> 1).toNat - (g.A + 1)]'hrn_sub).1
+              (g.nodes[((g.nodes[k]'hk).2 >>> 1).toNat - (g.A + 1)]'hrn_sub).2 := by
+          have hg := haig_w.gate_eq _ hrn_sub
+          simpa only [hrn_eq, hshr1_eq] using hg
+        c0_hstraight
+        simp only [hlp_get, hrp_get, packAigGate_lo, packAigGate_hi]
+        have hdet_eq : detectIte g k hk =
+            let l0 := (g.nodes[((g.nodes[k]'hk).1 >>> 1).toNat - (g.A + 1)]'hln_sub).1
+            let l1 := (g.nodes[((g.nodes[k]'hk).1 >>> 1).toNat - (g.A + 1)]'hln_sub).2
+            let r0 := (g.nodes[((g.nodes[k]'hk).2 >>> 1).toNat - (g.A + 1)]'hrn_sub).1
+            let r1 := (g.nodes[((g.nodes[k]'hk).2 >>> 1).toNat - (g.A + 1)]'hrn_sub).2
+            if l0 == (r0 ^^^ 1) then some (l0, l1 ^^^ 1, r1 ^^^ 1)
+            else if l0 == (r1 ^^^ 1) then some (l0, l1 ^^^ 1, r0 ^^^ 1)
+            else if l1 == (r0 ^^^ 1) then some (l1, l0 ^^^ 1, r1 ^^^ 1)
+            else if l1 == (r1 ^^^ 1) then some (l1, l0 ^^^ 1, r0 ^^^ 1)
+            else none := by
+          unfold detectIte; dsimp only
+          simp only [hneg, ↓reduceIte, hln_gt, hln_sub, hrn_gt, hrn_sub, and_self, ↓reduceDIte]
+        refine wp_join_state (ts := [i32, i32, i32, i32])
+          (fun s => (s.1, s.2.1, s.2.2.1, s.2.2.2, ())) P
+          (fun _ st ml h => by c0_hsteps; exact hJ1 st ml h) fun _ hJ2 => ?_
+        c0_hstraight; c0_hsplit
+        · have hm1 := (heq_xor _ _).mp hc
+          c0_hstraight
+          exact hJ2 _ m ⟨rfl, by rw [hdet_eq]; dsimp only; simp only [hm1, ↓reduceIte]; rfl⟩
+        · have hm1 : ((g.nodes[((g.nodes[k]'hk).1 >>> 1).toNat - (g.A + 1)]'hln_sub).1 ==
+              ((g.nodes[((g.nodes[k]'hk).2 >>> 1).toNat - (g.A + 1)]'hrn_sub).1 ^^^ 1)) = false :=
+            Bool.eq_false_iff.mpr fun h => hc ((heq_xor _ _).mpr h)
+          clear hc
+          refine wp_join_state (ts := [i32, i32, i32, i32])
+            (fun s => (s.1, s.2.1, s.2.2.1, s.2.2.2, ())) P
+            (fun _ st ml h => by c0_hsteps; exact hJ2 st ml h)
+            fun _ hJ3 => ?_
+          c0_hstraight; c0_hsplit
+          · have hm2 := (heq_xor _ _).mp hc
+            c0_hstraight
+            exact hJ3 _ m ⟨rfl, by
+              rw [hdet_eq]; dsimp only
+              simp only [hm1, Bool.false_eq_true, ↓reduceIte, hm2]; rfl⟩
+          · have hm2 : ((g.nodes[((g.nodes[k]'hk).1 >>> 1).toNat - (g.A + 1)]'hln_sub).1 ==
+                ((g.nodes[((g.nodes[k]'hk).2 >>> 1).toNat - (g.A + 1)]'hrn_sub).2 ^^^ 1)) = false :=
+              Bool.eq_false_iff.mpr fun h => hc ((heq_xor _ _).mpr h)
+            clear hc
+            refine wp_join_state (ts := [i32, i32, i32, i32])
+              (fun s => (s.1, s.2.1, s.2.2.1, s.2.2.2, ())) P
+              (fun _ st ml h => by c0_hsteps; exact hJ3 st ml h)
+              fun _ hJ4 => ?_
+            c0_hstraight; c0_hsplit
+            · have hm3 := (heq_xor _ _).mp hc
+              c0_hstraight
+              exact hJ4 _ m ⟨rfl, by
+                rw [hdet_eq]; dsimp only
+                simp only [hm1, hm2, Bool.false_eq_true, ↓reduceIte, hm3]; rfl⟩
+            · have hm3 : ((g.nodes[((g.nodes[k]'hk).1 >>> 1).toNat - (g.A + 1)]'hln_sub).2 ==
+                  ((g.nodes[((g.nodes[k]'hk).2 >>> 1).toNat - (g.A + 1)]'hrn_sub).1 ^^^ 1)) =
+                  false :=
+                Bool.eq_false_iff.mpr fun h => hc ((heq_xor _ _).mpr h)
+              clear hc
+              refine wp_join_state (ts := [i32, i32, i32, i32])
+                (fun s => (s.1, s.2.1, s.2.2.1, s.2.2.2, ())) P
+                (fun _ st ml h => by c0_hsteps; exact hJ4 st ml h)
+                fun _ hJ5 => ?_
+              c0_hstraight; c0_hsplit
+              · have hm4 := (heq_xor _ _).mp hc
+                c0_hstraight
+                exact hJ5 _ m ⟨rfl, by
+                  rw [hdet_eq]; dsimp only
+                  simp only [hm1, hm2, hm3, Bool.false_eq_true, ↓reduceIte, hm4]; rfl⟩
+              · have hm4 : ((g.nodes[((g.nodes[k]'hk).1 >>> 1).toNat - (g.A + 1)]'hln_sub).2 ==
+                    ((g.nodes[((g.nodes[k]'hk).2 >>> 1).toNat - (g.A + 1)]'hrn_sub).2 ^^^ 1)) =
+                    false :=
+                  Bool.eq_false_iff.mpr fun h => hc ((heq_xor _ _).mpr h)
+                c0_hstraight
+                exact hJ5 (0#32, 0#32, 0#32, 0#32) m ⟨rfl, by
+                  rw [hdet_eq]; dsimp only
+                  simp only [hm1, hm2, hm3, hm4, Bool.false_eq_true, ↓reduceIte]⟩
+      · have hrn_le : ¬ g.A < ((g.nodes[k]'hk).2 >>> 1).toNat := by
+          rw [← hA, ← hshr1_div]; exact hc
+        have hd_none : detectIte g k hk = none := by
+          unfold detectIte; dsimp only
+          simp only [hneg, ↓reduceIte, hln_gt, hln_sub, and_self, ↓reduceDIte, hrn_le, false_and]
+        c0_hstraight
+        exact hJ1 _ m ⟨rfl, by rw [hd_none]⟩
+    · have hln_le : ¬ g.A < ((g.nodes[k]'hk).1 >>> 1).toNat := by
+        rw [← hA, ← hshr1_div]; exact hc
+      have hd_none : detectIte g k hk = none := by
+        unfold detectIte; dsimp only
+        simp only [hneg, ↓reduceIte, hln_le, false_and, ↓reduceDIte]
+      c0_hstraight
+      exact hJ1 _ m ⟨rfl, by rw [hd_none]⟩
+  · have hneg : (((g.nodes[k]'hk).1 &&& (g.nodes[k]'hk).2 &&& 1) != 0) = false :=
+      Bool.eq_false_iff.mpr fun h => ((h1ne _ _).mpr h) hc
+    have hd_none : detectIte g k hk = none := by
+      unfold detectIte; dsimp only; simp only [hneg, Bool.false_eq_true, ↓reduceIte]
+    c0_hstraight
+    exact hJ0 _ m ⟨rfl, by rw [hd_none]⟩
 
 theorem bv_coi_mark_wp (Γ : Env) :
     ∀ xs m Q X, bvCoiMarkSpec xs m Q X → Func.wp Γ bv_coi_mark_body xs m Q X := by
@@ -525,64 +803,136 @@ theorem bv_coi_mark_wp (Γ : Env) :
                 have hrn_lt : (g.nodes[k'].2 >>> 1).toNat < hdr.aig_len.toNat :=
                   Nat.lt_trans (hwf k' (by omega)).2 (by omega)
                 simp only [hidx, haig_get, h42, hlo_eq, hhi_eq]
-                refine wp_join_state0 (α := List UInt8) (fun ms3 ml3 =>
-                    ms3.length = hdr.aig_len.toNat ∧
-                    marksToBool ms3 = (marksToBool ms2).setIfInBounds
-                      (g.nodes[k'].1 >>> 1).toNat true ∧
-                    (bvHdrMem h hdr ⋆ array64 hdr.aig_ptr aigUsed ⋆
-                      bytes hdr.marks_ptr ms3 ⋆ R) ml3) ?_ ?_
-                · intro J4 ms3 ml3 ⟨hms3_l, hms3_b, hml3⟩
-                  c0_hsteps_nogrp
-                  refine wp_join_state0 (α := List UInt8) (fun ms4 ml4 =>
-                      ms4.length = hdr.aig_len.toNat ∧
-                      marksToBool ms4 = (marksToBool ms3).setIfInBounds
-                        (g.nodes[k'].2 >>> 1).toNat true ∧
+                refine (wp_detectIteExpr Γ Q X hdr.aig_ptr hdr.num_atoms g aigUsed
+                  (bvHdrMem h hdr ⋆ bytes hdr.marks_ptr ms2 ⋆ R) ml2 k' (by omega) hA hwf haig_w
+                  (by omega) (sep_ac hml2) _ (fun c t f hd => ?_) (fun hd => ?_))
+                · have ⟨hc_lt, ht_lt, hf_lt⟩ := detectIte_bounds hwf hd
+                  have hcn_lt : (c >>> 1).toNat < hdr.aig_len.toNat := by omega
+                  have htn_lt : (t >>> 1).toNat < hdr.aig_len.toNat := by omega
+                  have hfn_lt : (f >>> 1).toNat < hdr.aig_len.toNat := by omega
+                  dsimp only
+                  refine wp_join_state0 (α := List UInt8) (fun ms_fin ml_fin =>
+                      ms_fin.length = hdr.aig_len.toNat ∧
+                      coiMarkLoop g k' (marksToBool ms_fin) =
+                        Ref.Tseitin.coiMark g (UInt32.ofBitVec root) ∧
                       (bvHdrMem h hdr ⋆ array64 hdr.aig_ptr aigUsed ⋆
-                        bytes hdr.marks_ptr ms4 ⋆ R) ml4) ?_ ?_
-                  · intro J5 ms4 ml4 ⟨hms4_l, hms4_b, hml4⟩
-                    c0_hsteps
-                    rw [coiMarkLoop_succ (by omega), hgetD] at hloop
-                    simp only [↓reduceIte] at hloop
-                    rw [← hms3_b, ← hms4_b] at hloop
-                    exact hJ_out ms4 ml4 ⟨hms4_l, hloop, hml4⟩
-                  · intro J5 hJ5
+                        bytes hdr.marks_ptr ms_fin ⋆ R) ml_fin)
+                    (fun _ ms_fin ml_fin hf => by c0_hsteps; exact hJ_out ms_fin ml_fin hf)
+                    fun _ hJ_ite => ?_
+                  c0_hsteps_nogrp
+                  refine wp_join_state0 (α := List UInt8) (fun ms3 ml3 =>
+                      ms3.length = hdr.aig_len.toNat ∧
+                      marksToBool ms3 = (marksToBool ms2).setIfInBounds (c >>> 1).toNat true ∧
+                      (bvHdrMem h hdr ⋆ array64 hdr.aig_ptr aigUsed ⋆
+                        bytes hdr.marks_ptr ms3 ⋆ R) ml3) ?_ ?_
+                  · intro J4 ms3 ml3 ⟨hms3_l, hms3_b, hml3⟩; c0_hsteps_nogrp
+                    refine wp_join_state0 (α := List UInt8) (fun ms4 ml4 =>
+                        ms4.length = hdr.aig_len.toNat ∧
+                        marksToBool ms4 = (marksToBool ms3).setIfInBounds (t >>> 1).toNat true ∧
+                        (bvHdrMem h hdr ⋆ array64 hdr.aig_ptr aigUsed ⋆
+                          bytes hdr.marks_ptr ms4 ⋆ R) ml4) ?_ ?_
+                    · intro J5 ms4 ml4 ⟨hms4_l, hms4_b, hml4⟩; c0_hsteps_nogrp
+                      refine wp_join_state0 (α := List UInt8) (fun ms5 ml5 =>
+                          ms5.length = hdr.aig_len.toNat ∧
+                          marksToBool ms5 = (marksToBool ms4).setIfInBounds (f >>> 1).toNat true ∧
+                          (bvHdrMem h hdr ⋆ array64 hdr.aig_ptr aigUsed ⋆
+                            bytes hdr.marks_ptr ms5 ⋆ R) ml5) ?_ ?_
+                      · intro J6 ms5 ml5 ⟨hms5_l, hms5_b, hml5⟩; c0_hsteps
+                        rw [coiMarkLoop_succ (by omega), hgetD, hd] at hloop
+                        simp only [↓reduceIte] at hloop; rw [← hms3_b, ← hms4_b, ← hms5_b] at hloop
+                        exact hJ_ite ms5 ml5 ⟨hms5_l, hloop, hml5⟩
+                      · intro J6 hJ6; c0_hsteps_nogrp
+                        · c0_hsteps!; dsimp only at *; rw [Std.ExtHashMap.sep_emp] at hm
+                          rw [show UInt8.ofBitVec (BitVec.ofNat 8 1) = (1 : UInt8) from rfl,
+                            show (BitVec.setWidth 64 (f.toBitVec >>> 1)).toNat = (f >>> 1).toNat by
+                              simp] at hm
+                          have hset := marksToBool_set_one ms4 (f >>> 1).toNat
+                          simp only [show (f >>> 1).toNat < ms4.length by omega, ↓reduceIte] at hset
+                          exact hJ6 (ms4.set (f >>> 1).toNat 1) m
+                            ⟨by simpa using hms4_l, hset, sep_ac hm⟩
+                        · exfalso; have ht : (f.toBitVec >>> 1).toNat < hdr.aig_len.toNat := hfn_lt
+                          rw [BitVec.toNat_ushiftRight, Nat.shiftRight_eq_div_pow] at ht
+                          exact hc ht
+                    · intro J5 hJ5; c0_hsteps_nogrp
+                      · c0_hsteps!; dsimp only at *; rw [Std.ExtHashMap.sep_emp] at hm
+                        rw [show UInt8.ofBitVec (BitVec.ofNat 8 1) = (1 : UInt8) from rfl,
+                          show (BitVec.setWidth 64 (t.toBitVec >>> 1)).toNat = (t >>> 1).toNat by
+                            simp] at hm
+                        have hset := marksToBool_set_one ms3 (t >>> 1).toNat
+                        simp only [show (t >>> 1).toNat < ms3.length by omega, ↓reduceIte] at hset
+                        exact hJ5 (ms3.set (t >>> 1).toNat 1) m
+                          ⟨by simpa using hms3_l, hset, sep_ac hm⟩
+                      · exfalso; have htmp : (t.toBitVec >>> 1).toNat < hdr.aig_len.toNat := htn_lt
+                        rw [BitVec.toNat_ushiftRight, Nat.shiftRight_eq_div_pow] at htmp
+                        exact hc htmp
+                  · intro J4 hJ4; c0_hsteps_nogrp
+                    · c0_hsteps!; dsimp only at *; rw [Std.ExtHashMap.sep_emp] at hm
+                      rw [show UInt8.ofBitVec (BitVec.ofNat 8 1) = (1 : UInt8) from rfl,
+                        show (BitVec.setWidth 64 (c.toBitVec >>> 1)).toNat = (c >>> 1).toNat by
+                          simp] at hm
+                      have hset := marksToBool_set_one ms2 (c >>> 1).toNat
+                      simp only [show (c >>> 1).toNat < ms2.length by omega, ↓reduceIte] at hset
+                      exact hJ4 (ms2.set (c >>> 1).toNat 1) m
+                        ⟨by simpa using hms2_l, hset, sep_ac hm⟩
+                    · exfalso; have ht : (c.toBitVec >>> 1).toNat < hdr.aig_len.toNat := hcn_lt
+                      rw [BitVec.toNat_ushiftRight, Nat.shiftRight_eq_div_pow] at ht; exact hc ht
+                · dsimp only
+                  refine wp_join_state0 (α := List UInt8) (fun ms_fin ml_fin =>
+                      ms_fin.length = hdr.aig_len.toNat ∧
+                      coiMarkLoop g k' (marksToBool ms_fin) =
+                        Ref.Tseitin.coiMark g (UInt32.ofBitVec root) ∧
+                      (bvHdrMem h hdr ⋆ array64 hdr.aig_ptr aigUsed ⋆
+                        bytes hdr.marks_ptr ms_fin ⋆ R) ml_fin)
+                    (fun _ ms_fin ml_fin hf => by c0_hsteps; exact hJ_out ms_fin ml_fin hf)
+                    fun _ hJ_and => ?_
+                  c0_hsteps_nogrp
+                  refine wp_join_state0 (α := List UInt8) (fun ms3 ml3 =>
+                      ms3.length = hdr.aig_len.toNat ∧
+                      marksToBool ms3 = (marksToBool ms2).setIfInBounds
+                        (g.nodes[k'].1 >>> 1).toNat true ∧
+                      (bvHdrMem h hdr ⋆ array64 hdr.aig_ptr aigUsed ⋆
+                        bytes hdr.marks_ptr ms3 ⋆ R) ml3) ?_ ?_
+                  · intro J4 ms3 ml3 ⟨hms3_l, hms3_b, hml3⟩
                     c0_hsteps_nogrp
-                    · c0_hsteps!
-                      dsimp only at *
-                      rw [Std.ExtHashMap.sep_emp] at hm
-                      have h1_eq : UInt8.ofBitVec (BitVec.ofNat 8 1) = (1 : UInt8) := rfl
-                      have heq_r : (BitVec.setWidth 64 (g.nodes[k'].2.toBitVec >>> 1)).toNat =
-                          (g.nodes[k'].2 >>> 1).toNat := by simp
-                      rw [h1_eq, heq_r] at hm
-                      refine hJ5 (ms3.set (g.nodes[k'].2 >>> 1).toNat 1) m
-                        ⟨by simpa using hms3_l, ?_, sep_ac hm⟩
-                      have hset := marksToBool_set_one ms3 (g.nodes[k'].2 >>> 1).toNat
-                      simp only [show (g.nodes[k'].2 >>> 1).toNat < ms3.length by omega,
+                    refine wp_join_state0 (α := List UInt8) (fun ms4 ml4 =>
+                        ms4.length = hdr.aig_len.toNat ∧
+                        marksToBool ms4 = (marksToBool ms3).setIfInBounds
+                          (g.nodes[k'].2 >>> 1).toNat true ∧
+                        (bvHdrMem h hdr ⋆ array64 hdr.aig_ptr aigUsed ⋆
+                          bytes hdr.marks_ptr ms4 ⋆ R) ml4) ?_ ?_
+                    · intro J5 ms4 ml4 ⟨hms4_l, hms4_b, hml4⟩
+                      c0_hsteps; rw [coiMarkLoop_succ (by omega), hgetD, hd] at hloop
+                      simp only [↓reduceIte] at hloop; rw [← hms3_b, ← hms4_b] at hloop
+                      exact hJ_and ms4 ml4 ⟨hms4_l, hloop, hml4⟩
+                    · intro J5 hJ5; c0_hsteps_nogrp
+                      · c0_hsteps!; dsimp only at *; rw [Std.ExtHashMap.sep_emp] at hm
+                        rw [show UInt8.ofBitVec (BitVec.ofNat 8 1) = (1 : UInt8) from rfl,
+                          show (BitVec.setWidth 64 (g.nodes[k'].2.toBitVec >>> 1)).toNat =
+                            (g.nodes[k'].2 >>> 1).toNat by simp] at hm
+                        have hset := marksToBool_set_one ms3 (g.nodes[k'].2 >>> 1).toNat
+                        simp only [show (g.nodes[k'].2 >>> 1).toNat < ms3.length by omega,
+                          ↓reduceIte] at hset
+                        exact hJ5 (ms3.set (g.nodes[k'].2 >>> 1).toNat 1) m
+                          ⟨by simpa using hms3_l, hset, sep_ac hm⟩
+                      · exfalso
+                        have htmp : (g.nodes[k'].2.toBitVec >>> 1).toNat < hdr.aig_len.toNat :=
+                          hrn_lt
+                        rw [BitVec.toNat_ushiftRight, Nat.shiftRight_eq_div_pow] at htmp
+                        exact hc htmp
+                  · intro J4 hJ4; c0_hsteps_nogrp
+                    · c0_hsteps!; dsimp only at *; rw [Std.ExtHashMap.sep_emp] at hm
+                      rw [show UInt8.ofBitVec (BitVec.ofNat 8 1) = (1 : UInt8) from rfl,
+                        show (BitVec.setWidth 64 (g.nodes[k'].1.toBitVec >>> 1)).toNat =
+                          (g.nodes[k'].1 >>> 1).toNat by simp] at hm
+                      have hset := marksToBool_set_one ms2 (g.nodes[k'].1 >>> 1).toNat
+                      simp only [show (g.nodes[k'].1 >>> 1).toNat < ms2.length by omega,
                         ↓reduceIte] at hset
-                      exact hset
+                      exact hJ4 (ms2.set (g.nodes[k'].1 >>> 1).toNat 1) m
+                        ⟨by simpa using hms2_l, hset, sep_ac hm⟩
                     · exfalso
-                      have htmp : (g.nodes[k'].2.toBitVec >>> 1).toNat < hdr.aig_len.toNat := hrn_lt
+                      have htmp : (g.nodes[k'].1.toBitVec >>> 1).toNat < hdr.aig_len.toNat := hln_lt
                       rw [BitVec.toNat_ushiftRight, Nat.shiftRight_eq_div_pow] at htmp
                       exact hc htmp
-                · intro J4 hJ4
-                  c0_hsteps_nogrp
-                  · c0_hsteps!
-                    dsimp only at *
-                    rw [Std.ExtHashMap.sep_emp] at hm
-                    have h1_eq : UInt8.ofBitVec (BitVec.ofNat 8 1) = (1 : UInt8) := rfl
-                    have heq_l : (BitVec.setWidth 64 (g.nodes[k'].1.toBitVec >>> 1)).toNat =
-                        (g.nodes[k'].1 >>> 1).toNat := by simp
-                    rw [h1_eq, heq_l] at hm
-                    refine hJ4 (ms2.set (g.nodes[k'].1 >>> 1).toNat 1) m
-                      ⟨by simpa using hms2_l, ?_, sep_ac hm⟩
-                    have hset := marksToBool_set_one ms2 (g.nodes[k'].1 >>> 1).toNat
-                    simp only [show (g.nodes[k'].1 >>> 1).toNat < ms2.length by omega,
-                      ↓reduceIte] at hset
-                    exact hset
-                  · exfalso
-                    have htmp : (g.nodes[k'].1.toBitVec >>> 1).toNat < hdr.aig_len.toNat := hln_lt
-                    rw [BitVec.toNat_ushiftRight, Nat.shiftRight_eq_div_pow] at htmp
-                    exact hc htmp
               · have hmark_z : ms2[g.A + 1 + k'] = 0 := by
                   have hmod : (g.A + 1 + k') % 2 ^ 32 = g.A + 1 + k' :=
                     Nat.mod_eq_of_lt (by omega)
@@ -928,8 +1278,7 @@ theorem bv_write_lit_wp (Γ : Env)
           rw [show (bytes p [] ⋆ bytes p dbs ⋆ bytes (p + BitVec.ofNat 64 dbs.length) [asciiSpace])
               = (bytes p dbs ⋆ bytes (p + BitVec.ofNat 64 dbs.length) [asciiSpace]) from by
             rw [sep_assoc]; unfold bytes; rw [← eq_nil_At, emp_sep]]
-          rw [bytes_append_merge (by simp; omega)]
-          simp
+          rw [bytes_append_merge (by simp; omega)]; simp
         · simp only [q, h0, Bool.not_false, ↓reduceIte]
           have h1 : (bytes p [asciiMinus] ⋆ bytes (p + BitVec.ofNat 64 1) dbs) =
               bytes p ([asciiMinus] ++ dbs) := by
@@ -937,11 +1286,9 @@ theorem bv_write_lit_wp (Γ : Env)
               (by simp; omega)
           have hlen1 : 1 + dbs.length = ([asciiMinus] ++ dbs).length := by simp [Nat.add_comm]
           rw [h1, show (1#64 : BitVec 64) = BitVec.ofNat 64 1 from rfl,
-            ptr_add_ofNat, hlen1, bytes_append_merge (by simp; omega)]
-          simp
+            ptr_add_ofNat, hlen1, bytes_append_merge (by simp; omega)]; simp
       have hmem_fin : (bytes p ((if (lit &&& 1#32) == 0#32 then [] else [asciiMinus]) ++
-          dbs ++ [asciiSpace]) ⋆ R) m_fin := by
-        rw [← hbytes_eq]; exact sep_ac hmrg
+          dbs ++ [asciiSpace]) ⋆ R) m_fin := by rw [← hbytes_eq]; exact sep_ac hmrg
       have hp_fin : q + BitVec.ofNat 64 dbs.length + 1 =
           p + BitVec.ofNat 64 ((if (lit &&& 1#32) == 0#32 then [] else [asciiMinus]) ++
             dbs ++ [asciiSpace]).length := by
@@ -949,8 +1296,7 @@ theorem bv_write_lit_wp (Γ : Env)
         · simp [q, dbs, v, h0, ptr_add_ofNat]
         · simp [q, dbs, v, h0, ptr_add_ofNat, Nat.add_comm]
       change Q (q + BitVec.ofNat 64 dbs.length + 1, ()) m_fin
-      rw [hp_fin]
-      exact hQ m_fin hmem_fin
+      rw [hp_fin]; exact hQ m_fin hmem_fin
   · intro J hJ
     c0_hsteps_nogrp
     · have hne : ((lit &&& 1#32) == 0#32) = false := by
@@ -1136,21 +1482,15 @@ theorem bv_write_clause_end_wp (Γ : Env) :
   rintro ⟨p, ⟨⟩⟩ m Q X ⟨R, hfit, hm, hQ⟩
   have hm1 := region_split_prefix (a := p) (n1 := 1) (n2 := 1) (by decide) hm
   rw [show p + BitVec.ofNat 64 1 = p + (1 : BitVec 64) from rfl] at hm1
-  c0_hsteps!
-  rw [Std.ExtHashMap.sep_emp] at hm
+  c0_hsteps!; rw [Std.ExtHashMap.sep_emp] at hm
   have hmrg : (bytes p [UInt8.ofBitVec ((48#32).setWidth 8)] ⋆
-      bytes (p + BitVec.ofNat 64 1) [UInt8.ofBitVec ((10#32).setWidth 8)] ⋆ R) m :=
-    sep_ac hm
-  have hmrg2 : (bytes p [asciiZero, asciiNewline] ⋆ R) m := by
-    have hbytes := bytes_append_merge (a := p) (b1 := [48]) (b2 := [10]) (by decide)
-    have h1 : (bytes p [48] ⋆ bytes (p + BitVec.ofNat 64 1) [10]) =
-        bytes p [asciiZero, asciiNewline] := by
-      simpa [List.length_singleton, asciiZero, asciiNewline] using hbytes
-    rw [← h1]
-    exact hmrg
-  have hp2 : p + (2 : BitVec 64) = p + BitVec.ofNat 64 2 := rfl
-  rw [hp2]
-  exact hQ m hmrg2
+      bytes (p + BitVec.ofNat 64 1) [UInt8.ofBitVec ((10#32).setWidth 8)] ⋆ R) m := sep_ac hm
+  have h1 : (bytes p [48] ⋆ bytes (p + BitVec.ofNat 64 1) [10]) =
+      bytes p [asciiZero, asciiNewline] := by
+    simpa [List.length_singleton, asciiZero, asciiNewline] using
+      bytes_append_merge (a := p) (b1 := [48]) (b2 := [10]) (by decide)
+  rw [show p + (2 : BitVec 64) = p + BitVec.ofNat 64 2 from rfl]
+  exact hQ m (by rw [← h1]; exact hmrg)
 
 end
 

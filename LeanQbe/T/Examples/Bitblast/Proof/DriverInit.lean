@@ -365,8 +365,8 @@ private theorem bv_init_acap_raw (avail : BitVec 64) (nv nn : Nat)
       (BitVec.setWidth 64 (BitVec.ofNat 32 nv) <<< OfNat.ofNat 2 +
         (7 : BitVec 64) &&& ~~~(7 : BitVec 64)) +
       (BitVec.setWidth 64 (BitVec.ofNat 32 nn) <<< OfNat.ofNat 2 +
-        (7 : BitVec 64) &&& ~~~(7 : BitVec 64)))) >>> OfNat.ofNat 4 =
-    BitVec.ofNat 64 ((avail.toNat - (128 + align8 (4 * nv) + align8 (4 * nn))) / 16) := by
+        (7 : BitVec 64) &&& ~~~(7 : BitVec 64)))) >>> OfNat.ofNat 5 =
+    BitVec.ofNat 64 ((avail.toNat - (128 + align8 (4 * nv) + align8 (4 * nn))) / 32) := by
   have ha := align8_lt_of_u32 nv hnv
   have hs := align8_lt_of_u32 nn hnn
   have hav := avail.isLt
@@ -385,7 +385,7 @@ private theorem bv_init_acap_raw (avail : BitVec 64) (nv nn : Nat)
   rw [BitVec.toNat_ushiftRight, BitVec.toNat_sub_of_le (BitVec.le_def.mpr (by rw [hadd_eq]; omega)),
     hadd_eq, Nat.shiftRight_eq_div_pow, BitVec.toNat_ofNat,
     Nat.mod_eq_of_lt (by omega :
-      (avail.toNat - (128 + align8 (4 * nv) + align8 (4 * nn))) / 2 ^ 4 < 2 ^ 64)]
+      (avail.toNat - (128 + align8 (4 * nv) + align8 (4 * nn))) / 2 ^ 5 < 2 ^ 64)]
 
 private theorem bv_init_lcap_raw (wb avail : BitVec 64) (nv nn ac s : Nat)
     (hnv : nv < 2 ^ 32) (hnn : nn < 2 ^ 32)
@@ -790,15 +790,16 @@ private theorem drv_init_ht_step {avail : BitVec 64} {nv nn fixed p : Nat}
           (BitVec.setWidth 64 (BitVec.ofNat 32 nv) <<< OfNat.ofNat 2 + 7 &&& ~~~7).toNat +
           (BitVec.setWidth 64 (BitVec.ofNat 32 nn) <<< OfNat.ofNat 2 + 7 &&& ~~~7).toNat) %
           2 ^ 64 +
-        BitVec.toNat avail) % 2 ^ 64 / 2 ^ OfNat.ofNat 3)
+        BitVec.toNat avail) % 2 ^ 64 / 2 ^ OfNat.ofNat 1)
     (hc_30 : (BitVec.ofNat 64 (2 ^ p)).toNat < 1073741824) :
     BitVec.ofNat 64 (2 ^ p) <<< (1 : Nat) = BitVec.ofNat 64 (2 * 2 ^ p) ∧
     (∃ q, 2 * 2 ^ p = 2 ^ q) ∧ 0 < 2 * 2 ^ p ∧ 2 * 2 ^ p ≤ 2 ^ 30 ∧
-    4 * (2 * 2 ^ p) ≤ (avail.toNat - fixed) / 8 := by
+    4 * (2 * 2 ^ p) ≤ (avail.toNat - fixed) / 2 := by
   have hsub_nat : (2 ^ 64 - fixed + avail.toNat) % 2 ^ 64 = avail.toNat - fixed := by omega
-  have h8s : 8 * 2 ^ p ≤ (avail.toNat - fixed) / 8 := by
+  have h8s : 8 * 2 ^ p ≤ (avail.toNat - fixed) / 2 := by
     rw [hfb_raw, hsub_nat, Nat.mod_eq_of_lt hs_lt64,
       show (2 ^ OfNat.ofNat 3 : Nat) = 8 from rfl,
+      show (2 ^ OfNat.ofNat 1 : Nat) = 2 from rfl,
       Nat.mod_eq_of_lt (by omega : 2 ^ p * 8 < 2 ^ 64)] at hc_bud
     omega
   have hs_lt30 : 2 ^ p < 2 ^ 30 := by
@@ -966,13 +967,13 @@ theorem bv_init_workspace_wp (Γ : Env)
             clear hc hc_gt
             c0_hstraight
             refine wp_join_state1 (t := i64) (α := Nat) (fun ac => BitVec.ofNat 64 ac)
-              (fun ac ml => ac = min ((avail.toNat - fixed) / 16) (bvDimacsBound - 1) ∧
+              (fun ac ml => ac = min ((avail.toNat - fixed) / 32) (bvDimacsBound - 1) ∧
                 ml = m) ?_ ?_
             · intro J ac ml ⟨hac_eq, hml⟩
               subst ml
               have hac_lt : ac < bvDimacsBound := by rw [hac_eq]; unfold bvDimacsBound; omega
               have hac_64 : ac < 2 ^ 64 := by unfold bvDimacsBound at hac_lt; omega
-              have hac_le_rem : 16 * ac ≤ avail.toNat - fixed := by rw [hac_eq]; omega
+              have hac_le_rem : 32 * ac ≤ avail.toNat - fixed := by rw [hac_eq]; omega
               c0_hstraight
               have hcnt_sub1 : (2 ^ 64 - BitVec.toNat (1 : BitVec 64) +
                   countAtoms progBytes (u32At progBytes 2 % 2 ^ 32)) % 2 ^ 64 % 2 ^ 32 =
@@ -1001,7 +1002,7 @@ theorem bv_init_workspace_wp (Γ : Env)
                   (fun s => (BitVec.ofNat 64 s, ()))
                   (fun s => 0x40000000 - s)
                   (fun s ml => ml = m ∧ (∃ p, s = 2 ^ p) ∧ 0 < s ∧ s ≤ 2 ^ 30 ∧
-                    4 * s ≤ rem / 8)
+                    4 * s ≤ rem / 2)
                   ?_ ?_
                 · intro J2 hJ2
                   c0_hstraight
@@ -1264,28 +1265,28 @@ theorem bv_init_workspace_wp (Γ : Env)
               c0_hstraight
               c0_hsplit
               · c0_hstraight
-                have hge : bvDimacsBound ≤ (avail.toNat - fixed) / 16 := by
+                have hge : bvDimacsBound ≤ (avail.toNat - fixed) / 32 := by
                   have hsub_nat : (2 ^ 64 - fixed + avail.toNat) % 2 ^ 64 = avail.toNat - fixed :=
                     by omega
                   rw [hfb_raw, hsub_nat] at hc
                   exact hc
                 exact hJ2 (bvDimacsBound - 1) m ⟨by unfold bvDimacsBound at *; omega, rfl⟩
               · c0_hstraight
-                have hlt : (avail.toNat - fixed) / 16 < bvDimacsBound := by
+                have hlt : (avail.toNat - fixed) / 32 < bvDimacsBound := by
                   have hsub_nat : (2 ^ 64 - fixed + avail.toNat) % 2 ^ 64 = avail.toNat - fixed :=
                     by omega
-                  rw [hfb_raw, hsub_nat, show (2 ^ OfNat.ofNat 4 : Nat) = 16 from rfl,
+                  rw [hfb_raw, hsub_nat, show (2 ^ OfNat.ofNat 5 : Nat) = 32 from rfl,
                     show BitVec.toNat (268435456 : BitVec 64) = bvDimacsBound from rfl] at hc
                   exact Nat.lt_of_not_le hc
                 have hcap_raw : (avail - ((128 : BitVec 64) +
                     (BitVec.setWidth 64 (BitVec.ofNat 32 (u32At progBytes 2)) <<< OfNat.ofNat 2 +
                       (7 : BitVec 64) &&& ~~~(7 : BitVec 64)) +
                     (BitVec.setWidth 64 (BitVec.ofNat 32 (u32At progBytes 3)) <<< OfNat.ofNat 2 +
-                      (7 : BitVec 64) &&& ~~~(7 : BitVec 64)))) >>> OfNat.ofNat 4 =
-                    BitVec.ofNat 64 ((avail.toNat - fixed) / 16) :=
+                      (7 : BitVec 64) &&& ~~~(7 : BitVec 64)))) >>> OfNat.ofNat 5 =
+                    BitVec.ofNat 64 ((avail.toNat - fixed) / 32) :=
                   bv_init_acap_raw avail nv nn hnv_lt hnn_lt hrem_ge
                 rw [hcap_raw]
-                exact hJ2 ((avail.toNat - fixed) / 16) m ⟨by omega, rfl⟩
+                exact hJ2 ((avail.toNat - fixed) / 32) m ⟨by omega, rfl⟩
 
 end
 

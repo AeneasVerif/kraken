@@ -133,7 +133,7 @@ def bvInitFitsCond (progBytes : List UInt8) (avail : Nat) : Prop :=
   let nn := u32At progBytes 3
   let fixed := 128 + align8 (4 * nv) + align8 (4 * nn)
   fixed + 64 ≤ avail ∧
-  countAtoms progBytes nv - 1 < min ((avail - fixed) / 16) (bvDimacsBound - 1)
+  countAtoms progBytes nv - 1 < min ((avail - fixed) / 32) (bvDimacsBound - 1)
 
 /-- Concrete trivial-UNSAT condition guaranteeing `bv_solve_bytes` returns `20#64` (used for NV). -/
 def bvSolveTrivialUnsatCond (progPtr : BitVec 64) (progBytes : List UInt8)
@@ -880,13 +880,27 @@ theorem validDimacs_tseitin_of_counts {g : Aig} (marks : Array Bool) {root : UIn
       rw [List.mem_range] at hi_mem
       simp only [hi_mem, ↓reduceDIte] at hcl_i
       split at hcl_i
-      · unfold andClauses at hcl_i
-        simp only [List.mem_cons, List.not_mem_nil, or_false] at hcl_i
-        rcases hcl_i with rfl | rfl | rfl <;>
-          simp only [CNF.Clause.literals_ofLiterals, List.mem_cons, List.not_mem_nil,
-            or_false] at hl <;>
-          rcases hl with rfl | rfl | rfl <;>
-          simp [litToDimacs]
+      · unfold gateClauses at hcl_i
+        cases hd : detectIte g i hi_mem with
+        | none =>
+          rw [hd] at hcl_i
+          unfold andClauses at hcl_i
+          simp only [List.mem_cons, List.not_mem_nil, or_false] at hcl_i
+          rcases hcl_i with rfl | rfl | rfl <;>
+            simp only [CNF.Clause.literals_ofLiterals, List.mem_cons, List.not_mem_nil,
+              or_false] at hl <;>
+            rcases hl with rfl | rfl | rfl <;>
+            simp [litToDimacs]
+        | some ctf =>
+          rcases ctf with ⟨c, t, f⟩
+          rw [hd] at hcl_i
+          unfold iteClauses at hcl_i
+          simp only [List.mem_cons, List.not_mem_nil, or_false] at hcl_i
+          rcases hcl_i with rfl | rfl | rfl | rfl <;>
+            simp only [CNF.Clause.literals_ofLiterals, List.mem_cons, List.not_mem_nil,
+              or_false] at hl <;>
+            rcases hl with rfl | rfl | rfl <;>
+            simp [litToDimacs]
       · cases hcl_i
     · rw [List.mem_singleton] at hcl
       subst hcl

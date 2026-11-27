@@ -81,7 +81,7 @@ u32 bv_mk_and(BVHdr *h, u32 lhs, u32 rhs) {
   u32 slot = h0;
   u32 write_slot = h0;
   u32 probe = 0u;
-  while (probe < 16u) {
+  while (probe < 64u) {
     u32 idx = ht[slot];
     if (idx == 0u) {
       write_slot = slot;
@@ -90,8 +90,8 @@ u32 bv_mk_and(BVHdr *h, u32 lhs, u32 rhs) {
     if (idx > A && idx < len && aig[idx] == key) {
       return idx << 1;
     }
-    slot = (slot + 1u) & mask;
     probe = probe + 1u;
+    slot = (slot + probe) & mask;
   }
   u32 n_gates = len - (A + 1u);
   if (len >= h->aig_cap || (u64)len >= BV_DIMACS_BOUND || n_gates >= BV_MAX_GATES) {

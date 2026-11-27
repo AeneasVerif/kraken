@@ -268,6 +268,61 @@ private def testCoiAndDimacsParity : Bool :=
 
 #guard testCoiAndDimacsParity
 
+-- ITE gadget parity (`detectIte` skips intermediate ANDs and emits 4 clauses instead of 9).
+private def sampleIteAigRef : Aig :=
+  { A := 3, nodes := #[(2, 5), (3, 7), (9, 11)] }
+
+private def sampleIteAigPacked : List Nat :=
+  [2 + (5 <<< 32), 3 + (7 <<< 32), 9 + (11 <<< 32)]
+
+private def testIteCoiAndDimacsParity : Bool :=
+  let hdrPtr : BitVec 64 := 0x1000#64
+  let marksPtr : BitVec 64 := 0x2800#64
+  let m0 := mkSyntheticHdrMem 16 7 16 3 sampleIteAigPacked
+  match interpFunc linkedPlainBitblastModule 50000 Tseitin.bv_coi_mark_body
+      (hdrPtr, 12#32, ()) m0 with
+  | .ok _ m1 =>
+    let marksOk :=
+      match readMemBytes m1 marksPtr 7 with
+      | some bs =>
+        bs.map (fun b => b != 0) == (Tseitin.coiMark sampleIteAigRef 12).toList
+      | none => false
+    let dimacsOk :=
+      match interpFunc linkedPlainBitblastModule 50000 Tseitin.bv_dimacs_write_body
+          (hdrPtr, 12#32, ()) m1 with
+      | .ok (true, ()) m2 =>
+        match readMemU64 m2 (hdrPtr + 72), readMemU32 m2 (hdrPtr + 124) with
+        | some dstart, some dlen =>
+          readMemBytes m2 (BitVec.ofNat 64 dstart.toNat) dlen.toNat ==
+            some (encodeDimacs
+              (Tseitin.tseitin sampleIteAigRef (Tseitin.coiMark sampleIteAigRef 12) 12))
+        | _, _ => false
+      | _ => false
+    marksOk && dimacsOk
+  | _ => false
+
+#guard testIteCoiAndDimacsParity
+
+-- `bv_init_workspace` hash-table sizing (`ht_slots >= 2 * aig_cap`, power-of-2) + quadratic probe.
+private def testWorkspaceHtSizing : Bool :=
+  let progPtr : BitVec 64 := 0x1000#64
+  let workPtr : BitVec 64 := 0x2000#64
+  let workCap : Nat := 16384
+  let progBytes := BVProg.wordsToBytesLE BitblastRefTest.smallWs
+  let padGap := workPtr.toNat - (progPtr.toNat + progBytes.length)
+  let m0 : Mem 64 := (progBytes ++ List.replicate padGap 0 ++ List.replicate workCap 0).At progPtr
+  match interpFunc linkedPlainBitblastModule 200000 Driver.bv_init_workspace_body
+      (workPtr, workPtr, BitVec.ofNat 64 workCap, progPtr, ()) m0 with
+  | .ok (true, ()) m1 =>
+    match readMemU32 m1 (workPtr + 104), readMemU32 m1 (workPtr + 108) with
+    | some aigCap, some htMask =>
+      let htSlots := htMask.toNat + 1
+      htSlots >= 2 * aigCap.toNat && (htSlots &&& htMask.toNat) == 0 && aigCap.toNat > 0
+    | _, _ => false
+  | _ => false
+
+#guard testWorkspaceHtSizing
+
 /-! ## 4. End-to-End `bv_solve_bytes` Linked with `Kissat.Plain` via `interpModule` -/
 
 private def runSolveExpr (e : BVLogicalExpr) (progPtr workPtr : BitVec 64) (workCap : Nat)

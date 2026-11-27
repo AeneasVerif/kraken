@@ -48,10 +48,46 @@ void bv_coi_mark(BVHdr *h, u32 root) {
     g = g - 1u;
     if (marks[g] != (u8)0) {
       u64 packed = aig[g];
-      u32 lnode = ((u32)(packed & 0xFFFFFFFFULL)) >> 1;
-      u32 rnode = ((u32)(packed >> 32)) >> 1;
-      if (lnode < len) { marks[lnode] = (u8)1; }
-      if (rnode < len) { marks[rnode] = (u8)1; }
+      u32 lhs = (u32)(packed & 0xFFFFFFFFULL);
+      u32 rhs = (u32)(packed >> 32);
+      u32 is_ite = 0u;
+      u32 ic = 0u;
+      u32 it = 0u;
+      u32 if_ = 0u;
+      if ((lhs & rhs & 1u) != 0u) {
+        u32 ln = lhs >> 1;
+        u32 rn2 = rhs >> 1;
+        if (ln > A && rn2 > A) {
+          u64 lp = aig[ln];
+          u64 rp = aig[rn2];
+          u32 l0 = (u32)(lp & 0xFFFFFFFFULL);
+          u32 l1 = (u32)(lp >> 32);
+          u32 r0 = (u32)(rp & 0xFFFFFFFFULL);
+          u32 r1 = (u32)(rp >> 32);
+          if (l0 == (r0 ^ 1u)) {
+            is_ite = 1u; ic = l0; it = l1 ^ 1u; if_ = r1 ^ 1u;
+          } else if (l0 == (r1 ^ 1u)) {
+            is_ite = 1u; ic = l0; it = l1 ^ 1u; if_ = r0 ^ 1u;
+          } else if (l1 == (r0 ^ 1u)) {
+            is_ite = 1u; ic = l1; it = l0 ^ 1u; if_ = r1 ^ 1u;
+          } else if (l1 == (r1 ^ 1u)) {
+            is_ite = 1u; ic = l1; it = l0 ^ 1u; if_ = r0 ^ 1u;
+          }
+        }
+      }
+      if (is_ite != 0u) {
+        u32 cn = ic >> 1;
+        u32 tn = it >> 1;
+        u32 fn = if_ >> 1;
+        if (cn < len) { marks[cn] = (u8)1; }
+        if (tn < len) { marks[tn] = (u8)1; }
+        if (fn < len) { marks[fn] = (u8)1; }
+      } else {
+        u32 lnode = lhs >> 1;
+        u32 rnode = rhs >> 1;
+        if (lnode < len) { marks[lnode] = (u8)1; }
+        if (rnode < len) { marks[rnode] = (u8)1; }
+      }
     }
   }
 }
@@ -159,24 +195,67 @@ bool bv_dimacs_write(BVHdr *h, u32 root) {
       u64 packed = aig[g];
       u32 lhs = (u32)(packed & 0xFFFFFFFFULL);
       u32 rhs = (u32)(packed >> 32);
-      u32 o = g + 1u;
-      u32 lv = (lhs >> 1) + 1u;
-      u32 rv = (rhs >> 1) + 1u;
-      if (o > max_var) { max_var = o; }
-      if (lv > max_var) { max_var = lv; }
-      if (rv > max_var) { max_var = rv; }
-      if ((u64)max_var >= BV_DIMACS_BOUND || (u64)num_clauses >= BV_DIMACS_BOUND - 3ULL) {
-        h->oom = 1u;
-        h->dimacs_start = 0ULL;
-        h->dimacs_len = 0u;
-        return false;
+      u32 is_ite = 0u;
+      u32 ic = 0u;
+      u32 it = 0u;
+      u32 if_ = 0u;
+      if ((lhs & rhs & 1u) != 0u) {
+        u32 ln = lhs >> 1;
+        u32 rn = rhs >> 1;
+        if (ln > A && rn > A) {
+          u64 lp = aig[ln];
+          u64 rp = aig[rn];
+          u32 l0 = (u32)(lp & 0xFFFFFFFFULL);
+          u32 l1 = (u32)(lp >> 32);
+          u32 r0 = (u32)(rp & 0xFFFFFFFFULL);
+          u32 r1 = (u32)(rp >> 32);
+          if (l0 == (r0 ^ 1u)) {
+            is_ite = 1u; ic = l0; it = l1 ^ 1u; if_ = r1 ^ 1u;
+          } else if (l0 == (r1 ^ 1u)) {
+            is_ite = 1u; ic = l0; it = l1 ^ 1u; if_ = r0 ^ 1u;
+          } else if (l1 == (r0 ^ 1u)) {
+            is_ite = 1u; ic = l1; it = l0 ^ 1u; if_ = r1 ^ 1u;
+          } else if (l1 == (r1 ^ 1u)) {
+            is_ite = 1u; ic = l1; it = l0 ^ 1u; if_ = r0 ^ 1u;
+          }
+        }
       }
-      num_clauses = num_clauses + 3u;
-      u64 olen = bv_dec_len(o);
-      body_bytes = body_bytes + (olen + 2ULL + bv_lit_bytes(lhs) + 2ULL);
-      body_bytes = body_bytes + (olen + 2ULL + bv_lit_bytes(rhs) + 2ULL);
-      body_bytes = body_bytes + (olen + 1ULL + bv_lit_bytes(lhs ^ 1u) +
-                                 bv_lit_bytes(rhs ^ 1u) + 2ULL);
+      u32 o = g + 1u;
+      if (o > max_var) { max_var = o; }
+      if (is_ite != 0u) {
+        u32 cv = (ic >> 1) + 1u;
+        u32 tv = (it >> 1) + 1u;
+        u32 fv = (if_ >> 1) + 1u;
+        if (cv > max_var) { max_var = cv; }
+        if (tv > max_var) { max_var = tv; }
+        if (fv > max_var) { max_var = fv; }
+        if ((u64)max_var >= BV_DIMACS_BOUND || (u64)num_clauses >= BV_DIMACS_BOUND - 4ULL) {
+          h->oom = 1u;
+          h->dimacs_start = 0ULL;
+          h->dimacs_len = 0u;
+          return false;
+        }
+        num_clauses = num_clauses + 4u;
+        body_bytes = body_bytes + (bv_dec_len(o) << 2) + (bv_dec_len(cv) << 2) +
+                                  (bv_dec_len(tv) << 1) + (bv_dec_len(fv) << 1) + 26ULL;
+      } else {
+        u32 lv = (lhs >> 1) + 1u;
+        u32 rv = (rhs >> 1) + 1u;
+        if (lv > max_var) { max_var = lv; }
+        if (rv > max_var) { max_var = rv; }
+        if ((u64)max_var >= BV_DIMACS_BOUND || (u64)num_clauses >= BV_DIMACS_BOUND - 3ULL) {
+          h->oom = 1u;
+          h->dimacs_start = 0ULL;
+          h->dimacs_len = 0u;
+          return false;
+        }
+        num_clauses = num_clauses + 3u;
+        u64 olen = bv_dec_len(o);
+        body_bytes = body_bytes + (olen + 2ULL + bv_lit_bytes(lhs) + 2ULL);
+        body_bytes = body_bytes + (olen + 2ULL + bv_lit_bytes(rhs) + 2ULL);
+        body_bytes = body_bytes + (olen + 1ULL + bv_lit_bytes(lhs ^ 1u) +
+                                   bv_lit_bytes(rhs ^ 1u) + 2ULL);
+      }
     }
     g = g + 1u;
   }
@@ -198,18 +277,65 @@ bool bv_dimacs_write(BVHdr *h, u32 root) {
       u64 packed = aig[g];
       u32 lhs = (u32)(packed & 0xFFFFFFFFULL);
       u32 rhs = (u32)(packed >> 32);
+      u32 is_ite = 0u;
+      u32 ic = 0u;
+      u32 it = 0u;
+      u32 if_ = 0u;
+      if ((lhs & rhs & 1u) != 0u) {
+        u32 ln = lhs >> 1;
+        u32 rn = rhs >> 1;
+        if (ln > A && rn > A) {
+          u64 lp = aig[ln];
+          u64 rp = aig[rn];
+          u32 l0 = (u32)(lp & 0xFFFFFFFFULL);
+          u32 l1 = (u32)(lp >> 32);
+          u32 r0 = (u32)(rp & 0xFFFFFFFFULL);
+          u32 r1 = (u32)(rp >> 32);
+          if (l0 == (r0 ^ 1u)) {
+            is_ite = 1u; ic = l0; it = l1 ^ 1u; if_ = r1 ^ 1u;
+          } else if (l0 == (r1 ^ 1u)) {
+            is_ite = 1u; ic = l0; it = l1 ^ 1u; if_ = r0 ^ 1u;
+          } else if (l1 == (r0 ^ 1u)) {
+            is_ite = 1u; ic = l1; it = l0 ^ 1u; if_ = r1 ^ 1u;
+          } else if (l1 == (r1 ^ 1u)) {
+            is_ite = 1u; ic = l1; it = l0 ^ 1u; if_ = r0 ^ 1u;
+          }
+        }
+      }
       u32 pos_o = g << 1;
       u32 neg_o = pos_o | 1u;
-      p = bv_write_lit(p, neg_o);
-      p = bv_write_lit(p, lhs);
-      p = bv_write_clause_end(p);
-      p = bv_write_lit(p, neg_o);
-      p = bv_write_lit(p, rhs);
-      p = bv_write_clause_end(p);
-      p = bv_write_lit(p, pos_o);
-      p = bv_write_lit(p, lhs ^ 1u);
-      p = bv_write_lit(p, rhs ^ 1u);
-      p = bv_write_clause_end(p);
+      if (is_ite != 0u) {
+        u32 nc = ic ^ 1u;
+        u32 nt = it ^ 1u;
+        u32 nf = if_ ^ 1u;
+        p = bv_write_lit(p, nc);
+        p = bv_write_lit(p, nt);
+        p = bv_write_lit(p, pos_o);
+        p = bv_write_clause_end(p);
+        p = bv_write_lit(p, nc);
+        p = bv_write_lit(p, it);
+        p = bv_write_lit(p, neg_o);
+        p = bv_write_clause_end(p);
+        p = bv_write_lit(p, ic);
+        p = bv_write_lit(p, nf);
+        p = bv_write_lit(p, pos_o);
+        p = bv_write_clause_end(p);
+        p = bv_write_lit(p, ic);
+        p = bv_write_lit(p, if_);
+        p = bv_write_lit(p, neg_o);
+        p = bv_write_clause_end(p);
+      } else {
+        p = bv_write_lit(p, neg_o);
+        p = bv_write_lit(p, lhs);
+        p = bv_write_clause_end(p);
+        p = bv_write_lit(p, neg_o);
+        p = bv_write_lit(p, rhs);
+        p = bv_write_clause_end(p);
+        p = bv_write_lit(p, pos_o);
+        p = bv_write_lit(p, lhs ^ 1u);
+        p = bv_write_lit(p, rhs ^ 1u);
+        p = bv_write_clause_end(p);
+      }
     }
     g = g + 1u;
   }
