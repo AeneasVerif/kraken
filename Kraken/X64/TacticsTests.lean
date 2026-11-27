@@ -23,6 +23,8 @@ done:
   mov $42, %rax
 ⸩
 
+variable [Labels]
+
 -- The hygienic state alias must not capture an existing `ss`.
 example (layout : Layout) (P : Prop) (ss : Nat) (s : MachineData) (hP : P) :
     Eventually (step1 (layout.apply kprologueTestProgram)) (fun _ => P) ⟨s, layout.start⟩ := by

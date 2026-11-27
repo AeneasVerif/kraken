@@ -60,8 +60,10 @@ public theorem Host.eventually_of_interp {k : Nat} {d : Directive} {p : Program}
     (hdp : (d :: p).IsInfixAt Host.prog k) {post : @Post MachineState} {s : MachineData}
     (h : (d.interp s ⟨Host.addrOf k, Host.addrOf (k + 1)⟩
       (fun s' => .done ⟨s', Host.addrOf (k + 1)⟩) (fun a s' => .done ⟨s', a⟩)).All post) :
-    Eventually (step1 Host.exe) post ⟨s, Host.addrOf k⟩ :=
-  _root_.eventually_of_interp Host.wf hdp.cons.1 h
+    Eventually (step1 Host.exe) post ⟨s, Host.addrOf k⟩ := by
+  have hL : Labels.update (inferInstance : Labels) (Host.layout.apply Host.prog) = (inferInstance : Labels) :=
+    Labels.update_idem Labels.empty Host.exe
+  exact _root_.eventually_of_interp Host.wf hdp.cons.1 (by rw [hL]; exact h)
 
 end
 

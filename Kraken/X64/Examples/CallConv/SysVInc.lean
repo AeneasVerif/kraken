@@ -36,16 +36,16 @@ sysv_caller:
   addq $8, %rsp
   ret⸩
 
-variable (layout : Layout) [prog.AssemblableWith layout]
+variable [L : Labels] (layout : Layout) [prog.AssemblableWith layout]
 
 /-- The address of label `l` in `prog`. -/
-abbrev lbl (l : String) : Int64 := @Labels.label! (Executable.labels (layout.apply prog)) l
+abbrev lbl (l : String) : Int64 := (L.update (layout.apply prog)).label l
 
 private theorem lbl_inc : lbl layout "sysv_inc" = (layout.apply prog).addrOf 0 :=
-  Labels.label!_of_label? (label?_eq_some_addrOf rfl)
+  label_update_eq_addrOf rfl
 
 private theorem lbl_caller : lbl layout "sysv_caller" = (layout.apply prog).addrOf 4 :=
-  Labels.label!_of_label? (label?_eq_some_addrOf rfl)
+  label_update_eq_addrOf rfl
 
 /-- The specification of an increment procedure at `entry` that needs `d` bytes of stack. -/
 abbrev IncSpec (d : Nat) (entry : Int64) : Prop :=
@@ -64,7 +64,7 @@ theorem inc_spec : IncSpec layout 0 (lbl layout "sysv_inc") := by
   · exact Owned.intro hmem (Int.toBytes_length _ _)
   · simp (config := { zetaDelta := true }) [harg, BitVec.add_comm]
 
-omit [prog.AssemblableWith layout] in
+omit [L : Labels] [prog.AssemblableWith layout] in
 private theorem reserve16_eq (r : BitVec 64) :
     Reserve 16 r = Owned 8 (r - 8 - 8) ⋆ Owned 8 (r - 8) := by
   rw [Reserve, show (16 : Nat) = 8 + 8 from rfl, Owned.split 8 8 _ (by omega)]

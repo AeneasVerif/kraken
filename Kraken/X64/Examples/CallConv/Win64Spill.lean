@@ -39,14 +39,14 @@ theorem reserve24_eq (r : BitVec 64) :
   rw [Reserve, show (24 : Nat) = 16 + 8 from rfl, Owned.split 16 8 _ (by omega)]
   congr 2 <;> bv_omega
 
-variable (layout : Layout) [prog.AssemblableWith layout]
+variable [L : Labels] (layout : Layout) [prog.AssemblableWith layout]
 
 theorem spill_spec (R : Mem 64 → Prop) (ra : Int64) :
     (layout.apply prog).ProcSpec
-      (@Labels.label! (Executable.labels (layout.apply prog)) "win64_spill") ra
+      ((L.update (layout.apply prog)).label "win64_spill") ra
       (fun t => Win64.Call 24 R ra t)
       (fun t s => Win64.Ret 24 R ra t s ∧ s.zmms.get (.xmm .mm1) = t.zmms.get (.xmm .mm0)) := by
-  rw [Labels.label!_of_label? (label?_eq_some_addrOf (p := prog) (l := layout) (k := 0) rfl)]
+  rw [label_update_eq_addrOf (p := prog) (l := layout) (k := 0) rfl]
   rintro t ⟨hal, hdf, hmem⟩
   rw [reserve24_eq, sep_assoc, sep_comm_l (Shadow _) (Owned 16 _),
     sep_comm_l (RetCell _ _) (Owned 16 _)] at hmem
@@ -67,7 +67,7 @@ theorem spill_spec (R : Mem 64 → Prop) (ra : Int64) :
   simp only [Nat.shiftRight_zero, BitVec.ofNat_toNat, BitVec.setWidth_eq, Reg64s.get64,
     BitVec.toAddressSize, BitVec.signed, BitVec.take, Int.add_zero, BitVec.ofInt_toInt, ex,
     Width.bits, Int64.toInt_zero]
-  refine @Effects.All_storeAvx (Executable.labels (layout.apply prog)) _ _ _ _ _ _ _ _
+  refine Effects.All_storeAvx
     (fun _ => haligned)
     (show Mem.loadInt t.dmem (t.regs.rsp.toBitVec - 24) 16 = _ from hslot) ?_
   simp only [Effects.All]
@@ -79,7 +79,7 @@ theorem spill_spec (R : Mem 64 → Prop) (ra : Int64) :
   simp (config := { zetaDelta := true }) only [AddrExpr.interp, ConstExpr.interp]
   simp only [BitVec.setWidth_eq, Reg64s.get64, BitVec.toAddressSize, BitVec.signed,
     BitVec.take, Int.add_zero, BitVec.ofInt_toInt, ex, Width.bits, Int64.toInt_zero]
-  refine @Effects.All_loadAvx (Executable.labels (layout.apply prog)) _ _ _ _ _ _ _
+  refine Effects.All_loadAvx
     (fun _ => haligned)
     (show Mem.loadInt (Mem.storeInt t.dmem (t.regs.rsp.toBitVec - 24) 16
       (t.zmms.get (AvxReg.xmm .mm0)).toInt) (t.regs.rsp.toBitVec - 24) 16 = _ from hval) ?_
