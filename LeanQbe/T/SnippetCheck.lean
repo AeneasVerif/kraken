@@ -145,7 +145,7 @@ def extractSubHints (I : Isa) (hOuter : I.Hints) (z : SpillSnippet.TreeZip) : I.
           | some (v1, _) => some (SymArg.var v1, loc)
           | none => none
         | _ => some (sa, loc)
-      t.insert lid1 ⟨live1, enO.ploc⟩
+      t.insert lid1 { live := live1, ploc := enO.ploc }
     | none => t) .empty
   let variant := z.ipMap.foldl (fun t (ip1, ip2) =>
     match hOuter.variant.find? ip2 with
