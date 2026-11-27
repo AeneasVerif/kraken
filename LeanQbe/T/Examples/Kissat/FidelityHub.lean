@@ -133,6 +133,11 @@ public import LeanQbe.T.Examples.Kissat.FullFidelityStep12CRowsProof
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep12ProofLuckyS15
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep12ProofPurgeDel
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep12ProofVivDel
+public import LeanQbe.T.Examples.Kissat.FullFidelityStep13S0
+public import LeanQbe.T.Examples.Kissat.FullFidelityStep13S0Proof0
+public import LeanQbe.T.Examples.Kissat.FullFidelityStep13S0Proof1
+public import LeanQbe.T.Examples.Kissat.FullFidelityStep13S0Rows
+public import LeanQbe.T.Examples.Kissat.FullFidelityStep13S0RowsProof
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep2S15
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep7
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep7BvaSpec
