@@ -85,13 +85,16 @@ private theorem s6a_viv_clause_prop_step13 (Γ : Env)
     (hBestImpl : ∀ a m Q X, fullVivBestImpliedM6Spec a m Q X →
       Γ "full_viv_best_implied_m6" [i64, i32] [i32] a m Q X)
     {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
-    {ext_as : List (BitVec 64)} {s s5 sp s_as : FullState}
+    {ext0 ext_as : List (BitVec 64)} {s s5 sp s_as : FullState}
     {R : Mem 64 → Prop} {Q : Post [i64]} {X : XPost}
     {B : Cont [i32, .bool, i32]} {J_jn : Cont [.bool, i32]}
     {cref i lit sz : BitVec 32} {tmp5 : List (BitVec 32)} {lits2 : List Nat} {m_as : Mem 64}
     (hcfg : FullM6HdrCfgOk c) (hext_as : M6HdrExtOk ext_as)
+    (hinit_as : M6HdrExtInitOk ext0 → M6HdrExtInitOk ext_as ∧ M6ExtW2bPres ext0 ext_as)
     (hQ : ∀ (r : BitVec 64) (ext' : List (BitVec 64)) (s' : FullState) (m' : Mem 64),
-      FullM6HdrInvW c F0 F_cur ext' s' → s'.core.fuel.toNat ≤ s.core.fuel.toNat →
+      FullM6HdrInvW c F0 F_cur ext' s' →
+      (M6HdrExtInitOk ext0 → M6HdrExtInitOk ext' ∧ M6ExtW2bPres ext0 ext') →
+      s'.core.fuel.toNat ≤ s.core.fuel.toNat →
       s'.core.arena_len = s.core.arena_len → fullArenaClauseRefs s' = fullArenaClauseRefs s →
       s'.scratch.red_refs = s.scratch.red_refs →
       r = 1#64 ∨ r = 2#64 ∨ r = 20#64 → (r = 20#64 → F0.Unsat) →
@@ -99,7 +102,8 @@ private theorem s6a_viv_clause_prop_step13 (Γ : Env)
     (hB : ∀ (r : Tup Val [i32, .bool, i32]) (m' : Mem 64),
       (match r with
       | (ib, confl, implied, ()) => ∃ (extb : List (BitVec 64)) (sb : FullState),
-        M6HdrExtOk extb ∧ FullSparseInvW c F0 F_cur sb ∧
+        M6HdrExtOk extb ∧ (M6HdrExtInitOk ext0 → M6HdrExtInitOk extb ∧ M6ExtW2bPres ext0 extb) ∧
+        FullSparseInvW c F0 F_cur sb ∧
         sb.core.cur_vars = s5.core.cur_vars ∧ sb.core.arena_len = s5.core.arena_len ∧
         sb.core.probing = s5.core.probing ∧ sb.core.tmp = tmp5 ∧
         sb.core.fuel.toNat ≤ s.core.fuel.toNat ∧
@@ -119,7 +123,9 @@ private theorem s6a_viv_clause_prop_step13 (Γ : Env)
         (FullMem c sb ⋆ (m6ExtMem (m6ExtAddr c.hdr) extb ⋆ R)) m') → B r m')
     (hJ_jn : ∀ (xs : Tup Val [.bool, i32]) (m : Mem 64),
       (∃ (ext_jn : List (BitVec 64)) (s_jn : FullState),
-        M6HdrExtOk ext_jn ∧ FullSparseInvW c F0 F_cur s_jn ∧
+        M6HdrExtOk ext_jn ∧
+        (M6HdrExtInitOk ext0 → M6HdrExtInitOk ext_jn ∧ M6ExtW2bPres ext0 ext_jn) ∧
+        FullSparseInvW c F0 F_cur s_jn ∧
         s_jn.core.cur_vars = s5.core.cur_vars ∧
         s_jn.core.arena_len = s5.core.arena_len ∧
         s_jn.core.probing = s5.core.probing ∧ s_jn.core.tmp = tmp5 ∧
@@ -191,7 +197,7 @@ private theorem s6a_viv_clause_prop_step13 (Γ : Env)
   refine ⟨c, F0, F_cur, ext_as, s_as, R, rfl, hcfg, hext_as, hsp_as.1, hsp_as.2.1,
     hsp_as.2.2.2.2.2, fullM6HdrMem_unfocus_full hm_as, ?_⟩
   intro pr ext_p vals_p flags_p lvl_p rsns_p trl_p tp_p te_p prop_p unass_p unfl_p wvec_p
-    arena_p wstk_p wlen_p wu_p fuel_p ctype_p cref_p c0_p c1_p oom_p sc_p m_p _ hext_p _
+    arena_p wstk_p wlen_p wu_p fuel_p ctype_p cref_p c0_p c1_p oom_p sc_p m_p _ hext_p hinit_p
     hlen_p hw_p htr_p hperm_p hsc_pres hrr_p _ _ _ hfl_p hpr_disj hpr0 hpr1 _ _ hm_p
   let s_p : FullState :=
     { core := { s_as.core with
@@ -228,6 +234,8 @@ private theorem s6a_viv_clause_prop_step13 (Γ : Env)
   have htrl_p' : ∀ idx < s_as.core.trail_end, s_p.core.trl[idx]? = s_as.core.trl[idx]? := htr_p.2.1
   have hcok_p_fn : pr = 1#64 → FullConflictOkW F_cur s_p := fun h => (hpr1 h).2.2.1
   have hct_p0_fn : pr = 0#64 → s_p.core.confl_type = 0#64 := fun h => (hpr0 h).2.1.trans hct_as
+  have hinit_p' : M6HdrExtInitOk ext0 → M6HdrExtInitOk ext_p ∧ M6ExtW2bPres ext0 ext_p :=
+    fun hi => let ⟨hi1, hw1⟩ := hinit_as hi; let ⟨hi2, hw2⟩ := hinit_p hi1; ⟨hi2, hw1.trans hw2⟩
   clear_value s_p; clear hm_p hm_as hprops_p hperm_p htr_p
   fvt_steps
   · have hp_cl_lt : s_p.core.cur_level < 2 ^ 64 := by
@@ -246,13 +254,14 @@ private theorem s6a_viv_clause_prop_step13 (Γ : Env)
         (hw_b F0 F_cur hsp_p.2.1 (Nat.zero_le _))
     rcases hsc_b with ⟨_, _, _, _, _, _, _, _, _, rfl⟩
     fvt_steps
-    exact hQ 2#64 ext_p _ m_b (FullM6HdrInvW.mk_inv hcfg hext_p hsp_b) hfl_p' (hal_p.trans hal5)
-      hrefs_p' hrr_p (Or.inr (Or.inl rfl)) (fun h => by cases h) (fullM6HdrMem_unfocus_full hm_b)
+    exact hQ 2#64 ext_p _ m_b (FullM6HdrInvW.mk_inv hcfg hext_p hsp_b) hinit_p' hfl_p'
+      (hal_p.trans hal5) hrefs_p' hrr_p (Or.inr (Or.inl rfl)) (fun h => by cases h)
+      (fullM6HdrMem_unfocus_full hm_b)
   · have hpr_eq1 : pr = 1#64 := by c0_bound
     fvt_steps
-    exact hB (i, true, 0xFFFFFFFF#32, ()) _ ⟨ext_p, s_p, hext_p, hsp_p, hcv_p, hal_p, hpr_p,
-      htmp_p, hfl_p', hrefs_p', hrr_p, href_p, hng_p, hsz_p, hlits_p, fun _ => hcok_p_fn hpr_eq1,
-      (fun h => by cases h), (fun h => by cases h), hm_p'⟩
+    exact hB (i, true, 0xFFFFFFFF#32, ()) _ ⟨ext_p, s_p, hext_p, hinit_p', hsp_p, hcv_p, hal_p,
+      hpr_p, htmp_p, hfl_p', hrefs_p', hrr_p, href_p, hng_p, hsz_p, hlits_p,
+      fun _ => hcok_p_fn hpr_eq1, (fun h => by cases h), (fun h => by cases h), hm_p'⟩
   · have hpr_eq0 : pr = 0#64 := by
       rcases hpr_disj with rfl | rfl | rfl
       · rfl
@@ -266,8 +275,8 @@ private theorem s6a_viv_clause_prop_step13 (Γ : Env)
       htmp_p_lt, hm_p', fun bi hbi => ?_⟩
     fvt_steps
     · have hbi_ne : bi ≠ 0xFFFFFFFF#32 := by c0_bound
-      exact hB (i, false, bi, ()) _ ⟨ext_p, s_p, hext_p, hsp_p, hcv_p, hal_p, hpr_p, htmp_p,
-        hfl_p', hrefs_p', hrr_p, href_p, hng_p, hsz_p, hlits_p, (fun h => by cases h),
+      exact hB (i, false, bi, ()) _ ⟨ext_p, s_p, hext_p, hinit_p', hsp_p, hcv_p, hal_p, hpr_p,
+        htmp_p, hfl_p', hrefs_p', hrr_p, href_p, hng_p, hsz_p, hlits_p, (fun h => by cases h),
         fun _ _ => hbi hbi_ne, fun _ h => absurd h hbi_ne, hm_p'⟩
     · have hi1_nat : (i + 1#32).toNat = i.toNat + 1 := by bv_omega
       have hfal_p1 : ∀ k < (i + 1#32).toNat,
@@ -281,8 +290,8 @@ private theorem s6a_viv_clause_prop_step13 (Γ : Env)
         · rw [← hlit_eq]
           exact falsified_preserved_of_trailExt hsp_as.2.1 hsp_p.2.1 hcv_p_as hte_p' htrl_p'
             (hcv_as ▸ hlit_lt) hlit_as_ff
-      exact hJ_jn _ _ ⟨ext_p, s_p, hext_p, hsp_p, hcv_p, hal_p, hpr_p, htmp_p, hfl_p', hrefs_p',
-        hrr_p, href_p, hng_p, hsz_p, hlits_p, hct_p0, hfal_p1, hm_p'⟩
+      exact hJ_jn _ _ ⟨ext_p, s_p, hext_p, hinit_p', hsp_p, hcv_p, hal_p, hpr_p, htmp_p, hfl_p',
+        hrefs_p', hrr_p, href_p, hng_p, hsz_p, hlits_p, hct_p0, hfal_p1, hm_p'⟩
 
 private theorem s6a_viv_clr_hdr_ok {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
     {ext_f : List (BitVec 64)} {s_f : FullState} {cref : BitVec 32}
@@ -447,18 +456,18 @@ theorem full_viv_clause_m6_step13_wp (Γ : Env)
   have hcfg := hinv0.cfgOk; have hext0 := hinv0.extOk
   have hsp0 := FullM6HdrInvW.sparseW hinv0
   have hmx := c.hmaxv; have har_cap := c.harena; unfold dimacsBound at hmx har_cap
-  have hwf0 := hsp0.2.1.arena.refs_wf cref.toNat href0
-  have hcl0 := hsp0.1.core_ok
+  have hwf0 := hsp0.2.1.arena.refs_wf cref.toNat href0; have hcl0 := hsp0.1.core_ok
   have hcr0_nat : (cref.setWidth 64).toNat = cref.toNat := bv32_setWidth64_toNat cref
-  have hcr0_lt0 : cref.toNat < s.core.arena.length := by
+  have hcr0_bv0 : (cref.setWidth 64).toNat < s.core.arena.length := by
     have := hcl0.arena_len_arr; have := hcl0.arena_len_le; omega
-  have hcr0_bv0 : (cref.setWidth 64).toNat < s.core.arena.length := by omega
   have hcr2_nat : (cref.setWidth 64 + 2#64).toNat = cref.toNat + 2 := by bv_omega
   have hcr2_lt0 : cref.toNat + 2 < s.core.arena.length := by
     have := hcl0.arena_len_arr; have := hcl0.arena_len_le; omega
   have hcr2_bv0 : (cref.setWidth 64 + 2#64).toNat < s.core.arena.length := by omega
   have hm0_f := fullM6HdrMem_focus_full hm0
-  have htriv0 := hQ 1#64 ext0 s m0 hinv0 (Nat.le_refl _) rfl rfl rfl (Or.inl rfl)
+  have hinit0 : M6HdrExtInitOk ext0 → M6HdrExtInitOk ext0 ∧ M6ExtW2bPres ext0 ext0 :=
+    fun h => ⟨h, M6ExtW2bPres.refl ext0⟩
+  have htriv0 := hQ 1#64 ext0 s m0 hinv0 hinit0 (Nat.le_refl _) rfl rfl rfl (Or.inl rfl)
     (fun h => by cases h) hm0
   unfold Func.wp fid11_viv_clause_m6_body
   fvt_steps
@@ -488,15 +497,12 @@ theorem full_viv_clause_m6_step13_wp (Γ : Env)
     by_cases hl0 : l0r ≠ 0#64
     · rcases hl0r with rfl | rfl | rfl | rfl
       · exact absurd rfl hl0
-      · fvt_steps
-        exact hQ 1#64 ext0 s1 _ hinv1 hfl1 hal1 hrefs1 hrr1 (Or.inl rfl) (fun h => by cases h)
-          (fullM6HdrMem_unfocus_full hm1)
-      · fvt_steps
-        exact hQ 2#64 ext0 s1 _ hinv1 hfl1 hal1 hrefs1 hrr1 (Or.inr (Or.inl rfl))
+      · fvt_steps; exact hQ 1#64 ext0 s1 _ hinv1 hinit0 hfl1 hal1 hrefs1 hrr1 (Or.inl rfl)
           (fun h => by cases h) (fullM6HdrMem_unfocus_full hm1)
-      · fvt_steps
-        exact hQ 20#64 ext0 s1 _ hinv1 hfl1 hal1 hrefs1 hrr1 (Or.inr (Or.inr rfl))
-          (fun _ => h20_1 rfl) (fullM6HdrMem_unfocus_full hm1)
+      · fvt_steps; exact hQ 2#64 ext0 s1 _ hinv1 hinit0 hfl1 hal1 hrefs1 hrr1
+          (Or.inr (Or.inl rfl)) (fun h => by cases h) (fullM6HdrMem_unfocus_full hm1)
+      · fvt_steps; exact hQ 20#64 ext0 s1 _ hinv1 hinit0 hfl1 hal1 hrefs1 hrr1
+          (Or.inr (Or.inr rfl)) (fun _ => h20_1 rfl) (fullM6HdrMem_unfocus_full hm1)
     obtain rfl : l0r = 0#64 := Classical.not_not.mp hl0
     fvt_steps
     · contradiction
@@ -506,7 +512,7 @@ theorem full_viv_clause_m6_step13_wp (Γ : Env)
     have hcr2_lt1 : cref.toNat + 2 < s1.core.arena.length := by
       have := hcl1.arena_len_arr; have := hcl1.arena_len_le; omega
     have hcr2_bv1 : (cref.setWidth 64 + 2#64).toNat < s1.core.arena.length := by omega
-    have htriv1 := hQ 1#64 ext0 s1 _ hinv1 hfl1 hal1 hrefs1 hrr1 (Or.inl rfl)
+    have htriv1 := hQ 1#64 ext0 s1 _ hinv1 hinit0 hfl1 hal1 hrefs1 hrr1 (Or.inl rfl)
       (fun h => by cases h) (fullM6HdrMem_unfocus_full hm1)
     fvt_steps
     · exact htriv1
@@ -525,8 +531,7 @@ theorem full_viv_clause_m6_step13_wp (Γ : Env)
       rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hcv_lt, bv32_setWidth64_toNat] at hc0
       omega
     have hsz_le_mv : sz.toNat ≤ c.max_vars := by have := hcl1.cur_vars_le; omega
-    let s2 : FullState := s1
-    have hsp2 : FullSparseInvW c F0 F_cur s2 := hsp1
+    let s2 : FullState := s1; have hsp2 : FullSparseInvW c F0 F_cur s2 := hsp1
     have hrefs2 : fullArenaClauseRefs s2 = fullArenaClauseRefs s1 := rfl
     have href2 : cref.toNat ∈ fullArenaClauseRefs s2 := href1
     have hng2 : fullArenaClauseGarb s2 cref.toNat = false := hng1
@@ -538,8 +543,7 @@ theorem full_viv_clause_m6_step13_wp (Γ : Env)
       rw [hsz_nat]
       change cref.toNat + 3 + fullArenaClauseSizeCore s1.core cref.toNat ≤ s2.core.arena.length
       omega
-    clear hL0Simp hwf0 hcl0 hcr0_lt0 hgb_eq hfl1_eq h20_1 h0_1 hinv0 hinv1 hm0 hm0_f
-    fvt_steps
+    clear hL0Simp hwf0 hcl0 hgb_eq hfl1_eq h20_1 h0_1 hinv0 hinv1 hm0 hm0_f; fvt_steps
     refine wp_loop_inv (ts := [i32])
       (fun (i, ()) mc => ∃ tmpc : List (BitVec 32),
         i.toNat ≤ sz.toNat ∧ tmpc.length = c.max_vars ∧
@@ -631,7 +635,8 @@ theorem full_viv_clause_m6_step13_wp (Γ : Env)
       try clear hi_eq ihc hmc hcp htc_len hi_le tmpc mc Jc i s2 s4r
       refine wp_loop_break_group (brkTs := [i32, .bool, i32]) (lpTs := [i32])
         (fun (i, confl, implied, ()) mb => ∃ (extb : List (BitVec 64)) (sb : FullState),
-          M6HdrExtOk extb ∧ FullSparseInvW c F0 F_cur sb ∧
+          M6HdrExtOk extb ∧ (M6HdrExtInitOk ext0 → M6HdrExtInitOk extb ∧ M6ExtW2bPres ext0 extb) ∧
+          FullSparseInvW c F0 F_cur sb ∧
           sb.core.cur_vars = s5.core.cur_vars ∧ sb.core.arena_len = s5.core.arena_len ∧
           sb.core.probing = s5.core.probing ∧ sb.core.tmp = tmp5 ∧
           sb.core.fuel.toNat ≤ s.core.fuel.toNat ∧
@@ -650,8 +655,9 @@ theorem full_viv_clause_m6_step13_wp (Γ : Env)
             ∀ l ∈ fullArenaClauseLits sb cref.toNat, sb.core.vals[l]?.getD 0#8 = 0xFF#8) ∧
           (FullMem c sb ⋆ (m6ExtMem (m6ExtAddr c.hdr) extb ⋆ R)) mb)
         (fun rem (i, ()) mp => ∃ (extp : List (BitVec 64)) (sp : FullState),
-          i.toNat ≤ sz.toNat ∧ rem = sz.toNat - i.toNat ∧
-          M6HdrExtOk extp ∧ FullSparseInvW c F0 F_cur sp ∧
+          i.toNat ≤ sz.toNat ∧ rem = sz.toNat - i.toNat ∧ M6HdrExtOk extp ∧
+          (M6HdrExtInitOk ext0 → M6HdrExtInitOk extp ∧ M6ExtW2bPres ext0 extp) ∧
+          FullSparseInvW c F0 F_cur sp ∧
           sp.core.cur_vars = s5.core.cur_vars ∧ sp.core.arena_len = s5.core.arena_len ∧
           sp.core.probing = s5.core.probing ∧ sp.core.tmp = tmp5 ∧
           sp.core.fuel.toNat ≤ s.core.fuel.toNat ∧
@@ -666,8 +672,8 @@ theorem full_viv_clause_m6_step13_wp (Γ : Env)
           (FullMem c sp ⋆ (m6ExtMem (m6ExtAddr c.hdr) extp ⋆ R)) mp)
         ?_ ?_ ?_
       · rintro _ ⟨i_b, confl_b, impl_b, ⟨⟩⟩ mb
-          ⟨extb, sb, hextb, hspb, _, halb, _, htmpb, hflb, hrefsb, hrrb, hrefb, hngb, hszb, hpermb,
-           hcokb, himplb, hfalb, hmb⟩
+          ⟨extb, sb, hextb, hinitb, hspb, _, halb, _, htmpb, hflb, hrefsb, hrrb, hrefb, hngb,
+           hszb, hpermb, hcokb, himplb, hfalb, hmb⟩
         fvt_steps
         c0_call hFinish
         refine ⟨c, F0, F_cur, sb, (m6ExtMem (m6ExtAddr c.hdr) extb ⋆ R), rfl, hspb, hsz_le_mv,
@@ -695,16 +701,16 @@ theorem full_viv_clause_m6_step13_wp (Γ : Env)
             rw [← show (1048576#32 : BitVec 32) = 0x00100000#32 from rfl,
               ← show (1048576 : BitVec 32) = 1048576#32 from rfl]
             simpa only [hcr0_nat] using hm
-          exact hQ r_f extb _ m hinv_v (Nat.le_trans hflf hflb)
+          exact hQ r_f extb _ m hinv_v hinitb (Nat.le_trans hflf hflb)
             (half.trans (halb.trans hal5)) (hrefs_v.trans (hrefsf.trans hrefsb))
             (hrrf.trans hrrb) hrf h20f (fullM6HdrMem_unfocus_full hm_v)
         all_goals
-          exact hQ r_f extb s_f m_f hinv_f (Nat.le_trans hflf hflb)
+          exact hQ r_f extb s_f m_f hinv_f hinitb (Nat.le_trans hflf hflb)
             (half.trans (halb.trans hal5)) (hrefsf.trans hrefsb) (hrrf.trans hrrb) hrf h20f
             (fullM6HdrMem_unfocus_full hm_f)
       · intro B L rem ⟨i, ⟨⟩⟩ mp hB hL
-          ⟨extp, sp, hi_le, hrem, hextp, hspp, hcvp, halp, hprp, htmpp, hflp, hrefsp, hrrp,
-           hrefp, hngp, hszp, hpermp, hct0, hfalp, hmp⟩
+          ⟨extp, sp, hi_le, hrem, hextp, hinitp, hspp, hcvp, halp, hprp, htmpp, hflp, hrefsp,
+           hrrp, hrefp, hngp, hszp, hpermp, hct0, hfalp, hmp⟩
         clear hFinish
         fvt_steps
         · have hi_lt : i.toNat < sz.toNat := by c0_bound
@@ -742,12 +748,14 @@ theorem full_viv_clause_m6_step13_wp (Γ : Env)
             refine ⟨c, F0, F_cur, sp, (m6ExtMem (m6ExtAddr c.hdr) extp ⋆ R), rfl, hspp,
               hsz_le_mv, htmp_sp_lt, hmp, fun bi hbi => ?_⟩
             fvt_steps
-            exact hB (i, false, bi, ()) mp ⟨extp, sp, hextp, hspp, hcvp, halp, hprp, htmpp, hflp,
-              hrefsp, hrrp, hrefp, hngp, hszp, hpermp, (fun h => by cases h),
+            exact hB (i, false, bi, ()) mp ⟨extp, sp, hextp, hinitp, hspp, hcvp, halp, hprp,
+              htmpp, hflp, hrefsp, hrrp, hrefp, hngp, hszp, hpermp, (fun h => by cases h),
               fun _ hne => hbi hne, fun _ _ heq => absurd heq hi_ne_sz, hmp⟩
           · refine wp_join_group (ts := [.bool, i32])
               (fun (confl_j, _) m_jn => ∃ (ext_jn : List (BitVec 64)) (s_jn : FullState),
-                M6HdrExtOk ext_jn ∧ FullSparseInvW c F0 F_cur s_jn ∧
+                M6HdrExtOk ext_jn ∧
+                (M6HdrExtInitOk ext0 → M6HdrExtInitOk ext_jn ∧ M6ExtW2bPres ext0 ext_jn) ∧
+                FullSparseInvW c F0 F_cur s_jn ∧
                 s_jn.core.cur_vars = s5.core.cur_vars ∧ s_jn.core.arena_len = s5.core.arena_len ∧
                 s_jn.core.probing = s5.core.probing ∧ s_jn.core.tmp = tmp5 ∧
                 s_jn.core.fuel.toNat ≤ s.core.fuel.toNat ∧
@@ -761,15 +769,15 @@ theorem full_viv_clause_m6_step13_wp (Γ : Env)
                 (∀ k < (i + 1#32).toNat,
                   s_jn.core.vals[(tmp5[k]?.getD 0#32).toNat]?.getD 0#8 = 0xFF#8) ∧
                 (FullMem c s_jn ⋆ (m6ExtMem (m6ExtAddr c.hdr) ext_jn ⋆ R)) m_jn) ?_ ?_
-            · rintro _ ⟨confl_j, impl_j, ⟨⟩⟩ m_jn ⟨ext_jn, s_jn, hext_jn, hsp_jn, hcv_jn, hal_jn,
-                hpr_jn, htmp_jn, hfl_jn, hrefs_jn, hrr_jn, href_jn, hng_jn, hsz_jn, hperm_jn,
-                hct_jn, hfal_jn, hm_jn⟩
+            · rintro _ ⟨confl_j, impl_j, ⟨⟩⟩ m_jn ⟨ext_jn, s_jn, hext_jn, hinit_jn, hsp_jn,
+                hcv_jn, hal_jn, hpr_jn, htmp_jn, hfl_jn, hrefs_jn, hrr_jn, href_jn, hng_jn,
+                hsz_jn, hperm_jn, hct_jn, hfal_jn, hm_jn⟩
               have hi1_nat : (i + 1#32).toNat = i.toNat + 1 := by bv_omega
               fvt_steps
               exact hL (sz.toNat - (i + 1#32).toNat) (i + 1#32, ()) _
                 (by (try dsimp only); (try rw [hi1_nat]); omega)
-                ⟨ext_jn, s_jn, by omega, rfl, hext_jn, hsp_jn, hcv_jn, hal_jn, hpr_jn, htmp_jn,
-                 hfl_jn, hrefs_jn, hrr_jn, href_jn, hng_jn, hsz_jn,
+                ⟨ext_jn, s_jn, by omega, rfl, hext_jn, hinit_jn, hsp_jn, hcv_jn, hal_jn, hpr_jn,
+                 htmp_jn, hfl_jn, hrefs_jn, hrr_jn, href_jn, hng_jn, hsz_jn,
                  hperm_jn, hct_jn, hfal_jn, hm_jn⟩
             · intro J_jn hJ_jn
               fvt_steps
@@ -839,15 +847,15 @@ theorem full_viv_clause_m6_step13_wp (Γ : Env)
                 try clear hm_as hlen_pre hguard hnot_guard
                 fvt_steps
                 exact s6a_viv_clause_prop_step13 Γ hPropIgn hBacktrack hBestImpl hcfg hextp
-                  hQ hB hJ_jn hsp_as hsz_le_mv hcvp rfl halp rfl hprp rfl hflp rfl hal5
+                  hinitp hQ hB hJ_jn hsp_as hsz_le_mv hcvp rfl halp rfl hprp rfl hflp rfl hal5
                   hrefsp rfl hrrp hrefp hngp hszp hpermp rfl hct0 htmpp hlits2_lt hlits2_mem
                   hi_lt hlit_eq hlit_lt hfalp hfal_as hlit_as_ff hm_as
               · have hlv_ff := s6a_viv_vals_ff_of_ne hspp hlit_lt hlit_lt_vals'
                   (by assumption) (by assumption)
                 have hi1_nat : (i + 1#32).toNat = i.toNat + 1 := by bv_omega
                 fvt_steps
-                exact hJ_jn _ _ ⟨extp, sp, hextp, hspp, hcvp, halp, hprp, htmpp, hflp, hrefsp, hrrp,
-                  hrefp, hngp, hszp, hpermp, hct0, fun k hk => by
+                exact hJ_jn _ _ ⟨extp, sp, hextp, hinitp, hspp, hcvp, halp, hprp, htmpp, hflp,
+                  hrefsp, hrrp, hrefp, hngp, hszp, hpermp, hct0, fun k hk => by
                     rw [hi1_nat] at hk
                     rcases (by omega : k < i.toNat ∨ k = i.toNat) with hk' | rfl
                     · exact hfalp k hk'
@@ -860,14 +868,14 @@ theorem full_viv_clause_m6_step13_wp (Γ : Env)
             obtain ⟨k, hk, hget⟩ := hlits2_inv l (hpermp.mem_iff.mp hl)
             rw [← hget]; exact hfalp k (by omega)
           fvt_steps
-          exact hB (i, false, 0xFFFFFFFF#32, ()) _ ⟨extp, sp, hextp, hspp, hcvp, halp, hprp,
-            htmpp, hflp, hrefsp, hrrp, hrefp, hngp, hszp, hpermp, (fun h => by cases h),
+          exact hB (i, false, 0xFFFFFFFF#32, ()) _ ⟨extp, sp, hextp, hinitp, hspp, hcvp, halp,
+            hprp, htmpp, hflp, hrefsp, hrrp, hrefp, hngp, hszp, hpermp, (fun h => by cases h),
             fun _ h => absurd rfl h, fun _ _ _ => ⟨hct0, hfal_all⟩, hmp⟩
       · intro B L _ hL
         fvt_steps
         exact hL sz.toNat (0#32, ()) _ ⟨ext0, s5, Nat.zero_le _,
-          by rw [BitVec.toNat_ofNat]; simp, hext0, hsp5, rfl, rfl,
-          rfl, htmp5, hfl5, hrefs5, hrr5, href5, hng5, hsz5, hperm5, hct5,
+          by rw [BitVec.toNat_ofNat]; simp, hext0, fun h => ⟨h, M6ExtW2bPres.refl ext0⟩,
+          hsp5, rfl, rfl, rfl, htmp5, hfl5, hrefs5, hrr5, href5, hng5, hsz5, hperm5, hct5,
           fun _ hk => by simp at hk, hm5⟩
 
 end LeanQbe.T.Examples.Kissat.FullFidelityStep13S6a

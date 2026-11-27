@@ -147,7 +147,6 @@ public import LeanQbe.T.Examples.Kissat.FullFidelityStep13S6aProof2a
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep13S6aProof2b
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep13S6aProof2b0
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep13S6aProof3
-public import LeanQbe.T.Examples.Kissat.FullFidelityStep13S6aProof3b
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep13S6aProof3c
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep13S6aProof3c0
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep13S6aProof3d

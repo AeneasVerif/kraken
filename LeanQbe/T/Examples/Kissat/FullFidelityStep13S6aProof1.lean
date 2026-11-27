@@ -17,9 +17,10 @@ import LeanQbe.T.Logic.ControlComb
 Proves callee-parametric `(Γ : Env)` Step-13 `Func.wp` lift theorems for:
 1. `full_subst_elim_vars_step13_wp`
    (`Full.full_subst_elim_vars_body` -> `step13SubstElimVarsM6Spec`)
-2. `full_substitute_step13_wp` (`Full.full_substitute_body` -> `step13SubstituteM6Spec`)
+2. `full_substitute_step13_wp` (`FullM6CongSubst.full_substitute_body` ->
+   `step13SubstituteM6Spec`)
 3. `full_reduce_purge_c0_step13_wp` (`FullM7V2Robust.full_reduce_purge_c0_body` ->
-   `step13ReducePurgeC0M6Spec`)
+   `step13ReducePurgeC0HdrM6Spec`)
 -/
 
 set_option autoImplicit false
@@ -273,12 +274,15 @@ private structure S6aPurgeStateOk (c : FullCfg) (F0 : CNF Nat) (F_cur : List (Li
   cv_eq : s'.core.cur_vars = s.core.cur_vars
   tmp_eq : s'.core.tmp = s.core.tmp
   tl_eq : s'.core.tmp_len = s.core.tmp_len
+  prb_eq : s'.core.probing = s.core.probing
+  mcl_eq : s'.core.min_clr_len = s.core.min_clr_len
   dm0 : s'.core.dense_mode = 0#64
   oom_pres : s.core.oom = 0#64 → s'.core.oom = 0#64
   mrk_zero : FullMrkZero c s'
   lm_clr : ∀ l < 2 * c.max_vars, s'.core.lit_mark[l]?.getD 0#8 = 0#8
   ll_wf : FullLastLearnedWf s'
   ext_eq : s'.scratch.extend_len = s.scratch.extend_len
+  ws1_eq : s'.scratch.work_stk1 = s.scratch.work_stk1
   ws2_eq : s'.scratch.work_stk2 = s.scratch.work_stk2
   pos_pres : 0 < s'.core.cur_level →
     s'.core.cur_level = s.core.cur_level ∧ s'.core.vals = s.core.vals ∧
@@ -287,16 +291,18 @@ private structure S6aPurgeStateOk (c : FullCfg) (F0 : CNF Nat) (F_cur : List (Li
 
 private theorem s6a_purgeStateOk_refl {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
     {s : FullState} (hsp : FullSparseInvW c F0 F_cur s) : S6aPurgeStateOk c F0 F_cur s s :=
-  ⟨hsp.toSparse, hsp.2.1, Nat.le_refl _, Nat.le_refl _, rfl, rfl, rfl, hsp.2.2.2.2.2, id,
-   hsp.2.2.1.1, hsp.2.2.1.2, hsp.2.2.2.2.1.1, rfl, rfl, fun _ => ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩⟩
+  ⟨hsp.toSparse, hsp.2.1, Nat.le_refl _, Nat.le_refl _, rfl, rfl, rfl, rfl, rfl,
+   hsp.2.2.2.2.2, id, hsp.2.2.1.1, hsp.2.2.1.2, hsp.2.2.2.2.1.1, rfl, rfl, rfl,
+   fun _ => ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩⟩
 
 private theorem s6a_purgeStateOk_trans {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
     {s st st' : FullState} (h1 : S6aPurgeStateOk c F0 F_cur s st)
     (h2 : S6aPurgeStateOk c F0 F_cur st st') : S6aPurgeStateOk c F0 F_cur s st' :=
   ⟨h2.sparse, h2.witness, Nat.le_trans h2.cl_le h1.cl_le, Nat.le_trans h2.fuel_le h1.fuel_le,
-   h2.cv_eq.trans h1.cv_eq, h2.tmp_eq.trans h1.tmp_eq, h2.tl_eq.trans h1.tl_eq, h2.dm0,
+   h2.cv_eq.trans h1.cv_eq, h2.tmp_eq.trans h1.tmp_eq, h2.tl_eq.trans h1.tl_eq,
+   h2.prb_eq.trans h1.prb_eq, h2.mcl_eq.trans h1.mcl_eq, h2.dm0,
    fun h => h2.oom_pres (h1.oom_pres h), h2.mrk_zero, h2.lm_clr, h2.ll_wf,
-   h2.ext_eq.trans h1.ext_eq, h2.ws2_eq.trans h1.ws2_eq,
+   h2.ext_eq.trans h1.ext_eq, h2.ws1_eq.trans h1.ws1_eq, h2.ws2_eq.trans h1.ws2_eq,
    fun hp => by
      obtain ⟨hc1, hv1, hl1, ht1, htp1, hte1⟩ := h2.pos_pres hp
      obtain ⟨hc0, hv0, hl0, ht0, htp0, hte0⟩ := h1.pos_pres (hc1 ▸ hp)
@@ -329,8 +335,8 @@ private theorem s6a_purgeStateOk_mark_reasons {c : FullCfg} {F0 : CNF Nat}
     rw [hrefs3]; exact h2.ll_wf i hi
   exact s6a_purgeStateOk_trans h2
     ⟨⟨⟨hlen', ⟨F_cur, hw'⟩⟩, h2.sparse.2.1, hnd, ⟨hll, h2.sparse.2.2.2.1.2⟩, h2.dm0⟩,
-     hw', Nat.le_refl _, Nat.le_refl _, rfl, rfl, rfl, h2.dm0, id, h2.mrk_zero, h2.lm_clr,
-     hll, rfl, rfl, fun _ => ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩⟩
+     hw', Nat.le_refl _, Nat.le_refl _, rfl, rfl, rfl, rfl, rfl, h2.dm0, id, h2.mrk_zero,
+     h2.lm_clr, hll, rfl, rfl, rfl, fun _ => ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩⟩
 
 private theorem s6a_purgeStateOk_backtrack0 {c : FullCfg} {F0 : CNF Nat}
     {F_cur : List (List Nat)} {s s0 : FullState} (h0 : S6aPurgeStateOk c F0 F_cur s s0)
@@ -344,9 +350,10 @@ private theorem s6a_purgeStateOk_backtrack0 {c : FullCfg} {F0 : CNF Nat}
     sB.LengthsOk c → FullWitnessInv c F0 F_cur sB.core →
     sc'.last_learned = s0.scratch.last_learned →
     sc'.extend_len = s0.scratch.extend_len →
+    sc'.work_stk1 = s0.scratch.work_stk1 →
     sc'.work_stk2 = s0.scratch.work_stk2 →
     S6aPurgeStateOk c F0 F_cur s sB := by
-  intro sB hlen' hw' hll' hext' hws2'
+  intro sB hlen' hw' hll' hext' hws1' hws2'
   have hllB : FullLastLearnedWf sB := fun i hi => by
     change sc'.last_learned[i]?.getD 0xFFFFFFFF#32 = 0xFFFFFFFF#32 ∨
       (sc'.last_learned[i]?.getD 0xFFFFFFFF#32).toNat ∈ fullArenaClauseRefs s0
@@ -354,8 +361,8 @@ private theorem s6a_purgeStateOk_backtrack0 {c : FullCfg} {F0 : CNF Nat}
   exact s6a_purgeStateOk_trans h0
     ⟨⟨⟨hlen', ⟨F_cur, hw'⟩⟩, h0.sparse.2.1, h0.sparse.2.2.1,
       ⟨hllB, hext' ▸ h0.sparse.2.2.2.1.2⟩, h0.dm0⟩,
-     hw', Nat.zero_le _, Nat.le_refl _, rfl, rfl, rfl, h0.dm0, id, h0.mrk_zero, h0.lm_clr,
-     hllB, hext', hws2', fun hpos => by cases hpos⟩
+     hw', Nat.zero_le _, Nat.le_refl _, rfl, rfl, rfl, rfl, rfl, h0.dm0, id, h0.mrk_zero,
+     h0.lm_clr, hllB, hext', hws1', hws2', fun hpos => by cases hpos⟩
 
 private theorem s6a_purgeStateOk_bcp13 {c : FullCfg} {F0 : CNF Nat}
     {F_cur : List (List Nat)} {s st : FullState} (hst : S6aPurgeStateOk c F0 F_cur s st)
@@ -389,8 +396,8 @@ private theorem s6a_purgeStateOk_bcp13 {c : FullCfg} {F0 : CNF Nat}
      hst.sparse.2.2.2.1, hst.dm0⟩
   have hsp' := s6a_fullSparseInvW_of_bcp13 hsp_w hlen' hw' hperm hsc
   exact s6a_purgeStateOk_trans hst
-    ⟨hsp'.toSparse, hw', Nat.le_refl _, hfl', rfl, rfl, rfl, hsp'.2.2.2.2.2, hoom',
-     hsp'.2.2.1.1, hsp'.2.2.1.2, hsp'.2.2.2.2.1.1, hsc.1.2, hsc.2.2.1, hpos'⟩
+    ⟨hsp'.toSparse, hw', Nat.le_refl _, hfl', rfl, rfl, rfl, rfl, rfl, hsp'.2.2.2.2.2, hoom',
+     hsp'.2.2.1.1, hsp'.2.2.1.2, hsp'.2.2.2.2.1.1, hsc.1.2, hsc.2.1, hsc.2.2.1, hpos'⟩
 
 private theorem s6a_purgeStateOk_sweep {c : FullCfg} {F0 : CNF Nat}
     {F_cur : List (List Nat)} {s st : FullState} (hst : S6aPurgeStateOk c F0 F_cur s st)
@@ -408,18 +415,19 @@ private theorem s6a_purgeStateOk_sweep {c : FullCfg} {F0 : CNF Nat}
         scratch := sc' }
     sA.LengthsOk c → FullWitnessInv c F0 F_cur sA.core →
     FullArenaVarsNodup sA → FullLastLearnedWf sA →
-    sc'.extend_len = st.scratch.extend_len → sc'.work_stk2 = st.scratch.work_stk2 →
+    sc'.extend_len = st.scratch.extend_len →
+    sc'.work_stk1 = st.scratch.work_stk1 → sc'.work_stk2 = st.scratch.work_stk2 →
     (st.core.oom = 0#64 → oom' = 0#64) →
     (0 < st.core.cur_level →
       vals' = st.core.vals ∧ lvl' = st.core.lvl ∧ trl' = st.core.trl ∧
       tp' = st.core.trail_pos ∧ te' = st.core.trail_end) →
     S6aPurgeStateOk c F0 F_cur s sA := by
-  intro sA hlenA hwA hndA hllA hextA hws2A hoomA hposA
+  intro sA hlenA hwA hndA hllA hextA hws1A hws2A hoomA hposA
   exact s6a_purgeStateOk_trans hst
     ⟨⟨⟨hlenA, ⟨F_cur, hwA⟩⟩, hst.sparse.2.1, hndA,
       ⟨hllA, hextA ▸ hst.sparse.2.2.2.1.2⟩, hst.dm0⟩,
-     hwA, Nat.le_refl _, Nat.le_refl _, rfl, rfl, rfl, hst.dm0, hoomA, hst.mrk_zero, hst.lm_clr,
-     hllA, hextA, hws2A, fun hp => by
+     hwA, Nat.le_refl _, Nat.le_refl _, rfl, rfl, rfl, rfl, rfl, hst.dm0, hoomA, hst.mrk_zero,
+     hst.lm_clr, hllA, hextA, hws1A, hws2A, fun hp => by
       obtain ⟨hv, hl, ht, htp, hte⟩ := hposA hp
       exact ⟨rfl, hv, hl, ht, htp, hte⟩⟩
 
@@ -460,8 +468,8 @@ private theorem s6a_purgeStateOk_mark_garb {c : FullCfg} {F0 : CNF Nat}
   exact ⟨s6a_purgeStateOk_trans hokL
     ⟨⟨⟨hlenM, ⟨F_cur, hwM⟩⟩, hokL.sparse.2.1, hndM',
       ⟨hllM, hokL.sparse.2.2.2.1.2⟩, hokL.dm0⟩,
-     hwM, Nat.le_refl _, Nat.le_refl _, rfl, rfl, rfl, hokL.dm0, id, hokL.mrk_zero, hokL.lm_clr,
-     hllM, rfl, rfl, fun _ => ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩⟩, hrmM⟩
+     hwM, Nat.le_refl _, Nat.le_refl _, rfl, rfl, rfl, rfl, rfl, hokL.dm0, id, hokL.mrk_zero,
+     hokL.lm_clr, hllM, rfl, rfl, rfl, fun _ => ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩⟩, hrmM⟩
 
 private theorem s6a_bv32_norsn_of_mask {x : BitVec 32} (hx : (x &&& 0x00280000#32) = 0#32) :
     (x &&& 0x00200000#32) = 0#32 := by
@@ -708,7 +716,7 @@ theorem full_subst_elim_vars_step13_wp (Γ : Env)
 
 /-! ## 3. `full_substitute` Step-13 Lift -/
 
-/-- Step-13 callee-parametric WP lift for `Full.full_substitute_body` to
+/-- Step-13 callee-parametric WP lift for `FullM6CongSubst.full_substitute_body` to
 `step13SubstituteM6Spec` using `step13SubstElimVarsM6Spec` and `step13BcpM6Spec`. -/
 theorem full_substitute_step13_wp (Γ : Env)
     (hBacktrack : ∀ args m Q X, fullBacktrackSpec args m Q X →
@@ -726,7 +734,7 @@ theorem full_substitute_step13_wp (Γ : Env)
     (hProp : ∀ args m Q X, step13BcpM6Spec args m Q X →
       Γ "full_propagate" [i64] [i64] args m Q X) :
     ∀ args m Q X, step13SubstituteM6Spec args m Q X →
-      Func.wp Γ full_substitute_body args m Q X := by
+      Func.wp Γ FullM6CongSubst.full_substitute_body args m Q X := by
   rintro ⟨h, ⟨⟩⟩ m Q X ⟨c, F0, ext0, s0, R, rfl, hinv0, hm, hQ⟩
   have hmx := c.hmaxv; unfold dimacsBound at hmx
   have hsp0 := hinv0.sparse
@@ -734,7 +742,7 @@ theorem full_substitute_step13_wp (Γ : Env)
   have hcl0 := hsp0.1.lengths.core_ok
   have hclv_lt : s0.core.cur_level < 2 ^ 64 := by
     have := hw0.2.1.cur_level_le; have := hcl0.trail_end_le; have := hcl0.cur_vars_le; omega
-  unfold Func.wp full_substitute_body
+  unfold Func.wp FullM6CongSubst.full_substitute_body
   have hm_f := fullM6HdrMem_focus_full hm
   c0_hsteps_nogrp
   refine wp_join_state0 (α := FullState × List (BitVec 64))
@@ -743,144 +751,183 @@ theorem full_substitute_step13_wp (Γ : Env)
       (FullMem c p.1 ⋆ (m6ExtMem (m6ExtAddr c.hdr) p.2 ⋆ R)) m1) ?_ ?_
   · rintro _ ⟨st1, ext1⟩ m1 ⟨hinv1, hl01, hfl1, hm1_f⟩
     dsimp only at hinv1 hl01 hfl1 hm1_f
-    c0_hsteps_nogrp
-    refine wp_while_break_state (α := BitVec 64 × FullState × List (BitVec 64))
-      (β := BitVec 64 × FullState × List (BitVec 64))
-      (fun p => (p.1, ()))
-      (fun p mb => FullM6HdrInv c F0 p.2.2 p.2.1 ∧ p.2.1.core.cur_level = 0 ∧
-        p.2.1.core.fuel.toNat ≤ s0.core.fuel.toNat ∧
-        (FullMem c p.2.1 ⋆ (m6ExtMem (m6ExtAddr c.hdr) p.2.2 ⋆ R)) mb)
-      (fun p => (p.1, ()))
-      (fun p => 4 - p.1.toNat)
-      (fun p ml => FullM6HdrInv c F0 p.2.2 p.2.1 ∧ p.2.1.core.cur_level = 0 ∧
-        p.2.1.core.fuel.toNat ≤ s0.core.fuel.toNat ∧ p.1.toNat ≤ 4 ∧
-        (FullMem c p.2.1 ⋆ (m6ExtMem (m6ExtAddr c.hdr) p.2.2 ⋆ R)) ml)
-      ?_ ?_ ?_
-    · rintro _ ⟨_r, stb, extb⟩ mb ⟨hinvb, hl0b, hflb, hmb_f⟩
-      c0_hsteps
-      exact hQ 1#64 extb stb mb hinvb hl0b hflb (Or.inl rfl) (fun h => by cases h)
-        (fullM6HdrMem_unfocus_full hmb_f)
-    · rintro B L ⟨round, st, ext⟩ ml hB hL ⟨hinv, hl0_st, hfl_st, hr_le, hml⟩
-      dsimp only at hinv hl0_st hfl_st hr_le hml
-      c0_hsplit
-      · have hr_lt : round.toNat < 4 := hc
-        have hr1 : (round + 1#64).toNat = round.toNat + 1 := by bv_omega
-        c0_hsplit
-        · c0_hsplit
-          · obtain ⟨F_cur, hspw⟩ := hinv.sparse.exists_witness
-            c0_hsteps; c0_call hTarjan
-            refine ⟨c, F0, F_cur, st, _, rfl, hspw, hl0_st, hml, ?_⟩
-            intro ucnt _ _ inc1 _ _ _ _ _ sstk1 _ m1 st1 hspw1 huc_le hus1 hrepr1 hm1_f
-            have hinvw1 : FullM6HdrInvW c F0 F_cur ext st1 :=
-              FullM6HdrInvW.mk_inv hinv.cfgOk hinv.extOk hspw1
-            have hl01' : st1.core.cur_level = 0 := hl0_st
-            have hfl1' : st1.core.fuel.toNat ≤ s0.core.fuel.toNat := hfl_st
+    c0_hsplit
+    · c0_hsteps
+      exact hQ 1#64 ext1 st1 m1 hinv1 hl01 hfl1 (Or.inl rfl) (fun h => by cases h)
+        (fullM6HdrMem_unfocus_full hm1_f)
+    · c0_hsplit
+      · c0_hsteps
+        exact hQ 1#64 ext1 st1 m1 hinv1 hl01 hfl1 (Or.inl rfl) (fun h => by cases h)
+          (fullM6HdrMem_unfocus_full hm1_f)
+      · c0_hsteps_nogrp
+        refine wp_while_break_state (α := BitVec 64 × FullState × List (BitVec 64))
+          (β := BitVec 64 × FullState × List (BitVec 64))
+          (fun p => (p.1, ()))
+          (fun p mb => FullM6HdrInv c F0 p.2.2 p.2.1 ∧ p.2.1.core.cur_level = 0 ∧
+            p.2.1.core.fuel.toNat ≤ s0.core.fuel.toNat ∧
+            (FullMem c p.2.1 ⋆ (m6ExtMem (m6ExtAddr c.hdr) p.2.2 ⋆ R)) mb)
+          (fun p => (p.1, ()))
+          (fun p => 2 - p.1.toNat)
+          (fun p ml => FullM6HdrInv c F0 p.2.2 p.2.1 ∧ p.2.1.core.cur_level = 0 ∧
+            p.2.1.core.fuel.toNat ≤ s0.core.fuel.toNat ∧ p.1.toNat ≤ 2 ∧
+            (FullMem c p.2.1 ⋆ (m6ExtMem (m6ExtAddr c.hdr) p.2.2 ⋆ R)) ml)
+          ?_ ?_ ?_
+        · rintro _ ⟨_r, stb, extb⟩ mb ⟨hinvb, hl0b, hflb, hmb_f⟩
+          c0_hsteps
+          exact hQ 1#64 extb stb mb hinvb hl0b hflb (Or.inl rfl) (fun h => by cases h)
+            (fullM6HdrMem_unfocus_full hmb_f)
+        · rintro B L ⟨round, st, ext⟩ ml hB hL ⟨hinv, hl0_st, hfl_st, hr_le, hml⟩
+          dsimp only at hinv hl0_st hfl_st hr_le hml
+          c0_hsplit
+          · have hr_lt : round.toNat < 2 := hc
+            have hr1 : (round + 1#64).toNat = round.toNat + 1 := by bv_omega
             c0_hsplit
-            · c0_hsteps; exact hQ 20#64 ext st1 m1 hinvw1.toInv hl01' hfl1' (Or.inr rfl)
-                (fun _ => hspw1.2.1.ext_sound.2 (hspw1.2.1.inconsistent_sound hc))
-                (fullM6HdrMem_unfocus_full hm1_f)
-            · c0_hsteps; c0_call hElimVars
-              refine ⟨c, F0, F_cur, ext, st1, R, rfl, hinvw1, hl01', hrepr1 hc, huc_le, hus1,
-                fullM6HdrMem_unfocus_full hm1_f, ?_⟩
-              intro ok2 ext2 st2 m2 hinvw2 hl02 _ hfl2 hrepr2 hfail2 hm2
-              have hfl2' : st2.core.fuel.toNat ≤ s0.core.fuel.toNat := Nat.le_trans hfl2 hfl1'
-              have hm2_f := fullM6HdrMem_focus_full hm2
-              c0_hsplit
-              · clear hm2
-                c0_hsteps_nogrp
+            · c0_hsplit
+              · obtain ⟨F_cur, hspw⟩ := hinv.sparse.exists_witness
+                c0_hsteps; c0_call hTarjan
+                refine ⟨c, F0, F_cur, st, _, rfl, hspw, hl0_st, hml, ?_⟩
+                intro ucnt _ _ inc1 _ _ _ _ _ sstk1 _ m1 st1 hspw1 huc_le hus1 hrepr1 hm1_f
+                have hinvw1 : FullM6HdrInvW c F0 F_cur ext st1 :=
+                  FullM6HdrInvW.mk_inv hinv.cfgOk hinv.extOk hspw1
+                have hl01' : st1.core.cur_level = 0 := hl0_st
+                have hfl1' : st1.core.fuel.toNat ≤ s0.core.fuel.toNat := hfl_st
                 c0_hsplit
-                · exact hB (round, st2, ext2) m2 ⟨hinvw2.toInv, hl02, hfl2', hm2_f⟩
-                · c0_hsteps_nogrp; c0_call hRewriteBins
-                  refine ⟨c, F0, F_cur, st2, _, rfl, hinvw2.sparseW, hl02, hrepr2, hm2_f, ?_⟩
-                  intro ok3 st3 m3 hspw3 hl03 _ hfl3 hrepr3 hfail3 hm3_f
-                  have hinv3 := FullM6HdrInv.mk_inv hinvw2.cfgOk hinvw2.extOk hspw3.toSparse
-                  have hfl3' : st3.core.fuel.toNat ≤ s0.core.fuel.toNat := by
-                    rw [hfl3]; exact hfl2'
+                · c0_hsteps; exact hQ 20#64 ext st1 m1 hinvw1.toInv hl01' hfl1' (Or.inr rfl)
+                    (fun _ => hspw1.2.1.ext_sound.2 (hspw1.2.1.inconsistent_sound hc))
+                    (fullM6HdrMem_unfocus_full hm1_f)
+                · c0_hsteps; c0_call hElimVars
+                  refine ⟨c, F0, F_cur, ext, st1, R, rfl, hinvw1, hl01', hrepr1 hc, huc_le,
+                    hus1, fullM6HdrMem_unfocus_full hm1_f, ?_⟩
+                  intro ok2 ext2 st2 m2 hinvw2 hl02 _ hfl2 hrepr2 hfail2 hm2
+                  have hfl2' : st2.core.fuel.toNat ≤ s0.core.fuel.toNat :=
+                    Nat.le_trans hfl2 hfl1'
+                  have hm2_f := fullM6HdrMem_focus_full hm2
                   c0_hsplit
-                  · c0_hsteps; c0_call hRewriteAr
-                    refine ⟨c, F0, F_cur, st3, _, rfl, hspw3, hl03, hrepr3, hm3_f, ?_⟩
-                    intro ok4 st4 m4 hspw4 hl04 _ hfl4 hfail4 hm4_f
-                    have hinv4 := FullM6HdrInv.mk_inv hinvw2.cfgOk hinvw2.extOk hspw4.toSparse
-                    have hfl4' : st4.core.fuel.toNat ≤ s0.core.fuel.toNat := hfl4 ▸ hfl3'
-                    c0_hsplit
-                    · c0_hsteps; c0_call hArenaSweep
-                      refine ⟨c, F0, F_cur, st4, _, rfl, hspw4.1, hspw4.2.1, hspw4.2.2.2.1,
-                        hspw4.2.2.2.2.2, fun hpos => by omega, hm4_f, ?_⟩
-                      intro sr vals5 fl5 lvl5 rsns5 trl5 tp5 te5 unass5 unfl5
-                        wvec5 wstk5 arena5 alen5 wlen5 wu5 fred5 ni5 nr5 nb5 oom5 sc5
-                        m5 _ hlen5 _ hext5 hws25 hll5 hw5 hnd5 _ _ _ hsr2 _ hm5_f
-                      let st5 : FullState :=
-                        { core := { st4.core with
-                            vals := vals5, flags := fl5, lvl := lvl5, rsns := rsns5,
-                            trl := trl5, trail_pos := tp5, trail_end := te5,
-                            unassigned := unass5, unflushed := unfl5, wvec := wvec5,
-                            wstk := wstk5, arena := arena5, arena_len := alen5,
-                            wlen := wlen5, wusable := wu5, arena_garbage := 0#64,
-                            first_reducible := fred5, num_irred := ni5,
-                            num_redundant := nr5, num_binary := nb5, oom := oom5 }
-                          scratch := sc5 }
-                      have hspw5 := s6a_fullSparseInvW_of_sweep hspw4 hlen5 hw5 hnd5 hll5
-                        hext5 rfl rfl rfl
-                      have hinv5 :=
-                        FullM6HdrInv.mk_inv hinvw2.cfgOk hinvw2.extOk hspw5.toSparse
-                      have hl05 : st5.core.cur_level = 0 := hl04
+                  · clear hm2
+                    c0_hsteps_nogrp
+                    refine wp_join_group (ts := []) (fun () m_c => m_c = m2) ?_ ?_
+                    · rintro _ ⟨⟩ m_c rfl
+                      c0_hsteps; c0_call hRewriteBins
+                      refine ⟨c, F0, F_cur, st2, _, rfl, hinvw2.sparseW, hl02, hrepr2, hm2_f, ?_⟩
+                      intro ok3 st3 m3 hspw3 hl03 _ hfl3 hrepr3 hfail3 hm3_f
+                      have hinv3 := FullM6HdrInv.mk_inv hinvw2.cfgOk hinvw2.extOk hspw3.toSparse
+                      have hfl3' : st3.core.fuel.toNat ≤ s0.core.fuel.toNat := by
+                        rw [hfl3]; exact hfl2'
                       c0_hsplit
+                      · c0_hsplit
+                        · c0_hsteps
+                          exact hQ 1#64 ext2 st3 m3 hinv3 hl03 hfl3' (Or.inl rfl)
+                            (fun h => by cases h) (fullM6HdrMem_unfocus_full hm3_f)
+                        · c0_hsteps; c0_call hRewriteAr
+                          refine ⟨c, F0, F_cur, st3, _, rfl, hspw3, hl03, hrepr3, hm3_f, ?_⟩
+                          intro ok4 st4 m4 hspw4 hl04 _ hfl4 hfail4 hm4_f
+                          have hinv4 :=
+                            FullM6HdrInv.mk_inv hinvw2.cfgOk hinvw2.extOk hspw4.toSparse
+                          have hfl4' : st4.core.fuel.toNat ≤ s0.core.fuel.toNat := hfl4 ▸ hfl3'
+                          c0_hsplit
+                          · c0_hsplit
+                            · c0_hsteps
+                              exact hQ 1#64 ext2 st4 m4 hinv4 hl04 hfl4' (Or.inl rfl)
+                                (fun h => by cases h) (fullM6HdrMem_unfocus_full hm4_f)
+                            · c0_hsteps; c0_call hArenaSweep
+                              refine ⟨c, F0, F_cur, st4, _, rfl, hspw4.1, hspw4.2.1,
+                                hspw4.2.2.2.1, hspw4.2.2.2.2.2, fun hpos => by omega, hm4_f, ?_⟩
+                              intro sr vals5 fl5 lvl5 rsns5 trl5 tp5 te5 unass5 unfl5
+                                wvec5 wstk5 arena5 alen5 wlen5 wu5 fred5 ni5 nr5 nb5 oom5 sc5
+                                m5 _ hlen5 _ hext5 hws25 hll5 hw5 hnd5 _ _ _ hsr2 _ hm5_f
+                              let st5 : FullState :=
+                                { core := { st4.core with
+                                    vals := vals5, flags := fl5, lvl := lvl5, rsns := rsns5,
+                                    trl := trl5, trail_pos := tp5, trail_end := te5,
+                                    unassigned := unass5, unflushed := unfl5, wvec := wvec5,
+                                    wstk := wstk5, arena := arena5, arena_len := alen5,
+                                    wlen := wlen5, wusable := wu5, arena_garbage := 0#64,
+                                    first_reducible := fred5, num_irred := ni5,
+                                    num_redundant := nr5, num_binary := nb5, oom := oom5 }
+                                  scratch := sc5 }
+                              have hspw5 := s6a_fullSparseInvW_of_sweep hspw4 hlen5 hw5 hnd5 hll5
+                                hext5 rfl rfl rfl
+                              have hinv5 :=
+                                FullM6HdrInv.mk_inv hinvw2.cfgOk hinvw2.extOk hspw5.toSparse
+                              have hl05 : st5.core.cur_level = 0 := hl04
+                              c0_hsplit
+                              · c0_hsteps
+                                exact hQ 20#64 ext2 st5 m5 hinv5 hl05 hfl4' (Or.inr rfl)
+                                  (fun _ => (hsr2 hc).2) (fullM6HdrMem_unfocus_full hm5_f)
+                              · c0_hsplit
+                                · c0_hsteps
+                                  exact hQ 1#64 ext2 st5 m5 hinv5 hl05 hfl4' (Or.inl rfl)
+                                    (fun h => by cases h) (fullM6HdrMem_unfocus_full hm5_f)
+                                · c0_hsplit
+                                  · c0_hsteps
+                                    exact hQ 1#64 ext2 st5 m5 hinv5 hl05 hfl4' (Or.inl rfl)
+                                      (fun h => by cases h) (fullM6HdrMem_unfocus_full hm5_f)
+                                  · c0_hsteps; c0_call hProp
+                                    refine ⟨c, F0, F_cur, ext2, st5, R, rfl, hinvw2.cfgOk,
+                                      hinvw2.extOk, hspw5.1, hspw5.2.1, hspw5.2.2.2.2.2,
+                                      fullM6HdrMem_unfocus_full hm5_f, ?_⟩
+                                    intro pr ext6 vals6 fl6 lvl6 rsns6 trl6 tp6 te6 prop6
+                                      unass6 unfl6 wvec6 arena6 wstk6 wlen6 wu6 fuel6 ctype6
+                                      cref6 c06 c16 oom6 sc6 m6 _ hext6 _ hlen6 hw6 _ hperm6
+                                      hsc6 _ _ _ _ hfl6 _ _ hpr1 _ _ hm6
+                                    let st6 : FullState :=
+                                      { core := { st5.core with
+                                          vals := vals6, flags := fl6, lvl := lvl6,
+                                          rsns := rsns6, trl := trl6, trail_pos := tp6,
+                                          trail_end := te6, propagated := prop6,
+                                          unassigned := unass6, unflushed := unfl6, wvec := wvec6,
+                                          arena := arena6, wstk := wstk6, wlen := wlen6,
+                                          wusable := wu6, fuel := fuel6, confl_type := ctype6,
+                                          confl_ref := cref6, confl_lit0 := c06,
+                                          confl_lit1 := c16, oom := oom6 }
+                                        scratch := sc6 }
+                                    have hspw6 := s6a_fullSparseInvW_of_bcp13 hspw5 hlen6 hw6
+                                      hperm6 hsc6
+                                    have hinv6 := FullM6HdrInv.mk_inv hinvw2.cfgOk hext6
+                                      hspw6.toSparse
+                                    have hfl6' : st6.core.fuel.toNat ≤ s0.core.fuel.toNat :=
+                                      Nat.le_trans hfl6 hfl4'
+                                    c0_hsplit
+                                    · c0_hsteps
+                                      exact hQ 20#64 ext6 st6 m6 hinv6 hl05 hfl6' (Or.inr rfl)
+                                        (fun _ => level0_unsat_of_conflict_okW hw6 hl05
+                                          (hpr1 hc).2.2) hm6
+                                    · c0_hsteps
+                                      exact hL (round + 1#64, st6, ext6) m6 (by dsimp only; omega)
+                                        ⟨hinv6, hl05, hfl6', by dsimp only; omega,
+                                          fullM6HdrMem_focus_full hm6⟩
+                          · c0_hsteps
+                            exact hQ 20#64 ext2 st4 m4 hinv4 hl04 hfl4' (Or.inr rfl)
+                              (fun _ => hfail4 (by
+                                cases ok4 <;>
+                                  first | rfl | exact absurd hc (by decide)))
+                              (fullM6HdrMem_unfocus_full hm4_f)
                       · c0_hsteps
-                        exact hQ 20#64 ext2 st5 m5 hinv5 hl05 hfl4' (Or.inr rfl)
-                          (fun _ => (hsr2 hc).2) (fullM6HdrMem_unfocus_full hm5_f)
-                      · c0_hsteps; c0_call hProp
-                        refine ⟨c, F0, F_cur, ext2, st5, R, rfl, hinvw2.cfgOk,
-                          hinvw2.extOk, hspw5.1, hspw5.2.1, hspw5.2.2.2.2.2,
-                          fullM6HdrMem_unfocus_full hm5_f, ?_⟩
-                        intro pr ext6 vals6 fl6 lvl6 rsns6 trl6 tp6 te6 prop6
-                          unass6 unfl6 wvec6 arena6 wstk6 wlen6 wu6 fuel6 ctype6 cref6
-                          c06 c16 oom6 sc6 m6 _ hext6 _ hlen6 hw6 _ hperm6 hsc6 _ _ _ _
-                          hfl6 _ _ hpr1 _ _ hm6
-                        let st6 : FullState :=
-                          { core := { st5.core with
-                              vals := vals6, flags := fl6, lvl := lvl6, rsns := rsns6,
-                              trl := trl6, trail_pos := tp6, trail_end := te6,
-                              propagated := prop6, unassigned := unass6,
-                              unflushed := unfl6, wvec := wvec6, arena := arena6,
-                              wstk := wstk6, wlen := wlen6, wusable := wu6,
-                              fuel := fuel6, confl_type := ctype6, confl_ref := cref6,
-                              confl_lit0 := c06, confl_lit1 := c16, oom := oom6 }
-                            scratch := sc6 }
-                        have hspw6 := s6a_fullSparseInvW_of_bcp13 hspw5 hlen6 hw6
-                          hperm6 hsc6
-                        have hinv6 := FullM6HdrInv.mk_inv hinvw2.cfgOk hext6
-                          hspw6.toSparse
-                        have hfl6' : st6.core.fuel.toNat ≤ s0.core.fuel.toNat :=
-                          Nat.le_trans hfl6 hfl4'
-                        c0_hsplit
-                        · c0_hsteps
-                          exact hQ 20#64 ext6 st6 m6 hinv6 hl05 hfl6' (Or.inr rfl)
-                            (fun _ => level0_unsat_of_conflict_okW hw6 hl05
-                              (hpr1 hc).2.2) hm6
-                        · c0_hsteps
-                          exact hL (round + 1#64, st6, ext6) m6 (by dsimp only; omega)
-                            ⟨hinv6, hl05, hfl6', by dsimp only; omega,
-                              fullM6HdrMem_focus_full hm6⟩
-                    · c0_hsteps
-                      exact hQ 20#64 ext2 st4 m4 hinv4 hl04 hfl4' (Or.inr rfl)
-                        (fun _ => hfail4 (by
-                          cases ok4 <;>
-                            first | rfl | exact absurd hc (by decide)))
-                        (fullM6HdrMem_unfocus_full hm4_f)
+                        exact hQ 20#64 ext2 st3 m3 hinv3 hl03 hfl3' (Or.inr rfl)
+                          (fun _ => hfail3 (by
+                            cases ok3 <;> first | rfl | exact absurd hc (by decide)))
+                          (fullM6HdrMem_unfocus_full hm3_f)
+                    · intro Jc hJc
+                      c0_hsplit
+                      · c0_hsplit
+                        · c0_hsteps_nogrp
+                          first
+                          | exact hJc () m2 rfl
+                          | exact hB (round, st2, ext2) m2 ⟨hinvw2.toInv, hl02, hfl2', hm2_f⟩
+                        · c0_hsteps_nogrp
+                          first
+                          | exact hJc () m2 rfl
+                          | exact hB (round, st2, ext2) m2 ⟨hinvw2.toInv, hl02, hfl2', hm2_f⟩
+                      · c0_hsteps_nogrp; exact hJc () m2 rfl
                   · c0_hsteps
-                    exact hQ 20#64 ext2 st3 m3 hinv3 hl03 hfl3' (Or.inr rfl)
-                      (fun _ => hfail3 (by
-                        cases ok3 <;> first | rfl | exact absurd hc (by decide)))
-                      (fullM6HdrMem_unfocus_full hm3_f)
-              · c0_hsteps
-                exact hQ 20#64 ext2 st2 m2 hinvw2.toInv hl02 hfl2' (Or.inr rfl)
-                  (fun _ => hfail2 (by
-                    cases ok2 <;> first | rfl | exact absurd hc (by decide))) hm2
+                    exact hQ 20#64 ext2 st2 m2 hinvw2.toInv hl02 hfl2' (Or.inr rfl)
+                      (fun _ => hfail2 (by
+                        cases ok2 <;> first | rfl | exact absurd hc (by decide))) hm2
+              · c0_hsteps; exact hB (round, st, ext) ml ⟨hinv, hl0_st, hfl_st, hml⟩
+            · c0_hsteps; exact hB (round, st, ext) ml ⟨hinv, hl0_st, hfl_st, hml⟩
           · c0_hsteps; exact hB (round, st, ext) ml ⟨hinv, hl0_st, hfl_st, hml⟩
-        · c0_hsteps; exact hB (round, st, ext) ml ⟨hinv, hl0_st, hfl_st, hml⟩
-      · c0_hsteps; exact hB (round, st, ext) ml ⟨hinv, hl0_st, hfl_st, hml⟩
-    · intro B L _ hL; c0_hsteps
-      exact hL (0#64, st1, ext1) m1 ⟨hinv1, hl01, hfl1, Nat.zero_le _, hm1_f⟩
+        · intro B L _ hL; c0_hsteps
+          exact hL (0#64, st1, ext1) m1 ⟨hinv1, hl01, hfl1, Nat.zero_le _, hm1_f⟩
   · intro Jbt hJbt; c0_hsplit
     · c0_hsteps; c0_call hBacktrack
       refine ⟨c, s0, _, rfl, hsp0.1.lengths, hclv_lt, fun _ => by
@@ -904,7 +951,7 @@ theorem full_substitute_step13_wp (Γ : Env)
 /-! ## 4. `full_reduce_purge_c0` Step-13 Lift -/
 
 /-- Step-13 callee-parametric WP lift for `FullM7V2Robust.full_reduce_purge_c0_body` to
-`step13ReducePurgeC0M6Spec` using `step13BcpM6Spec`. -/
+`step13ReducePurgeC0HdrM6Spec` using `step13BcpM6Spec` and `step13ArenaSweepSpec`. -/
 theorem full_reduce_purge_c0_step13_wp (Γ : Env)
     (hBacktrack : ∀ a m Q X, fullBacktrackSpec a m Q X →
       Γ "full_backtrack" [i64, i64] [] a m Q X)
@@ -914,12 +961,11 @@ theorem full_reduce_purge_c0_step13_wp (Γ : Env)
       Γ "full_mark_reasons" [i64, .bool] [] a m Q X)
     (hNext : ∀ a m Q X, fullArenaNextSpec a m Q X →
       Γ "full_arena_next" [i64, i32] [i32] a m Q X)
-    (hSweep : ∀ a m Q X, fullArenaSweepSpec a m Q X →
+    (hSweep : ∀ a m Q X, step13ArenaSweepSpec a m Q X →
       Γ "full_arena_sweep" [i64] [i64] a m Q X) :
-    ∀ h m Q X, step13ReducePurgeC0M6Spec (h, ()) m Q X →
+    ∀ h m Q X, step13ReducePurgeC0HdrM6Spec (h, ()) m Q X →
       Func.wp Γ FullM7V2Robust.full_reduce_purge_c0_body (h, ()) m Q X := by
-  rintro h m Q X hred
-  rcases m6ReduceSpec_elim hred with ⟨c, F0, F_cur, ext0, s0, R, rfl, hinv0, hm, hQ⟩
+  rintro h m Q X ⟨c, F0, F_cur, ext0, s0, R, rfl, hinv0, hm, hQ⟩
   have _hx := c.hmaxv; unfold dimacsBound at _hx
   have hsp0 := hinv0.sparseW
   have hok0 := s6a_purgeStateOk_refl hsp0
@@ -963,7 +1009,7 @@ theorem full_reduce_purge_c0_step13_wp (Γ : Env)
       refine ⟨c, F0, F_cur, sW, _, rfl, hokW.sparse.1.lengths, hokW.witness,
         hokW.sparse.2.2.1, hokW.dm0, hrmW, hmW_f, ?_⟩
       intro sr valsA flA lvlA rsnsA trlA tpA teA unassA unflA wvecA wstkA arenaA alenA
-        wlenA wuA fredA niA nrA nbA oomA scA mA _ hlenA hsr_disj hextA hws2A hllA hwA hndA
+        wlenA wuA fredA niA nrA nbA oomA scA mA _ hlenA hsr_disj hextA hws1A hws2A hllA hwA hndA
         hoomA hposA hsr1 hsr2 _hmA3 hmA_f
       let sA : FullState :=
         { core := { sW.core with
@@ -982,8 +1028,8 @@ theorem full_reduce_purge_c0_step13_wp (Γ : Env)
       have hcvA : sA.core.cur_vars = s0.core.cur_vars := hokW.cv_eq
       have htmpA : sA.core.tmp = s0.core.tmp := hokW.tmp_eq
       have htlA : sA.core.tmp_len = s0.core.tmp_len := hokW.tl_eq
-      have hws2A' : sA.scratch.work_stk2 = s0.scratch.work_stk2 :=
-        hws2A.trans hokW.ws2_eq
+      have hws1A' : sA.scratch.work_stk1 = s0.scratch.work_stk1 := hws1A.trans hokW.ws1_eq
+      have hws2A' : sA.scratch.work_stk2 = s0.scratch.work_stk2 := hws2A.trans hokW.ws2_eq
       have hposA' : 0 < sA.core.cur_level →
           sA.core.cur_level = s0.core.cur_level ∧ sA.core.vals = s0.core.vals ∧
           sA.core.lvl = s0.core.lvl ∧ sA.core.trl = s0.core.trl ∧
@@ -995,14 +1041,15 @@ theorem full_reduce_purge_c0_step13_wp (Γ : Env)
             htp1.trans htp0, hte1.trans hte0⟩
       c0_hsteps_nogrp
       · exact hQ 20#64 extW sA mA (FullM6HdrInvW.mk_inv hinv0.cfgOk hextW hspA)
-          (Or.inr (Or.inr rfl)) hclA_le hflA_le hcvA htmpA htlA hws2A'
-          (fun _ => (hsr2 hc).2) (fun h => by cases h) (fun _ => hposA') hmA
+          (Or.inr (Or.inr rfl)) hclA_le hflA_le hcvA htmpA htlA hokW.prb_eq hokW.mcl_eq
+          hws1A' hws2A' (fun _ => (hsr2 hc).2) (fun h => by cases h) (fun _ => hposA') hmA
       · exact hQ 0#64 extW sA mA (FullM6HdrInvW.mk_inv hinv0.cfgOk hextW hspA) (Or.inl rfl)
-          hclA_le hflA_le hcvA htmpA htlA hws2A'
+          hclA_le hflA_le hcvA htmpA htlA hokW.prb_eq hokW.mcl_eq hws1A' hws2A'
           (fun h => by cases h) (fun h => by cases h) (fun _ => hposA') hmA
       · exact hJret mA (hQ 1#64 extW sA mA (FullM6HdrInvW.mk_inv hinv0.cfgOk hextW hspA)
-          (Or.inr (Or.inl rfl)) hclA_le hflA_le hcvA htmpA htlA hws2A' (fun h => by cases h)
-          (fun _ _ => hoomA (Or.inl hc)) (fun _ => hposA') hmA)
+          (Or.inr (Or.inl rfl)) hclA_le hflA_le hcvA htmpA htlA hokW.prb_eq hokW.mcl_eq
+          hws1A' hws2A' (fun h => by cases h) (fun _ _ => hoomA (Or.inl hc))
+          (fun _ => hposA') hmA)
       ·     have hsr_eq1 : sr = 1#64 := by
               rcases hsr_disj with rfl | rfl | rfl | rfl
               · exact absurd rfl (by assumption)
@@ -1010,7 +1057,7 @@ theorem full_reduce_purge_c0_step13_wp (Γ : Env)
               · exact absurd rfl (by assumption)
               · exact absurd rfl (by assumption)
             obtain ⟨hlW0, hte_lt⟩ := hsr1 hsr_eq1
-            have hokA := s6a_purgeStateOk_sweep hokW hlenA hwA hndA hllA hextA hws2A
+            have hokA := s6a_purgeStateOk_sweep hokW hlenA hwA hndA hllA hextA hws1A hws2A
               (fun _ => hoomA (Or.inr hsr_eq1)) (fun hp => (hposA hp).2.2)
             c0_call hProp
             refine ⟨c, F0, F_cur, extW, sA, R, rfl, hinv0.cfgOk, hextW,
@@ -1035,6 +1082,8 @@ theorem full_reduce_purge_c0_step13_wp (Γ : Env)
             have hcvP : sP.core.cur_vars = s0.core.cur_vars := hcvA
             have htmpP : sP.core.tmp = s0.core.tmp := htmpA
             have htlP : sP.core.tmp_len = s0.core.tmp_len := htlA
+            have hws1P : sP.scratch.work_stk1 = s0.scratch.work_stk1 :=
+              hscP.2.1.trans hws1A'
             have hws2P : sP.scratch.work_stk2 = s0.scratch.work_stk2 :=
               hscP.2.2.1.trans hws2A'
             have hposP : 0 < sP.core.cur_level →
@@ -1044,11 +1093,11 @@ theorem full_reduce_purge_c0_step13_wp (Γ : Env)
               fun hp => by rw [hclP0] at hp; exact absurd hp (Nat.not_lt_zero _)
             c0_hsteps_nogrp
             · exact hQ 20#64 extP sP mP (FullM6HdrInvW.mk_inv hinv0.cfgOk hextP hspP)
-                (Or.inr (Or.inr rfl)) hclP_le hflP_le hcvP htmpP htlP hws2P
-                (fun _ => level0_unsat_of_conflict_okW hwP hclP0 (hpr1 hc).2.2)
+                (Or.inr (Or.inr rfl)) hclP_le hflP_le hcvP htmpP htlP hokW.prb_eq hokW.mcl_eq
+                hws1P hws2P (fun _ => level0_unsat_of_conflict_okW hwP hclP0 (hpr1 hc).2.2)
                 (fun h => by cases h) (fun _ => hposP) hmP
             · exact hQ 0#64 extP sP mP (FullM6HdrInvW.mk_inv hinv0.cfgOk hextP hspP) (Or.inl rfl)
-                hclP_le hflP_le hcvP htmpP htlP hws2P
+                hclP_le hflP_le hcvP htmpP htlP hokW.prb_eq hokW.mcl_eq hws1P hws2P
                 (fun h => by cases h) (fun h => by cases h) (fun _ => hposP) hmP
             ·   have hpr0_eq : pr = 0#64 := hc
                 have hmP_f := fullM6HdrMem_focus_full hmP
@@ -1065,8 +1114,9 @@ theorem full_reduce_purge_c0_step13_wp (Γ : Env)
                     hspP.2.2.1, hspP.2.2.2.1, hspP.2.2.2.2.1, hspP.2.2.2.2.2⟩
                 have hokP0 : S6aPurgeStateOk c F0 F_cur s0 sP0 :=
                   s6a_purgeStateOk_trans hokP
-                    ⟨hspP0.toSparse, hwP0, Nat.le_refl _, Nat.le_refl _, rfl, rfl, rfl,
-                     hspP.2.2.2.2.2, id, hspP.2.2.1.1, hspP.2.2.1.2, hspP.2.2.2.2.1.1, rfl, rfl,
+                    ⟨hspP0.toSparse, hwP0, Nat.le_refl _, Nat.le_refl _, rfl, rfl, rfl, rfl, rfl,
+                     hspP.2.2.2.2.2, id, hspP.2.2.1.1, hspP.2.2.1.2, hspP.2.2.2.2.1.1,
+                     rfl, rfl, rfl,
                      fun hp => by change 0 < sP.core.cur_level at hp; rw [hclP0] at hp; omega⟩
                 have hte_eqP0 : sP0.core.trail_end = sP.core.trail_end := rfl
                 have hte_ltP : sW.core.trail_end < sP0.core.trail_end := by
@@ -1249,6 +1299,8 @@ theorem full_reduce_purge_c0_step13_wp (Γ : Env)
         have hflP_le : sP.core.fuel.toNat ≤ s0.core.fuel.toNat :=
           Nat.le_trans hflP hokB.fuel_le
         have hclP_le : sP.core.cur_level ≤ s0.core.cur_level := by rw [hlB]; exact Nat.zero_le _
+        have hws1P : sP.scratch.work_stk1 = s0.scratch.work_stk1 :=
+          hscP.2.1.trans hokB.ws1_eq
         have hws2P : sP.scratch.work_stk2 = s0.scratch.work_stk2 :=
           hscP.2.2.1.trans hokB.ws2_eq
         have hposP : 0 < sP.core.cur_level →
@@ -1258,11 +1310,11 @@ theorem full_reduce_purge_c0_step13_wp (Γ : Env)
           fun hp => by rw [hlB] at hp; exact absurd hp (Nat.not_lt_zero _)
         c0_hsteps_nogrp
         · exact hQ 20#64 extP sP mP (FullM6HdrInvW.mk_inv hinv0.cfgOk hextP hspP)
-            (Or.inr (Or.inr rfl)) hclP_le hflP_le hokB.cv_eq hokB.tmp_eq hokB.tl_eq hws2P
-            (fun _ => level0_unsat_of_conflict_okW hwP hlB (hpr1 hc).2.2)
+            (Or.inr (Or.inr rfl)) hclP_le hflP_le hokB.cv_eq hokB.tmp_eq hokB.tl_eq hokB.prb_eq
+            hokB.mcl_eq hws1P hws2P (fun _ => level0_unsat_of_conflict_okW hwP hlB (hpr1 hc).2.2)
             (fun h => by cases h) (fun _ => hposP) hmP
         · exact hQ 0#64 extP sP mP (FullM6HdrInvW.mk_inv hinv0.cfgOk hextP hspP) (Or.inl rfl)
-            hclP_le hflP_le hokB.cv_eq hokB.tmp_eq hokB.tl_eq hws2P
+            hclP_le hflP_le hokB.cv_eq hokB.tmp_eq hokB.tl_eq hokB.prb_eq hokB.mcl_eq hws1P hws2P
             (fun h => by cases h) (fun h => by cases h) (fun _ => hposP) hmP
         ·   have hpr0_eq : pr = 0#64 := hc
             have hmP_f := fullM6HdrMem_focus_full hmP
@@ -1278,8 +1330,8 @@ theorem full_reduce_purge_c0_step13_wp (Γ : Env)
                 hspP.2.2.1, hspP.2.2.2.1, hspP.2.2.2.2.1, hspP.2.2.2.2.2⟩
             have hokP0 : S6aPurgeStateOk c F0 F_cur s0 sP0 :=
               s6a_purgeStateOk_trans hokP
-                ⟨hspP0.toSparse, hwP0, Nat.le_refl _, Nat.le_refl _, rfl, rfl, rfl,
-                 hspP.2.2.2.2.2, id, hspP.2.2.1.1, hspP.2.2.1.2, hspP.2.2.2.2.1.1, rfl, rfl,
+                ⟨hspP0.toSparse, hwP0, Nat.le_refl _, Nat.le_refl _, rfl, rfl, rfl, rfl, rfl,
+                 hspP.2.2.2.2.2, id, hspP.2.2.1.1, hspP.2.2.1.2, hspP.2.2.2.2.1.1, rfl, rfl, rfl,
                  fun hp => by change 0 < sP.core.cur_level at hp; rw [hlB] at hp; omega⟩
             exact hJm (sP0, extP) _ ⟨hokP0, hextP, by assumption⟩
       · intro Jb hJb; c0_hsteps_nogrp; c0_hsplit
@@ -1294,7 +1346,7 @@ theorem full_reduce_purge_c0_step13_wp (Γ : Env)
           dsimp only [sB] at hlenB hwB
           rw [hclB0] at hlenB hwB
           have hokB := s6a_purgeStateOk_backtrack0 hok0 hlenB hwB
-            hprscB.1.1 hprscB.1.2 hprscB.2.2.1
+            hprscB.1.1 hprscB.1.2 hprscB.2.1 hprscB.2.2.1
           have hokB' : S6aPurgeStateOk c F0 F_cur s0 sB := by
             dsimp only [sB]; rw [hclB0]; exact hokB
           have hlB : sB.core.cur_level = 0 := by dsimp only [sB]; rw [hclB0]

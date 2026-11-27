@@ -679,6 +679,36 @@ def step13FwdScanLitSpec : Spec [i64, i32, i32, i32, .bool] [i32] :=
               (cnfClause ((fullArenaClauseLits s cref.toNat).filter (· != r.toNat))))) →
         Q (r, ()) m
 
+/-- Step-13 `full_arena_sweep` contract (`FullSpec2.fullArenaSweepSpec` + `sc'.work_stk1`
+preservation, matching `FullFidelityStep13S5.step13ArenaSweepSpec`). -/
+def step13ArenaSweepSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
+  ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
+    h = c.hdr ∧ s.LengthsOk c ∧ FullWitnessInv c F0 F_cur s.core ∧ FullArenaVarsNodup s ∧
+    s.core.dense_mode = 0#64 ∧ (0 < s.core.cur_level → FullReasonsMarked s) ∧ (FullMem c s ⋆ R) m ∧
+    ∀ r vals' flags' lvl' rsns' trl' tp' te' unass' unfl' wvec' wstk' arena' alen' wlen' wu'
+      fred' ni' nr' nb' oom' sc' m',
+      let s' : FullState :=
+        { s with
+          core := { s.core with vals := vals', flags := flags', lvl := lvl', rsns := rsns',
+                                trl := trl', trail_pos := tp', trail_end := te',
+                                unassigned := unass', unflushed := unfl', wvec := wvec',
+                                wstk := wstk', arena := arena', arena_len := alen', wlen := wlen',
+                                wusable := wu', arena_garbage := 0#64, first_reducible := fred',
+                                num_irred := ni', num_redundant := nr', num_binary := nb',
+                                oom := oom' }
+          scratch := sc' }
+      s'.LengthsOk c → (r = 0#64 ∨ r = 1#64 ∨ r = 2#64 ∨ r = 3#64) →
+      sc'.extend_len = s.scratch.extend_len → sc'.work_stk1 = s.scratch.work_stk1 →
+      sc'.work_stk2 = s.scratch.work_stk2 → FullLastLearnedWf s' →
+      FullWitnessInv c F0 F_cur s'.core → FullArenaVarsNodup s' →
+      (r = 0#64 ∨ r = 1#64 → oom' = 0#64) →
+      (0 < s.core.cur_level → r ≠ 1#64 ∧ r ≠ 2#64 ∧
+        vals' = s.core.vals ∧ lvl' = s.core.lvl ∧ trl' = s.core.trl ∧
+        tp' = s.core.trail_pos ∧ te' = s.core.trail_end) →
+      (r = 1#64 → s.core.cur_level = 0 ∧ s.core.trail_end < te') →
+      (r = 2#64 → s.core.cur_level = 0 ∧ F0.Unsat) →
+      (r = 3#64 → oom' ≠ 0#64) → (FullMem c s' ⋆ R) m' → Q (r, ()) m'
+
 /-! ## 3. Lifted Unchanged-Caller `Spec` Contracts (`S6a`) -/
 
 /-- Mirror of `FullFidelityStep7.step7SortBinWatchesSpec` (`full_sort_bin_watches_fid`). -/
@@ -742,9 +772,28 @@ def step13RebuildWatchesM6Spec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
       s'.core.fuel.toNat ≤ s.core.fuel.toNat → (r = 0#64 ∨ r = 1#64 ∨ r = 20#64) →
       (r = 20#64 → F0.Unsat) → (FullM6HdrMem c ext' s' ⋆ R) m' → Q (r, ()) m'
 
-/-- Option-A `FullM6HdrMem`-threaded lift of `fullReducePurgeC0Spec` (`full_reduce_purge_c0`). -/
-abbrev step13ReducePurgeC0M6Spec : Spec [i64] [i64] :=
-  fun (h, ()) m Q X => m6ReduceSpec (h, true, ()) m Q X
+/-- Option-A `FullM6HdrMem`-threaded Step-13 contract for `full_reduce_purge_c0` (avoids colliding
+with `FullFidelityStep13S2.step13ReducePurgeC0M6Spec`), exporting `probing`, `min_clr_len`,
+`work_stk1`, `tmp`, `tmp_len`, `cur_vars`, `work_stk2`, `cur_level ≤`, `fuel.toNat ≤`, `oom`
+preservation, `r = 20#64 → F0.Unsat`, and `r = 1#64 → 0 < s'.core.cur_level` trail preservation. -/
+def step13ReducePurgeC0HdrM6Spec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
+  ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (ext : List (BitVec 64))
+    (s : FullState) (R : Mem 64 → Prop),
+    h = c.hdr ∧ FullM6HdrInvW c F0 F_cur ext s ∧ (FullM6HdrMem c ext s ⋆ R) m ∧
+    ∀ r ext' s' m',
+      FullM6HdrInvW c F0 F_cur ext' s' → (r = 0#64 ∨ r = 1#64 ∨ r = 20#64) →
+      s'.core.cur_level ≤ s.core.cur_level → s'.core.fuel.toNat ≤ s.core.fuel.toNat →
+      s'.core.cur_vars = s.core.cur_vars → s'.core.tmp = s.core.tmp →
+      s'.core.tmp_len = s.core.tmp_len → s'.core.probing = s.core.probing →
+      s'.core.min_clr_len = s.core.min_clr_len →
+      s'.scratch.work_stk1 = s.scratch.work_stk1 → s'.scratch.work_stk2 = s.scratch.work_stk2 →
+      (r = 20#64 → F0.Unsat) →
+      (r = 1#64 → s.core.oom = 0#64 → s'.core.oom = 0#64) →
+      (r = 1#64 → 0 < s'.core.cur_level →
+        s'.core.cur_level = s.core.cur_level ∧ s'.core.vals = s.core.vals ∧
+        s'.core.lvl = s.core.lvl ∧ s'.core.trl = s.core.trl ∧
+        s'.core.trail_pos = s.core.trail_pos ∧ s'.core.trail_end = s.core.trail_end) →
+      (FullM6HdrMem c ext' s' ⋆ R) m' → Q (r, ()) m'
 
 /-- Option-A `FullM6HdrMem`-threaded lift of `fullVivInstM6Spec` (`full_viv_inst_m6`). -/
 def step13VivInstM6Spec : Spec [i64, i32, i32] [i64] := fun (h, cref, sz, ()) m Q _ =>
@@ -762,14 +811,17 @@ def step13VivInstM6Spec : Spec [i64, i32, i32] [i64] := fun (h, cref, sz, ()) m 
       (r = 0#64 ∨ r = 1#64 ∨ r = 2#64 ∨ r = 20#64) → (r = 20#64 → F0.Unsat) →
       (FullM6HdrMem c ext' s' ⋆ R) m' → Q (r, ()) m'
 
-/-- Option-A `FullM6HdrMem`-threaded lift of `fullVivClauseM6Spec` (`full_viv_clause_m6`). -/
+/-- Option-A `FullM6HdrMem`-threaded lift of `fullVivClauseM6Spec` (`full_viv_clause_m6`),
+exporting `M6HdrExtInitOk` / `M6ExtW2bPres` preservation for `S5` vivify callers. -/
 def step13VivClauseM6Spec : Spec [i64, i32] [i64] := fun (h, cref, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (ext : List (BitVec 64))
     (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ FullM6HdrInvW c F0 F_cur ext s ∧ cref.toNat ∈ fullArenaClauseRefs s ∧
     (FullM6HdrMem c ext s ⋆ R) m ∧
     ∀ r ext' s' m',
-      FullM6HdrInvW c F0 F_cur ext' s' → s'.core.fuel.toNat ≤ s.core.fuel.toNat →
+      FullM6HdrInvW c F0 F_cur ext' s' →
+      (M6HdrExtInitOk ext → M6HdrExtInitOk ext' ∧ M6ExtW2bPres ext ext') →
+      s'.core.fuel.toNat ≤ s.core.fuel.toNat →
       s'.core.arena_len = s.core.arena_len → fullArenaClauseRefs s' = fullArenaClauseRefs s →
       s'.scratch.red_refs = s.scratch.red_refs →
       (r = 1#64 ∨ r = 2#64 ∨ r = 20#64) → (r = 20#64 → F0.Unsat) →
@@ -1028,15 +1080,24 @@ theorem step13RebuildWatchesM6Spec_noExit :
       step13RebuildWatchesM6Spec xs m Q (fun _ _ _ _ => False) :=
   fun _ _ _ _ h => step13RebuildWatchesM6Spec_monoX h
 
-theorem step13ReducePurgeC0M6Spec_monoX {xs : Tup Val [i64]} {m : Mem 64} {Q : Post [i64]}
-    {X X' : XPost} (h : step13ReducePurgeC0M6Spec xs m Q X) :
-    step13ReducePurgeC0M6Spec xs m Q X' := by
-  rcases xs with ⟨_, ⟨⟩⟩; exact m6ReduceSpec_monoX h
+theorem step13ArenaSweepSpec_monoX {xs : Tup Val [i64]} {m : Mem 64} {Q : Post [i64]}
+    {X X' : XPost} (h : step13ArenaSweepSpec xs m Q X) : step13ArenaSweepSpec xs m Q X' := by
+  rcases xs with ⟨_, ⟨⟩⟩; exact h
 
-theorem step13ReducePurgeC0M6Spec_noExit :
-    ∀ xs m Q X, step13ReducePurgeC0M6Spec xs m Q X →
-      step13ReducePurgeC0M6Spec xs m Q (fun _ _ _ _ => False) :=
-  fun _ _ _ _ h => step13ReducePurgeC0M6Spec_monoX h
+theorem step13ArenaSweepSpec_noExit :
+    ∀ xs m Q X, step13ArenaSweepSpec xs m Q X →
+      step13ArenaSweepSpec xs m Q (fun _ _ _ _ => False) :=
+  fun _ _ _ _ h => step13ArenaSweepSpec_monoX h
+
+theorem step13ReducePurgeC0HdrM6Spec_monoX {xs : Tup Val [i64]} {m : Mem 64} {Q : Post [i64]}
+    {X X' : XPost} (h : step13ReducePurgeC0HdrM6Spec xs m Q X) :
+    step13ReducePurgeC0HdrM6Spec xs m Q X' := by
+  rcases xs with ⟨_, ⟨⟩⟩; exact h
+
+theorem step13ReducePurgeC0HdrM6Spec_noExit :
+    ∀ xs m Q X, step13ReducePurgeC0HdrM6Spec xs m Q X →
+      step13ReducePurgeC0HdrM6Spec xs m Q (fun _ _ _ _ => False) :=
+  fun _ _ _ _ h => step13ReducePurgeC0HdrM6Spec_monoX h
 
 theorem step13VivInstM6Spec_monoX {xs : Tup Val [i64, i32, i32]} {m : Mem 64} {Q : Post [i64]}
     {X X' : XPost} (h : step13VivInstM6Spec xs m Q X) : step13VivInstM6Spec xs m Q X' := by

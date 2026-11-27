@@ -323,6 +323,41 @@ theorem full_walk_step13_wp (Γ : Env)
     (Nat.le_trans hfu2 hfu1) (fun h0 => (hprob2).trans (hprob1 h0))
     ⟨hpres2.1.trans hpres1.1, hpres2.2.trans hpres1.2⟩ (fullM6HdrMem_unfocus_full hm2)
 
+/-- Step-13 Option-A lift for `full_compact_needed`
+(`FullFidelityStep9.fidStep9CompactNeededFn.body`) against
+`FullM6CompactFlush.fullCompactNeededM6Spec`. -/
+theorem full_compact_needed_step13_wp (Γ : Env) :
+    ∀ a m Q X, FullM6CompactFlush.fullCompactNeededM6Spec a m Q X →
+      Func.wp Γ FullFidelityStep9.fidStep9CompactNeededFn.body a m Q X := by
+  rintro ⟨h, ⟨⟩⟩ m Q X ⟨c, s, R, rfl, hlen, hcl_lt, hm, hQ⟩
+  have hcv := hlen.core_ok.cur_vars_le
+  have hmx := c.hmaxv; unfold dimacsBound at hmx
+  unfold Func.wp
+  rw [show FullFidelityStep9.fidStep9CompactNeededFn.body =
+    FullFidelityStep9.full_compact_needed_body from rfl]
+  unfold FullFidelityStep9.full_compact_needed_body
+  c0_hsteps <;>
+    first
+    | exact hQ false fun hf => Bool.noConfusion hf
+    | (refine hQ _ fun hres => ?_
+       have hcl0 : s.core.cur_level = 0 := by c0_bound
+       have hdm0 : s.core.dense_mode = 0#64 := by c0_bound
+       have hcv_pos : 0 < s.core.cur_vars := by c0_bound
+       have hun_lt : s.core.unassigned.toNat < s.core.cur_vars := by c0_bound
+       have h10 : s.core.cur_vars < 10 * (s.core.cur_vars - s.core.unassigned.toNat) := by
+         have hsub : (BitVec.ofNat 64 s.core.cur_vars - s.core.unassigned).toNat =
+             s.core.cur_vars - s.core.unassigned.toNat := by bv_omega
+         have hmul : ((BitVec.ofNat 64 s.core.cur_vars - s.core.unassigned) * 10#64).toNat =
+             (s.core.cur_vars - s.core.unassigned.toNat) * 10 := by
+           rw [BitVec.toNat_mul, hsub, show (10#64 : BitVec 64).toNat = 10 from rfl,
+             Nat.mod_eq_of_lt (by omega)]
+         have hgt : BitVec.ult (BitVec.ofNat 64 s.core.cur_vars)
+             ((BitVec.ofNat 64 s.core.cur_vars - s.core.unassigned) * 10#64) = true := hres
+         rw [BitVec.ult_iff_toNat_lt, hmul, BitVec.toNat_ofNat,
+           Nat.mod_eq_of_lt (by omega)] at hgt
+         omega
+       exact ⟨hcl0, hdm0, hcv_pos, hun_lt, h10⟩)
+
 /-- Step-13 Option-A lift for `full_simplify_m6` (`FullM6Orch.full_simplify_m6_body`) against
 `fullM6SimplifySpec`. -/
 theorem full_simplify_m6_step13_wp (Γ : Env)
