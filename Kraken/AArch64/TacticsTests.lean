@@ -72,3 +72,66 @@ example (layout : Layout) [kstepJumpProgram.AssemblableWith layout] (s : Machine
   refine .done _ ⟨rfl, ?_⟩
   simp (config := { zetaDelta := true }) only [show BitVec.ofInt 64 (Int64.toInt 42) = 42#64 from rfl]
   bv_decide
+
+/--
+info: ⸨prog|
+● movz x0, #1, lsl #0
+  b done
+  movz x0, #99, lsl #0
+  done:
+  movz x0, #42, lsl #0
+⸩
+Eventually (step1 (Layout.apply kstepJumpProgram layout)) (fun x => True)
+  { data := ss✝, pc := (Layout.apply kstepJumpProgram layout).addrOf 0 }
+---
+info: END KSTEP: 0 sub-goals left
+---
+info: ⸨prog|
+○ movz x0, #1, lsl #0
+● b done
+  movz x0, #99, lsl #0
+  done:
+  movz x0, #42, lsl #0
+⸩
+Eventually (step1 (Layout.apply kstepJumpProgram layout)) (fun x => True)
+  {
+    data :=
+      {
+        regs :=
+          have v := { toBitVec := res✝ };
+          { X0 := v, X1 := X1, X2 := X2, X3 := X3, X4 := X4, X5 := X5, X6 := X6, X7 := X7, X8 := X8, X9 := X9,
+            X10 := X10, X11 := X11, X12 := X12, X13 := X13, X14 := X14, X15 := X15, X16 := X16, X17 := X17, X18 := X18,
+            X19 := X19, X20 := X20, X21 := X21, X22 := X22, X23 := X23, X24 := X24, X25 := X25, X26 := X26, X27 := X27,
+            X28 := X28, X29 := X29, X30 := X30, SP := SP },
+        status := flags, dmem := mem },
+    pc := (Layout.apply kstepJumpProgram layout).addrOf 1 }
+---
+info: END KSTEP: 0 sub-goals left
+---
+info: ⸨prog|
+  ...
+○ b done
+  movz x0, #99, lsl #0
+● done:
+  movz x0, #42, lsl #0
+⸩
+Eventually (step1 (Layout.apply kstepJumpProgram layout)) (fun x => True)
+  {
+    data :=
+      {
+        regs :=
+          have v := { toBitVec := res✝ };
+          { X0 := v, X1 := X1, X2 := X2, X3 := X3, X4 := X4, X5 := X5, X6 := X6, X7 := X7, X8 := X8, X9 := X9,
+            X10 := X10, X11 := X11, X12 := X12, X13 := X13, X14 := X14, X15 := X15, X16 := X16, X17 := X17, X18 := X18,
+            X19 := X19, X20 := X20, X21 := X21, X22 := X22, X23 := X23, X24 := X24, X25 := X25, X26 := X26, X27 := X27,
+            X28 := X28, X29 := X29, X30 := X30, SP := SP },
+        status := flags, dmem := mem },
+    pc := (Layout.apply kstepJumpProgram layout).addrOf 3 }
+-/
+#guard_msgs in
+example (layout : Layout) [kstepJumpProgram.AssemblableWith layout] (s : MachineData) :
+    Eventually (step1 (layout.apply kstepJumpProgram)) (fun _ => True) ⟨s, layout.start⟩ := by
+  kprologue kstepJumpProgram with s
+  sym => kstep 1; tactic =>
+  sym => kstep 1; tactic =>
+  exact .done _ trivial

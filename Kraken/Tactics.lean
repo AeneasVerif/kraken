@@ -7,6 +7,8 @@ Core tactics and theorems for stepping through Kraken assembly proofs.
 -/
 
 public import Kraken.Attribute
+public import Kraken.ShowProgram
+public meta import Kraken.ShowProgram
 import Kraken.Layout
 import Kraken.OmniSemantics
 
@@ -14,9 +16,16 @@ public meta section
 
 open Lean Meta Elab Tactic Kraken
 
+structure KPrologueConfig where
+  /-- Number of context lines to display before the current directive. -/
+  before : Nat := 2
+  /-- Number of context lines to display after the current directive. -/
+  after : Nat := 5
+declare_term_config_elab elabKPrologueConfig KPrologueConfig
+
 /-- Set up a straight-line proof for `p` from `s`, naming the state fields and
 general-purpose registers. `status` and `dmem` are called `flags` and `mem`. -/
-syntax (name := kprologue) "kprologue" ident "with" ident : tactic
+syntax (name := kprologue) "kprologue" optConfig ident "with" ident : tactic
 
 private def kprologueBinderName (field : Lean.Name) : Lean.Name :=
   if field == `status then `flags
@@ -24,7 +33,8 @@ private def kprologueBinderName (field : Lean.Name) : Lean.Name :=
   else field
 
 elab_rules : tactic
-  | `(tactic| kprologue $p:ident with $s:ident) => withMainContext do
+  | `(tactic| kprologue $cfg:optConfig $p:ident with $s:ident) => withMainContext do
+      let config ← elabKPrologueConfig cfg
       let env ← getEnv
       let state ← Term.elabTerm s none
       let stateType ← whnf (← inferType state)
@@ -89,6 +99,11 @@ elab_rules : tactic
            ⟨ss, (Kraken.Layout.apply $p _).startAddr⟩)
          obtain $statePat:rcasesPat := $s
          rw [← Kraken.Executable.addrOf_zero])))
+
+      let mvarId ← getMainGoal
+      let target ← mvarId.getType
+      let m : ShowProgramMeta := { idx := 0, prev? := none, before := config.before, after := config.after }
+      replaceMainGoal [← mvarId.replaceTargetDefEq (attachShowProgramMData m target)]
 
 --------------------------------------------------------------------------------
 
@@ -288,6 +303,22 @@ partial def evalSymKStep : Grind.GrindTactic :=
   -- we only ever use `goal` and never let-bind mvarId.
   let goal : Grind.Goal ← Grind.getMainGoal
 
+  -- Strip any `Kraken.showProgram` metadata before stepping so internal tactics see a clean goal,
+  -- and record the entry index so we can render `○` (previous) and `●` (current) after stepping.
+  let (showProgramMeta?, entryIdx, goal) ← goal.withContext do
+    let t ← instantiateMVars (← goal.mvarId.getType)
+    let (m?, inner) := stripShowProgramMData t
+    match m? with
+    | some m =>
+      let entryIdx := match extractEventuallyProgramAndPc? inner with
+        | some (_, _, some k) => k
+        | _ => m.idx
+      let mvarId ← goal.mvarId.replaceTargetDefEq inner
+      pure (some m, entryIdx, { goal with mvarId })
+    | none =>
+      pure (none, 0, goal)
+  let lastSteppedIdx ← IO.mkRef entryIdx
+
   let gimmickRule ← mkBackwardRuleFromDecl ``gimmick
   let insertGimmick (goal: Grind.Goal): Grind.GrindTacticM Grind.Goal := do
     let .goals [mvarId] ← Grind.liftGrindM (gimmickRule.apply goal.mvarId) | failure
@@ -397,6 +428,7 @@ partial def evalSymKStep : Grind.GrindTactic :=
     match_expr d with
     | Kraken.Directive.label _ _ _ => pure ()
     | _ => maxInstrCount.forM (·.modify (· - 1))
+    lastSteppedIdx.set k
     let goal ← removeGimmick goal
     let goal ← goal.withContext do
       let someD ← mkAppM ``Option.some #[d]
@@ -569,6 +601,19 @@ partial def evalSymKStep : Grind.GrindTactic :=
 
   -- Remove the gimmick debug marker.
   let goal ← removeGimmick goal
+
+  -- Re-attach updated `Kraken.showProgram` metadata if the goal was tagged on entry.
+  let goal ← match showProgramMeta? with
+    | some m =>
+      goal.withContext do
+        let t ← instantiateMVars (← goal.mvarId.getType)
+        let newIdx ← match extractEventuallyProgramAndPc? t with
+          | some (_, _, some k) => pure k
+          | _ => lastSteppedIdx.get
+        let m' : ShowProgramMeta := { m with idx := newIdx, prev? := some entryIdx }
+        let mvarId ← goal.mvarId.replaceTargetDefEq (attachShowProgramMData m' t)
+        pure { goal with mvarId }
+    | none => pure goal
 
   logInfo m!"END KSTEP: {subGoals.length} sub-goals left"
 

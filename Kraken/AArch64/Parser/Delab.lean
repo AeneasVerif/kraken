@@ -1,5 +1,7 @@
 module
 
+public import Kraken.ShowProgram
+public meta import Kraken.ShowProgram
 public import Kraken.AArch64.Parser.Syntax
 public meta import Kraken.AArch64.Parser.Syntax
 public import Kraken.AArch64.Syntax
@@ -958,6 +960,46 @@ def delabProgram : Delab := do
     | none => return listing
     | some tail => `($listing ++ $tail)
   | _ => failure
+
+/- Output-only syntax for rendering a windowed AArch64 program with `●`/`○` cursors above an
+   `Eventually` goal. Kept `scoped` inside `ShowProgSyntax` so its formatter is available globally
+   without ever interfering with the `⸨prog| ... ⸩` parser in user files. -/
+namespace ShowProgSyntax
+declare_syntax_cat aarch64_prog_line
+syntax ppHardSpace ppHardSpace aarch64_directive : aarch64_prog_line
+syntax "●" ppSpace aarch64_directive : aarch64_prog_line
+syntax "○" ppSpace aarch64_directive : aarch64_prog_line
+syntax "●" : aarch64_prog_line
+syntax "○" : aarch64_prog_line
+syntax ppHardSpace ppHardSpace "..." : aarch64_prog_line
+
+scoped syntax ppDedent("⸨prog|" (ppLine aarch64_prog_line)* ppLine "⸩" ppLine term) : term
+end ShowProgSyntax
+
+open ShowProgSyntax in
+@[delab mdata.Kraken.showProgram]
+def delabShowProgram : Delab := do
+  if ← getPPOption getPPExplicit then failure
+  unless ← getPPOption (fun o => Kraken.pp.kraken.program.get o) do failure
+  let .mdata d inner ← getExpr | failure
+  let some m := Kraken.getShowProgramMData? d | failure
+  let some (instrType, progExpr, pcIdx?) := Kraken.extractEventuallyProgramAndPc? inner | failure
+  unless instrType.isConstOf ``_root_.Instr do failure
+  let some dirs ← Kraken.unfoldDirectiveList? progExpr | failure
+  let curr := pcIdx?.getD m.idx
+  let window := Kraken.computeProgramWindow dirs.size curr m.prev? m.before m.after
+  let lines : Array (TSyntax `aarch64_prog_line) ← window.mapM fun
+    | .ellipsis => `(aarch64_prog_line| ...)
+    | .endCursor true => `(aarch64_prog_line| ●)
+    | .endCursor false => `(aarch64_prog_line| ○)
+    | .dir i marker => do
+      let dirStx ← withReader (fun ctx => { ctx with subExpr := { expr := dirs[i]!, pos := ctx.subExpr.pos } }) delabDirective
+      match marker with
+      | some true => `(aarch64_prog_line| ● $dirStx:aarch64_directive)
+      | some false => `(aarch64_prog_line| ○ $dirStx:aarch64_directive)
+      | none => `(aarch64_prog_line| $dirStx:aarch64_directive)
+  let body ← withMDataExpr delab
+  `(⸨prog| $lines:aarch64_prog_line* ⸩ $body)
 
 -- ============================================================================
 -- Standalone Embeddings (`⸨instr|`, `⸨mem|`, `⸨reg|`, `⸨const|`, `⸨cc|`)

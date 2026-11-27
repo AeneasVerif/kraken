@@ -67,3 +67,152 @@ example (layout : Layout) [kstepJumpProgram.AssemblableWith layout] (s : Machine
   kprologue kstepJumpProgram with s
   sym => kstep; tactic =>
   exact .done _ ⟨rfl, rfl⟩
+
+private def longJumpProgram : Program := ⸨prog|
+  mov $1, %rax
+  jmp done
+  mov $10, %rbx
+  mov $20, %rcx
+  mov $30, %rdx
+  mov $40, %rsi
+  mov $50, %rdi
+  mov $60, %r8
+done:
+  mov $42, %rax
+⸩
+
+/--
+info: ⸨prog|
+● movq $1, %rax
+  jmp done
+  movq $10, %rbx
+  movq $20, %rcx
+  movq $30, %rdx
+  movq $40, %rsi
+  ...
+⸩
+Eventually (step1 (Layout.apply longJumpProgram layout)) (fun x => True)
+  { data := ss✝, pc := (Layout.apply longJumpProgram layout).addrOf 0 }
+---
+info: END KSTEP: 0 sub-goals left
+---
+info: ⸨prog|
+○ movq $1, %rax
+● jmp done
+  movq $10, %rbx
+  movq $20, %rcx
+  movq $30, %rdx
+  movq $40, %rsi
+  movq $50, %rdi
+  ...
+⸩
+Eventually (step1 (Layout.apply longJumpProgram layout)) (fun x => True)
+  {
+    data :=
+      {
+        regs :=
+          have v := { toBitVec := 1#64 };
+          { rax := v, rbx := rbx, rcx := rcx, rdx := rdx, rsi := rsi, rdi := rdi, rsp := rsp, rbp := rbp, r8 := r8,
+            r9 := r9, r10 := r10, r11 := r11, r12 := r12, r13 := r13, r14 := r14, r15 := r15 },
+        zmms := zmms, status := flags, df := df, dmem := mem },
+    pc := (Layout.apply longJumpProgram layout).addrOf 1 }
+---
+info: END KSTEP: 0 sub-goals left
+---
+info: ⸨prog|
+  ...
+○ jmp done
+  ...
+  movq $50, %rdi
+  movq $60, %r8
+● done:
+  movq $42, %rax
+⸩
+Eventually (step1 (Layout.apply longJumpProgram layout)) (fun x => True)
+  {
+    data :=
+      {
+        regs :=
+          have v := { toBitVec := 1#64 };
+          { rax := v, rbx := rbx, rcx := rcx, rdx := rdx, rsi := rsi, rdi := rdi, rsp := rsp, rbp := rbp, r8 := r8,
+            r9 := r9, r10 := r10, r11 := r11, r12 := r12, r13 := r13, r14 := r14, r15 := r15 },
+        zmms := zmms, status := flags, df := df, dmem := mem },
+    pc := (Layout.apply longJumpProgram layout).addrOf 8 }
+---
+info: END KSTEP: 0 sub-goals left
+---
+info: ⸨prog|
+  ...
+○ done:
+  movq $42, %rax
+●
+⸩
+Eventually (step1 (Layout.apply longJumpProgram layout)) (fun x => True)
+  {
+    data :=
+      {
+        regs :=
+          have v := { toBitVec := 42#64 };
+          { rax := v, rbx := rbx, rcx := rcx, rdx := rdx, rsi := rsi, rdi := rdi, rsp := rsp, rbp := rbp, r8 := r8,
+            r9 := r9, r10 := r10, r11 := r11, r12 := r12, r13 := r13, r14 := r14, r15 := r15 },
+        zmms := zmms, status := flags, df := df, dmem := mem },
+    pc := (Layout.apply longJumpProgram layout).addrOf 10 }
+-/
+#guard_msgs in
+example (layout : Layout) [longJumpProgram.AssemblableWith layout] (s : MachineData) :
+    Eventually (step1 (layout.apply longJumpProgram)) (fun _ => True) ⟨s, layout.start⟩ := by
+  kprologue longJumpProgram with s
+  run_tac Lean.Elab.Tactic.withMainContext do Lean.logInfo m!"{← (← Lean.Elab.Tactic.getMainGoal).getType}"
+  sym => kstep 1; tactic =>
+  run_tac Lean.Elab.Tactic.withMainContext do Lean.logInfo m!"{← (← Lean.Elab.Tactic.getMainGoal).getType}"
+  sym => kstep 1; tactic =>
+  run_tac Lean.Elab.Tactic.withMainContext do Lean.logInfo m!"{← (← Lean.Elab.Tactic.getMainGoal).getType}"
+  sym => kstep; tactic =>
+  run_tac Lean.Elab.Tactic.withMainContext do Lean.logInfo m!"{← (← Lean.Elab.Tactic.getMainGoal).getType}"
+  exact .done _ trivial
+
+-- Custom window via `kprologue (before := ...) (after := ...)` and rewriting `pc` outside `kstep`.
+/--
+info: ⸨prog|
+● movq $1, %rax
+  jmp done
+  ...
+⸩
+Eventually (step1 (Layout.apply longJumpProgram layout)) (fun x => True)
+  { data := ss✝, pc := (Layout.apply longJumpProgram layout).addrOf 0 }
+---
+info: ⸨prog|
+  ...
+  movq $10, %rbx
+● movq $20, %rcx
+  movq $30, %rdx
+  ...
+⸩
+Eventually (step1 (Layout.apply longJumpProgram layout)) (fun x => True)
+  { data := ss✝, pc := (Layout.apply longJumpProgram layout).addrOf 3 }
+-/
+#guard_msgs in
+example (layout : Layout) (s : MachineData)
+    (h : (layout.apply longJumpProgram).addrOf 0 = (layout.apply longJumpProgram).addrOf 3) :
+    Eventually (step1 (layout.apply longJumpProgram)) (fun _ => True) ⟨s, layout.start⟩ := by
+  kprologue (before := 1) (after := 1) longJumpProgram with s
+  run_tac Lean.Elab.Tactic.withMainContext do Lean.logInfo m!"{← (← Lean.Elab.Tactic.getMainGoal).getType}"
+  rw [h]
+  run_tac Lean.Elab.Tactic.withMainContext do Lean.logInfo m!"{← (← Lean.Elab.Tactic.getMainGoal).getType}"
+  exact .done _ trivial
+
+-- `pp.kraken.program false` disables the program header; untagged goals are also unaffected.
+/--
+info: Eventually (step1 (Layout.apply kstepJumpProgram layout)) (fun x => True) { data := s, pc := layout.start }
+---
+info: Eventually (step1 (Layout.apply kstepJumpProgram layout)) (fun x => True)
+  { data := ss✝, pc := (Layout.apply kstepJumpProgram layout).addrOf 0 }
+-/
+#guard_msgs in
+example (layout : Layout) (s : MachineData) :
+    Eventually (step1 (layout.apply kstepJumpProgram)) (fun _ => True) ⟨s, layout.start⟩ := by
+  run_tac Lean.Elab.Tactic.withMainContext do Lean.logInfo m!"{← (← Lean.Elab.Tactic.getMainGoal).getType}"
+  kprologue kstepJumpProgram with s
+  set_option pp.kraken.program false in
+  run_tac Lean.Elab.Tactic.withMainContext do Lean.logInfo m!"{← (← Lean.Elab.Tactic.getMainGoal).getType}"
+  exact .done _ trivial
