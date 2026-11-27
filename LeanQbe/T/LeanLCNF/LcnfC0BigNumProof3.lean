@@ -23,7 +23,6 @@ open Std Std.ExtHashMap
 open LeanQbe.T
 open LeanQbe.T.C0Step
 open LeanQbe.T.ProofUtil
-open BigNumRt
 
 theorem sep_cast_ac {P Q : Mem 64 → Prop} {m : Mem 64} (h : P m) (heq : P = Q) : Q m :=
   heq ▸ h

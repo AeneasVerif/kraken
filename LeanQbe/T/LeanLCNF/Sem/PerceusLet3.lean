@@ -363,7 +363,7 @@ theorem objRep_not_tagged_mem {pv : PVal} {bv : BitVec 64} {objs : List LcnfObj}
     · exact ⟨o, ho, ha⟩
   | nat n =>
     simp [isTaggedPVal] at hnt
-    unfold ObjRep natRepR0 at hr
+    unfold ObjRep natRep at hr
     have hge : ¬n < 2 ^ 63 := by omega
     simp only [hge, ↓reduceIte] at hr
     rcases hr with ⟨_, o, ho, ha, _⟩

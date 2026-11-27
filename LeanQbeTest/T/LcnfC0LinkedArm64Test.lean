@@ -230,7 +230,7 @@ private theorem nvBnRtWf_ok :
     BigNumRtWf nvBnRtBase nvBnRtState nvBnScr nvBnScrLimbs := by
   have hlen : nvBnScrLimbs.length = 32 := List.length_replicate
   refine ⟨?_, by decide, by decide, by decide, ?_, ?_⟩
-  · unfold BigNumRt.RtC0State.Bounded48
+  · unfold RtC0State.Bounded48
     decide
   · rw [hlen]
     decide
@@ -242,7 +242,7 @@ private theorem nvBnNatA_rep_ok : natRep nvBnAddrNatA nvValNatA nvBnObjs := by
   simp only [natRep, hge, ↓reduceIte]
   refine ⟨by decide, nvBnNatA, by simp [nvBnObjs], rfl, ?_, rfl, rfl, rfl,
     by decide, by decide, by decide, ?_, by decide⟩
-  · unfold BigNumRt.LcnfObj.Wf BigNumRt.LcnfObj.totalBytes
+  · unfold LcnfObj.Wf LcnfObj.totalBytes
     decide
   · simp [nvBnNatA, limbsVal, nvValNatA]
 
@@ -251,7 +251,7 @@ private theorem nvBnNatB_rep_ok : natRep nvBnAddrNatB nvValNatB nvBnObjs := by
   simp only [natRep, hge, ↓reduceIte]
   refine ⟨by decide, nvBnNatB, by simp [nvBnObjs], rfl, ?_, rfl, rfl, rfl,
     by decide, by decide, by decide, ?_, by decide⟩
-  · unfold BigNumRt.LcnfObj.Wf BigNumRt.LcnfObj.totalBytes
+  · unfold LcnfObj.Wf LcnfObj.totalBytes
     decide
   · simp [nvBnNatB, limbsVal, nvValNatB]
 
@@ -274,14 +274,14 @@ theorem demoNatStrArm64_addNat_bignum_run :
     Eventually (step1 demoNatStrArm64Cert.host.exe)
       (fun st =>
         st.pc = (0x1234 : Int64) ∧
-        ∃ (p : BitVec 64) (st' : BigNumRt.RtC0State) (scrLimbs' : List (BitVec 64))
-          (objs' : List BigNumRt.LcnfObj) (obj : BigNumRt.LcnfObj) (m' : Mem 64),
+        ∃ (p : BitVec 64) (st' : RtC0State) (scrLimbs' : List (BitVec 64))
+          (objs' : List LcnfObj) (obj : LcnfObj) (m' : Mem 64),
           st.data.regs.X0.toBitVec = p ∧
           (p &&& 1#64) = 0#64 ∧ obj ∈ objs' ∧ obj.addr = p ∧
-          obj.tag = BigNumRt.mpzTag ∧ obj.other = 0 ∧
+          obj.tag = mpzTag ∧ obj.other = 0 ∧
           natRep p (nvValNatA + nvValNatB) objs' ∧
           (bigNumRtInv nvBnRtBase st' nvBnScr scrLimbs' ⋆
-            BigNumRt.lcnfHeap objs') m' ∧
+            lcnfHeap objs') m' ∧
           (st.data.dmem =⋆ Eq m' ⋆
             region (0x1000#64 - BitVec.ofNat 64 b) b ⋆ emp))
       ⟨s0, Labels.label "l_LeanQbe_T_LeanLCNF_DemoNatStr_addNat"⟩ := by
@@ -291,12 +291,12 @@ theorem demoNatStrArm64_addNat_bignum_run :
   let s0 : MachineData :=
     { armInitState b [] args with dmem := nvBnMem.union (armInitState b [] args).dmem }
   let Q : Post [i64] := fun (r, ()) m' =>
-    ∃ (st' : BigNumRt.RtC0State) (scrLimbs' : List (BitVec 64))
-      (objs' : List BigNumRt.LcnfObj) (obj : BigNumRt.LcnfObj),
+    ∃ (st' : RtC0State) (scrLimbs' : List (BitVec 64))
+      (objs' : List LcnfObj) (obj : LcnfObj),
       (r &&& 1#64) = 0#64 ∧ obj ∈ objs' ∧ obj.addr = r ∧
-      obj.tag = BigNumRt.mpzTag ∧ obj.other = 0 ∧
+      obj.tag = mpzTag ∧ obj.other = 0 ∧
       natRep r (nvValNatA + nvValNatB) objs' ∧
-      (bigNumRtInv nvBnRtBase st' nvBnScr scrLimbs' ⋆ BigNumRt.lcnfHeap objs') m'
+      (bigNumRtInv nvBnRtBase st' nvBnScr scrLimbs' ⋆ lcnfHeap objs') m'
   have hb : b ≤ 2048 :=
     Nat.le_trans (demoNatStrArm64Cert.bound_le_max "l_LeanQbe_T_LeanLCNF_DemoNatStr_addNat")
       (by decide)

@@ -122,7 +122,7 @@ theorem incRef_wp {Γ : Env} {rs : List Ty} {QT : Post rs} {XT : XPost}
   let o := σ.objs[idx]
   have haddrO : o.addr = vx := haddr
   let heapRest : Mem 64 → Prop :=
-    fullRtInv rt σ.st σ.scr σ.scrLimbs ⋆
+    bigNumRtInv rt σ.st σ.scr σ.scrLimbs ⋆
       (lcnfHeap (σ.objs.take idx) ⋆ lcnfHeap (σ.objs.drop (idx + 1))) ⋆ R
   have hmObj : (lcnfObjMem o ⋆ heapRest) mem := by
     rw [HState.mem.eq_1, lcnfHeap_focus σ.objs hidx] at hm
@@ -297,13 +297,13 @@ theorem emitInc_wp {Γ : Env} {rs : List Ty} {QT : Post rs} {XT : XPost}
                 (hj : j < σ.objs.length) → σ.objs[i].addr ≠ σ.objs[j].addr := by
               intro i j hij _ hj
               have hmTmp :
-                  (lcnfHeap σ.objs ⋆ (fullRtInv rt σ.st σ.scr σ.scrLimbs ⋆ R)) mem := by
+                  (lcnfHeap σ.objs ⋆ (bigNumRtInv rt σ.st σ.scr σ.scrLimbs ⋆ R)) mem := by
                 rw [HState.mem.eq_1] at hm; exact sep_cast hm (by ac_rfl)
               rw [lcnfHeap_focus σ.objs hj, lcnfObjMem_eq_header_body, sep_assoc] at hmTmp
               have hmCell :
                   (cell64 σ.objs[j].addr σ.objs[j].header ⋆ lcnfHeap (σ.objs.take j) ⋆
                     (lcnfObjBody σ.objs[j] ⋆ lcnfHeap (σ.objs.drop (j + 1)) ⋆
-                      (fullRtInv rt σ.st σ.scr σ.scrLimbs ⋆ R))) mem :=
+                      (bigNumRtInv rt σ.st σ.scr σ.scrLimbs ⋆ R))) mem :=
                 sep_cast hmTmp (by ac_rfl)
               have hiTake : i < (σ.objs.take j).length := by simp [List.length_take]; omega
               have hmem : σ.objs[i] ∈ σ.objs.take j := by
@@ -374,7 +374,7 @@ theorem decRefJ_wp {m : LcModule} {Δ : HEnv} {Γ : Env} {rs : List Ty}
   let o := σ.objs[idx]
   have haddrO : o.addr = vx := haddr
   let heapRest : Mem 64 → Prop :=
-    fullRtInv rt σ.st σ.scr σ.scrLimbs ⋆
+    bigNumRtInv rt σ.st σ.scr σ.scrLimbs ⋆
       (lcnfHeap (σ.objs.take idx) ⋆ lcnfHeap (σ.objs.drop (idx + 1))) ⋆ R
   have hmObj : (lcnfObjMem o ⋆ heapRest) mem := by
     rw [HState.mem.eq_1, lcnfHeap_focus σ.objs hidx] at hm

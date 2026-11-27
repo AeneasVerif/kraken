@@ -1,7 +1,7 @@
 module
 
 public import LeanQbe.T.LeanLCNF.Sem.H
-public import LeanQbe.T.LeanLCNF.Sem.SpecNormProof
+public import LeanQbe.T.LeanLCNF.Sem.SpecNorm
 public import LeanQbe.T.LeanLCNF.LcnfC0Demo
 public import LeanQbe.T.LeanLCNF.LcnfC0BigNumProof
 
@@ -172,14 +172,13 @@ public theorem demoNatStr_addNat_scalar_liftEnv (m₀ : Mem 64)
 -- =========================================================================
 
 @[expose] public def nvHState : HState :=
-  { st := bnStateToRtR0 nvBnRtState,
-    objs := nvBnObjs.map bnObjToRtR0,
+  { st := nvBnRtState,
+    objs := nvBnObjs,
     scr := nvBnScr,
     scrLimbs := nvBnScrLimbs }
 
 public theorem nvHState_mem : nvHState.mem nvBnRtBase nvBnMem := by
   unfold HState.mem nvHState
-  rw [fullRtInv_eq_bigNumRtInv, rtStateToBnR0_bnStateToRtR0, ← bnHeap_eq]
   exact nvBnMem_ok
 
 public theorem nvHState_inv : HInv nvBnRtBase nvHState := by
@@ -188,40 +187,38 @@ public theorem nvHState_inv : HInv nvBnRtBase nvHState := by
   decide
 
 private theorem nvBnNatA_rep :
-    natRepR0 nvBnAddrNatA nvValNatA nvHState.objs := by
-  unfold natRepR0
+    natRep nvBnAddrNatA nvValNatA nvHState.objs := by
+  unfold natRep
   by_cases hlt : nvValNatA < 2 ^ 63
   · exact absurd hlt (by decide)
   · simp only [hlt, ↓reduceIte]
-    refine ⟨by decide, bnObjToRtR0 nvBnNatA, by simp [nvHState, nvBnObjs], ?_⟩
+    refine ⟨by decide, nvBnNatA, by simp [nvHState, nvBnObjs], ?_⟩
     refine ⟨by decide, ?_, by decide, by decide, by decide,
       by decide, by decide, by decide, ?_, by decide⟩
     · refine ⟨by decide, by decide, by decide, by decide, by decide,
         by decide, by decide, by decide, by decide, ?_⟩
-      simp [bnObjToRtR0, nvBnNatA, closureTag, arrayTag, sarrayTag, stringTag, mpzTag]
-      decide
-    · simp [bnObjToRtR0, nvBnNatA]
+      simp [nvBnNatA, closureTag, arrayTag, sarrayTag, stringTag, mpzTag]
+    · simp [nvBnNatA]
       decide
 
 private theorem nvBnNatB_rep :
-    natRepR0 nvBnAddrNatB nvValNatB nvHState.objs := by
-  unfold natRepR0
+    natRep nvBnAddrNatB nvValNatB nvHState.objs := by
+  unfold natRep
   by_cases hlt : nvValNatB < 2 ^ 63
   · exact absurd hlt (by decide)
   · simp only [hlt, ↓reduceIte]
-    refine ⟨by decide, bnObjToRtR0 nvBnNatB, by simp [nvHState, nvBnObjs], ?_⟩
+    refine ⟨by decide, nvBnNatB, by simp [nvHState, nvBnObjs], ?_⟩
     refine ⟨by decide, ?_, by decide, by decide, by decide,
       by decide, by decide, by decide, ?_, by decide⟩
     · refine ⟨by decide, by decide, by decide, by decide, by decide,
         by decide, by decide, by decide, by decide, ?_⟩
-      simp [bnObjToRtR0, nvBnNatB, closureTag, arrayTag, sarrayTag, stringTag, mpzTag]
-      decide
-    · simp [bnObjToRtR0, nvBnNatB]
+      simp [nvBnNatB, closureTag, arrayTag, sarrayTag, stringTag, mpzTag]
+    · simp [nvBnNatB]
       decide
 
 private theorem nvBnNatAdd_ok :
-    natArithOkR0 1 nvValNatA nvValNatB nvHState.scrLimbs.length nvHState.st := by
-  simp only [natArithOkR0, canAllocBytesR0, RtC0State.hasFree]
+    natArithOk 1 nvValNatA nvValNatB nvHState.scrLimbs.length nvHState.st := by
+  simp only [natArithOk, canAllocBytes, RtC0State.hasFree]
   decide
 
 public theorem demoNatStr_addNat_bignum_hwp :
@@ -231,7 +228,7 @@ public theorem demoNatStr_addNat_bignum_hwp :
       (fun w σ' =>
         ∃ res : BitVec 64,
           w = Word.i64 res ∧
-          natRepR0 res (nvValNatA + nvValNatB) σ'.objs ∧
+          natRep res (nvValNatA + nvValNatB) σ'.objs ∧
           (∀ o ∈ nvHState.objs, o ∈ σ'.objs))
       (fun _ _ => False)
       addNatDecl.body nvHState := by
@@ -259,7 +256,7 @@ public theorem demoNatStr_addNat_bignum_liftEnv :
         ∃ σ' : HState,
           HInv nvBnRtBase σ' ∧
           σ'.mem nvBnRtBase m' ∧
-          natRepR0 r.1 (nvValNatA + nvValNatB) σ'.objs ∧
+          natRep r.1 (nvValNatA + nvValNatB) σ'.objs ∧
           (∀ o ∈ nvHState.objs, o ∈ σ'.objs))
       (fun _ _ _ _ => False) := by
   apply liftEnv_of_mem addNatDecl_mem_demoNatStrLcMod
@@ -362,34 +359,34 @@ public theorem liftSpec_frame_scalar_smoke (m₀ : Mem 64)
     exact ⟨rfl, hm'' ▸ hm₁⟩
 
 public theorem specNorm_rtC0CoreEnv_check :
-    (∀ xs m Q X, lcnfNatSlowSpecR0 xs m Q X → rtC0CoreEnv "lcnf_nat_slow" _ _ xs m Q X) ∧
-    (∀ xs m Q X, lcnfIntOpSpecR0 xs m Q X → rtC0CoreEnv "lcnf_int_op" _ _ xs m Q X) ∧
-    (∀ xs m Q X, lcnfNatBitsSpecR0 xs m Q X → rtC0CoreEnv "lcnf_nat_bits" _ _ xs m Q X) ∧
-    (∀ xs m Q X, bnNatPowSpecR0 xs m Q X → rtC0CoreEnv "bn_nat_pow" _ _ xs m Q X) ∧
-    (∀ xs m Q X, bnNatGcdSpecR0 xs m Q X → rtC0CoreEnv "bn_nat_gcd" _ _ xs m Q X) ∧
-    (∀ xs m Q X, bnDecNatSpecR0 xs m Q X → rtC0CoreEnv "bn_dec_nat" _ _ xs m Q X) ∧
-    (∀ xs m Q X, lcnfIntMulDivSpecR0 xs m Q X → rtC0CoreEnv "lcnf_int_muldiv" _ _ xs m Q X) ∧
-    (∀ xs m Q X, lcnfIntAddSubCmpSpecR0 xs m Q X →
+    (∀ xs m Q X, lcnfNatSlowSpec xs m Q X → rtC0CoreEnv "lcnf_nat_slow" _ _ xs m Q X) ∧
+    (∀ xs m Q X, lcnfIntOpSpec xs m Q X → rtC0CoreEnv "lcnf_int_op" _ _ xs m Q X) ∧
+    (∀ xs m Q X, lcnfNatBitsSpec xs m Q X → rtC0CoreEnv "lcnf_nat_bits" _ _ xs m Q X) ∧
+    (∀ xs m Q X, bnNatPowSpec xs m Q X → rtC0CoreEnv "bn_nat_pow" _ _ xs m Q X) ∧
+    (∀ xs m Q X, bnNatGcdSpec xs m Q X → rtC0CoreEnv "bn_nat_gcd" _ _ xs m Q X) ∧
+    (∀ xs m Q X, bnDecNatSpec xs m Q X → rtC0CoreEnv "bn_dec_nat" _ _ xs m Q X) ∧
+    (∀ xs m Q X, lcnfIntMulDivSpec xs m Q X → rtC0CoreEnv "lcnf_int_muldiv" _ _ xs m Q X) ∧
+    (∀ xs m Q X, lcnfIntAddSubCmpSpec xs m Q X →
       rtC0CoreEnv "lcnf_int_addsub_cmp" _ _ xs m Q X) ∧
-    (∀ xs m Q X, lcnfNatAllocSpecR0 xs m Q X → rtC0CoreEnv "lcnf_nat_alloc" _ _ xs m Q X) ∧
-    (∀ xs m Q X, lcnfIntConvSpecR0 xs m Q X → rtC0CoreEnv "lcnf_int_conv" _ _ xs m Q X) ∧
-    (∀ xs m Q X, lcnfNatArithSpecR0 xs m Q X → rtC0CoreEnv "lcnf_nat_arith" _ _ xs m Q X) ∧
-    (∀ obj n, natRepR0 obj n [] → NatInHeap obj n []) ∧
-    (∀ obj n, obj &&& 1#64 ≠ 0#64 → NatInHeap obj n [] → natRepR0 obj n []) := by
+    (∀ xs m Q X, lcnfNatAllocSpec xs m Q X → rtC0CoreEnv "lcnf_nat_alloc" _ _ xs m Q X) ∧
+    (∀ xs m Q X, lcnfIntConvSpec xs m Q X → rtC0CoreEnv "lcnf_int_conv" _ _ xs m Q X) ∧
+    (∀ xs m Q X, lcnfNatArithSpec xs m Q X → rtC0CoreEnv "lcnf_nat_arith" _ _ xs m Q X) ∧
+    (∀ obj n, natRep obj n [] → NatInHeap obj n []) ∧
+    (∀ obj n, obj &&& 1#64 ≠ 0#64 → NatInHeap obj n [] → natRep obj n []) := by
   refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
-  · exact fun _ _ _ _ h => lcnfNatSlowSpecR0_le_rtC0CoreEnv h
-  · exact fun _ _ _ _ h => lcnfIntOpSpecR0_le_rtC0CoreEnv h
-  · exact fun _ _ _ _ h => lcnfNatBitsSpecR0_le_rtC0CoreEnv h
-  · exact fun _ _ _ _ h => bnNatPowSpecR0_le_rtC0CoreEnv h
-  · exact fun _ _ _ _ h => bnNatGcdSpecR0_le_rtC0CoreEnv h
-  · exact fun _ _ _ _ h => bnDecNatSpecR0_le_rtC0CoreEnv h
-  · exact fun _ _ _ _ h => lcnfIntMulDivSpecR0_le_rtC0CoreEnv h
-  · exact fun _ _ _ _ h => lcnfIntAddSubCmpSpecR0_le_rtC0CoreEnv h
-  · exact fun _ _ _ _ h => lcnfNatAllocSpecR0_le_rtC0CoreEnv h
-  · exact fun _ _ _ _ h => lcnfIntConvSpecR0_le_rtC0CoreEnv h
-  · exact fun _ _ _ _ h => lcnfNatArithSpecR0_le_rtC0CoreEnv h
-  · exact fun _ _ h => natRepR0_to_natInHeap h (fun _ ho => by cases ho)
-  · exact fun _ _ htag h => natInHeap_to_natRepR0_small htag h
+  · exact fun _ _ _ _ h => lcnfNatSlowSpec_le_rtC0CoreEnv h
+  · exact fun _ _ _ _ h => lcnfIntOpSpec_le_rtC0CoreEnv h
+  · exact fun _ _ _ _ h => lcnfNatBitsSpec_le_rtC0CoreEnv h
+  · exact fun _ _ _ _ h => bnNatPowSpec_le_rtC0CoreEnv h
+  · exact fun _ _ _ _ h => bnNatGcdSpec_le_rtC0CoreEnv h
+  · exact fun _ _ _ _ h => bnDecNatSpec_le_rtC0CoreEnv h
+  · exact fun _ _ _ _ h => lcnfIntMulDivSpec_le_rtC0CoreEnv h
+  · exact fun _ _ _ _ h => lcnfIntAddSubCmpSpec_le_rtC0CoreEnv h
+  · exact fun _ _ _ _ h => lcnfNatAllocSpec_le_rtC0CoreEnv h
+  · exact fun _ _ _ _ h => lcnfIntConvSpec_le_rtC0CoreEnv h
+  · exact fun _ _ _ _ h => lcnfNatArithSpec_le_rtC0CoreEnv h
+  · exact fun _ _ h => natRep_to_natInHeap h (fun _ ho => by cases ho)
+  · exact fun _ _ htag h => natInHeap_to_natRep_small htag h
 
 end
 

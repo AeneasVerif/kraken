@@ -18,7 +18,6 @@ open Std Std.ExtHashMap
 open LeanQbe.T
 open LeanQbe.T.C0Step
 open LeanQbe.T.ProofUtil
-open BigNumRt
 
 local macro "sep_ac" : tactic =>
   `(tactic| exact sep_cast_ac (by assumption) (by ac_rfl))

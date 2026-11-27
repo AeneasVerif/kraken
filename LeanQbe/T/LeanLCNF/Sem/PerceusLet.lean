@@ -672,7 +672,7 @@ private theorem unbox_step {rt : BitVec 64} {rf0 rf : RcFrame} {σ0 σ : HState}
             | nat n =>
               have hn : n < 2 ^ 63 := by
                 rcases hsm with rfl | rfl | rfl <;> exact hsafe
-              unfold ObjRep natRepR0 at hobj_y
+              unfold ObjRep natRep at hobj_y
               simp only [hn, ↓reduceIte] at hobj_y
               subst hobj_y
               have hpv : pv_res = .bits ty.width (BitVec.ofNat ty.width n) := by
@@ -785,7 +785,7 @@ private theorem box_step {rt : BitVec 64} {rf0 rf : RcFrame} {σ0 σ : HState}
     by_cases hbig : (t == .uint64 || t == .usize || t == .float) = true
     · simp only [hbig, ↓reduceIte] at hpr hty_chk
       rcases hpr with ⟨h16, h1, hK⟩
-      have hcan : canAllocBytesR0 σ.st 16 := Or.inr (Nat.le_trans h16 hres.1)
+      have hcan : canAllocBytes σ.st 16 := Or.inr (Nat.le_trans h16 hres.1)
       have hty_tag : ty ≠ .tagged := (ty_needsRc_ne_tagged hty_chk).1
       have hsub : ∀ (bv64 : BitVec 64) {p : BitVec 64} {st' : RtC0State},
           K (.bits 64 bv64) (rem - 16) (wr - 1) rcr →
@@ -1071,7 +1071,7 @@ private theorem ctor_step {rt : BitVec 64} {rf0 rf : RcFrame} {σ0 σ : HState}
             rw [← shadowOk_evalArgs_init hsh (List.all_eq_true.mp hsv) hl_eval]; exact hevp
           obtain ⟨bvs, hev_obj, hfrep⟩ := evalObjArgs_sim hrc.2.2.2.1 hans hl_eval hevp_rf
           have hbvs_len : bvs.length = ci.size := (objFieldsRep_length hfrep).symm.trans hpvs_len
-          have hcan : canAllocBytesR0 σ.st ci.byteSize := Or.inr (Nat.le_trans hbytes hres.1)
+          have hcan : canAllocBytes σ.st ci.byteSize := Or.inr (Nat.le_trans hbytes hres.1)
           have hty_tag : ty ≠ .tagged := (ty_needsRc_ne_tagged htynrc).1
           simp only [HVal.wp, hsc_ci, Bool.false_eq_true, ↓reduceIte, hev_obj]
           refine ⟨hbvs_len, hcidx, hsize, hmin, hmax, hcan, fun p st' scal hpne hpmod hpfresh
@@ -1165,7 +1165,7 @@ theorem letVal_step {m : LcModule} {Δr : PResEnv} {Δh : HEnv}
         refine ⟨BitVec.ofNat 64 (2 * n + 1), rfl, ?_,
           (fun h => by rw [h] at hnoobj; cases hnoobj),
           (fun _ => bv_odd_of_mul2_add1 n)⟩
-        simp [ObjRep, natRepR0, hn]
+        simp [ObjRep, natRep, hn]
       simp only [HVal.wp, hn, ↓reduceIte]
       exact let_nonPtr_wrap hjok hrc hcl hpo hno hpcb hsth hhih hep hsbp hex hsh hsmwf hres
         hjsc hfr hvr (fun _ => ⟨_, rfl, bv_odd_of_mul2_add1 n⟩) hpr.2 hcont

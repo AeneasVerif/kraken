@@ -155,7 +155,7 @@ public theorem even_mem_of_not_isTaggedPVal_objRep {pv : PVal} {bv : BitVec 64}
       · exact ⟨o, ho, hoa⟩
     | nat n =>
       simp only [isTaggedPVal, decide_eq_false_iff_not, Nat.not_lt] at htag
-      rw [ObjRep.eq_3, natRepR0] at hrep
+      rw [ObjRep.eq_3, natRep] at hrep
       split at hrep
       · omega
       · obtain ⟨_, o, ho, hoa, _⟩ := hrep

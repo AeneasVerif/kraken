@@ -44,7 +44,7 @@ theorem hstate_mem_unfold (rt : BitVec 64) (σ : HState) :
         cell64 (rt + 33680#64) (BitVec.ofNat 64 σ.scrLimbs.length) ⋆
         array64 σ.scr σ.scrLimbs ⋆
         lcnfHeap σ.objs) := by
-  simp only [HState.mem.eq_1, fullRtInv.eq_1, sep_assoc]
+  simp only [HState.mem.eq_1, bigNumRtInv.eq_1, sep_assoc]
 
 theorem writeNatLE_eq_toBytes : ∀ (k n : Nat), writeNatLE n k = Int.toBytes k (n : Int)
   | 0, _ => by rw [writeNatLE.eq_1, Int.toBytes.eq_1]
@@ -407,7 +407,7 @@ theorem allocObj_wp {m : LcModule} {Δ : HEnv} {Γ : Env} {rs : List Ty} {QT : P
     (hrun : (allocObj rtArg sz hdr k).run n = .ok (e, n'))
     (hrt : LArg.eval ρ i64 rtArg = some rt)
     (hszLo : rtMinObjBytes ≤ sz) (hszHi : sz < 65536) (hsz8 : sz % 8 = 0)
-    (hcan : canAllocBytesR0 σ.st sz)
+    (hcan : canAllocBytes σ.st sz)
     (hinv : HInv rt σ) (hm : (σ.mem rt ⋆ R) mem)
     (hk : ∀ (p : BitVec 64) (st' : RtC0State) (rp : LArg) (ek : LExpr)
         (ρ' : Frontend.C0.VEnv) (nr : Nat) (m' : Mem 64),
@@ -653,7 +653,7 @@ theorem ctor_alloc_store_wp {m : LcModule} {Δ : HEnv} {Γ : Env} {rs : List Ty}
     (hvsLen : vsArgs.length = vs.length) (hciSz : vs.length = ci.size)
     (hcidx : ci.cidx ≤ 244) (hsz : ci.size < 256)
     (hmin : rtMinObjBytes ≤ ci.byteSize) (hmax : ci.byteSize < 65536)
-    (hcan : canAllocBytesR0 σ.st ci.byteSize)
+    (hcan : canAllocBytes σ.st ci.byteSize)
     (hvsIds : ∀ a ∈ vsArgs, argIdsBelow a n)
     (hvsEvs : ∀ pr ∈ vsArgs.zip vs, LArg.eval ρ i64 pr.1 = some pr.2)
     (hinv : HInv rt σ) (hm : (σ.mem rt ⋆ R) mem)
@@ -765,7 +765,7 @@ theorem boxU64_wp {m : LcModule} {Δ : HEnv} {Γ : Env} {rs : List Ty}
     (hrun : (boxU64 rtArg xArg k).run n = .ok (e, n'))
     (hrt : LArg.eval ρ i64 rtArg = some rt)
     (hx : LArg.eval ρ i64 xArg = some vx) (hnx : argIdsBelow xArg n)
-    (hcan : canAllocBytesR0 σ.st 16)
+    (hcan : canAllocBytes σ.st 16)
     (hinv : HInv rt σ) (hm : (σ.mem rt ⋆ R) mem)
     (hk : ∀ (p : BitVec 64) (st' : RtC0State) (rp : LArg) (ek : LExpr)
         (ρ' : Frontend.C0.VEnv) (nr : Nat) (m' : Mem 64),

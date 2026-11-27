@@ -955,7 +955,7 @@ theorem objRep_even_mem {pv : PVal} {bv : BitVec 64} {objs : List LcnfObj}
     · exact absurd heven (bv64_tagged_bits_and1 hw v)
     · exact ⟨o, ho, hoa⟩
   | nat n =>
-    unfold ObjRep natRepR0 at hrep
+    unfold ObjRep natRep at hrep
     by_cases hn : n < 2 ^ 63
     · rw [ite_eq_left hn] at hrep; rw [hrep] at heven
       exact absurd heven (boxNat_and1_ne_zero n)
@@ -990,7 +990,7 @@ theorem rcInv_fresh_alloc_bind {rt : BitVec 64} {rf : RcFrame} {σ : HState}
     (hnotSelf : newObj.addr ∉ newObj.childFields)
     {st' : RtC0State} {scrLimbs' : List (BitVec 64)}
     (hrem' : σ.st.rem - bytes ≤ st'.rem)
-    (hwc' : st'.workCap = σ.st.workCap) (hbn' : BigNumRtWfR0 rt st' σ.scr scrLimbs')
+    (hwc' : st'.workCap = σ.st.workCap) (hbn' : BigNumRtWf rt st' σ.scr scrLimbs')
     {ghostH' : List (BitVec 64)} (hghostSub : ∀ a ∈ ghostH', a ∈ rf.ghostH)
     (hconsOld : ∀ o ∈ σ.objs, 0 < o.rc.toInt →
       ghostH'.count o.addr + newObj.childFields.count o.addr ≤ rf.ghostH.count o.addr)

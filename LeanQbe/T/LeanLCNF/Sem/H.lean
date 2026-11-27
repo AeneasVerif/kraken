@@ -40,7 +40,7 @@ open Std.ExtHashMap
     else
       ∀ p st' objs',
         st'.PreservesMetaExceptBaEmpty σ.st → st'.rem ≤ σ.st.rem →
-        natRepR0 p n objs' → (∀ o ∈ σ.objs, o ∈ objs') →
+        natRep p n objs' → (∀ o ∈ σ.objs, o ∈ objs') →
         K (Word.i64 p) { σ with st := st', objs := objs' }
   | .lit (.scalar n) => K ⟨ty.toTTy, BitVec.ofNat ty.width n⟩ σ
   | .lit (.str s) =>
@@ -67,7 +67,7 @@ open Std.ExtHashMap
       | some vs =>
         vs.length = ci.size ∧ ci.cidx ≤ 244 ∧ ci.size < 256 ∧
         rtMinObjBytes ≤ ci.byteSize ∧ ci.byteSize < 65536 ∧
-        canAllocBytesR0 σ.st ci.byteSize ∧
+        canAllocBytes σ.st ci.byteSize ∧
         ∀ (p : BitVec 64) (st' : RtC0State) (scal : List UInt8),
           p ≠ 0#64 → p.toNat % 8 = 0 → (∀ o ∈ σ.objs, o.addr ≠ p) →
           st'.PreservesMeta σ.st → st'.rem ≤ σ.st.rem → σ.st.rem - ci.byteSize ≤ st'.rem →
@@ -123,7 +123,7 @@ open Std.ExtHashMap
       if (addr &&& 1#64) ≠ 0#64 then
         vs.length = ci.size ∧ ci.cidx ≤ 244 ∧ ci.size < 256 ∧
         rtMinObjBytes ≤ ci.byteSize ∧ ci.byteSize < 65536 ∧
-        canAllocBytesR0 σ.st ci.byteSize ∧
+        canAllocBytes σ.st ci.byteSize ∧
         ∀ (p : BitVec 64) (st' : RtC0State) (scal : List UInt8),
           p ≠ 0#64 → p.toNat % 8 = 0 → (∀ o ∈ σ.objs, o.addr ≠ p) →
           st'.PreservesMeta σ.st → st'.rem ≤ σ.st.rem → σ.st.rem - ci.byteSize ≤ st'.rem →
@@ -148,7 +148,7 @@ open Std.ExtHashMap
         match w.toBV64? with
         | none => False
         | some v =>
-          canAllocBytesR0 σ.st 16 ∧
+          canAllocBytes σ.st 16 ∧
           ∀ (p : BitVec 64) (st' : RtC0State),
             p ≠ 0#64 → p.toNat % 8 = 0 → (∀ o ∈ σ.objs, o.addr ≠ p) →
             st'.PreservesMeta σ.st → st'.rem ≤ σ.st.rem → σ.st.rem - 16 ≤ st'.rem →

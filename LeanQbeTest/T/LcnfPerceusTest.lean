@@ -227,12 +227,12 @@ private theorem testInitState_rcInv_twoNat {d : LcDecl} {br : Bool} {a b : Nat}
       rcases hv with rfl | rfl
       · refine ⟨.nat a, Word.i64 (boxNat a), rfl, rfl, ?_, ?_⟩
         · refine ⟨boxNat a, rfl, ?_, (fun h => by cases h), fun _ => boxNat_and1_ne_zero a⟩
-          simp [ObjRep, natRepR0, ha, boxNat]
+          simp [ObjRep, natRep, ha, boxNat]
         · intro _; refine ⟨boxNat a, rfl, (fun h => by cases h), (fun h => by cases h),
             (fun h => by cases h), fun _ _ _ hev => absurd hev (boxNat_and1_ne_zero a)⟩
       · refine ⟨.nat b, Word.i64 (boxNat b), rfl, rfl, ?_, ?_⟩
         · refine ⟨boxNat b, rfl, ?_, (fun h => by cases h), fun _ => boxNat_and1_ne_zero b⟩
-          simp [ObjRep, natRepR0, hb, boxNat]
+          simp [ObjRep, natRep, hb, boxNat]
         · intro _; refine ⟨boxNat b, rfl, (fun h => by cases h), (fun h => by cases h),
             (fun h => by cases h), fun _ _ _ hev => absurd hev (boxNat_and1_ne_zero b)⟩
   · intro p hp

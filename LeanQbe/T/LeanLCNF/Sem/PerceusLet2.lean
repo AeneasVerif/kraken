@@ -348,8 +348,8 @@ public theorem box_fresh_alloc_step_invs {rt : BitVec 64} {rf0 rf : RcFrame}
   intro newObj σ' ctx' rf'
   have hwf_all : ∀ o ∈ σ.objs, o.Wf := fun o ho => hinv.1.1.2.1 o ho
   have hnd : (rf.ctx.vars.map RcVar.id).Nodup := hinv.2.1
-  have hbn : BigNumRtWfR0 rt st' σ.scr σ.scrLimbs :=
-    bigNumRtWfR0_of_preservesMeta hinv.1.1.1 hmeta
+  have hbn : BigNumRtWf rt st' σ.scr σ.scrLimbs :=
+    bigNumRtWf_of_preservesMeta hinv.1.1.1 hmeta
   have hnew_wf : newObj.Wf := by
     dsimp only [newObj]
     refine ⟨hp_nz, hp_al, show 0 ≤ (1#32).toInt from by decide,
@@ -941,7 +941,7 @@ public theorem ctor_fresh_alloc_step_invs {rt : BitVec 64} {rf0 rf : RcFrame}
         hne245, hne246, hne248, hne249, hne250, ↓reduceIte,
         hbvs_len, hscal_len, LcCtor.byteSize]
       refine ⟨hcidx, trivial, ?_, ?_⟩ <;> omega
-  have hbn := bigNumRtWfR0_of_preservesMeta hinv.1.1.1 hmeta
+  have hbn := bigNumRtWf_of_preservesMeta hinv.1.1.1 hmeta
   have hne_pair : ¬(pvs = [] ∧ scal = []) := by
     rintro ⟨hp_nil, hs_nil⟩
     have hsz0 : ci.size = 0 := by rw [← hpvs_len, hp_nil]; rfl
