@@ -8,14 +8,6 @@ meta import LeanQbe.T.MainCertElab
 meta import LeanQbe.T.Amd64.Targ
 meta import LeanQbe.T.Examples.Kissat.Plain
 
-/-!
-# Kissat `D-Plain` (`Plain`) Single-Pass Prefix Bounds on SysV x64
-
-Evaluates `plainAllExt : List (SigEntry × Nat)` once in `O(N)` meta time (`evalOneFnBound`) and
-exposes `plainExtPrefix (k : Nat) := plainAllExt.drop (59 - k)` for all parallel
-`KissatPlainCert*` slices on `x64Target`.
--/
-
 set_option autoImplicit false
 
 public section

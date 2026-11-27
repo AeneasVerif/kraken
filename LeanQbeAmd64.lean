@@ -2,6 +2,7 @@ module
 
 public import LeanQbe.T.CoreHub
 public import LeanQbe.T.Amd64.Base
+public import LeanQbe.T.Amd64.BenchAbi
 public import LeanQbe.T.Amd64.Bignum
 public import LeanQbe.T.Amd64.ChaCha
 public import LeanQbe.T.Amd64.DebugAsm

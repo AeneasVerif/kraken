@@ -182,6 +182,7 @@ public import LeanQbe.T.PassEnvKit
 public import LeanQbe.T.PassFlatKit
 public import LeanQbe.T.Peel
 public import LeanQbe.T.PeelLemmas
+public import LeanQbe.T.PrintAlignCommon
 public import LeanQbe.T.PrintCpp
 public import LeanQbe.T.PrintQbe
 public import LeanQbe.T.PrintUtil

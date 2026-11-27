@@ -12,25 +12,15 @@ meta import LeanQbe.T.Examples.Kissat.Plain1
 meta import LeanQbe.T.Examples.Kissat.Plain
 meta import LeanQbe.T.Amd64.KissatPlainBounds
 
-/-!
-# Kissat `D-Plain` Certificate Slice 6/6 on SysV x64
-
-Kernel-checked native compilation certificate (`cert6`) for slice `[52, 59)` (`7` functions)
-of `LeanQbe.T.Examples.Kissat.Plain.plainFns` on `x64Target`, with prefix bounds from
-`KissatPlainBounds.plainExtPrefix`.
--/
-
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Amd64.KissatPlainCert6
 
-open LeanQbe.T LeanQbe.T.Amd64 LeanQbe.T.Examples.Kissat.Plain
-open LeanQbe.T.Amd64.KissatPlainBounds
+open LeanQbe.T LeanQbe.T.Amd64 LeanQbe.T.Examples.Kissat.Plain LeanQbe.T.Amd64.KissatPlainBounds
 
-/-- Slice 6 sub-module (`[52, 59)`, `7` functions). -/
-def slice6Mod : Module :=
+@[expose] def slice6Mod : Module :=
   { fns := plainFns.drop 52, externs := [], exits := [] }
 
 open scoped LeanQbe.T in
