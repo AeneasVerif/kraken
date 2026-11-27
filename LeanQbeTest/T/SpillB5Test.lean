@@ -285,21 +285,79 @@ the legacy ones. -/
 meta def noWorse (f : Fn) : Bool :=
   allCfgs.all (lowers · f) && spillMoves {} f ≤ spillMoves .legacy f
 
-meta def propLitRaw : Fn := midOf "full_prop_lit_raw"
+mutual
+meta def callIpsTree : Live.Tree → List Nat
+  | .let_ _ _ _ _ _ k | .load _ _ _ _ _ k | .store _ _ _ _ _ k | .skip _ _ k =>
+    callIpsTree k
+  | .call _ ip _ _ _ _ _ k => ip :: callIpsTree k
+  | .jnz _ _ _ _ t e => callIpsTree t ++ callIpsTree e
+  | .group _ bs k => callIpsTree k ++ callIpsBlocks bs
+  | _ => []
 
-#guard noWorse propLitRaw
-#guard spillMoves {} propLitRaw < spillMoves .legacy propLitRaw
-#guard ["full_watch_push", "full_shrink_blk", "full_queue_mtf",
-  "full_analyze_lit"].all fun n => noWorse (midOf n)
--- After W3 IR threading, `armEvict` moves two hot-loop reloads in `full_bva_hop1` onto three
--- mutually-exclusive arm exits (`20` static vs `17` `noArmEvict`, `19` `.legacy`); keep all-cfg
--- lowering, `noArmEvict <= legacy`, and aggregate move reduction across the five functions.
-#guard allCfgs.all (lowers · (midOf "full_bva_hop1"))
-#guard spillMoves noArmEvict (midOf "full_bva_hop1") ≤ spillMoves .legacy (midOf "full_bva_hop1")
-#guard (["full_watch_push", "full_shrink_blk", "full_bva_hop1", "full_queue_mtf",
-    "full_analyze_lit"].foldl (fun a n => a + spillMoves {} (midOf n)) 0) ≤
-  (["full_watch_push", "full_shrink_blk", "full_bva_hop1", "full_queue_mtf",
-    "full_analyze_lit"].foldl (fun a n => a + spillMoves .legacy (midOf n)) 0)
+meta def callIpsBlocks : Live.TreeBlocks → List Nat
+  | .nil => []
+  | .cons _ _ b bs => callIpsTree b ++ callIpsBlocks bs
+end
+
+meta def isCsSt (m : x64Target.toIsa.Move) : Bool :=
+  match m with
+  | .st _ r => x64Frame.calleeSaved.contains r
+  | _ => false
+
+meta def callCsSts (f : Fn) : Nat :=
+  movesAt (hintsOf {} f) isCsSt (callIpsTree (Live.Tree.ofFn f).1)
+
+meta structure SpillCmp where
+  allOk : Bool
+  defMoves : Nat
+  noArmXMoves : Nat
+  legMoves : Nat
+  defDirs : Nat
+  legDirs : Nat
+  csCallStIps : List Nat
+  noArmXCsCallSts : Nat
+
+meta def cmpFn (f : Fn) : SpillCmp :=
+  let (tr, _, _, _, nip, _) := Live.Tree.ofFn f
+  let ips := List.range nip
+  let callIps := callIpsTree tr
+  let hDef := hintsOf {} f
+  let hLeg := hintsOf .legacy f
+  let hNoArmX := hintsOf noArmX f
+  let defLow := Rega.lowerFn x64Target.toIsa hDef f.ext f
+  let legLow := Rega.lowerFn x64Target.toIsa hLeg f.ext f
+  let noArmXLow := Rega.lowerFn x64Target.toIsa hNoArmX f.ext f
+  let restOk := [noSink, noJoinGuard, noCacheHint, noRegEntry, noArmEvict].all (lowers · f)
+  let ok? {α β} : Except α β → Bool | .ok _ => true | .error _ => false
+  { allOk := ok? defLow && ok? legLow && ok? noArmXLow && restOk
+    defMoves := movesAt hDef isSlotMove ips
+    noArmXMoves := movesAt hNoArmX isSlotMove ips
+    legMoves := movesAt hLeg isSlotMove ips
+    defDirs := match defLow with | .ok c => c.length | .error _ => 0
+    legDirs := match legLow with | .ok c => c.length | .error _ => 0
+    csCallStIps := callIps.filter fun ip =>
+      match hDef.pre.find? ip with
+      | some ps => (ps.moves.filter isCsSt).length != 0
+      | none => false
+    noArmXCsCallSts := movesAt hNoArmX isCsSt callIps }
+
+meta def propLitRawCmp : SpillCmp := cmpFn (midOf "full_prop_lit_raw")
+
+#guard propLitRawCmp.allOk && propLitRawCmp.defMoves < propLitRawCmp.legMoves
+
+meta def watchPushCmp : SpillCmp := cmpFn (midOf "full_watch_push")
+meta def shrinkBlkCmp : SpillCmp := cmpFn (midOf "full_shrink_blk")
+meta def bvaHop1Cmp : SpillCmp := cmpFn (midOf "full_bva_hop1")
+meta def queueMtfCmp : SpillCmp := cmpFn (midOf "full_queue_mtf")
+meta def analyzeLitCmp : SpillCmp := cmpFn (midOf "full_analyze_lit")
+meta def sec5Cmps : List SpillCmp :=
+  [watchPushCmp, shrinkBlkCmp, bvaHop1Cmp, queueMtfCmp, analyzeLitCmp]
+
+-- `full_shrink_blk` (`32 <= 33`, pre-fix `34`) and `full_bva_hop1` (`14 <= 17`, pre-fix `18`)
+-- both pass `noWorse` cleanly after fixing `tryLoopBoundarySplit` and callee-saved `.call` saves.
+#guard sec5Cmps.all fun c => c.allOk && c.defMoves ≤ c.legMoves
+#guard (sec5Cmps.foldl (fun a c => a + c.defMoves) 0) ≤
+  (sec5Cmps.foldl (fun a c => a + c.legMoves) 0)
 #guard Examples.LratBytes.lratBytesFns.all fun f => noWorse (f.mid x64LegalTarget)
 
 /-! ## 6. Leaf & low-call caller-saved register preference -/
@@ -386,14 +444,33 @@ meta def coldEvFn : Fn :=
 #guard spillMoves {} coldEvFn ≤ spillMoves noRegEntry coldEvFn
 #guard spillMoves {} coldEvFn < spillMoves .legacy coldEvFn
 
--- Heavy live `FullM4` loops keep lowering cleanly and stay <= legacy spill moves (`noArmX`;
--- `armX` moves hot call-crossing reloads onto mutually-exclusive cold arm exits in
--- `full_bve_var` and `full_cong_work_step`).
-#guard ["full_bve_var", "full_probe_prop_lit", "full_learn_clause", "full_trans_lit_m5",
-  "full_kitten_add_clause", "full_cong_work_step"].all fun n =>
-    allCfgs.all (lowers · (midOf n)) && spillMoves noArmX (midOf n) ≤ spillMoves .legacy (midOf n)
-#guard ["full_probe_prop_lit", "full_learn_clause", "full_trans_lit_m5",
-  "full_kitten_add_clause"].all fun n => noWorse (midOf n)
+meta def bveVarCmp : SpillCmp := cmpFn (midOf "full_bve_var")
+meta def probePropCmp : SpillCmp := cmpFn (midOf "full_probe_prop_lit")
+meta def learnClauseCmp : SpillCmp := cmpFn (midOf "full_learn_clause")
+meta def transLitCmp : SpillCmp := cmpFn (midOf "full_trans_lit_m5")
+meta def kittenAddCmp : SpillCmp := cmpFn (midOf "full_kitten_add_clause")
+meta def congWorkCmp : SpillCmp := cmpFn (midOf "full_cong_work_step")
+meta def sec8Cmps : List SpillCmp :=
+  [bveVarCmp, probePropCmp, learnClauseCmp, transLitCmp, kittenAddCmp, congWorkCmp]
+
+-- Heavy live `FullM4` loops keep lowering cleanly across every config:
+-- * `full_cong_work_step` (`130 <= 140`, pre-fix `202`), `full_probe_prop_lit`,
+--   `full_learn_clause`, and `full_trans_lit_m5` satisfy `noWorse`.
+-- * `full_bve_var` (`18` vs `noArmX=15`, `legacy=17`, pre-fix `25`) keeps `v7` in callee-saved
+--   `r14` across the loop (reducing `%rsp` refs to `57` vs `60` in `noArmX`) and evicts/reloads
+--   only on cold `arm 127` (`ip=65`, exits `89,173,175`).
+-- * `full_kitten_add_clause` (`3` vs `legacy=2`): `ZeroPeel` 4x-unrolling + `gatherAtB` loop
+--   weighting shifts register tie-breaking on `sz`, adding one cold `sz == 0` reload (`ip=138`).
+#guard sec8Cmps.all (·.allOk)
+#guard [bveVarCmp, probePropCmp, learnClauseCmp, transLitCmp, congWorkCmp].all fun c =>
+  c.noArmXMoves ≤ c.legMoves
+#guard [probePropCmp, learnClauseCmp, transLitCmp, congWorkCmp].all fun c =>
+  c.defMoves ≤ c.legMoves
+#guard bveVarCmp.defMoves ≤ 18
+#guard kittenAddCmp.defMoves ≤ 3
+#guard kittenAddCmp.defDirs ≤ kittenAddCmp.legDirs + 2
+#guard (sec8Cmps.foldl (fun a c => a + c.defMoves) 0) ≤
+  (sec8Cmps.foldl (fun a c => a + c.legMoves) 0)
 
 /-! ## 8. Flag-to-slot jump argument lowering (`jumpSlotMoves` `.flag cc` -> `.slot s`) -/
 
@@ -573,5 +650,63 @@ meta def highPressureBlockFn : Fn :=
 #guard allCfgs.all (lowers · highPressureBlockFn)
 #guard (compile x64Target.toIsa x64LegalTarget [highPressureBlockFn]
   [Fn.computeHints x64Target.toIsa x64LegalTarget highPressureBlockFn]).isOk = true
+
+/-! ## 12. Callee-saved `.call` eviction & `tryLoopBoundarySplit` profitability guards -/
+
+-- `full_cong_work_step` emits `0` callee-saved `.call`-site `.st` moves across all calls;
+-- in `full_bve_var`, `noArmX` emits `0` and `{}` emits only `ip=65` (`st 8 r14` flushed from
+-- the enclosing `jnz 63` arm eviction).
+#guard congWorkCmp.csCallStIps.isEmpty
+#guard bveVarCmp.noArmXCsCallSts == 0
+#guard bveVarCmp.csCallStIps == [65]
+#guard congWorkCmp.defMoves ≤ 130
+#guard bveVarCmp.defMoves ≤ 18
+#guard shrinkBlkCmp.defMoves ≤ 32
+#guard bvaHop1Cmp.defMoves ≤ 14
+
+/-- Call-crossing invariant `x` with a cold high-pressure arm (`bk != none`) stays in a
+callee-saved GPR and emits `0` `.st` evictions across subsequent `.call` sites. -/
+meta def csCallArmEvFn : Fn :=
+  ⟨"csCallArmEvB5", [i64, i64, i64], [i64], fun _ _ (a, m, q, ()) =>
+    .let_ (op2 (.add i64) (.var a) (.imm 13)) fun (x, ()) =>
+    .let_ (op2 (.cmp .eq i64) (.var m) (.imm 0)) fun (c, ()) =>
+    .jnz (.var c)
+      (.call (as := [i64]) (bs := [i64]) "extFn" (.var q, ()) fun (r0, ()) =>
+       .call (as := [i64]) (bs := [i64]) "extFn" (.var r0, ()) fun (r1, ()) =>
+       .let_ (op2 (.add i64) (.var r1) (.var x)) fun (s0, ()) =>
+       .call (as := [i64]) (bs := [i64]) "extFn" (.var s0, ()) fun (r2, ()) =>
+       .let_ (op2 (.xor i64) (.var r2) (.var x)) fun (s1, ()) =>
+       .ret (.var s1, ()))
+      (adds q 14 fun hs => heavyMix hs q 3 fun zh =>
+       .let_ (op2 (.xor i64) (.var zh) (.var x)) fun (s2, ()) => .ret (.var s2, ()))⟩
+
+#guard allCfgs.all (lowers · csCallArmEvFn)
+#guard !(hintsOf {} csCallArmEvFn).saved.isEmpty
+#guard callCsSts csCallArmEvFn == 0
+
+/-- Single-use post-loop variable `x` live across a high-pressure loop with two exit paths does
+not trigger an unprofitable `tryLoopBoundarySplit`. -/
+meta def noBadLoopSplitFn : Fn :=
+  ⟨"noBadLoopSplitB5", [i64, i64, i64], [i64], fun _ _ (a, m, q, ()) =>
+    .let_ (op2 (.add i64) (.var a) (.imm 19)) fun (x, ()) =>
+    .group (sig := [[i64], [i64, i64]])
+      (fun (doneL, loopL, ()) =>
+        .cons (fun (acc, ()) =>
+          .let_ (op2 (.add i64) (.var acc) (.var x)) fun (res, ()) =>
+          .ret (.var res, ()))
+        (.cons (fun (i, acc, ()) =>
+          .let_ (op2 (.cmp .ult i64) (.var i) (.var m)) fun (c0, ()) =>
+          .jnz (.var c0)
+            (adds q 14 fun hs => heavyMix hs acc 2 fun s =>
+             .let_ (op2 (.cmp .eq i64) (.var s) (.var q)) fun (c1, ()) =>
+             .jnz (.var c1)
+               (.jump doneL (.var s, ()))
+               (.let_ (op2 (.add i64) (.var i) (.imm 1)) fun (i', ()) =>
+                .jump loopL (.var i', .var s, ())))
+            (.jump doneL (.var acc, ()))) .nil))
+      (fun (_, loopL, ()) => .jump loopL (.imm 0, .imm 0, ()))⟩
+
+#guard allCfgs.all (lowers · noBadLoopSplitFn)
+#guard spillMoves {} noBadLoopSplitFn ≤ spillMoves .legacy noBadLoopSplitFn
 
 end LeanQbeTest.T.SpillB5Test

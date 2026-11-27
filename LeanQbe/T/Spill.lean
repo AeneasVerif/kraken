@@ -864,7 +864,7 @@ completely unused: evict `x` to a backup slot on loop entry and reload on loop e
 keeps a GPR outside while freeing that GPR for hot inner-loop variables. -/
 def tryLoopBoundarySplit {I : Isa} (c : Ctx I) (x : Nat) (xI pids : List Nat)
     (ptBlks : Array (Option Nat)) (forbBkSlots : List (Nat × Nat))
-    (prefs avoid : List (Nat × Nat)) (isBp isX : Bool) (dw cw wx slotCost : Nat)
+    (prefs avoid : List (Nat × Nat)) (isBp isX : Bool) (dw cw wx _slotCost : Nat)
     (s : ColorSt I.Cond) : Option (ColorSt I.Cond) :=
   if !(c.cfg.regEntry && c.cfg.sink && c.cfg.armEvict && c.cfg.armLoops && c.cfg.backEdgeCoal) ||
       !Nat.ble (2 * baseMult) wx || (isX && !c.cfg.armX) then none
@@ -882,19 +882,24 @@ def tryLoopBoundarySplit {I : Isa} (c : Ctx I) (x : Nat) (xI pids : List Nat)
         | some (some b) => natMem b evBlks | _ => false
       let pidsOut := pids.filter (!inEvBlk ·)
       let callerOk := pidsOut.all fun p => Nat.ble 1 (s.gPb.getD p 0)
+      let nEnter := c.blkEdges.foldl (fun a (src, dst, _, _) =>
+        if !natMem src evBlks && natMem dst evBlks &&
+            natMem x (c.lTrie.getD dst []) then a + 1 else a) 0
       let wEnter := c.blkEdges.foldl (fun a (src, dst, w, _) =>
         if !natMem src evBlks && natMem dst evBlks &&
             natMem x (c.lTrie.getD dst []) then a + w else a) 0
       let wExit := c.blkEdges.foldl (fun a (src, dst, w, args) =>
         if natMem src evBlks && !natMem dst evBlks &&
             (natMem x (c.lTrie.getD dst []) || natMem x args) then a + w else a) 0
-      let canEagerEv := !isBp && Nat.ble dw (wEnter + cw)
-      let evCost := (if canEagerEv then dw + cw else 2 * cw + wEnter) + min wEnter wExit
       let nExit := c.blkEdges.foldl (fun a (src, dst, _, args) =>
         if natMem src evBlks && !natMem dst evBlks &&
             (natMem x (c.lTrie.getD dst []) || natMem x args) then a + 1 else a) 0
-      if !Nat.ble 1 wEnter || !Nat.ble nExit 4 ||
-          !Nat.ble (2 * evCost + baseMult) slotCost then none
+      let uses := (c.useIps.getD x []).filter (!trieMem c.foldIps ·)
+      let usesOut := uses.length
+      let usesOutW := uses.foldl (fun n u =>
+        n + (c.ipW.find? u <|> (c.brW.find? u).map (·.1) <|> c.jmpW.find? u).getD 0) 0
+      let baseOps := (if isBp then 0 else 1) + usesOut
+      if !Nat.ble 1 wEnter || !Nat.ble nExit 4 || Nat.beq usesOut 0 then none
       else
         let exitArgs := c.blkEdges.foldl (fun a (src, dst, _, args) =>
           if natMem src evBlks && !natMem dst evBlks then args ++ a else a) []
@@ -905,12 +910,23 @@ def tryLoopBoundarySplit {I : Isa} (c : Ctx I) (x : Nat) (xI pids : List Nat)
           if isInterior y then rs
           else match s.hT.getD y .none with
             | .gpr r => if natMem r rs then rs else r :: rs | _ => rs) []
+        let evalReg (r : Nat) : Option Bool :=
+          let isCaller := Nat.blt r c.nGpr
+          let callW := if isX && isCaller then cw else 0
+          let canEagerEv := !isBp && Nat.ble dw (wEnter + callW)
+          let evCost := (if canEagerEv then dw + callW else 2 * callW + wEnter) + min wEnter wExit
+          let splitOps := (if canEagerEv then 1 else nEnter) + nExit
+          if Nat.blt splitOps baseOps && Nat.ble (2 * evCost + baseMult) usesOutW then
+            some canEagerEv
+          else none
         let cands :=
-          ((if callerOk then c.gAlloc else []) ++ s.usedCs).filter (!natMem · forbOut)
+          (((if callerOk then c.gAlloc else []) ++ s.usedCs).filter (!natMem · forbOut)).filter
+            fun r => (evalReg r).isSome
         match bestRegPref prefs avoid cands with
         | none => none
         | some r =>
           let isCaller := Nat.blt r c.nGpr
+          let canEagerEv := (evalReg r).getD false
           let bSlot := firstFreeSlotRange 1 forbBkSlots
           let fe := evBlks.foldl (fun t b => triePush t b x) s.forceEv
           some { s with
@@ -1473,25 +1489,29 @@ def pickRegIn {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond)) (usedCs : List N
       if sel.isEmpty then acc else acc.insert l sel) .empty
 
 /-- Weighted reload `(cost, leafCount)` inside `t` when split var `x` enters evicted (`ev`). -/
-def evBodyCost {I : Isa} (c : Ctx I) (x : Nat) (evIn : Trie (List Nat)) :
+def evBodyCost {I : Isa} (c : Ctx I) (x : Nat) (isCaller : Bool) (evIn : Trie (List Nat)) :
     Nat → Tree → Nat × Nat
   | w, .let_ _ ip _ _ op k =>
-    if natMem x (c.addrDeps.getD ip (opVarIds op)) then (w, 1) else evBodyCost c x evIn w k
+    if natMem x (c.addrDeps.getD ip (opVarIds op)) then (w, 1)
+    else evBodyCost c x isCaller evIn w k
   | w, .load _ ip _ _ a k =>
-    if natMem x (c.addrDeps.getD ip (argVarIds a)) then (w, 1) else evBodyCost c x evIn w k
+    if natMem x (c.addrDeps.getD ip (argVarIds a)) then (w, 1)
+    else evBodyCost c x isCaller evIn w k
   | w, .store _ ip _ v a k =>
     if natMem x (storeVarIds c.addrDeps c.rmwDeps ip v a) then (w, 1)
-    else evBodyCost c x evIn w k
-  | w, .call _ _ _ _ _ _ args _ => if natMem x (tupVarIds args) then (w, 1) else (0, 0)
+    else evBodyCost c x isCaller evIn w k
+  | w, .call _ _ _ _ _ _ args k =>
+    if natMem x (tupVarIds args) then (w, 1)
+    else if isCaller then (0, 0) else evBodyCost c x isCaller evIn w k
   | w, .jnz _ ip cx _ t e =>
     if Nat.beq cx x then (w, 1)
     else
       let (_, mT, mE) := c.brW.getD ip (w, w, w)
-      let (cT, lT) := evBodyCost c x evIn mT t
-      let (cE, lE) := evBodyCost c x evIn mE e
+      let (cT, lT) := evBodyCost c x isCaller evIn mT t
+      let (cE, lE) := evBodyCost c x isCaller evIn mE e
       let extra := match e with | .jump .. => if Nat.ble 1 cE then mT else 0 | _ => 0
       (cT + cE + extra, lT + lE)
-  | w, .skip _ _ k | w, .group _ _ k => evBodyCost c x evIn w k
+  | w, .skip _ _ k | w, .group _ _ k => evBodyCost c x isCaller evIn w k
   | w, .jump _ _ j _ args =>
     if natMem x (tupVarIds args) ||
         (natMem x (c.lTrie.getD j []) && !(evIn.getD j []).any (Nat.beq · x)) then
@@ -1516,13 +1536,13 @@ def pickEvIn {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond))
       let wj := c.inW.getD l 0
       let sel := (dedup (es.map (·.2.1))).filter fun x =>
         match home.getD x .none with
-        | .gpr _ =>
+        | .gpr r =>
           let ex := exFilter es x
           let evEdges := ex.filter (·.2.2.1)
           let savEdges := ex.filter (·.2.2.2.1)
           let wEv := sumW evEdges
           let wSav := sumW savEdges
-          let (cost, leaves) := evBodyCost c x prevEv wj body
+          let (cost, leaves) := evBodyCost c x (Nat.blt r c.nGpr) prevEv wj body
           let leafOk := Nat.ble (savEdges.length + leaves) evEdges.length ||
             Nat.ble (2 * (wSav + cost)) wEv
           Nat.ble 1 wEv && ((Nat.blt (wSav + cost) wEv && leafOk) ||

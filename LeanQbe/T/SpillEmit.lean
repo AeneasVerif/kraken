@@ -782,7 +782,13 @@ def emitAlloc {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond))
   | .call lv ip nv0 _ _ bs _ k, pd, ev, sv, gC, vC, st =>
     let defs := (List.range bs.length).map (nv0 + ·)
     let laAfter := eraseMany defs k.lv
-    let la := laAfter.filter fun x => (bk.find? x).isSome
+    -- Callee-saved GPRs in `st.usedCs` survive `.call` without backup save/eviction.
+    let isCallClob (x : Nat) : Bool :=
+      match home.getD x .none with
+      | .gpr r => Nat.blt r c.nGpr || !natMem r st.usedCs
+      | .vec _ => true
+      | _ => false
+    let la := laAfter.filter fun x => (bk.find? x).isSome && isCallClob x
     let sav := la.filter fun x => !natMem x ev && !natMem x sv
     let (mvs0, gC1, _, df1) := buildPre c home st.usedCs lv laAfter [] pd
       (splitMoves c home bk true sav) [] [] gC vC
