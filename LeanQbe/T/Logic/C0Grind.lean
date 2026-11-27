@@ -245,6 +245,15 @@ private meta partial def evalClosedBvLit? (e : Lean.Expr) : MetaM (Option (Nat �
       let some w ← Meta.getNatValue? ty.appArg! | return none
       let some n ← Meta.getNatValue? (e.getArg! 1) | return none
       return some (w, n % 2 ^ w)
+  for (fnNm, tyNm, w) in #[(``UInt8.toBitVec, ``UInt8, 8), (``UInt16.toBitVec, ``UInt16, 16),
+      (``UInt32.toBitVec, ``UInt32, 32), (``UInt64.toBitVec, ``UInt64, 64)] do
+    if e.isAppOfArity fnNm 1 then
+      let u := e.appArg!.consumeMData
+      if u.isAppOfArity ``OfNat.ofNat 3 then
+        if (← whnfR (u.getArg! 0)).isConstOf tyNm then
+          if let some n ← Meta.getNatValue? (u.getArg! 1) then return some (w, n % 2 ^ w)
+      if u.isAppOfArity (tyNm ++ `ofNat) 1 then
+        if let some n ← Meta.getNatValue? u.appArg! then return some (w, n % 2 ^ w)
   if e.isAppOfArity ``BitVec.allOnes 1 then
     let some w ← Meta.getNatValue? e.appArg! | return none
     return some (w, 2 ^ w - 1)
@@ -258,6 +267,8 @@ private meta partial def evalClosedBvLit? (e : Lean.Expr) : MetaM (Option (Nat �
   if e.isAppOfArity ``HAnd.hAnd 6 then return ← evalBin (· &&& ·)
   if e.isAppOfArity ``HOr.hOr 6 then return ← evalBin (· ||| ·)
   if e.isAppOfArity ``HXor.hXor 6 then return ← evalBin (· ^^^ ·)
+  if e.isAppOfArity ``HMod.hMod 6 then
+    return ← evalBin (fun a b => if b == 0 then a else a % b)
   if e.isAppOfArity ``HShiftLeft.hShiftLeft 6 || e.isAppOfArity ``HShiftRight.hShiftRight 6 then
     let some (w, v) ← evalClosedBvLit? (e.getArg! 4) | return none
     let k? ← match ← Meta.getNatValue? (e.getArg! 5) with
@@ -355,14 +366,32 @@ private meta def evalNatOrBvToNat? (e : Lean.Expr) : MetaM (Option Nat) := do
     return (← evalClosedBvLit? (e.getArg! 1)).map (·.2)
   return none
 
+private meta def unwrapEq? (e : Lean.Expr) :
+    MetaM (Option (Lean.Expr × Lean.Expr × Lean.Expr)) := do
+  let e := (← instantiateMVars e).consumeMData
+  if let some r := e.eq? then return some r
+  return (← whnfR e).consumeMData.eq?
+
+private meta def asBvToNat? (e : Lean.Expr) : Option (Lean.Expr × Lean.Expr) :=
+  let e := e.consumeMData
+  if e.isAppOfArity ``BitVec.toNat 2 then
+    some (e.getArg! 0, e.getArg! 1)
+  else if e.isAppOfArity ``UInt8.toNat 1 then
+    some (mkNatLit 8, mkApp (mkConst ``UInt8.toBitVec) e.appArg!)
+  else if e.isAppOfArity ``UInt16.toNat 1 then
+    some (mkNatLit 16, mkApp (mkConst ``UInt16.toBitVec) e.appArg!)
+  else if e.isAppOfArity ``UInt32.toNat 1 then
+    some (mkNatLit 32, mkApp (mkConst ``UInt32.toBitVec) e.appArg!)
+  else if e.isAppOfArity ``UInt64.toNat 1 then
+    some (mkNatLit 64, mkApp (mkConst ``UInt64.toBitVec) e.appArg!)
+  else none
+
 private meta def tryExtractToNatBound (hExpr ty : Lean.Expr) :
     MetaM (Option (Lean.Expr × Lean.Expr × Lean.Expr)) := do
   let ty := ty.consumeMData
   let mkBnd (isLt : Bool) (lhs rhs hPrf : Lean.Expr) :
       MetaM (Option (Lean.Expr × Lean.Expr × Lean.Expr)) := do
-    let lhs := lhs.consumeMData
-    unless lhs.isAppOfArity ``BitVec.toNat 2 do return none
-    let (wE, xE) := (lhs.getArg! 0, lhs.getArg! 1)
+    let some (wE, xE) := asBvToNat? lhs | return none
     if isLt then
       if let some kE ← extractTwoPowExp? rhs then
         return some (xE, kE, mkApp4 (mkConst ``bv_getLsbD_false_of_toNat_lt_two_pow) wE kE xE hPrf)
@@ -401,7 +430,7 @@ private meta def tryExtractToNatBound (hExpr ty : Lean.Expr) :
       return ← bvCmp false ``bv_toNat_le_of_le (ty.getArg! 2) (ty.getArg! 3)
   if ty.isAppOfArity ``GE.ge 4 && (ty.getArg! 0).isConstOf ``Nat then
     return ← mkBnd false (ty.getArg! 3) (ty.getArg! 2) hExpr
-  if let some (_, lhs, rhs) := ty.eq? then
+  if let some (_, lhs, rhs) ← unwrapEq? ty then
     if rhs.consumeMData.isConstOf ``Bool.true then
       let lhs := lhs.consumeMData
       if lhs.isAppOfArity ``BitVec.ult 3 then
@@ -421,7 +450,7 @@ private meta def injectBitHyps (mvar : MVarId) : MetaM (MVarId × Array FVarId) 
       if d.isImplementationDetail then continue
       let ty ← cur.withContext do instantiateMVars d.type
       let mut handled := false
-      if let some (α, lhs, rhs) := ty.eq? then
+      if let some (α, lhs, rhs) ← cur.withContext (unwrapEq? ty) then
         let αR ← cur.withContext do whnfR α
         if αR.isAppOfArity ``BitVec 1 && !(lhs.isFVar && rhs.isFVar) && lhs != rhs then
           let wE := αR.appArg!
@@ -460,10 +489,20 @@ private meta def bitGetLsbDConstNames : Array Name := #[
   ``Nat.zero_testBit,
   ``UInt8.toBitVec_and, ``UInt8.toBitVec_or, ``UInt8.toBitVec_xor, ``UInt8.toBitVec_not,
   ``UInt8.toBitVec_shiftLeft, ``UInt8.toBitVec_shiftRight,
+  ``UInt8.toBitVec_zero, ``UInt8.toBitVec_one, ``UInt8.toBitVec_ofNat, ``UInt8.toBitVec_ofNat',
+  ``UInt8.toBitVec_toUInt16, ``UInt8.toBitVec_toUInt32, ``UInt8.toBitVec_toUInt64,
+  ``UInt16.toBitVec_and, ``UInt16.toBitVec_or, ``UInt16.toBitVec_xor, ``UInt16.toBitVec_not,
+  ``UInt16.toBitVec_shiftLeft, ``UInt16.toBitVec_shiftRight,
+  ``UInt16.toBitVec_zero, ``UInt16.toBitVec_one, ``UInt16.toBitVec_ofNat, ``UInt16.toBitVec_ofNat',
+  ``UInt16.toBitVec_toUInt8, ``UInt16.toBitVec_toUInt32, ``UInt16.toBitVec_toUInt64,
   ``UInt32.toBitVec_and, ``UInt32.toBitVec_or, ``UInt32.toBitVec_xor, ``UInt32.toBitVec_not,
   ``UInt32.toBitVec_shiftLeft, ``UInt32.toBitVec_shiftRight,
+  ``UInt32.toBitVec_zero, ``UInt32.toBitVec_one, ``UInt32.toBitVec_ofNat, ``UInt32.toBitVec_ofNat',
+  ``UInt32.toBitVec_toUInt8, ``UInt32.toBitVec_toUInt16, ``UInt32.toBitVec_toUInt64,
   ``UInt64.toBitVec_and, ``UInt64.toBitVec_or, ``UInt64.toBitVec_xor, ``UInt64.toBitVec_not,
-  ``UInt64.toBitVec_shiftLeft, ``UInt64.toBitVec_shiftRight
+  ``UInt64.toBitVec_shiftLeft, ``UInt64.toBitVec_shiftRight,
+  ``UInt64.toBitVec_zero, ``UInt64.toBitVec_one, ``UInt64.toBitVec_ofNat, ``UInt64.toBitVec_ofNat',
+  ``UInt64.toBitVec_toUInt8, ``UInt64.toBitVec_toUInt16, ``UInt64.toBitVec_toUInt32
 ]
 
 private meta def runBitGetLsbDSimp (mvar : MVarId) (hyps : Array FVarId) :
@@ -506,7 +545,7 @@ elab_rules : tactic
 
 private meta def isBitEqConclusion (ty : Lean.Expr) : MetaM Bool :=
   forallTelescopeReducing ty fun _ body => do
-    let some (α, _, _) := body.eq? | return false
+    let some (α, _, _) ← unwrapEq? body | return false
     let αR ← whnfR α
     return αR.isAppOfArity ``BitVec 1 || αR.isConstOf ``UInt8 ||
       αR.isConstOf ``UInt16 || αR.isConstOf ``UInt32 || αR.isConstOf ``UInt64
@@ -516,11 +555,13 @@ elab_rules : tactic
     let paramRaw := params?.map (·.getElems.map (·.raw)) |>.getD #[]
     let mut g ← getMainGoal
     let tgt0 ← g.withContext do instantiateMVars (← g.getType)
-    if (← g.withContext (whnfR tgt0)).isForall then
-      if ← g.withContext (isBitEqConclusion tgt0) then
+    let tgt0C := tgt0.consumeMData
+    let tgt0R := (← g.withContext (whnfR tgt0C)).consumeMData
+    if tgt0C.isForall || tgt0C.isLet || tgt0R.isForall then
+      if ← g.withContext (isBitEqConclusion tgt0C) then
         g := (← g.intros).2
     g ← pruneC0Goal g paramRaw
-    if let some (α, _, _) := (← g.withContext (instantiateMVars (← g.getType))).eq? then
+    if let some (α, _, _) ← g.withContext (unwrapEq? (← g.getType)) then
       let αR ← g.withContext do whnfR α
       let uintEq? :=
         if αR.isConstOf ``UInt8 then some ``UInt8.eq_of_toBitVec_eq
@@ -530,7 +571,7 @@ elab_rules : tactic
         else none
       if let some uEq := uintEq? then
         if let [g1] ← g.apply (mkConst uEq) then g := g1
-    if let some (α, _, _) := (← g.withContext (instantiateMVars (← g.getType))).eq? then
+    if let some (α, _, _) ← g.withContext (unwrapEq? (← g.getType)) then
       if (← g.withContext (whnfR α)).isAppOfArity ``BitVec 1 then
         let [gExt] ← g.apply (mkConst ``BitVec.eq_of_getLsbD_eq)
           | throwError "c0_bv_bit_grind: failed to apply BitVec.eq_of_getLsbD_eq"

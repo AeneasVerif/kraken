@@ -280,9 +280,45 @@ theorem test_xed_rex_byte_pack_unpack
   intro rex
   refine ⟨?_, ?_, ?_, ?_, ?_⟩ <;> c0_bv_bit_grind
 
+abbrev BvEq32 (a b : BitVec 32) : Prop := a = b
+
+theorem test_c0_bv_bit_grind_after_have_let_and_abbrev_eq
+    (m : Mem 64) (p : Fin 25 → BitVec 64) (xs : Fin 25 → List (BitVec 64))
+    (ys : List (Val i32)) (v : BitVec 64) (bs : List UInt8)
+    (_hmem : SpatialNoise25 p xs ys v bs m)
+    (w g : BitVec 32) (hg : g.toNat < 2 ^ 19) :
+    BvEq32 (((w &&& 0xFFF80000#32) ||| g) &&& 0x00480000#32) (w &&& 0x00480000#32) := by
+  have _hg2 : g.toNat < 2 ^ 20 := by omega
+  let _dummy : Nat := 1
+  c0_bv_bit_grind
+
+theorem test_c0_bv_bit_grind_unintrod_let_and_abbrev_hyp
+    (m : Mem 64) (p : Fin 25 → BitVec 64) (xs : Fin 25 → List (BitVec 64))
+    (ys : List (Val i32)) (v : BitVec 64) (bs : List UInt8)
+    (_hmem : SpatialNoise25 p xs ys v bs m)
+    (w val m1 m2 : BitVec 32) (hdisj : BvEq32 (m1 &&& m2) 0#32) (hsub : BvEq32 (val &&& m1) val) :
+    let w' := (w &&& ~~~m1) ||| val
+    (w' &&& m2) = (w &&& m2) := by
+  c0_bv_bit_grind
+
+theorem test_uint8_16_32_64_bit_grind
+    (m : Mem 64) (p : Fin 25 → BitVec 64) (xs : Fin 25 → List (BitVec 64))
+    (ys : List (Val i32)) (v : BitVec 64) (bs : List UInt8)
+    (_hmem : SpatialNoise25 p xs ys v bs m)
+    (w16 : UInt16) (w32 : UInt32) (md reg rm : UInt8)
+    (hmd : md.toNat < 4) (hreg : reg.toNat < 8) (hrm : rm.toNat < 8) :
+    ((((w32 &&& 0xFF) ||| 0x0100) &&& 0xFF00) : UInt32) = 0x0100 ∧
+    ((((w16 &&& 0xFF) ||| 0x0100) &&& 0xFF00) : UInt16) = 0x0100 ∧
+    ((((md <<< 6) ||| (reg <<< 3) ||| rm) >>> 6) : UInt8) = md := by
+  refine ⟨?_, ?_, ?_⟩ <;> c0_bv_bit_grind
+
 /-! ## 5. Strict `<= std3` Axiom & E-Match Lint Checks -/
 
 #grind_lint check in LeanQbe.T.C0Grind
+
+#print axioms test_c0_bv_bit_grind_after_have_let_and_abbrev_eq
+#print axioms test_c0_bv_bit_grind_unintrod_let_and_abbrev_hyp
+#print axioms test_uint8_16_32_64_bit_grind
 
 #print axioms test_bv32_64_add_setWidth
 #print axioms test_bv32_64_wrap_add_mul_truncate
