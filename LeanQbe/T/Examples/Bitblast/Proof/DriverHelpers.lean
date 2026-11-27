@@ -829,6 +829,231 @@ theorem list_getD_eq_getElem {α : Type _} (xs : List α) (d : α) {i : Nat}
     (hi : i < xs.length) : xs[i]'hi = xs.getD i d := by
   simp [List.getD_eq_getElem?_getD, hi]
 
+theorem drv_init_post_aigInit {progPtr workBase avail : BitVec 64}
+    {progBytes : List UInt8} {vars : BinTree VarEntry} {cwords : BinTree Nat}
+    {nodes : BinTree ProgNode} {prog : BVLogicalExpr} {cfg : BVWorkspaceCfg}
+    {hdr1 : BVHdrState} {ab so0 lp0 : List (BitVec 32)} {R : Mem 64 → Prop}
+    {m' : Mem 64} {Q : Post [.bool]} {nv nn nc rt ac s lcap atomB sliceB litsB : Nat}
+    (hp : ParsedBVP1 progBytes vars cwords nodes prog)
+    (hprog_fit : progPtr.toNat + progBytes.length < 2 ^ 64)
+    (hwb_fit : workBase.toNat + avail.toNat < 2 ^ 64)
+    (hcfg_wb : cfg.work_base = workBase) (hcfg_av : cfg.avail = avail.toNat)
+    (hcfg_nv : cfg.n_vars = nv) (hcfg_nn : cfg.n_nodes = nn)
+    (hcfg_ab_b : cfg.atom_bytes = atomB) (hcfg_sb_b : cfg.slice_bytes = sliceB)
+    (hcfg_ac : cfg.aig_cap = ac) (hcfg_hs : cfg.ht_slots = s) (hcfg_lc : cfg.lits_cap = lcap)
+    (hcfg_lb : cfg.lits_bytes = litsB)
+    (hcfg_ap : cfg.aig_ptr = workBase + BitVec.ofNat 64 (128 + atomB + sliceB))
+    (hcfg_hp : cfg.ht_ptr = workBase + BitVec.ofNat 64 (128 + atomB + sliceB) +
+      BitVec.ofNat 64 (8 * ac))
+    (hcfg_lp : cfg.lits_ptr = workBase + BitVec.ofNat 64 (128 + atomB + sliceB) +
+      BitVec.ofNat 64 (8 * ac) + BitVec.ofNat 64 (4 * s))
+    (hcfg_tot : 128 + cfg.atom_bytes + cfg.slice_bytes + 8 * cfg.aig_cap + 4 * cfg.ht_slots +
+      cfg.lits_bytes = cfg.avail)
+    (hatom_al : 4 * nv ≤ atomB) (hslice_al : 4 * nn ≤ sliceB) (hlc_fit : 4 * lcap ≤ litsB)
+    (hnv_lt : nv < 2 ^ 32) (hnn_lt : nn < 2 ^ 32) (hnc_lt : nc < 2 ^ 32) (hrt_lt : rt < 2 ^ 32)
+    (hac_lt : ac < bvDimacsBound) (hs_pos : 0 < s) (hs_le : s ≤ 2 ^ 30) (hlc_32 : lcap < 2 ^ 32)
+    (hnv_def : nv = u32At progBytes 2) (hnn_def : nn = u32At progBytes 3)
+    (hnc_def : nc = u32At progBytes 4) (hrt_def : rt = u32At progBytes 5)
+    (hcnt_pos : 1 ≤ countAtoms progBytes nv) (hcnt_lt : countAtoms progBytes nv < bvDimacsBound)
+    (hnum_lt : countAtoms progBytes nv - 1 < ac)
+    (hab_len : ab.length = nv) (hso0_len : so0.length = nn) (hlp0_len : lp0.length = lcap)
+    (hpref : ∀ k < nv, (ab.getD k 0#32).toNat = countAtoms progBytes k)
+    (hwe_eq : workBase + avail = workBase + BitVec.ofNat 64 cfg.avail)
+    (h1_wb : hdr1.work_base = workBase)
+    (h1_we : hdr1.work_end = workBase + avail)
+    (h1_pp : hdr1.prog_ptr = progPtr) (h1_ab : hdr1.atom_base_ptr = cfg.work_base + 128)
+    (h1_so : hdr1.slice_off_ptr = cfg.work_base + BitVec.ofNat 64 (128 + cfg.atom_bytes))
+    (h1_lp : hdr1.lits_ptr = cfg.lits_ptr) (h1_nv : hdr1.n_vars = BitVec.ofNat 32 nv)
+    (h1_nn : hdr1.n_nodes = BitVec.ofNat 32 nn) (h1_nc : hdr1.n_cwords = BitVec.ofNat 32 nc)
+    (h1_rt : hdr1.root_node = BitVec.ofNat 32 rt) (h1_lc : hdr1.lits_cap = BitVec.ofNat 32 lcap)
+    (h1_ll : hdr1.lits_len = 0#32)
+    (ht_mask_lt : ∀ x : BitVec 32,
+      (x &&& BitVec.ofNat 32 (s - 1)).toNat < (BitVec.ofNat 32 (s - 1)).toNat + 1)
+    (hm' : ((bvHdrMem cfg.work_base { hdr1 with
+        aig_ptr := cfg.aig_ptr,
+        aig_cap := (BitVec.ofNat 64 ac).setWidth 32,
+        ht_ptr := cfg.ht_ptr,
+        ht_mask := BitVec.ofNat 32 (s - 1),
+        num_atoms := (BitVec.ofNat 64 (countAtoms progBytes
+          (BitVec.ofNat 32 (u32At progBytes 2)).toNat) - 1).setWidth 32,
+        aig_len := (BitVec.ofNat 64 (countAtoms progBytes
+          (BitVec.ofNat 32 (u32At progBytes 2)).toNat) - 1).setWidth 32 + 1#32,
+        oom := 0#32 } ⋆
+      array (t := i32) cfg.ht_ptr (List.replicate ((BitVec.ofNat 32 (s - 1)).toNat + 1) 0#32)) ⋆
+      (bytes progPtr progBytes ⋆
+        array (t := i32) (cfg.work_base + 128) ab ⋆
+        region (cfg.work_base + BitVec.ofNat 64 (128 + 4 * nv)) (atomB - 4 * nv) ⋆
+        array (t := i32) (cfg.work_base + BitVec.ofNat 64 (128 + atomB)) so0 ⋆
+        region (cfg.work_base + BitVec.ofNat 64 (128 + atomB + 4 * nn)) (sliceB - 4 * nn) ⋆
+        region cfg.aig_ptr (8 * ac) ⋆ array (t := i32) cfg.lits_ptr lp0 ⋆
+        region (cfg.lits_ptr + BitVec.ofNat 64 (4 * lcap)) (litsB - 4 * lcap) ⋆ R)) m')
+    (hFits : bvInitFitsCond progBytes avail.toNat →
+      ∀ (cfg' : BVWorkspaceCfg) (hdr' : BVHdrState) (ab' so' : List (BitVec 32))
+        (aw' : List (BitVec 64)) (ht' lp' : List (BitVec 32)) (m1 : Mem 64),
+        cfg'.work_base = workBase → cfg'.avail = avail.toNat → hdr'.oom = 0#32 →
+        BlastEvalInv cfg' progPtr progBytes vars cwords nodes prog hdr'
+          ⟨countAtoms progBytes cfg'.n_vars - 1, #[]⟩ ab' so' aw' ht' lp' 0 →
+        (bytes progPtr progBytes ⋆ bvBlastMem cfg' hdr' ab' so' aw' ht' lp' ⋆ R) m1 →
+        Q (true, ⟨⟩) m1)
+    (hNotFits : ¬ bvInitFitsCond progBytes avail.toNat →
+      ∀ (cfg' : BVWorkspaceCfg) (hdr' : BVHdrState) (ab' so' : List (BitVec 32))
+        (aw' : List (BitVec 64)) (ht' lp' : List (BitVec 32)) (m1 : Mem 64),
+        cfg'.work_base = workBase → cfg'.avail = avail.toNat → hdr'.oom = 0#32 →
+        BlastEvalInv cfg' progPtr progBytes vars cwords nodes prog hdr'
+          ⟨countAtoms progBytes cfg'.n_vars - 1, #[]⟩ ab' so' aw' ht' lp' 0 →
+        (bytes progPtr progBytes ⋆ bvBlastMem cfg' hdr' ab' so' aw' ht' lp' ⋆ R) m1 →
+        Q (true, ⟨⟩) m1) :
+    Q (true, ⟨⟩) m' := by
+  have hac_64 : ac < 2 ^ 64 := by unfold bvDimacsBound at hac_lt; omega
+  have hcnt_64 : countAtoms progBytes nv < 2 ^ 64 := by unfold bvDimacsBound at hcnt_lt; omega
+  have hnv_bv : (BitVec.ofNat 32 (u32At progBytes 2)).toNat = nv := by
+    rw [← hnv_def, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hnv_lt]
+  have hac_sw : (BitVec.ofNat 64 ac).setWidth 32 = BitVec.ofNat 32 ac := by
+    apply BitVec.eq_of_toNat_eq; unfold bvDimacsBound at hac_lt
+    rw [BitVec.toNat_setWidth, BitVec.toNat_ofNat, BitVec.toNat_ofNat,
+      Nat.mod_eq_of_lt hac_64, Nat.mod_eq_of_lt (by omega : ac < 2 ^ 32)]
+  have hnum_sw : (BitVec.ofNat 64 (countAtoms progBytes
+        (BitVec.ofNat 32 (u32At progBytes 2)).toNat) - 1).setWidth 32 =
+      BitVec.ofNat 32 (countAtoms progBytes nv - 1) := by
+    rw [hnv_bv]; apply BitVec.eq_of_toNat_eq
+    rw [BitVec.toNat_setWidth, BitVec.toNat_sub_of_le (BitVec.le_def.mpr (by
+        rw [BitVec.toNat_ofNat, show (1 : BitVec 64).toNat = 1 from rfl,
+          Nat.mod_eq_of_lt hcnt_64]; exact hcnt_pos)),
+      BitVec.toNat_ofNat, BitVec.toNat_ofNat, show (1 : BitVec 64).toNat = 1 from rfl,
+      Nat.mod_eq_of_lt hcnt_64, Nat.mod_eq_of_lt (by unfold bvDimacsBound at hcnt_lt; omega :
+        countAtoms progBytes nv - 1 < 2 ^ 32)]
+  let hdr2 : BVHdrState :=
+    { hdr1 with
+      aig_ptr := cfg.aig_ptr
+      aig_cap := BitVec.ofNat 32 ac
+      ht_ptr := cfg.ht_ptr
+      ht_mask := BitVec.ofNat 32 (s - 1)
+      num_atoms := BitVec.ofNat 32 (countAtoms progBytes nv - 1)
+      aig_len := BitVec.ofNat 32 (countAtoms progBytes nv - 1) + 1#32
+      oom := 0#32 }
+  rw [hac_sw, hnum_sw, show { hdr1 with
+      aig_ptr := cfg.aig_ptr, aig_cap := BitVec.ofNat 32 ac, ht_ptr := cfg.ht_ptr,
+      ht_mask := BitVec.ofNat 32 (s - 1),
+      num_atoms := BitVec.ofNat 32 (countAtoms progBytes nv - 1),
+      aig_len := BitVec.ofNat 32 (countAtoms progBytes nv - 1) + 1#32,
+      oom := 0#32 : BVHdrState } = hdr2 from rfl] at hm'
+  have hm_aig_arr : (region cfg.aig_ptr (8 * ac) ⋆
+      (bvHdrMem cfg.work_base hdr2 ⋆
+        array (t := i32) cfg.ht_ptr (List.replicate ((BitVec.ofNat 32 (s - 1)).toNat + 1) 0#32) ⋆
+        bytes progPtr progBytes ⋆ array (t := i32) (cfg.work_base + 128) ab ⋆
+        region (cfg.work_base + BitVec.ofNat 64 (128 + 4 * nv)) (atomB - 4 * nv) ⋆
+        array (t := i32) (cfg.work_base + BitVec.ofNat 64 (128 + atomB)) so0 ⋆
+        region (cfg.work_base + BitVec.ofNat 64 (128 + atomB + 4 * nn)) (sliceB - 4 * nn) ⋆
+        array (t := i32) cfg.lits_ptr lp0 ⋆
+        region (cfg.lits_ptr + BitVec.ofNat 64 (4 * lcap)) (litsB - 4 * lcap) ⋆ R)) m' :=
+    sep_ac hm'
+  obtain ⟨aw, hx⟩ := sep_ex_l.mp (sep_mono (fun _ h =>
+    region_to_array64 ac (by unfold bvDimacsBound at hac_lt; omega) h) hm_aig_arr)
+  obtain ⟨haw_len, hm_aw⟩ := sep_pure_l.mp hx
+  have hok_fin : BVWorkspaceOk cfg hdr2 ab so0 aw
+      (List.replicate ((BitVec.ofNat 32 (s - 1)).toNat + 1) 0#32) lp0 :=
+    { fit := by rw [hcfg_wb, hcfg_av]; exact hwb_fit
+      hdr_wb := by dsimp only [hdr2]; rw [h1_wb, hcfg_wb]
+      hdr_we := by dsimp only [hdr2]; rw [h1_we, hcfg_wb, hwe_eq]
+      hdr_ab := by dsimp only [hdr2]; rw [h1_ab]
+      hdr_so := by dsimp only [hdr2]; rw [h1_so]
+      hdr_aig := rfl
+      hdr_ht := rfl
+      hdr_lits := by dsimp only [hdr2]; rw [h1_lp]
+      hdr_nv := by dsimp only [hdr2]; rw [h1_nv, hcfg_nv]
+      hdr_nn := by dsimp only [hdr2]; rw [h1_nn, hcfg_nn]
+      hdr_acap := by dsimp only [hdr2]; rw [hcfg_ac]
+      hdr_htmask := by dsimp only [hdr2]; rw [hcfg_hs]
+      hdr_lcap := by dsimp only [hdr2]; rw [h1_lc, hcfg_lc]
+      atom_align := by rw [hcfg_nv, hcfg_ab_b]; exact hatom_al
+      slice_align := by rw [hcfg_nn, hcfg_sb_b]; exact hslice_al
+      aig_ptr_eq := by rw [hcfg_ap, hcfg_wb, hcfg_ab_b, hcfg_sb_b]
+      ht_ptr_eq := by rw [hcfg_hp, hcfg_ap, hcfg_ac]
+      lits_ptr_eq := by rw [hcfg_lp, hcfg_hp, hcfg_hs]
+      lits_fit := by rw [hcfg_lc, hcfg_lb]; exact hlc_fit
+      total_eq := hcfg_tot
+      nv_lt := by rw [hcfg_nv]; exact hnv_lt
+      nn_lt := by rw [hcfg_nn]; exact hnn_lt
+      acap_lt := by rw [hcfg_ac]; exact hac_lt
+      ht_pos := by rw [hcfg_hs]; exact hs_pos
+      ht_lt := by rw [hcfg_hs]; exact hs_le
+      ht_mask_lt := fun x => by
+        have h := ht_mask_lt x
+        rw [hcfg_hs]
+        simp only [BitVec.toNat_and, BitVec.toNat_ofNat,
+          Nat.mod_eq_of_lt (by omega : s - 1 < 2 ^ 32)] at h ⊢
+        omega
+      lcap_lt := by rw [hcfg_lc]; exact hlc_32
+      ab_len := by rw [hcfg_nv]; exact hab_len
+      so_len := by rw [hcfg_nn]; exact hso0_len
+      aig_len_eq := by rw [hcfg_ac]; exact haw_len
+      ht_len := by
+        rw [List.length_replicate, BitVec.toNat_ofNat,
+          Nat.mod_eq_of_lt (by omega : s - 1 < 2 ^ 32), hcfg_hs]; omega
+      lits_len := by rw [hcfg_lc]; exact hlp0_len }
+  have haig_fin : AigInv hdr2 ⟨countAtoms progBytes cfg.n_vars - 1, #[]⟩ aw
+      (List.replicate ((BitVec.ofNat 32 (s - 1)).toNat + 1) 0#32) :=
+    { wf := fun _ hi => by cases hi
+      num_atoms_eq := by
+        rw [hcfg_nv, BitVec.toNat_ofNat, Nat.mod_eq_of_lt]
+        unfold bvDimacsBound at hcnt_lt; omega
+      aig_len_eq := by
+        unfold bvDimacsBound at hcnt_lt
+        dsimp only [hdr2]
+        rw [hcfg_nv, BitVec.toNat_add, BitVec.toNat_ofNat,
+          show (1#32 : BitVec 32).toNat = 1 from rfl,
+          show (#[] : Array (UInt32 × UInt32)).size = 0 from rfl,
+          Nat.mod_eq_of_lt (by omega : countAtoms progBytes nv - 1 < 2 ^ 32),
+          Nat.mod_eq_of_lt (by omega : countAtoms progBytes nv - 1 + 1 < 2 ^ 32)]
+      aig_len_le_cap := by rw [haw_len, hcfg_nv]; exact hnum_lt
+      aig_cap_eq := by
+        dsimp only [hdr2]; rw [haw_len, BitVec.toNat_ofNat, Nat.mod_eq_of_lt]
+        unfold bvDimacsBound at hac_lt; omega
+      aig_cap_lt := by rw [haw_len]; exact hac_lt
+      gates_bound := by simp
+      words_match := ⟨by rw [haw_len, hcfg_nv]; exact hnum_lt, fun _ hi => by cases hi⟩
+      ht_len := by dsimp only [hdr2]; simp
+      ht_mask_lt := fun x => by
+        have h := ht_mask_lt x
+        simp only [List.length_replicate, BitVec.toNat_and, BitVec.toNat_ofNat,
+          Nat.mod_eq_of_lt (by omega : s - 1 < 2 ^ 32), show hdr2.ht_mask = BitVec.ofNat 32 (s - 1)
+            from rfl] at h ⊢
+        exact h
+      ht_pos := by simp
+      ht_bound := by
+        rw [List.length_replicate, BitVec.toNat_ofNat,
+          Nat.mod_eq_of_lt (by omega : s - 1 < 2 ^ 32)]; omega }
+  have hinv_fin : BlastEvalInv cfg progPtr progBytes vars cwords nodes prog hdr2
+      ⟨countAtoms progBytes cfg.n_vars - 1, #[]⟩ ab so0 aw
+      (List.replicate ((BitVec.ofNat 32 (s - 1)).toNat + 1) 0#32) lp0 0 :=
+    { ws_ok := hok_fin
+      parsed := hp
+      prog_ptr_eq := by dsimp only [hdr2]; rw [h1_pp]
+      prog_fit := hprog_fit
+      nv_eq := by rw [hcfg_nv, hnv_def]
+      nn_eq := by rw [hcfg_nn, hnn_def]
+      nc_eq := by
+        dsimp only [hdr2]; rw [h1_nc, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hnc_lt, hnc_def]
+      root_eq := by
+        dsimp only [hdr2]; rw [h1_rt, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hrt_lt, hrt_def]
+      lits_le_cap := by dsimp only [hdr2]; rw [h1_ll]; simp
+      aig_inv := haig_fin
+      atoms_eq := rfl
+      atom_bases_eq := fun v hv => hpref v (hcfg_nv ▸ hv)
+      k_le := Nat.zero_le _
+      prefix_ok := fun _ _ hi => absurd hi (Nat.not_lt_zero _) }
+  have hm_fin : (bytes progPtr progBytes ⋆ bvBlastMem cfg hdr2 ab so0 aw
+      (List.replicate ((BitVec.ofNat 32 (s - 1)).toNat + 1) 0#32) lp0 ⋆ R) m' := by
+    rw [bvBlastMem_hdr_left, hcfg_nv, hcfg_nn, hcfg_ab_b, hcfg_sb_b, hcfg_lc, hcfg_lb]
+    exact sep_ac hm_aw
+  by_cases hfc : bvInitFitsCond progBytes avail.toNat
+  · exact hFits hfc cfg hdr2 ab so0 aw
+      (List.replicate ((BitVec.ofNat 32 (s - 1)).toNat + 1) 0#32) lp0 m'
+      hcfg_wb hcfg_av rfl hinv_fin hm_fin
+  · exact hNotFits hfc cfg hdr2 ab so0 aw
+      (List.replicate ((BitVec.ofNat 32 (s - 1)).toNat + 1) 0#32) lp0 m'
+      hcfg_wb hcfg_av rfl hinv_fin hm_fin
+
 end
 
 end LeanQbe.T.Examples.Bitblast.Proof

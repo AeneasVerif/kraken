@@ -254,6 +254,182 @@ private theorem parsed_node_ite {bs : List UInt8} {vars : BinTree VarEntry}
     subst ha_eq hb_eq hc_eq
     exact ⟨hor.1.1, hor.1.2, hor.2, ea, eb, ec, hga, hgb, hgc, hget⟩
 
+private theorem drv1_gate_oom {cfg : BVWorkspaceCfg} {progPtr : BitVec 64}
+    {progBytes : List UInt8} {vars : BinTree VarEntry} {cwords : BinTree Nat}
+    {nodes : BinTree ProgNode} {prog : BVLogicalExpr}
+    {hdr hdr1 : BVHdrState} {g g1 : Aig} {atomBases sliceOffs : List (BitVec 32)}
+    {aigWords aw1 : List (BitVec 64)} {htSlots hts1 litsPool : List (BitVec 32)}
+    {nodeIdx : BitVec 32} {R : Mem 64 → Prop} {m1 : Mem 64}
+    {Q : Post [.bool]}
+    (hinv : BlastEvalInv cfg progPtr progBytes vars cwords nodes prog hdr g
+      atomBases sliceOffs aigWords htSlots litsPool nodeIdx.toNat)
+    (hok1 : BVWorkspaceOk cfg hdr1 atomBases sliceOffs aw1 hts1 litsPool)
+    (haig1 : AigInv hdr1 g1 aw1 hts1)
+    (hfr1 : hdr.AigFrame hdr1) (hext1 : g ≤ g1)
+    (hno_ne25 : u32At progBytes
+      (nodesOff cfg.n_vars hdr.n_cwords.toNat + 5 * nodeIdx.toNat) ≠ opBConst)
+    (hQ : ∀ (ret : Bool) (hdr' : BVHdrState) (g' : Aig)
+      (sliceOffs' : List (BitVec 32)) (aigWords' : List (BitVec 64))
+      (htSlots' litsPool' : List (BitVec 32)) (m' : Mem 64),
+      BVWorkspaceOk cfg hdr' atomBases sliceOffs' aigWords' htSlots' litsPool' →
+      AigInv hdr' g' aigWords' htSlots' → g ≤ g' →
+      hdr'.lits_len.toNat ≤ cfg.lits_cap → hdr'.prog_ptr = progPtr →
+      hdr'.n_cwords = hdr.n_cwords → hdr'.root_node = hdr.root_node →
+      (ret = true → hdr'.oom = 0#32 ∧ BlastEvalInv cfg progPtr progBytes vars cwords nodes prog
+        hdr' g' atomBases sliceOffs' aigWords' htSlots' litsPool' (nodeIdx.toNat + 1)) →
+      (u32At progBytes (nodesOff cfg.n_vars hdr.n_cwords.toNat + 5 * nodeIdx.toNat) = opBConst →
+        ret = true ∧ g' = g ∧
+        sliceOffs' = sliceOffs.set nodeIdx.toNat (BitVec.ofNat 32
+          (u32At progBytes (nodesOff cfg.n_vars hdr.n_cwords.toNat + 5 * nodeIdx.toNat + 2) %
+            2))) →
+      (bytes progPtr progBytes ⋆
+        bvBlastMem cfg hdr' atomBases sliceOffs' aigWords' htSlots' litsPool' ⋆ R) m' →
+      Q (ret, ⟨⟩) m')
+    (hm1 : (bytes progPtr progBytes ⋆
+      bvBlastMem cfg hdr1 atomBases sliceOffs aw1 hts1 litsPool ⋆ R) m1) :
+    Q (false, ⟨⟩) m1 :=
+  hQ false hdr1 g1 sliceOffs aw1 hts1 litsPool m1 hok1 haig1 hext1
+    (by rw [hfr1.lits_len]; exact hinv.lits_le_cap)
+    (hfr1.prog_ptr.trans hinv.prog_ptr_eq) hfr1.n_cwords hfr1.root_node
+    (fun hf => absurd hf Bool.false_ne_true) (fun h => absurd h hno_ne25) hm1
+
+private theorem drv1_gate_ok {cfg : BVWorkspaceCfg} {progPtr : BitVec 64}
+    {progBytes : List UInt8} {vars : BinTree VarEntry} {cwords : BinTree Nat}
+    {nodes : BinTree ProgNode} {prog : BVLogicalExpr} {en : BVLogicalExpr}
+    {hdr hdr1 : BVHdrState} {g g1 : Aig} {atomBases sliceOffs : List (BitVec 32)}
+    {aigWords aw1 : List (BitVec 64)} {htSlots hts1 litsPool : List (BitVec 32)}
+    {nodeIdx res : BitVec 32} {R : Mem 64 → Prop} {m1' : Mem 64}
+    {Q : Post [.bool]}
+    (hoom0 : hdr.oom = 0#32)
+    (hinv : BlastEvalInv cfg progPtr progBytes vars cwords nodes prog hdr g
+      atomBases sliceOffs aigWords htSlots litsPool nodeIdx.toNat)
+    (hni_lt : nodeIdx.toNat < cfg.n_nodes)
+    (hok : BVWorkspaceOk cfg hdr atomBases sliceOffs aigWords htSlots litsPool)
+    (hok1 : BVWorkspaceOk cfg hdr1 atomBases sliceOffs aw1 hts1 litsPool)
+    (haig1 : AigInv hdr1 g1 aw1 hts1)
+    (hfr1 : hdr.AigFrame hdr1) (hext1 : g ≤ g1) (hoom1 : hdr1.oom = 0#32)
+    (hno_ne25 : u32At progBytes
+      (nodesOff cfg.n_vars hdr.n_cwords.toNat + 5 * nodeIdx.toNat) ≠ opBConst)
+    (hnd : nodes.get? nodeIdx.toNat = some (.bool en))
+    (hbd : (res >>> 1).toNat < hdr1.aig_len.toNat)
+    (hev : ∀ assign : BVExpr.Assignment,
+      g1.evalLit (atomAssign progBytes assign) (UInt32.ofBitVec res) = en.eval assign)
+    (hm1' : (array (t := i32) hdr.slice_off_ptr (sliceOffs.set nodeIdx.toNat res) ⋆
+      blastSoRest cfg hdr1 progPtr progBytes atomBases aw1 hts1 litsPool R) m1')
+    (hQ : ∀ (ret : Bool) (hdr' : BVHdrState) (g' : Aig)
+      (sliceOffs' : List (BitVec 32)) (aigWords' : List (BitVec 64))
+      (htSlots' litsPool' : List (BitVec 32)) (m' : Mem 64),
+      BVWorkspaceOk cfg hdr' atomBases sliceOffs' aigWords' htSlots' litsPool' →
+      AigInv hdr' g' aigWords' htSlots' → g ≤ g' →
+      hdr'.lits_len.toNat ≤ cfg.lits_cap → hdr'.prog_ptr = progPtr →
+      hdr'.n_cwords = hdr.n_cwords → hdr'.root_node = hdr.root_node →
+      (ret = true → hdr'.oom = 0#32 ∧ BlastEvalInv cfg progPtr progBytes vars cwords nodes prog
+        hdr' g' atomBases sliceOffs' aigWords' htSlots' litsPool' (nodeIdx.toNat + 1)) →
+      (u32At progBytes (nodesOff cfg.n_vars hdr.n_cwords.toNat + 5 * nodeIdx.toNat) = opBConst →
+        ret = true ∧ g' = g ∧
+        sliceOffs' = sliceOffs.set nodeIdx.toNat (BitVec.ofNat 32
+          (u32At progBytes (nodesOff cfg.n_vars hdr.n_cwords.toNat + 5 * nodeIdx.toNat + 2) %
+            2))) →
+      (bytes progPtr progBytes ⋆
+        bvBlastMem cfg hdr' atomBases sliceOffs' aigWords' htSlots' litsPool' ⋆ R) m' →
+      Q (ret, ⟨⟩) m') :
+    Q (true, ⟨⟩) m1' := by
+  have hso_ptr : hdr1.slice_off_ptr = hdr.slice_off_ptr := hok1.hdr_so.trans hok.hdr_so.symm
+  have hni_so : nodeIdx.toNat < sliceOffs.length := by rw [hok1.so_len]; exact hni_lt
+  let sliceOffs' := sliceOffs.set nodeIdx.toNat res
+  have hok2 := BVWorkspaceOk.set_sliceOffs nodeIdx.toNat res hok1
+  refine hQ true hdr1 g1 sliceOffs' aw1 hts1 litsPool _ hok2 haig1 hext1
+    (by rw [hfr1.lits_len]; exact hinv.lits_le_cap)
+    (hfr1.prog_ptr.trans hinv.prog_ptr_eq) hfr1.n_cwords hfr1.root_node
+    (fun _ => ⟨hoom1, ?_⟩) (fun h => absurd h hno_ne25) ?_
+  · refine blastEvalInv_step hoom0 hinv hok2 haig1 hext1 hni_lt
+      (hfr1.prog_ptr.trans hinv.prog_ptr_eq) hfr1.n_cwords hfr1.root_node
+      (by rw [hfr1.lits_len]; exact Nat.le_refl _) (by rw [hfr1.lits_len]; exact hinv.lits_le_cap)
+      (fun _ _ => rfl) ?_
+    exact nodeDenotes_set_bool hnd (by rw [← haig1.aig_len_eq]; exact hbd) hev hni_so
+  · exact blast_so_unfocus hok1.hdr_so (by rw [hso_ptr]; exact hm1')
+
+private theorem drv1_child_prep {progBytes : List UInt8} {vars : BinTree VarEntry}
+    {cwords : BinTree Nat} {nodes : BinTree ProgNode} {prog : BVLogicalExpr}
+    {cfg : BVWorkspaceCfg} {progPtr : BitVec 64} {hdr : BVHdrState} {g : Aig}
+    {atomBases sliceOffs : List (BitVec 32)} {aigWords : List (BitVec 64)}
+    {htSlots litsPool : List (BitVec 32)} {nodeIdx : BitVec 32} {a : Nat}
+    {ea : BVLogicalExpr} (ha_lt : a < 4294967296) (ha_lt_ni : a < nodeIdx.toNat)
+    (hoom0 : hdr.oom = 0#32)
+    (hinv : BlastEvalInv cfg progPtr progBytes vars cwords nodes prog hdr g
+      atomBases sliceOffs aigWords htSlots litsPool nodeIdx.toNat)
+    (hni_lt : nodeIdx.toNat < cfg.n_nodes)
+    (hga : nodes.get? a = some (.bool ea)) :
+    ∃ ha_so : (BitVec.ofNat 32 a).toNat < sliceOffs.length,
+      sliceOffs[(BitVec.ofNat 32 a).toNat]'ha_so = sliceOffs.getD a 0#32 ∧
+      ((sliceOffs[(BitVec.ofNat 32 a).toNat]'ha_so >>> 1).toNat < hdr.aig_len.toNat) ∧
+      (∀ assign, g.evalLit (atomAssign progBytes assign)
+        (UInt32.ofBitVec (sliceOffs[(BitVec.ofNat 32 a).toNat]'ha_so)) = ea.eval assign) := by
+  have ha_so : (BitVec.ofNat 32 a).toNat < sliceOffs.length := by
+    rw [hinv.ws_ok.so_len, BitVec.toNat_ofNat, Nat.mod_eq_of_lt ha_lt]; omega
+  have hnd_a := hinv.prefix_ok hoom0 a ha_lt_ni
+  unfold NodeDenotes at hnd_a; rw [hga] at hnd_a
+  have hsa_get : sliceOffs[(BitVec.ofNat 32 a).toNat]'ha_so = sliceOffs.getD a 0#32 := by
+    rw [list_getD_eq_getElem _ 0#32]; simp [BitVec.toNat_ofNat]
+  refine ⟨ha_so, hsa_get, ?_, fun assign => ?_⟩
+  · rw [hinv.aig_inv.aig_len_eq, hsa_get]; exact hnd_a.1
+  · rw [hsa_get]; exact hnd_a.2 assign
+
+private theorem drv1_bconst_post {progBytes : List UInt8} {vars : BinTree VarEntry}
+    {cwords : BinTree Nat} {nodes : BinTree ProgNode} {prog : BVLogicalExpr}
+    {cfg : BVWorkspaceCfg} {progPtr : BitVec 64} {hdr : BVHdrState} {g : Aig}
+    {atomBases sliceOffs : List (BitVec 32)} {aigWords : List (BitVec 64)}
+    {htSlots litsPool : List (BitVec 32)} {nodeIdx : BitVec 32} {a : Nat}
+    {R : Mem 64 → Prop} {m' : Mem 64} {Q : Post [.bool]}
+    (hoom0 : hdr.oom = 0#32) (hni_lt : nodeIdx.toNat < cfg.n_nodes)
+    (hok : BVWorkspaceOk cfg hdr atomBases sliceOffs aigWords htSlots litsPool)
+    (haig : AigInv hdr g aigWords htSlots)
+    (hinv : BlastEvalInv cfg progPtr progBytes vars cwords nodes prog hdr g
+      atomBases sliceOffs aigWords htSlots litsPool nodeIdx.toNat)
+    (ha_lt : a < 4294967296) (ha_2 : a < 2)
+    (ha_eq : u32At progBytes (nodesOff cfg.n_vars hdr.n_cwords.toNat + 5 * nodeIdx.toNat + 2) = a)
+    (hnd_bc : nodes.get? nodeIdx.toNat = some (.bool (.const (Nat.beq a 1))))
+    (hm_so : (array (t := i32) hdr.slice_off_ptr (sliceOffs.set nodeIdx.toNat
+      (BitVec.ofNat 32 a &&& 1#32)) ⋆
+      blastSoRest cfg hdr progPtr progBytes atomBases aigWords htSlots litsPool R) m')
+    (hQ : ∀ (ret : Bool) (hdr' : BVHdrState) (g' : Aig)
+      (sliceOffs' : List (BitVec 32)) (aigWords' : List (BitVec 64))
+      (htSlots' litsPool' : List (BitVec 32)) (m' : Mem 64),
+      BVWorkspaceOk cfg hdr' atomBases sliceOffs' aigWords' htSlots' litsPool' →
+      AigInv hdr' g' aigWords' htSlots' → g ≤ g' →
+      hdr'.lits_len.toNat ≤ cfg.lits_cap → hdr'.prog_ptr = progPtr →
+      hdr'.n_cwords = hdr.n_cwords → hdr'.root_node = hdr.root_node →
+      (ret = true → hdr'.oom = 0#32 ∧ BlastEvalInv cfg progPtr progBytes vars cwords nodes prog
+        hdr' g' atomBases sliceOffs' aigWords' htSlots' litsPool' (nodeIdx.toNat + 1)) →
+      (u32At progBytes (nodesOff cfg.n_vars hdr.n_cwords.toNat + 5 * nodeIdx.toNat) = opBConst →
+        ret = true ∧ g' = g ∧
+        sliceOffs' = sliceOffs.set nodeIdx.toNat (BitVec.ofNat 32
+          (u32At progBytes (nodesOff cfg.n_vars hdr.n_cwords.toNat + 5 * nodeIdx.toNat + 2) %
+            2))) →
+      (bytes progPtr progBytes ⋆
+        bvBlastMem cfg hdr' atomBases sliceOffs' aigWords' htSlots' litsPool' ⋆ R) m' →
+      Q (ret, ⟨⟩) m') :
+    Q (true, ⟨⟩) m' := by
+  have hni_so : nodeIdx.toNat < sliceOffs.length := by rw [hok.so_len]; exact hni_lt
+  let litv : BitVec 32 := BitVec.ofNat 32 a &&& 1#32
+  have hlitv_eq : litv = BitVec.ofNat 32 (a % 2) := by
+    dsimp only [litv]; apply BitVec.eq_of_toNat_eq
+    simp only [BitVec.toNat_and, BitVec.toNat_ofNat, Nat.mod_eq_of_lt ha_lt,
+      show (1 : Nat) % 2 ^ 32 = 1 from rfl, Nat.and_one_is_mod]
+    omega
+  have hok' := BVWorkspaceOk.set_sliceOffs nodeIdx.toNat litv hok
+  refine hQ true hdr g (sliceOffs.set nodeIdx.toNat litv) aigWords htSlots litsPool _ hok' haig
+    (Aig.extends_rfl g) hinv.lits_le_cap hinv.prog_ptr_eq rfl rfl (fun _ => ⟨hoom0, ?_⟩)
+    (fun _ => ⟨rfl, rfl, by rw [hlitv_eq, ← ha_eq]⟩) (blast_so_unfocus hok.hdr_so hm_so)
+  refine blastEvalInv_step hoom0 hinv hok' haig (Aig.extends_rfl g) hni_lt hinv.prog_ptr_eq
+    rfl rfl (Nat.le_refl _) hinv.lits_le_cap (fun _ _ => rfl) ?_
+  refine nodeDenotes_set_bool hnd_bc ?_ (fun assign => ?_) hni_so
+  · rw [hlitv_eq, bv32_lsr1_toNat, BitVec.toNat_ofNat,
+      Nat.mod_eq_of_lt (by omega : a % 2 < 2 ^ 32)]
+    omega
+  · rw [hlitv_eq]; rcases (by omega : a = 0 ∨ a = 1) with rfl | rfl <;>
+      simp [BVLogicalExpr.eval, Nat.beq, Aig.evalLit_zero, Aig.evalLit_one]
+
 /-! ## 3. `bv_eval_node_wp` -/
 
 public section
@@ -345,35 +521,10 @@ theorem bv_eval_node_wp (Γ : Env)
     dsimp only at hbc
     rw [← hinv.nv_eq, ← hinv.nc_eq, ha_eq] at hbc
     rcases hbc with ⟨ha_2, hnd_bc⟩
-    have hml_so := blast_so_focus hok.hdr_so hm
-    clear hm
+    have hml_so := blast_so_focus hok.hdr_so hm; clear hm
     have hni_so : nodeIdx.toNat < sliceOffs.length := by rw [hok.so_len]; exact hni_lt
     c0_hstraight
-    let litv : BitVec 32 := BitVec.ofNat 32 a &&& 1#32
-    let sliceOffs' := sliceOffs.set nodeIdx.toNat litv
-    have hlitv_eq : litv = BitVec.ofNat 32 (a % 2) := by
-      dsimp only [litv]
-      apply BitVec.eq_of_toNat_eq
-      simp only [BitVec.toNat_and, BitVec.toNat_ofNat, Nat.mod_eq_of_lt ha_lt,
-        show (1 : Nat) % 2 ^ 32 = 1 from rfl, Nat.and_one_is_mod]
-      omega
-    have hok' := BVWorkspaceOk.set_sliceOffs nodeIdx.toNat litv hok
-    have hm' := blast_so_unfocus hok.hdr_so (by assumption)
-    refine hQ true hdr g sliceOffs' aigWords htSlots litsPool _ hok' haig
-      (Aig.extends_rfl g) hinv.lits_le_cap hinv.prog_ptr_eq rfl rfl (fun _ => ⟨hoom0, ?_⟩)
-      (fun _ => ⟨rfl, rfl, by
-        dsimp only [sliceOffs']; rw [hlitv_eq, ← ha_eq]⟩) hm'
-    refine blastEvalInv_step hoom0 hinv hok' haig (Aig.extends_rfl g) hni_lt hinv.prog_ptr_eq
-      rfl rfl (Nat.le_refl _) hinv.lits_le_cap (fun _ _ => rfl) ?_
-    refine nodeDenotes_set_bool hnd_bc ?_ (fun assign => ?_) hni_so
-    · rw [hlitv_eq, bv32_lsr1_toNat, BitVec.toNat_ofNat,
-        Nat.mod_eq_of_lt (by omega : a % 2 < 2 ^ 32)]
-      omega
-    · rw [hlitv_eq]
-      have ha_cases : a = 0 ∨ a = 1 := by omega
-      rcases ha_cases with rfl | rfl
-      · simp [BVLogicalExpr.eval, Nat.beq, Aig.evalLit_zero]
-      · simp [BVLogicalExpr.eval, Nat.beq, Aig.evalLit_one]
+    exact drv1_bconst_post hoom0 hni_lt hok haig hinv ha_lt ha_2 ha_eq hnd_bc (by assumption) hQ
   · have hop_ne25 : op ≠ opBConst := fun h => by
       apply hc; subst h; unfold opBConst; decide
     have hno_ne25 : u32At progBytes (nodesOff cfg.n_vars hdr.n_cwords.toNat +
@@ -409,16 +560,17 @@ theorem bv_eval_node_wp (Γ : Env)
       have hsa_get : sa = sliceOffs.getD a 0#32 := by
         dsimp only [sa]; rw [list_getD_eq_getElem _ 0#32]
         simp [BitVec.toNat_ofNat]
-      have hok' := BVWorkspaceOk.set_sliceOffs nodeIdx.toNat litv hok
-      have hm' := blast_so_unfocus hok.hdr_so (by assumption)
-      refine hQ true hdr g sliceOffs' aigWords htSlots litsPool _ hok' haig
-        (Aig.extends_rfl g) hinv.lits_le_cap hinv.prog_ptr_eq rfl rfl (fun _ => ⟨hoom0, ?_⟩)
-        (fun h => absurd h hno_ne25) hm'
-      refine blastEvalInv_step hoom0 hinv hok' haig (Aig.extends_rfl g) hni_lt hinv.prog_ptr_eq
-        rfl rfl (Nat.le_refl _) hinv.lits_le_cap (fun _ _ => rfl) ?_
-      refine nodeDenotes_set_bool hnd_bn ?_ (fun assign => ?_) hni_so
-      · dsimp only [litv]; rw [bv32_xor1_lsr1, hsa_get]; exact ha_bd
-      · dsimp only [litv]; rw [evalLit_xor1, hsa_get, ha_ev assign]; rfl
+      have hsw : (BitVec.setWidth 64 (BitVec.ofNat 32 a)).toNat = (BitVec.ofNat 32 a).toNat := by
+        simp [BitVec.toNat_setWidth]
+      refine drv1_gate_ok hoom0 hinv hni_lt hok hok haig
+        (by constructor <;> rfl) (Aig.extends_rfl g)
+        hoom0 hno_ne25 hnd_bn ?_ (fun assign => ?_) (by assumption) hQ
+      · rw [bv32_xor1_lsr1]; simp only [hsw]
+        rw [list_getD_eq_getElem _ 0#32]
+        simp only [BitVec.toNat_ofNat, Nat.mod_eq_of_lt ha_lt, haig.aig_len_eq]; exact ha_bd
+      · rw [evalLit_xor1]; simp only [hsw]
+        rw [list_getD_eq_getElem _ 0#32]
+        simp only [BitVec.toNat_ofNat, Nat.mod_eq_of_lt ha_lt, ha_ev assign]; rfl
     · have hop_ne26 : op ≠ opBNot := fun h => by
         apply hc; subst h; unfold opBNot; decide
       clear hc; c0_hstraight; c0_hsplit
@@ -435,80 +587,42 @@ theorem bv_eval_node_wp (Γ : Env)
         rw [← hinv.nv_eq, ← hinv.nc_eq, hop_eq, ha_eq, hb_eq] at hgt
         rcases hgt with ⟨ha_lt_ni, hb_lt_ni, _, _, gt, ea, eb, hgt_eq, _, _, _, hga, hgb, hnd_gt⟩
         rw [hgt_eq hop27] at hnd_gt
-        have ha_so : (BitVec.ofNat 32 a).toNat < sliceOffs.length := by
-          rw [hok.so_len, BitVec.toNat_ofNat, Nat.mod_eq_of_lt ha_lt]; omega
-        have hb_so : (BitVec.ofNat 32 b).toNat < sliceOffs.length := by
-          rw [hok.so_len, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hb_lt]; omega
-        have hnd_a := hinv.prefix_ok hoom0 a ha_lt_ni
-        unfold NodeDenotes at hnd_a; rw [hga] at hnd_a
-        have hnd_b := hinv.prefix_ok hoom0 b hb_lt_ni
-        unfold NodeDenotes at hnd_b; rw [hgb] at hnd_b
-        have hml_so := blast_so_focus hok.hdr_so hm
-        clear hm
+        obtain ⟨ha_so, hsa_get, hsa_bd, ha_ev⟩ :=
+          drv1_child_prep ha_lt ha_lt_ni hoom0 hinv hni_lt hga
+        obtain ⟨hb_so, hsb_get, hsb_bd, hb_ev⟩ :=
+          drv1_child_prep hb_lt hb_lt_ni hoom0 hinv hni_lt hgb
+        have hml_so := blast_so_focus hok.hdr_so hm; clear hm
         c0_hstraight
-        have hml' := blast_so_unfocus hok.hdr_so hml_so
+        have hml_aig := blast_aig_focus hok.hdr_aig hok.hdr_ht
+          (blast_so_unfocus hok.hdr_so hml_so)
         clear hml_so
-        have hml_aig := blast_aig_focus hok.hdr_aig hok.hdr_ht hml'
-        clear hml'
         let sa := sliceOffs[(BitVec.ofNat 32 a).toNat]'ha_so
         let sb := sliceOffs[(BitVec.ofNat 32 b).toNat]'hb_so
-        have hsa_get : sa = sliceOffs.getD a 0#32 := by
-          dsimp only [sa]; rw [list_getD_eq_getElem _ 0#32]
-          simp [BitVec.toNat_ofNat]
-        have hsb_get : sb = sliceOffs.getD b 0#32 := by
-          dsimp only [sb]; rw [list_getD_eq_getElem _ 0#32]
-          simp [BitVec.toNat_ofNat]
-        have hsa_bd : (sa >>> 1).toNat < hdr.aig_len.toNat := by
-          rw [haig.aig_len_eq, hsa_get]; exact hnd_a.1
-        have hsb_bd : (sb >>> 1).toNat < hdr.aig_len.toNat := by
-          rw [haig.aig_len_eq, hsb_get]; exact hnd_b.1
         c0_call hMkAnd
         refine ⟨hdr, g, aigWords, htSlots, _, haig, fun _ => ⟨hsa_bd, hsb_bd⟩, hml_aig, ?_⟩
         intro res hdr1 g1 aw1 hts1 m1 hfr1 hext1 _ haig1 _ _ hres hm1
         have hml1 := blast_aig_unfocus (hfr1.aig_ptr.trans hok.hdr_aig)
-          (hfr1.ht_ptr.trans hok.hdr_ht) hm1
-        clear hm1
+          (hfr1.ht_ptr.trans hok.hdr_ht) hm1; clear hm1
         have hok1 := bvWorkspaceOk_of_aigFrame hok hfr1 haig1
-        have hml1_hdr := hml1
-        rw [bvBlastMem_hdr_left] at hml1_hdr
-        c0_hstraight
-        clear hml1_hdr
+        have hml1_hdr := hml1; rw [bvBlastMem_hdr_left] at hml1_hdr
+        c0_hstraight; clear hml1_hdr
         c0_hsplit
-        · c0_hstraight
-          exact hQ false hdr1 g1 sliceOffs aw1 hts1 litsPool m1 hok1 haig1 hext1
-            (by rw [hfr1.lits_len]; exact hinv.lits_le_cap)
-            (hfr1.prog_ptr.trans hinv.prog_ptr_eq) hfr1.n_cwords hfr1.root_node
-            (fun hf => absurd hf Bool.false_ne_true) (fun h => absurd h hno_ne25) hml1
-        · have hoom1 : hdr1.oom = 0#32 := hc
-          clear hc
+        · c0_hstraight; exact drv1_gate_oom hinv hok1 haig1 hfr1 hext1 hno_ne25 hQ hml1
+        · have hoom1 : hdr1.oom = 0#32 := hc; clear hc
           have hres1 := hres hoom1
           have hso_ptr : hdr1.slice_off_ptr = hdr.slice_off_ptr :=
             hok1.hdr_so.trans hok.hdr_so.symm
-          have hml_so1 := blast_so_focus hok1.hdr_so hml1
-          clear hml1
+          have hml_so1 := blast_so_focus hok1.hdr_so hml1; clear hml1
           rw [hso_ptr] at hml_so1
           have hni_so : nodeIdx.toNat < sliceOffs.length := by rw [hok1.so_len]; exact hni_lt
           c0_hstraight
-          let sliceOffs' := sliceOffs.set nodeIdx.toNat res
-          have hok2 := BVWorkspaceOk.set_sliceOffs nodeIdx.toNat res hok1
-          refine hQ true hdr1 g1 sliceOffs' aw1 hts1 litsPool _ hok2 haig1 hext1
-            (by rw [hfr1.lits_len]; exact hinv.lits_le_cap)
-            (hfr1.prog_ptr.trans hinv.prog_ptr_eq) hfr1.n_cwords hfr1.root_node
-            (fun _ => ⟨hoom1, ?_⟩) (fun h => absurd h hno_ne25) ?_
-          · refine blastEvalInv_step hoom0 hinv hok2 haig1 hext1 hni_lt
-              (hfr1.prog_ptr.trans hinv.prog_ptr_eq) hfr1.n_cwords hfr1.root_node
-              (by rw [hfr1.lits_len]; exact Nat.le_refl _)
-              (by rw [hfr1.lits_len]; exact hinv.lits_le_cap)
-              (fun _ _ => rfl) ?_
-            refine nodeDenotes_set_bool hnd_gt (by rw [← haig1.aig_len_eq]; exact hres1.1)
-              (fun assign => ?_) hni_so
-            have hraw := hres1.2 (atomAssign progBytes assign)
-            change g1.evalLit (atomAssign progBytes assign) (UInt32.ofBitVec res) =
-              (g.evalLit (atomAssign progBytes assign) (UInt32.ofBitVec sa) &&
-                g.evalLit (atomAssign progBytes assign) (UInt32.ofBitVec sb)) at hraw
-            rw [hraw, hsa_get, hsb_get, hnd_a.2 assign, hnd_b.2 assign]
-            rfl
-          · exact blast_so_unfocus hok1.hdr_so (by rw [hso_ptr]; assumption)
+          refine drv1_gate_ok hoom0 hinv hni_lt hok hok1 haig1 hfr1 hext1 hoom1 hno_ne25 hnd_gt
+            hres1.1 (fun assign => ?_) (by assumption) hQ
+          have hraw := hres1.2 (atomAssign progBytes assign)
+          change g1.evalLit (atomAssign progBytes assign) (UInt32.ofBitVec res) =
+            (g.evalLit (atomAssign progBytes assign) (UInt32.ofBitVec sa) &&
+              g.evalLit (atomAssign progBytes assign) (UInt32.ofBitVec sb)) at hraw
+          rw [hraw, ha_ev assign, hb_ev assign]; rfl
       · have hop_ne27 : op ≠ opGateAnd := fun h => by
           apply hc; subst h; unfold opGateAnd; decide
         clear hc; c0_hstraight; c0_hsplit
@@ -525,80 +639,42 @@ theorem bv_eval_node_wp (Γ : Env)
           rw [← hinv.nv_eq, ← hinv.nc_eq, hop_eq, ha_eq, hb_eq] at hgt
           rcases hgt with ⟨ha_lt_ni, hb_lt_ni, _, _, gt, ea, eb, _, hgt_eq, _, _, hga, hgb, hnd_gt⟩
           rw [hgt_eq hop28] at hnd_gt
-          have ha_so : (BitVec.ofNat 32 a).toNat < sliceOffs.length := by
-            rw [hok.so_len, BitVec.toNat_ofNat, Nat.mod_eq_of_lt ha_lt]; omega
-          have hb_so : (BitVec.ofNat 32 b).toNat < sliceOffs.length := by
-            rw [hok.so_len, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hb_lt]; omega
-          have hnd_a := hinv.prefix_ok hoom0 a ha_lt_ni
-          unfold NodeDenotes at hnd_a; rw [hga] at hnd_a
-          have hnd_b := hinv.prefix_ok hoom0 b hb_lt_ni
-          unfold NodeDenotes at hnd_b; rw [hgb] at hnd_b
-          have hml_so := blast_so_focus hok.hdr_so hm
-          clear hm
+          obtain ⟨ha_so, hsa_get, hsa_bd, ha_ev⟩ :=
+            drv1_child_prep ha_lt ha_lt_ni hoom0 hinv hni_lt hga
+          obtain ⟨hb_so, hsb_get, hsb_bd, hb_ev⟩ :=
+            drv1_child_prep hb_lt hb_lt_ni hoom0 hinv hni_lt hgb
+          have hml_so := blast_so_focus hok.hdr_so hm; clear hm
           c0_hstraight
-          have hml' := blast_so_unfocus hok.hdr_so hml_so
+          have hml_aig := blast_aig_focus hok.hdr_aig hok.hdr_ht
+            (blast_so_unfocus hok.hdr_so hml_so)
           clear hml_so
-          have hml_aig := blast_aig_focus hok.hdr_aig hok.hdr_ht hml'
-          clear hml'
           let sa := sliceOffs[(BitVec.ofNat 32 a).toNat]'ha_so
           let sb := sliceOffs[(BitVec.ofNat 32 b).toNat]'hb_so
-          have hsa_get : sa = sliceOffs.getD a 0#32 := by
-            dsimp only [sa]; rw [list_getD_eq_getElem _ 0#32]
-            simp [BitVec.toNat_ofNat]
-          have hsb_get : sb = sliceOffs.getD b 0#32 := by
-            dsimp only [sb]; rw [list_getD_eq_getElem _ 0#32]
-            simp [BitVec.toNat_ofNat]
-          have hsa_bd : (sa >>> 1).toNat < hdr.aig_len.toNat := by
-            rw [haig.aig_len_eq, hsa_get]; exact hnd_a.1
-          have hsb_bd : (sb >>> 1).toNat < hdr.aig_len.toNat := by
-            rw [haig.aig_len_eq, hsb_get]; exact hnd_b.1
           c0_call hXor
           refine ⟨hdr, g, aigWords, htSlots, _, haig, fun _ => ⟨hsa_bd, hsb_bd⟩, hml_aig, ?_⟩
           intro res hdr1 g1 aw1 hts1 m1 hfr1 hext1 _ haig1 _ _ hres hm1
           have hml1 := blast_aig_unfocus (hfr1.aig_ptr.trans hok.hdr_aig)
-            (hfr1.ht_ptr.trans hok.hdr_ht) hm1
-          clear hm1
+            (hfr1.ht_ptr.trans hok.hdr_ht) hm1; clear hm1
           have hok1 := bvWorkspaceOk_of_aigFrame hok hfr1 haig1
-          have hml1_hdr := hml1
-          rw [bvBlastMem_hdr_left] at hml1_hdr
-          c0_hstraight
-          clear hml1_hdr
+          have hml1_hdr := hml1; rw [bvBlastMem_hdr_left] at hml1_hdr
+          c0_hstraight; clear hml1_hdr
           c0_hsplit
-          · c0_hstraight
-            exact hQ false hdr1 g1 sliceOffs aw1 hts1 litsPool m1 hok1 haig1 hext1
-              (by rw [hfr1.lits_len]; exact hinv.lits_le_cap)
-              (hfr1.prog_ptr.trans hinv.prog_ptr_eq) hfr1.n_cwords hfr1.root_node
-              (fun hf => absurd hf Bool.false_ne_true) (fun h => absurd h hno_ne25) hml1
-          · have hoom1 : hdr1.oom = 0#32 := hc
-            clear hc
+          · c0_hstraight; exact drv1_gate_oom hinv hok1 haig1 hfr1 hext1 hno_ne25 hQ hml1
+          · have hoom1 : hdr1.oom = 0#32 := hc; clear hc
             have hres1 := hres hoom1
             have hso_ptr : hdr1.slice_off_ptr = hdr.slice_off_ptr :=
               hok1.hdr_so.trans hok.hdr_so.symm
-            have hml_so1 := blast_so_focus hok1.hdr_so hml1
-            clear hml1
+            have hml_so1 := blast_so_focus hok1.hdr_so hml1; clear hml1
             rw [hso_ptr] at hml_so1
             have hni_so : nodeIdx.toNat < sliceOffs.length := by rw [hok1.so_len]; exact hni_lt
             c0_hstraight
-            let sliceOffs' := sliceOffs.set nodeIdx.toNat res
-            have hok2 := BVWorkspaceOk.set_sliceOffs nodeIdx.toNat res hok1
-            refine hQ true hdr1 g1 sliceOffs' aw1 hts1 litsPool _ hok2 haig1 hext1
-              (by rw [hfr1.lits_len]; exact hinv.lits_le_cap)
-              (hfr1.prog_ptr.trans hinv.prog_ptr_eq) hfr1.n_cwords hfr1.root_node
-              (fun _ => ⟨hoom1, ?_⟩) (fun h => absurd h hno_ne25) ?_
-            · refine blastEvalInv_step hoom0 hinv hok2 haig1 hext1 hni_lt
-                (hfr1.prog_ptr.trans hinv.prog_ptr_eq) hfr1.n_cwords hfr1.root_node
-                (by rw [hfr1.lits_len]; exact Nat.le_refl _)
-                (by rw [hfr1.lits_len]; exact hinv.lits_le_cap)
-                (fun _ _ => rfl) ?_
-              refine nodeDenotes_set_bool hnd_gt (by rw [← haig1.aig_len_eq]; exact hres1.1)
-                (fun assign => ?_) hni_so
-              have hraw := hres1.2 (atomAssign progBytes assign)
-              change g1.evalLit (atomAssign progBytes assign) (UInt32.ofBitVec res) =
-                (g.evalLit (atomAssign progBytes assign) (UInt32.ofBitVec sa) ^^
-                  g.evalLit (atomAssign progBytes assign) (UInt32.ofBitVec sb)) at hraw
-              rw [hraw, hsa_get, hsb_get, hnd_a.2 assign, hnd_b.2 assign]
-              rfl
-            · exact blast_so_unfocus hok1.hdr_so (by rw [hso_ptr]; assumption)
+            refine drv1_gate_ok hoom0 hinv hni_lt hok hok1 haig1 hfr1 hext1 hoom1 hno_ne25 hnd_gt
+              hres1.1 (fun assign => ?_) (by assumption) hQ
+            have hraw := hres1.2 (atomAssign progBytes assign)
+            change g1.evalLit (atomAssign progBytes assign) (UInt32.ofBitVec res) =
+              (g.evalLit (atomAssign progBytes assign) (UInt32.ofBitVec sa) ^^
+                g.evalLit (atomAssign progBytes assign) (UInt32.ofBitVec sb)) at hraw
+            rw [hraw, ha_ev assign, hb_ev assign]; rfl
         · have hop_ne28 : op ≠ opGateXor := fun h => by
             apply hc; subst h; unfold opGateXor; decide
           clear hc; c0_hstraight; c0_hsplit
@@ -616,80 +692,42 @@ theorem bv_eval_node_wp (Γ : Env)
             rcases hgt with
               ⟨ha_lt_ni, hb_lt_ni, _, _, gt, ea, eb, _, _, hgt_eq, _, hga, hgb, hnd_gt⟩
             rw [hgt_eq hop29] at hnd_gt
-            have ha_so : (BitVec.ofNat 32 a).toNat < sliceOffs.length := by
-              rw [hok.so_len, BitVec.toNat_ofNat, Nat.mod_eq_of_lt ha_lt]; omega
-            have hb_so : (BitVec.ofNat 32 b).toNat < sliceOffs.length := by
-              rw [hok.so_len, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hb_lt]; omega
-            have hnd_a := hinv.prefix_ok hoom0 a ha_lt_ni
-            unfold NodeDenotes at hnd_a; rw [hga] at hnd_a
-            have hnd_b := hinv.prefix_ok hoom0 b hb_lt_ni
-            unfold NodeDenotes at hnd_b; rw [hgb] at hnd_b
-            have hml_so := blast_so_focus hok.hdr_so hm
-            clear hm
+            obtain ⟨ha_so, hsa_get, hsa_bd, ha_ev⟩ :=
+              drv1_child_prep ha_lt ha_lt_ni hoom0 hinv hni_lt hga
+            obtain ⟨hb_so, hsb_get, hsb_bd, hb_ev⟩ :=
+              drv1_child_prep hb_lt hb_lt_ni hoom0 hinv hni_lt hgb
+            have hml_so := blast_so_focus hok.hdr_so hm; clear hm
             c0_hstraight
-            have hml' := blast_so_unfocus hok.hdr_so hml_so
+            have hml_aig := blast_aig_focus hok.hdr_aig hok.hdr_ht
+              (blast_so_unfocus hok.hdr_so hml_so)
             clear hml_so
-            have hml_aig := blast_aig_focus hok.hdr_aig hok.hdr_ht hml'
-            clear hml'
             let sa := sliceOffs[(BitVec.ofNat 32 a).toNat]'ha_so
             let sb := sliceOffs[(BitVec.ofNat 32 b).toNat]'hb_so
-            have hsa_get : sa = sliceOffs.getD a 0#32 := by
-              dsimp only [sa]; rw [list_getD_eq_getElem _ 0#32]
-              simp [BitVec.toNat_ofNat]
-            have hsb_get : sb = sliceOffs.getD b 0#32 := by
-              dsimp only [sb]; rw [list_getD_eq_getElem _ 0#32]
-              simp [BitVec.toNat_ofNat]
-            have hsa_bd : (sa >>> 1).toNat < hdr.aig_len.toNat := by
-              rw [haig.aig_len_eq, hsa_get]; exact hnd_a.1
-            have hsb_bd : (sb >>> 1).toNat < hdr.aig_len.toNat := by
-              rw [haig.aig_len_eq, hsb_get]; exact hnd_b.1
             c0_call hBeq
             refine ⟨hdr, g, aigWords, htSlots, _, haig, fun _ => ⟨hsa_bd, hsb_bd⟩, hml_aig, ?_⟩
             intro res hdr1 g1 aw1 hts1 m1 hfr1 hext1 _ haig1 _ _ hres hm1
             have hml1 := blast_aig_unfocus (hfr1.aig_ptr.trans hok.hdr_aig)
-              (hfr1.ht_ptr.trans hok.hdr_ht) hm1
-            clear hm1
+              (hfr1.ht_ptr.trans hok.hdr_ht) hm1; clear hm1
             have hok1 := bvWorkspaceOk_of_aigFrame hok hfr1 haig1
-            have hml1_hdr := hml1
-            rw [bvBlastMem_hdr_left] at hml1_hdr
-            c0_hstraight
-            clear hml1_hdr
+            have hml1_hdr := hml1; rw [bvBlastMem_hdr_left] at hml1_hdr
+            c0_hstraight; clear hml1_hdr
             c0_hsplit
-            · c0_hstraight
-              exact hQ false hdr1 g1 sliceOffs aw1 hts1 litsPool m1 hok1 haig1 hext1
-                (by rw [hfr1.lits_len]; exact hinv.lits_le_cap)
-                (hfr1.prog_ptr.trans hinv.prog_ptr_eq) hfr1.n_cwords hfr1.root_node
-                (fun hf => absurd hf Bool.false_ne_true) (fun h => absurd h hno_ne25) hml1
-            · have hoom1 : hdr1.oom = 0#32 := hc
-              clear hc
+            · c0_hstraight; exact drv1_gate_oom hinv hok1 haig1 hfr1 hext1 hno_ne25 hQ hml1
+            · have hoom1 : hdr1.oom = 0#32 := hc; clear hc
               have hres1 := hres hoom1
               have hso_ptr : hdr1.slice_off_ptr = hdr.slice_off_ptr :=
                 hok1.hdr_so.trans hok.hdr_so.symm
-              have hml_so1 := blast_so_focus hok1.hdr_so hml1
-              clear hml1
+              have hml_so1 := blast_so_focus hok1.hdr_so hml1; clear hml1
               rw [hso_ptr] at hml_so1
               have hni_so : nodeIdx.toNat < sliceOffs.length := by rw [hok1.so_len]; exact hni_lt
               c0_hstraight
-              let sliceOffs' := sliceOffs.set nodeIdx.toNat res
-              have hok2 := BVWorkspaceOk.set_sliceOffs nodeIdx.toNat res hok1
-              refine hQ true hdr1 g1 sliceOffs' aw1 hts1 litsPool _ hok2 haig1 hext1
-                (by rw [hfr1.lits_len]; exact hinv.lits_le_cap)
-                (hfr1.prog_ptr.trans hinv.prog_ptr_eq) hfr1.n_cwords hfr1.root_node
-                (fun _ => ⟨hoom1, ?_⟩) (fun h => absurd h hno_ne25) ?_
-              · refine blastEvalInv_step hoom0 hinv hok2 haig1 hext1 hni_lt
-                  (hfr1.prog_ptr.trans hinv.prog_ptr_eq) hfr1.n_cwords hfr1.root_node
-                  (by rw [hfr1.lits_len]; exact Nat.le_refl _)
-                  (by rw [hfr1.lits_len]; exact hinv.lits_le_cap)
-                  (fun _ _ => rfl) ?_
-                refine nodeDenotes_set_bool hnd_gt (by rw [← haig1.aig_len_eq]; exact hres1.1)
-                  (fun assign => ?_) hni_so
-                have hraw := hres1.2 (atomAssign progBytes assign)
-                change g1.evalLit (atomAssign progBytes assign) (UInt32.ofBitVec res) =
-                  (g.evalLit (atomAssign progBytes assign) (UInt32.ofBitVec sa) ==
-                    g.evalLit (atomAssign progBytes assign) (UInt32.ofBitVec sb)) at hraw
-                rw [hraw, hsa_get, hsb_get, hnd_a.2 assign, hnd_b.2 assign]
-                rfl
-              · exact blast_so_unfocus hok1.hdr_so (by rw [hso_ptr]; assumption)
+              refine drv1_gate_ok hoom0 hinv hni_lt hok hok1 haig1 hfr1 hext1 hoom1 hno_ne25 hnd_gt
+                hres1.1 (fun assign => ?_) (by assumption) hQ
+              have hraw := hres1.2 (atomAssign progBytes assign)
+              change g1.evalLit (atomAssign progBytes assign) (UInt32.ofBitVec res) =
+                (g.evalLit (atomAssign progBytes assign) (UInt32.ofBitVec sa) ==
+                  g.evalLit (atomAssign progBytes assign) (UInt32.ofBitVec sb)) at hraw
+              rw [hraw, ha_ev assign, hb_ev assign]; rfl
           · have hop_ne29 : op ≠ opGateBeq := fun h => by
               apply hc; subst h; unfold opGateBeq; decide
             clear hc; c0_hstraight; c0_hsplit
@@ -707,80 +745,42 @@ theorem bv_eval_node_wp (Γ : Env)
               rcases hgt with
                 ⟨ha_lt_ni, hb_lt_ni, _, _, gt, ea, eb, _, _, _, hgt_eq, hga, hgb, hnd_gt⟩
               rw [hgt_eq hop30] at hnd_gt
-              have ha_so : (BitVec.ofNat 32 a).toNat < sliceOffs.length := by
-                rw [hok.so_len, BitVec.toNat_ofNat, Nat.mod_eq_of_lt ha_lt]; omega
-              have hb_so : (BitVec.ofNat 32 b).toNat < sliceOffs.length := by
-                rw [hok.so_len, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hb_lt]; omega
-              have hnd_a := hinv.prefix_ok hoom0 a ha_lt_ni
-              unfold NodeDenotes at hnd_a; rw [hga] at hnd_a
-              have hnd_b := hinv.prefix_ok hoom0 b hb_lt_ni
-              unfold NodeDenotes at hnd_b; rw [hgb] at hnd_b
-              have hml_so := blast_so_focus hok.hdr_so hm
-              clear hm
+              obtain ⟨ha_so, hsa_get, hsa_bd, ha_ev⟩ :=
+                drv1_child_prep ha_lt ha_lt_ni hoom0 hinv hni_lt hga
+              obtain ⟨hb_so, hsb_get, hsb_bd, hb_ev⟩ :=
+                drv1_child_prep hb_lt hb_lt_ni hoom0 hinv hni_lt hgb
+              have hml_so := blast_so_focus hok.hdr_so hm; clear hm
               c0_hstraight
-              have hml' := blast_so_unfocus hok.hdr_so hml_so
+              have hml_aig := blast_aig_focus hok.hdr_aig hok.hdr_ht
+                (blast_so_unfocus hok.hdr_so hml_so)
               clear hml_so
-              have hml_aig := blast_aig_focus hok.hdr_aig hok.hdr_ht hml'
-              clear hml'
               let sa := sliceOffs[(BitVec.ofNat 32 a).toNat]'ha_so
               let sb := sliceOffs[(BitVec.ofNat 32 b).toNat]'hb_so
-              have hsa_get : sa = sliceOffs.getD a 0#32 := by
-                dsimp only [sa]; rw [list_getD_eq_getElem _ 0#32]
-                simp [BitVec.toNat_ofNat]
-              have hsb_get : sb = sliceOffs.getD b 0#32 := by
-                dsimp only [sb]; rw [list_getD_eq_getElem _ 0#32]
-                simp [BitVec.toNat_ofNat]
-              have hsa_bd : (sa >>> 1).toNat < hdr.aig_len.toNat := by
-                rw [haig.aig_len_eq, hsa_get]; exact hnd_a.1
-              have hsb_bd : (sb >>> 1).toNat < hdr.aig_len.toNat := by
-                rw [haig.aig_len_eq, hsb_get]; exact hnd_b.1
               c0_call hOr
               refine ⟨hdr, g, aigWords, htSlots, _, haig, fun _ => ⟨hsa_bd, hsb_bd⟩, hml_aig, ?_⟩
               intro res hdr1 g1 aw1 hts1 m1 hfr1 hext1 _ haig1 _ _ hres hm1
               have hml1 := blast_aig_unfocus (hfr1.aig_ptr.trans hok.hdr_aig)
-                (hfr1.ht_ptr.trans hok.hdr_ht) hm1
-              clear hm1
+                (hfr1.ht_ptr.trans hok.hdr_ht) hm1; clear hm1
               have hok1 := bvWorkspaceOk_of_aigFrame hok hfr1 haig1
-              have hml1_hdr := hml1
-              rw [bvBlastMem_hdr_left] at hml1_hdr
-              c0_hstraight
-              clear hml1_hdr
+              have hml1_hdr := hml1; rw [bvBlastMem_hdr_left] at hml1_hdr
+              c0_hstraight; clear hml1_hdr
               c0_hsplit
-              · c0_hstraight
-                exact hQ false hdr1 g1 sliceOffs aw1 hts1 litsPool m1 hok1 haig1 hext1
-                  (by rw [hfr1.lits_len]; exact hinv.lits_le_cap)
-                  (hfr1.prog_ptr.trans hinv.prog_ptr_eq) hfr1.n_cwords hfr1.root_node
-                  (fun hf => absurd hf Bool.false_ne_true) (fun h => absurd h hno_ne25) hml1
-              · have hoom1 : hdr1.oom = 0#32 := hc
-                clear hc
+              · c0_hstraight; exact drv1_gate_oom hinv hok1 haig1 hfr1 hext1 hno_ne25 hQ hml1
+              · have hoom1 : hdr1.oom = 0#32 := hc; clear hc
                 have hres1 := hres hoom1
                 have hso_ptr : hdr1.slice_off_ptr = hdr.slice_off_ptr :=
                   hok1.hdr_so.trans hok.hdr_so.symm
-                have hml_so1 := blast_so_focus hok1.hdr_so hml1
-                clear hml1
+                have hml_so1 := blast_so_focus hok1.hdr_so hml1; clear hml1
                 rw [hso_ptr] at hml_so1
                 have hni_so : nodeIdx.toNat < sliceOffs.length := by rw [hok1.so_len]; exact hni_lt
                 c0_hstraight
-                let sliceOffs' := sliceOffs.set nodeIdx.toNat res
-                have hok2 := BVWorkspaceOk.set_sliceOffs nodeIdx.toNat res hok1
-                refine hQ true hdr1 g1 sliceOffs' aw1 hts1 litsPool _ hok2 haig1 hext1
-                  (by rw [hfr1.lits_len]; exact hinv.lits_le_cap)
-                  (hfr1.prog_ptr.trans hinv.prog_ptr_eq) hfr1.n_cwords hfr1.root_node
-                  (fun _ => ⟨hoom1, ?_⟩) (fun h => absurd h hno_ne25) ?_
-                · refine blastEvalInv_step hoom0 hinv hok2 haig1 hext1 hni_lt
-                    (hfr1.prog_ptr.trans hinv.prog_ptr_eq) hfr1.n_cwords hfr1.root_node
-                    (by rw [hfr1.lits_len]; exact Nat.le_refl _)
-                    (by rw [hfr1.lits_len]; exact hinv.lits_le_cap)
-                    (fun _ _ => rfl) ?_
-                  refine nodeDenotes_set_bool hnd_gt (by rw [← haig1.aig_len_eq]; exact hres1.1)
-                    (fun assign => ?_) hni_so
-                  have hraw := hres1.2 (atomAssign progBytes assign)
-                  change g1.evalLit (atomAssign progBytes assign) (UInt32.ofBitVec res) =
-                    (g.evalLit (atomAssign progBytes assign) (UInt32.ofBitVec sa) ||
-                      g.evalLit (atomAssign progBytes assign) (UInt32.ofBitVec sb)) at hraw
-                  rw [hraw, hsa_get, hsb_get, hnd_a.2 assign, hnd_b.2 assign]
-                  rfl
-                · exact blast_so_unfocus hok1.hdr_so (by rw [hso_ptr]; assumption)
+                refine drv1_gate_ok hoom0 hinv hni_lt hok hok1 haig1 hfr1 hext1 hoom1 hno_ne25
+                  hnd_gt hres1.1 (fun assign => ?_) (by assumption) hQ
+                have hraw := hres1.2 (atomAssign progBytes assign)
+                change g1.evalLit (atomAssign progBytes assign) (UInt32.ofBitVec res) =
+                  (g.evalLit (atomAssign progBytes assign) (UInt32.ofBitVec sa) ||
+                    g.evalLit (atomAssign progBytes assign) (UInt32.ofBitVec sb)) at hraw
+                rw [hraw, ha_ev assign, hb_ev assign]; rfl
             · have hop_ne30 : op ≠ opGateOr := fun h => by
                 apply hc; subst h; unfold opGateOr; decide
               clear hc; c0_hstraight; c0_hsplit
@@ -795,94 +795,48 @@ theorem bv_eval_node_wp (Γ : Env)
                 rw [← hinv.nv_eq, ← hinv.nc_eq, ha_eq, hb_eq, hc_eq] at hite
                 rcases hite with
                   ⟨ha_lt_ni, hb_lt_ni, hc_lt_ni, ea, eb, ec, hga, hgb, hgc, hnd_ite⟩
-                have ha_so : (BitVec.ofNat 32 a).toNat < sliceOffs.length := by
-                  rw [hok.so_len, BitVec.toNat_ofNat, Nat.mod_eq_of_lt ha_lt]; omega
-                have hb_so : (BitVec.ofNat 32 b).toNat < sliceOffs.length := by
-                  rw [hok.so_len, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hb_lt]; omega
-                have hc_so : (BitVec.ofNat 32 c).toNat < sliceOffs.length := by
-                  rw [hok.so_len, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hc_lt]; omega
-                have hnd_a := hinv.prefix_ok hoom0 a ha_lt_ni
-                unfold NodeDenotes at hnd_a; rw [hga] at hnd_a
-                have hnd_b := hinv.prefix_ok hoom0 b hb_lt_ni
-                unfold NodeDenotes at hnd_b; rw [hgb] at hnd_b
-                have hnd_c := hinv.prefix_ok hoom0 c hc_lt_ni
-                unfold NodeDenotes at hnd_c; rw [hgc] at hnd_c
-                have hml_so := blast_so_focus hok.hdr_so hm
-                clear hm
+                obtain ⟨ha_so, hsa_get, hsa_bd, ha_ev⟩ :=
+                  drv1_child_prep ha_lt ha_lt_ni hoom0 hinv hni_lt hga
+                obtain ⟨hb_so, hsb_get, hsb_bd, hb_ev⟩ :=
+                  drv1_child_prep hb_lt hb_lt_ni hoom0 hinv hni_lt hgb
+                obtain ⟨hc_so, hsc_get, hsc_bd, hc_ev⟩ :=
+                  drv1_child_prep hc_lt hc_lt_ni hoom0 hinv hni_lt hgc
+                have hml_so := blast_so_focus hok.hdr_so hm; clear hm
                 c0_hstraight
-                have hml' := blast_so_unfocus hok.hdr_so hml_so
+                have hml_aig :=
+                  blast_aig_focus hok.hdr_aig hok.hdr_ht (blast_so_unfocus hok.hdr_so hml_so)
                 clear hml_so
-                have hml_aig := blast_aig_focus hok.hdr_aig hok.hdr_ht hml'
-                clear hml'
                 let sa := sliceOffs[(BitVec.ofNat 32 a).toNat]'ha_so
                 let sb := sliceOffs[(BitVec.ofNat 32 b).toNat]'hb_so
                 let sc := sliceOffs[(BitVec.ofNat 32 c).toNat]'hc_so
-                have hsa_get : sa = sliceOffs.getD a 0#32 := by
-                  dsimp only [sa]; rw [list_getD_eq_getElem _ 0#32]
-                  simp [BitVec.toNat_ofNat]
-                have hsb_get : sb = sliceOffs.getD b 0#32 := by
-                  dsimp only [sb]; rw [list_getD_eq_getElem _ 0#32]
-                  simp [BitVec.toNat_ofNat]
-                have hsc_get : sc = sliceOffs.getD c 0#32 := by
-                  dsimp only [sc]; rw [list_getD_eq_getElem _ 0#32]
-                  simp [BitVec.toNat_ofNat]
-                have hsa_bd : (sa >>> 1).toNat < hdr.aig_len.toNat := by
-                  rw [haig.aig_len_eq, hsa_get]; exact hnd_a.1
-                have hsb_bd : (sb >>> 1).toNat < hdr.aig_len.toNat := by
-                  rw [haig.aig_len_eq, hsb_get]; exact hnd_b.1
-                have hsc_bd : (sc >>> 1).toNat < hdr.aig_len.toNat := by
-                  rw [haig.aig_len_eq, hsc_get]; exact hnd_c.1
                 c0_call hIte
                 refine ⟨hdr, g, aigWords, htSlots, _, haig,
                   fun _ => ⟨hsa_bd, hsb_bd, hsc_bd⟩, hml_aig, ?_⟩
                 intro res hdr1 g1 aw1 hts1 m1 hfr1 hext1 _ haig1 _ _ hres hm1
                 have hml1 := blast_aig_unfocus (hfr1.aig_ptr.trans hok.hdr_aig)
-                  (hfr1.ht_ptr.trans hok.hdr_ht) hm1
-                clear hm1
+                  (hfr1.ht_ptr.trans hok.hdr_ht) hm1; clear hm1
                 have hok1 := bvWorkspaceOk_of_aigFrame hok hfr1 haig1
-                have hml1_hdr := hml1
-                rw [bvBlastMem_hdr_left] at hml1_hdr
-                c0_hstraight
-                clear hml1_hdr
+                have hml1_hdr := hml1; rw [bvBlastMem_hdr_left] at hml1_hdr
+                c0_hstraight; clear hml1_hdr
                 c0_hsplit
-                · c0_hstraight
-                  exact hQ false hdr1 g1 sliceOffs aw1 hts1 litsPool m1 hok1 haig1 hext1
-                    (by rw [hfr1.lits_len]; exact hinv.lits_le_cap)
-                    (hfr1.prog_ptr.trans hinv.prog_ptr_eq) hfr1.n_cwords hfr1.root_node
-                    (fun hf => absurd hf Bool.false_ne_true) (fun h => absurd h hno_ne25) hml1
-                · have hoom1 : hdr1.oom = 0#32 := hc
-                  clear hc
+                · c0_hstraight; exact drv1_gate_oom hinv hok1 haig1 hfr1 hext1 hno_ne25 hQ hml1
+                · have hoom1 : hdr1.oom = 0#32 := hc; clear hc
                   have hres1 := hres hoom1
                   have hso_ptr : hdr1.slice_off_ptr = hdr.slice_off_ptr :=
                     hok1.hdr_so.trans hok.hdr_so.symm
-                  have hml_so1 := blast_so_focus hok1.hdr_so hml1
-                  clear hml1
+                  have hml_so1 := blast_so_focus hok1.hdr_so hml1; clear hml1
                   rw [hso_ptr] at hml_so1
                   have hni_so : nodeIdx.toNat < sliceOffs.length := by
                     rw [hok1.so_len]; exact hni_lt
                   c0_hstraight
-                  let sliceOffs' := sliceOffs.set nodeIdx.toNat res
-                  have hok2 := BVWorkspaceOk.set_sliceOffs nodeIdx.toNat res hok1
-                  refine hQ true hdr1 g1 sliceOffs' aw1 hts1 litsPool _ hok2 haig1 hext1
-                    (by rw [hfr1.lits_len]; exact hinv.lits_le_cap)
-                    (hfr1.prog_ptr.trans hinv.prog_ptr_eq) hfr1.n_cwords hfr1.root_node
-                    (fun _ => ⟨hoom1, ?_⟩) (fun h => absurd h hno_ne25) ?_
-                  · refine blastEvalInv_step hoom0 hinv hok2 haig1 hext1 hni_lt
-                      (hfr1.prog_ptr.trans hinv.prog_ptr_eq) hfr1.n_cwords hfr1.root_node
-                      (by rw [hfr1.lits_len]; exact Nat.le_refl _)
-                      (by rw [hfr1.lits_len]; exact hinv.lits_le_cap)
-                      (fun _ _ => rfl) ?_
-                    refine nodeDenotes_set_bool hnd_ite (by rw [← haig1.aig_len_eq]; exact hres1.1)
-                      (fun assign => ?_) hni_so
-                    have hraw := hres1.2 (atomAssign progBytes assign)
-                    change g1.evalLit (atomAssign progBytes assign) (UInt32.ofBitVec res) =
-                      cond (g.evalLit (atomAssign progBytes assign) (UInt32.ofBitVec sa))
-                        (g.evalLit (atomAssign progBytes assign) (UInt32.ofBitVec sb))
-                        (g.evalLit (atomAssign progBytes assign) (UInt32.ofBitVec sc)) at hraw
-                    rw [hraw, hsa_get, hsb_get, hsc_get,
-                      hnd_a.2 assign, hnd_b.2 assign, hnd_c.2 assign]
-                    rfl
-                  · exact blast_so_unfocus hok1.hdr_so (by rw [hso_ptr]; assumption)
+                  refine drv1_gate_ok hoom0 hinv hni_lt hok hok1 haig1 hfr1 hext1 hoom1 hno_ne25
+                    hnd_ite hres1.1 (fun assign => ?_) (by assumption) hQ
+                  have hraw := hres1.2 (atomAssign progBytes assign)
+                  change g1.evalLit (atomAssign progBytes assign) (UInt32.ofBitVec res) =
+                    cond (g.evalLit (atomAssign progBytes assign) (UInt32.ofBitVec sa))
+                      (g.evalLit (atomAssign progBytes assign) (UInt32.ofBitVec sb))
+                      (g.evalLit (atomAssign progBytes assign) (UInt32.ofBitVec sc)) at hraw
+                  rw [hraw, ha_ev assign, hb_ev assign, hc_ev assign]; rfl
               · -- Branch 8: delegate to core / div_cpop / shift_mul
                 have hop_ne31 : op ≠ opIte := fun h => by
                   apply hc; subst h; unfold opIte; decide

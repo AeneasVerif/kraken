@@ -318,6 +318,102 @@ private theorem drv_split_init {A P Q : Prop} (hP : P) (hQ : ¬ A → Q) :
     (A → P) ∧ (¬ A → P ∧ Q) :=
   ⟨fun _ => hP, fun h => ⟨hP, hQ h⟩⟩
 
+private theorem drv_tu_root_zero {progPtr workPtr workCap fuel : BitVec 64}
+    {progBytes : List UInt8} {cfg : BVWorkspaceCfg} {hdr hdr' : BVHdrState}
+    {ret : Bool} {g' : Aig} {so' : List (BitVec 32)}
+    {hrt_lt_nn : hdr'.root_node.toNat < cfg.n_nodes}
+    {hinv1_nv : cfg.n_vars = u32At progBytes 2} {hinv1_nn : cfg.n_nodes = u32At progBytes 3}
+    {hinv1_nc : hdr.n_cwords.toNat = u32At progBytes 4}
+    {hroot_idx : hdr'.root_node.toNat = u32At progBytes 5}
+    (hconst : (∀ i < cfg.n_nodes, u32At progBytes
+      (nodesOff cfg.n_vars hdr.n_cwords.toNat + 5 * i) = opBConst) →
+      ret = true ∧ g' = { A := countAtoms progBytes cfg.n_vars - 1, nodes := #[] } ∧
+      ∀ i < cfg.n_nodes, (so'.getD i 0#32).toNat =
+        u32At progBytes (nodesOff cfg.n_vars hdr.n_cwords.toNat + 5 * i + 2) % 2)
+    (htu : bvSolveTrivialUnsatCond progPtr progBytes workPtr workCap fuel) :
+    so'.getD hdr'.root_node.toNat 0#32 = 0#32 := by
+  have hbc : ∀ i < cfg.n_nodes, u32At progBytes
+      (nodesOff cfg.n_vars hdr.n_cwords.toNat + 5 * i) = opBConst := by
+    intro i hi; rw [hinv1_nv, hinv1_nc]
+    exact htu.2.2.2.2.2.2.2.2.1 i (by rw [← hinv1_nn]; exact hi)
+  have hall := (hconst hbc).2.2 hdr'.root_node.toNat hrt_lt_nn
+  rw [hinv1_nv, hinv1_nc, hroot_idx] at hall
+  rw [hroot_idx]
+  exact drv_u32_of_eq0_zero (by rw [hall]; simp [htu.2.2.2.2.2.2.2.2.2])
+    (by rw [hall]; exact Nat.mod_lt _ (by decide))
+
+private theorem drv_marksPtr_bounds {cfg : BVWorkspaceCfg} {hdr' : BVHdrState}
+    {ab so' : List (BitVec 32)} {aw' : List (BitVec 64)} {hts' lp' : List (BitVec 32)}
+    {g' : Aig} (hok' : BVWorkspaceOk cfg hdr' ab so' aw' hts' lp')
+    (haig' : AigInv hdr' g' aw' hts')
+    (haig_len_eq : hdr'.aig_len.toNat = g'.A + 1 + g'.nodes.size) :
+    hdr'.aig_len.toNat ≤ cfg.aig_cap ∧
+    hdr'.aig_len.toNat < bvDimacsBound ∧
+    128 + cfg.atom_bytes + cfg.slice_bytes + 8 * cfg.aig_cap + 4 * cfg.ht_slots +
+      cfg.lits_bytes = cfg.avail ∧
+    cfg.aig_ptr.toNat = cfg.work_base.toNat + 128 + cfg.atom_bytes + cfg.slice_bytes ∧
+    cfg.aig_ptr.toNat + 8 * hdr'.aig_len.toNat < 2 ^ 64 ∧
+    (hdr'.aig_ptr + (hdr'.aig_len.setWidth 64 <<< OfNat.ofNat 3) =
+      cfg.aig_ptr + BitVec.ofNat 64 (8 * hdr'.aig_len.toNat)) ∧
+    ((cfg.aig_ptr + BitVec.ofNat 64 (8 * hdr'.aig_len.toNat)).toNat =
+      cfg.aig_ptr.toNat + 8 * hdr'.aig_len.toNat) ∧
+    (hdr'.work_end.toNat = cfg.work_base.toNat + cfg.avail) := by
+  have haig_le_cap : hdr'.aig_len.toNat ≤ cfg.aig_cap := by
+    rw [haig_len_eq, ← hok'.aig_len_eq]; exact haig'.aig_len_le_cap
+  have haig_bd : hdr'.aig_len.toNat < bvDimacsBound :=
+    Nat.lt_of_le_of_lt haig_le_cap (by rw [← hok'.aig_len_eq]; exact haig'.aig_cap_lt)
+  have hfit_c := hok'.fit
+  have htot_c := hok'.total_eq
+  have haig_toNat : cfg.aig_ptr.toNat =
+      cfg.work_base.toNat + 128 + cfg.atom_bytes + cfg.slice_bytes := by
+    have hwb := cfg.work_base.isLt
+    have haa := hok'.atom_align; have hsa := hok'.slice_align
+    have hnv := hok'.nv_lt; have hnn := hok'.nn_lt
+    rw [hok'.aig_ptr_eq, BitVec.toNat_add, BitVec.toNat_ofNat,
+      Nat.mod_eq_of_lt (by omega), Nat.mod_eq_of_lt (by omega)]
+    omega
+  have hmptr_64 : cfg.aig_ptr.toNat + 8 * hdr'.aig_len.toNat < 2 ^ 64 := by omega
+  have hmptr_bv : hdr'.aig_ptr + (hdr'.aig_len.setWidth 64 <<< OfNat.ofNat 3) =
+      cfg.aig_ptr + BitVec.ofNat 64 (8 * hdr'.aig_len.toNat) := by
+    rw [hok'.hdr_aig]; exact bv64_marksPtr_bv cfg.aig_ptr hdr'.aig_len hmptr_64
+  have hmptr_toNat : (cfg.aig_ptr + BitVec.ofNat 64 (8 * hdr'.aig_len.toNat)).toNat =
+      cfg.aig_ptr.toNat + 8 * hdr'.aig_len.toNat := by
+    rw [BitVec.toNat_add, BitVec.toNat_ofNat,
+      Nat.mod_eq_of_lt (by omega : 8 * hdr'.aig_len.toNat < 2 ^ 64),
+      Nat.mod_eq_of_lt hmptr_64]
+  have hwe_toNat : hdr'.work_end.toNat = cfg.work_base.toNat + cfg.avail := by
+    rw [hok'.hdr_we, BitVec.toNat_add, BitVec.toNat_ofNat,
+      Nat.mod_eq_of_lt (by omega : cfg.avail < 2 ^ 64), Nat.mod_eq_of_lt hfit_c]
+  exact ⟨haig_le_cap, haig_bd, htot_c, haig_toNat, hmptr_64, hmptr_bv, hmptr_toNat, hwe_toNat⟩
+
+private theorem drv_dimacs_post_kissat {cfg : BVWorkspaceCfg} {hdr3 : BVHdrState}
+    {progPtr workPtr : BitVec 64} {workCap : BitVec 64} {padNat : Nat}
+    {progBytes : List UInt8} {R padR : Mem 64 → Prop} {g' : Aig} {marks1 : List UInt8}
+    {rootLit : BitVec 32} {m5 : Mem 64}
+    (hwb : cfg.work_base = workPtr + BitVec.ofNat 64 padNat)
+    (hge : padNat ≤ workCap.toNat)
+    (hav : cfg.avail = workCap.toNat - padNat) (hfit : cfg.work_base.toNat + cfg.avail < 2 ^ 64)
+    (h128 : cfg.work_base.toNat + 128 ≤ hdr3.dimacs_start.toNat)
+    (hdend : hdr3.dimacs_start.toNat +
+      (encodeDimacs (Ref.Tseitin.tseitin g' (marksToBool marks1)
+        (UInt32.ofBitVec rootLit))).length = cfg.work_base.toNat + cfg.avail)
+    (hkcap : (hdr3.dimacs_start - cfg.work_base).toNat =
+      hdr3.dimacs_start.toNat - cfg.work_base.toNat)
+    (hpadR : padR = region workPtr padNat ⋆ R)
+    (hm5 : (bytes hdr3.dimacs_start (encodeDimacs (Ref.Tseitin.tseitin g' (marksToBool marks1)
+        (UInt32.ofBitVec rootLit))) ⋆
+      region cfg.work_base (hdr3.dimacs_start - cfg.work_base).toNat ⋆
+      (bytes progPtr progBytes ⋆ padR)) m5) :
+    (bytes progPtr progBytes ⋆ region workPtr workCap.toNat ⋆ R) m5 := by
+  have hm5_d : (bvDimacsMem cfg.work_base hdr3.dimacs_start cfg.avail
+      (encodeDimacs (Ref.Tseitin.tseitin g' (marksToBool marks1) (UInt32.ofBitVec rootLit))) ⋆
+      (bytes progPtr progBytes ⋆ padR)) m5 := by
+    rw [hkcap] at hm5; unfold bvDimacsMem; exact sep_ac hm5
+  have hm5_r := sep_mono (P' := region cfg.work_base cfg.avail)
+    (fun _ h => bvDimacsMem_to_region hfit (by omega) hdend h) hm5_d
+  rw [hav] at hm5_r
+  exact drv_restore_pad padNat hge hwb (by rw [← hpadR]; exact sep_ac hm5_r)
+
 /-! ## 2. `bv_solve_bytes_wp` -/
 
 public section
@@ -451,19 +547,11 @@ theorem bv_solve_bytes_wp (Γ : Env)
                     have hroot_idx : hdr'.root_node.toNat = u32At progBytes 5 := hinv'.root_eq
                     have htu_root0 :
                         bvSolveTrivialUnsatCond progPtr progBytes workPtr workCap fuel →
-                        rootLit = 0#32 := by
-                      intro htu
-                      have hbc : ∀ i < cfg.n_nodes, u32At progBytes
-                          (nodesOff cfg.n_vars hdr.n_cwords.toNat + 5 * i) = opBConst := by
-                        intro i hi
-                        rw [hinv1.nv_eq, hinv1.nc_eq]
-                        exact htu.2.2.2.2.2.2.2.2.1 i (by rw [← hinv1.nn_eq]; exact hi)
-                      have hall := (hconst hbc).2.2 hdr'.root_node.toNat hrt_lt_nn
-                      rw [hinv1.nv_eq, hinv1.nc_eq, hroot_idx] at hall
-                      dsimp only [rootLit]
-                      rw [hroot_idx]
-                      exact drv_u32_of_eq0_zero (by rw [hall]; simp [htu.2.2.2.2.2.2.2.2.2])
-                        (by rw [hall]; exact Nat.mod_lt _ (by decide))
+                        rootLit = 0#32 :=
+                      drv_tu_root_zero (cfg := cfg) (hdr := hdr) (hdr' := hdr')
+                        (hrt_lt_nn := hrt_lt_nn) (hinv1_nv := hinv1.nv_eq)
+                        (hinv1_nn := hinv1.nn_eq) (hinv1_nc := hinv1.nc_eq)
+                        (hroot_idx := hroot_idx) hconst
                     c0_hsplit
                     · have hr0 : rootLit = 0#32 := by rw [hrt_get] at hc; exact hc
                       c0_hstraight
@@ -497,40 +585,13 @@ theorem bv_solve_bytes_wp (Γ : Env)
                         clear hc
                         have haig_len_eq : hdr'.aig_len.toNat = g'.A + 1 + g'.nodes.size :=
                           haig'.aig_len_eq
-                        have haig_le_cap : hdr'.aig_len.toNat ≤ cfg.aig_cap := by
-                          rw [haig_len_eq, ← hok'.aig_len_eq]; exact haig'.aig_len_le_cap
-                        have haig_bd : hdr'.aig_len.toNat < bvDimacsBound :=
-                          Nat.lt_of_le_of_lt haig_le_cap
-                            (by rw [← hok'.aig_len_eq]; exact haig'.aig_cap_lt)
+                        obtain ⟨haig_le_cap, haig_bd, htot_c, haig_toNat, hmptr_64,
+                            hmptr_bv, hmptr_toNat, hwe_toNat⟩ :=
+                          drv_marksPtr_bounds hok' haig' haig_len_eq
                         have hfit_c := hok'.fit
-                        have htot_c := hok'.total_eq
-                        have haig_toNat : cfg.aig_ptr.toNat =
-                            cfg.work_base.toNat + 128 + cfg.atom_bytes + cfg.slice_bytes := by
-                          have hwb := cfg.work_base.isLt
-                          have haa := hok'.atom_align; have hsa := hok'.slice_align
-                          have hnv := hok'.nv_lt; have hnn := hok'.nn_lt
-                          rw [hok'.aig_ptr_eq, BitVec.toNat_add, BitVec.toNat_ofNat,
-                            Nat.mod_eq_of_lt (by omega), Nat.mod_eq_of_lt (by omega)]
-                          omega
-                        have hmptr_64 : cfg.aig_ptr.toNat + 8 * hdr'.aig_len.toNat < 2 ^ 64 := by
-                          omega
                         let marksPtr := cfg.aig_ptr + BitVec.ofNat 64 (8 * hdr'.aig_len.toNat)
-                        have hmptr_bv :
-                            hdr'.aig_ptr + (hdr'.aig_len.setWidth 64 <<< OfNat.ofNat 3) =
-                            marksPtr := by
-                          rw [hok'.hdr_aig]
-                          exact bv64_marksPtr_bv cfg.aig_ptr hdr'.aig_len hmptr_64
-                        have hmptr_toNat :
-                            marksPtr.toNat = cfg.aig_ptr.toNat + 8 * hdr'.aig_len.toNat := by
-                          dsimp only [marksPtr]
-                          rw [BitVec.toNat_add, BitVec.toNat_ofNat,
-                            Nat.mod_eq_of_lt (by omega : 8 * hdr'.aig_len.toNat < 2 ^ 64),
-                            Nat.mod_eq_of_lt hmptr_64]
-                        have hwe_toNat :
-                            hdr'.work_end.toNat = cfg.work_base.toNat + cfg.avail := by
-                          rw [hok'.hdr_we, BitVec.toNat_add, BitVec.toNat_ofNat,
-                            Nat.mod_eq_of_lt (by omega : cfg.avail < 2 ^ 64),
-                            Nat.mod_eq_of_lt hfit_c]
+                        change marksPtr.toNat =
+                          cfg.aig_ptr.toNat + 8 * hdr'.aig_len.toNat at hmptr_toNat
                         let hdr'' : BVHdrState := { hdr' with marks_ptr := marksPtr }
                         have hok'' : BVWorkspaceOk cfg hdr'' ab so' aw' ht' lp' := { hok' with }
                         have hm2_hso := drv_blast_focus_hdr_so hok'.hdr_so hm2_bl
@@ -707,22 +768,9 @@ theorem bv_solve_bytes_wp (Γ : Env)
                                     by rw [← hcfg_wb', hkcap]; omega, ?_,
                                     fun r m5 hm5 hr_unsat => ?_⟩
                                   · rw [← hcfg_wb', hkcap]; exact sep_ac hm
-                                  have hm5_reg : (bytes progPtr progBytes ⋆
-                                      region cfg.work_base (workCap.toNat - padNat) ⋆ padR) m5 := by
-                                    have hm5_d : (bvDimacsMem cfg.work_base hdr3.dimacs_start
-                                        cfg.avail
-                                        (encodeDimacs (Ref.Tseitin.tseitin g' (marksToBool marks1)
-                                          (UInt32.ofBitVec rootLit))) ⋆
-                                        (bytes progPtr progBytes ⋆ padR)) m5 := by
-                                      rw [← hcfg_wb', hkcap] at hm5
-                                      unfold bvDimacsMem; exact sep_ac hm5
-                                    have hm5_r := sep_mono (P' := region cfg.work_base cfg.avail)
-                                      (fun _ h => bvDimacsMem_to_region hfit_c (by omega) hdend h)
-                                      hm5_d
-                                    rw [hcfg_av'] at hm5_r
-                                    exact sep_ac hm5_r
-                                  exact hQ r m5 (drv_restore_pad padNat (by omega) rfl
-                                    (by rw [← hcfg_wb]; exact hm5_reg))
+                                  exact hQ r m5
+                                    (drv_dimacs_post_kissat hcfg_wb' (by omega) hcfg_av'
+                                      hfit_c h128 hdend hkcap rfl (by rw [hcfg_wb']; exact hm5))
                                     (fun hr20 => prog_unsat_of_dimacs_unsat haig'.wf hp hroot_nd
                                       (by rw [← hroot_idx]; exact hvalid)
                                       (by rw [← hroot_idx]; exact hr_unsat hr20))

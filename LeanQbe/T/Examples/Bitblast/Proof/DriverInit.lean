@@ -657,6 +657,193 @@ private theorem region_split_initWorkspace_sep (cfg : BVWorkspaceCfg) (S : Mem 6
   obtain ⟨h4, hws⟩ := sep_pure_l.mp hsp
   exact ⟨hdr0, ab0, so0, ht0, lp0, h1, h2, h3, h4, sep_ac hws⟩
 
+private theorem drv_init_hdr1_eqs {workBase avail : BitVec 64} {progBytes : List UInt8}
+    {cfg : BVWorkspaceCfg} (hwb : cfg.work_base = workBase) (hav : cfg.avail = avail.toNat)
+    (hnv : cfg.n_vars = u32At progBytes 2) (hnn : cfg.n_nodes = u32At progBytes 3)
+    (hab : cfg.atom_bytes = align8 (4 * cfg.n_vars))
+    (hsb : cfg.slice_bytes = align8 (4 * cfg.n_nodes))
+    (hap : cfg.aig_ptr = workBase + BitVec.ofNat 64 (128 + cfg.atom_bytes + cfg.slice_bytes))
+    (hhp : cfg.ht_ptr = cfg.aig_ptr + BitVec.ofNat 64 (8 * cfg.aig_cap))
+    (hlp : cfg.lits_ptr = cfg.ht_ptr + BitVec.ofNat 64 (4 * cfg.ht_slots))
+    (hnv_lt : cfg.n_vars < 2 ^ 32) (hnn_lt : cfg.n_nodes < 2 ^ 32)
+    (hac_lt : cfg.aig_cap < bvDimacsBound) (hs_le : cfg.ht_slots ≤ 2 ^ 30)
+    (hlc_32 : cfg.lits_cap < 2 ^ 32) (hwb_fit : workBase.toNat + avail.toNat < 2 ^ 64)
+    (hrem_ge : 128 + cfg.atom_bytes + cfg.slice_bytes + 64 ≤ avail.toNat)
+    (_haig_ht_le : 8 * cfg.aig_cap + 4 * cfg.ht_slots ≤
+      avail.toNat - (128 + cfg.atom_bytes + cfg.slice_bytes)) :
+    (BitVec.ofNat 64 cfg.lits_cap).setWidth 32 = BitVec.ofNat 32 cfg.lits_cap ∧
+    (workBase + avail = workBase + BitVec.ofNat 64 cfg.avail) ∧
+    (workBase + (128 : BitVec 64) +
+      ((BitVec.ofNat 32 (u32At progBytes 2)).setWidth 64 <<< OfNat.ofNat 2 + (7 : BitVec 64) &&&
+        ~~~(7 : BitVec 64)) = cfg.work_base + BitVec.ofNat 64 (128 + cfg.atom_bytes)) ∧
+    (workBase + ((128 : BitVec 64) +
+      ((BitVec.ofNat 32 (u32At progBytes 2)).setWidth 64 <<< OfNat.ofNat 2 + (7 : BitVec 64) &&&
+        ~~~(7 : BitVec 64)) +
+      ((BitVec.ofNat 32 (u32At progBytes 3)).setWidth 64 <<< OfNat.ofNat 2 + (7 : BitVec 64) &&&
+        ~~~(7 : BitVec 64))) = cfg.aig_ptr) ∧
+    (cfg.aig_ptr + (BitVec.ofNat 64 cfg.aig_cap <<< OfNat.ofNat 3) = cfg.ht_ptr) ∧
+    (workBase + ((128 : BitVec 64) +
+      ((BitVec.ofNat 32 (u32At progBytes 2)).setWidth 64 <<< OfNat.ofNat 2 + (7 : BitVec 64) &&&
+        ~~~(7 : BitVec 64)) +
+      ((BitVec.ofNat 32 (u32At progBytes 3)).setWidth 64 <<< OfNat.ofNat 2 + (7 : BitVec 64) &&&
+        ~~~(7 : BitVec 64))) +
+      (BitVec.ofNat 64 cfg.aig_cap <<< OfNat.ofNat 3) +
+      (BitVec.ofNat 64 cfg.ht_slots <<< OfNat.ofNat 2) = cfg.lits_ptr) := by
+  have hlcap_sw : (BitVec.ofNat 64 cfg.lits_cap).setWidth 32 = BitVec.ofNat 32 cfg.lits_cap := by
+    apply BitVec.eq_of_toNat_eq
+    rw [BitVec.toNat_setWidth, BitVec.toNat_ofNat, BitVec.toNat_ofNat,
+      Nat.mod_eq_of_lt (by omega : cfg.lits_cap < 2 ^ 64), Nat.mod_eq_of_lt hlc_32]
+  have hwe_eq : workBase + avail = workBase + BitVec.ofNat 64 cfg.avail := by
+    congr 1; apply BitVec.eq_of_toNat_eq
+    rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (hav ▸ avail.isLt), hav]
+  have hso_eq : workBase + (128 : BitVec 64) +
+      ((BitVec.ofNat 32 (u32At progBytes 2)).setWidth 64 <<< OfNat.ofNat 2 + (7 : BitVec 64) &&&
+        ~~~(7 : BitVec 64)) = cfg.work_base + BitVec.ofNat 64 (128 + cfg.atom_bytes) := by
+    rw [hwb, hab, ← hnv]
+    exact bv_init_so_eq workBase cfg.n_vars cfg.n_nodes avail.toNat hnv_lt hnn_lt hwb_fit
+      (by rw [← hab, ← hsb]; exact hrem_ge)
+  have haig_c0 : workBase + ((128 : BitVec 64) +
+      ((BitVec.ofNat 32 (u32At progBytes 2)).setWidth 64 <<< OfNat.ofNat 2 + (7 : BitVec 64) &&&
+        ~~~(7 : BitVec 64)) +
+      ((BitVec.ofNat 32 (u32At progBytes 3)).setWidth 64 <<< OfNat.ofNat 2 + (7 : BitVec 64) &&&
+        ~~~(7 : BitVec 64))) = cfg.aig_ptr := by
+    rw [hap, hab, hsb, ← hnv, ← hnn]
+    exact bv_init_aig_eq workBase cfg.n_vars cfg.n_nodes avail.toNat hnv_lt hnn_lt hwb_fit
+      (by rw [← hab, ← hsb]; exact hrem_ge)
+  have hht_c0 : cfg.aig_ptr + (BitVec.ofNat 64 cfg.aig_cap <<< OfNat.ofNat 3) = cfg.ht_ptr := by
+    rw [hhp]; congr 1; apply BitVec.eq_of_toNat_eq; unfold bvDimacsBound at hac_lt
+    rw [BitVec.toNat_shiftLeft, BitVec.toNat_ofNat, BitVec.toNat_ofNat, Nat.shiftLeft_eq,
+      Nat.mod_eq_of_lt (by omega : cfg.aig_cap < 2 ^ 64),
+      Nat.mod_eq_of_lt (by omega : cfg.aig_cap * 2 ^ 3 < 2 ^ 64),
+      Nat.mod_eq_of_lt (by omega : 8 * cfg.aig_cap < 2 ^ 64)]; omega
+  have hlits_c0 : workBase + ((128 : BitVec 64) +
+      ((BitVec.ofNat 32 (u32At progBytes 2)).setWidth 64 <<< OfNat.ofNat 2 + (7 : BitVec 64) &&&
+        ~~~(7 : BitVec 64)) +
+      ((BitVec.ofNat 32 (u32At progBytes 3)).setWidth 64 <<< OfNat.ofNat 2 + (7 : BitVec 64) &&&
+        ~~~(7 : BitVec 64))) +
+      (BitVec.ofNat 64 cfg.aig_cap <<< OfNat.ofNat 3) +
+      (BitVec.ofNat 64 cfg.ht_slots <<< OfNat.ofNat 2) = cfg.lits_ptr := by
+    rw [haig_c0, hlp, hhp]
+    exact bv_init_lits_eq cfg.aig_ptr cfg.aig_cap cfg.ht_slots
+      (by unfold bvDimacsBound at hac_lt; omega) (by omega)
+  exact ⟨hlcap_sw, hwe_eq, hso_eq, haig_c0, hht_c0, hlits_c0⟩
+
+private theorem drv_init_ab_step {progBytes : List UInt8} {nv k : Nat} {ab : List (BitVec 32)}
+    (htot : progBytes.length = 4 * (8 + 2 * nv + u32At progBytes 4 + 5 * u32At progBytes 3))
+    (hatoms : countAtoms progBytes nv ≠ 0) (hk_lt : k < nv) (hnv_lt : nv < 2 ^ 32)
+    (hcnt_lt : countAtoms progBytes nv < bvDimacsBound) (hab_len : ab.length = nv)
+    (hpref : ∀ p < k, (ab.getD p 0#32).toNat = countAtoms progBytes p) :
+    4 * (8 + 2 * k + 1 + 1) ≤ progBytes.length ∧
+    ((8 : BitVec 64) + ((BitVec.ofNat 32 k).setWidth 64 <<< OfNat.ofNat 1) +
+      (1 : BitVec 64)).toNat = 8 + 2 * k + 1 ∧
+    BitVec.ofNat 32 k + 1 = BitVec.ofNat 32 (k + 1) ∧
+    (BitVec.ofNat 32 (countAtoms progBytes k) + BitVec.ofNat 32 (u32At progBytes (8 + 2 * k + 1)) =
+      BitVec.ofNat 32 (countAtoms progBytes (k + 1))) ∧
+    (∀ p < k + 1,
+      ((ab.set k (BitVec.ofNat 32 (countAtoms progBytes k))).getD p 0#32).toNat =
+        countAtoms progBytes p) := by
+  have hk32 : k < 2 ^ 32 := Nat.lt_trans hk_lt hnv_lt
+  have hk1_32 : k + 1 < 2 ^ 32 := Nat.lt_of_le_of_lt hk_lt hnv_lt
+  have hcnt_k1 := countAtoms_mono_ne_zero (k := k + 1) hk_lt hatoms
+  have hcnt_k := countAtoms_prev_ne_zero hcnt_k1.1
+  have hk_w_fit : 4 * (8 + 2 * k + 1 + 1) ≤ progBytes.length := by omega
+  have hk_idx_eq : ((8 : BitVec 64) + ((BitVec.ofNat 32 k).setWidth 64 <<< OfNat.ofNat 1) +
+      (1 : BitVec 64)).toNat = 8 + 2 * k + 1 := by
+    rw [BitVec.toNat_add, BitVec.toNat_add, show (8 : BitVec 64).toNat = 8 from rfl,
+      show (1 : BitVec 64).toNat = 1 from rfl, BitVec.toNat_shiftLeft, BitVec.toNat_setWidth,
+      BitVec.toNat_ofNat, Nat.mod_eq_of_lt hk32, Nat.mod_eq_of_lt (by omega : k < 2 ^ 64),
+      Nat.shiftLeft_eq, Nat.pow_one, Nat.mod_eq_of_lt (by omega : k * 2 < 2 ^ 64),
+      Nat.mod_eq_of_lt (by omega : 8 + k * 2 < 2 ^ 64),
+      Nat.mod_eq_of_lt (by omega : 8 + k * 2 + 1 < 2 ^ 64)]; omega
+  have hk_eq32 : BitVec.ofNat 32 k + 1 = BitVec.ofNat 32 (k + 1) := by
+    apply BitVec.eq_of_toNat_eq
+    simp only [BitVec.toNat_add, BitVec.toNat_ofNat, show (1 : BitVec 32).toNat = 1 from rfl,
+      Nat.mod_eq_of_lt hk32, Nat.mod_eq_of_lt hk1_32]
+  have hvw_lt : u32At progBytes (8 + 2 * k + 1) < 2 ^ 32 := by
+    have := u32At_lt progBytes (8 + 2 * k + 1); unfold u32Bound at this; exact this
+  have hca_k1 : BitVec.ofNat 32 (countAtoms progBytes k) +
+      BitVec.ofNat 32 (u32At progBytes (8 + 2 * k + 1)) =
+      BitVec.ofNat 32 (countAtoms progBytes (k + 1)) := by
+    apply BitVec.eq_of_toNat_eq; rw [hcnt_k.2.2]; unfold bvDimacsBound at hcnt_lt
+    have := hcnt_k1.2
+    rw [BitVec.toNat_add, BitVec.toNat_ofNat, BitVec.toNat_ofNat, BitVec.toNat_ofNat,
+      Nat.mod_eq_of_lt (by omega : countAtoms progBytes k < 2 ^ 32), Nat.mod_eq_of_lt hvw_lt,
+      Nat.mod_eq_of_lt
+        (by omega : countAtoms progBytes k + u32At progBytes (8 + 2 * k + 1) < 2 ^ 32)]
+  refine ⟨hk_w_fit, hk_idx_eq, hk_eq32, hca_k1, fun p hp_lt => ?_⟩
+  by_cases hpk : p = k
+  · subst hpk; rw [list_getD_set_self _ _ _ (by rw [hab_len]; exact hk_lt), BitVec.toNat_ofNat,
+      Nat.mod_eq_of_lt]
+    unfold bvDimacsBound at hcnt_lt; have := hcnt_k1.2; have := hcnt_k.2.2; omega
+  · rw [list_getD_set_ne _ _ _ hpk]; exact hpref p (by omega)
+
+private theorem drv_init_ht_step {avail : BitVec 64} {nv nn fixed p : Nat}
+    (hfb_raw : (BitVec.toNat (128 : BitVec 64) +
+        (BitVec.setWidth 64 (BitVec.ofNat 32 nv) <<< OfNat.ofNat 2 + 7 &&& ~~~7).toNat +
+        (BitVec.setWidth 64 (BitVec.ofNat 32 nn) <<< OfNat.ofNat 2 + 7 &&& ~~~7).toNat) % 2 ^ 64 =
+      fixed)
+    (hfix_lt : fixed < 2 ^ 37) (hrem_ge : fixed + 64 ≤ avail.toNat)
+    (hs_le : 2 ^ p ≤ 2 ^ 30) (hs_lt64 : 2 ^ p < 2 ^ 64)
+    (hc_bud : (2 ^ p) % 2 ^ 64 * 2 ^ OfNat.ofNat 3 % 2 ^ 64 ≤
+      (2 ^ 64 -
+        (BitVec.toNat (128 : BitVec 64) +
+          (BitVec.setWidth 64 (BitVec.ofNat 32 nv) <<< OfNat.ofNat 2 + 7 &&& ~~~7).toNat +
+          (BitVec.setWidth 64 (BitVec.ofNat 32 nn) <<< OfNat.ofNat 2 + 7 &&& ~~~7).toNat) %
+          2 ^ 64 +
+        BitVec.toNat avail) % 2 ^ 64 / 2 ^ OfNat.ofNat 3)
+    (hc_30 : (BitVec.ofNat 64 (2 ^ p)).toNat < 1073741824) :
+    BitVec.ofNat 64 (2 ^ p) <<< (1 : Nat) = BitVec.ofNat 64 (2 * 2 ^ p) ∧
+    (∃ q, 2 * 2 ^ p = 2 ^ q) ∧ 0 < 2 * 2 ^ p ∧ 2 * 2 ^ p ≤ 2 ^ 30 ∧
+    4 * (2 * 2 ^ p) ≤ (avail.toNat - fixed) / 8 := by
+  have hsub_nat : (2 ^ 64 - fixed + avail.toNat) % 2 ^ 64 = avail.toNat - fixed := by omega
+  have h8s : 8 * 2 ^ p ≤ (avail.toNat - fixed) / 8 := by
+    rw [hfb_raw, hsub_nat, Nat.mod_eq_of_lt hs_lt64,
+      show (2 ^ OfNat.ofNat 3 : Nat) = 8 from rfl,
+      Nat.mod_eq_of_lt (by omega : 2 ^ p * 8 < 2 ^ 64)] at hc_bud
+    omega
+  have hs_lt30 : 2 ^ p < 2 ^ 30 := by
+    rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hs_lt64] at hc_30; exact hc_30
+  have h2s_64 : 2 * 2 ^ p < 2 ^ 64 := by omega
+  have hs2_eq : BitVec.ofNat 64 (2 ^ p) <<< (1 : Nat) = BitVec.ofNat 64 (2 * 2 ^ p) := by
+    apply BitVec.eq_of_toNat_eq
+    simp only [BitVec.toNat_shiftLeft, BitVec.toNat_ofNat, Nat.shiftLeft_eq,
+      Nat.mod_eq_of_lt hs_lt64, Nat.mod_eq_of_lt h2s_64,
+      Nat.mod_eq_of_lt (by omega : 2 ^ p * 2 ^ 1 < 2 ^ 64)]; omega
+  have hp_lt : p < 30 := Nat.lt_of_not_le fun hp =>
+    Nat.not_lt_of_ge (Nat.pow_le_pow_right (by omega) hp) hs_lt30
+  have h2p_le : 2 * 2 ^ p ≤ 2 ^ 30 := by
+    rw [Nat.mul_comm, ← Nat.pow_succ]; exact Nat.pow_le_pow_right (by omega) (by omega)
+  have hp_pos : 0 < 2 ^ p := Nat.pow_pos (by omega)
+  exact ⟨hs2_eq, ⟨p + 1, by rw [Nat.pow_succ, Nat.mul_comm]⟩, by omega, h2p_le, by omega⟩
+
+private theorem drv_init_aig_pre {progBytes : List UInt8} {nv s ac : Nat} {ht0 : List (BitVec 32)}
+    (hs_pos : 0 < s) (hs_le : s ≤ 2 ^ 30) (hs_lt64 : s < 2 ^ 64)
+    (hht0_len : ht0.length = s) (hnv_mod : u32At progBytes 2 % 2 ^ 32 = nv)
+    (hcnt_pos : 1 ≤ countAtoms progBytes nv) (hcnt_lt : countAtoms progBytes nv < bvDimacsBound)
+    (hnum_lt : countAtoms progBytes nv - 1 < ac) (hac_lt : ac < bvDimacsBound) :
+    (BitVec.ofNat 64 s - (1 : BitVec 64)).setWidth 32 = BitVec.ofNat 32 (s - 1) ∧
+    ht0.length = (BitVec.ofNat 32 (s - 1)).toNat + 1 ∧
+    ((BitVec.ofNat 64 (countAtoms progBytes
+        (BitVec.ofNat 32 (u32At progBytes 2)).toNat) - 1).setWidth 32).toNat + 1 < 2 ^ 32 := by
+  have hcnt_64 : countAtoms progBytes nv < 2 ^ 64 := by unfold bvDimacsBound at hcnt_lt; omega
+  have hmask_lt : (BitVec.ofNat 64 s - (1 : BitVec 64)).setWidth 32 = BitVec.ofNat 32 (s - 1) := by
+    apply BitVec.eq_of_toNat_eq
+    rw [BitVec.toNat_setWidth, BitVec.toNat_sub_of_le (BitVec.le_def.mpr (by
+      rw [BitVec.toNat_ofNat, show (1 : BitVec 64).toNat = 1 from rfl,
+        Nat.mod_eq_of_lt hs_lt64]; omega))]
+    simp [Nat.mod_eq_of_lt (by omega : s - 1 < 2 ^ 32)]
+  have hht_len : ht0.length = (BitVec.ofNat 32 (s - 1)).toNat + 1 := by
+    rw [hht0_len, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega : s - 1 < 2 ^ 32)]; omega
+  have hnv_bv : (BitVec.ofNat 32 (u32At progBytes 2)).toNat = nv := by
+    rw [BitVec.toNat_ofNat, hnv_mod]
+  refine ⟨hmask_lt, hht_len, ?_⟩
+  unfold bvDimacsBound at hcnt_lt hac_lt
+  rw [BitVec.toNat_setWidth, BitVec.toNat_sub_of_le (BitVec.le_def.mpr (by
+    rw [BitVec.toNat_ofNat, show (1 : BitVec 64).toNat = 1 from rfl, hnv_bv,
+      Nat.mod_eq_of_lt hcnt_64]; omega)),
+    BitVec.toNat_ofNat, hnv_bv, Nat.mod_eq_of_lt hcnt_64, show (1 : BitVec 64).toNat = 1 from rfl]
+  simp only [Nat.mod_eq_of_lt (by omega : countAtoms progBytes nv - 1 < 2 ^ 32)]; omega
+
 /-! ## 3. `bv_init_workspace_wp` -/
 
 public section
@@ -881,48 +1068,9 @@ theorem bv_init_workspace_wp (Γ : Env)
                             (cfg.work_base + BitVec.ofNat 64 (128 + cfg.atom_bytes))
                             cfg.lits_ptr (BitVec.ofNat 32 nv) (BitVec.ofNat 32 nn)
                             (BitVec.ofNat 32 nc) (BitVec.ofNat 32 rt) (BitVec.ofNat 32 lcap)
-                        have hlcap_sw :
-                            (BitVec.ofNat 64 lcap).setWidth 32 = BitVec.ofNat 32 lcap := by
-                          apply BitVec.eq_of_toNat_eq
-                          rw [BitVec.toNat_setWidth, BitVec.toNat_ofNat, BitVec.toNat_ofNat,
-                            Nat.mod_eq_of_lt (by omega : lcap < 2 ^ 64),
-                            Nat.mod_eq_of_lt hlc_32]
-                        have hwe_eq : workBase + avail =
-                            workBase + BitVec.ofNat 64 cfg.avail := by
-                          congr 1; apply BitVec.eq_of_toNat_eq
-                          rw [BitVec.toNat_ofNat,
-                            Nat.mod_eq_of_lt (by dsimp only [cfg]; exact avail.isLt)]
-                        have hso_eq : workBase + (128 : BitVec 64) +
-                            ((BitVec.ofNat 32 (u32At progBytes 2)).setWidth 64 <<<
-                              OfNat.ofNat 2 + (7 : BitVec 64) &&& ~~~(7 : BitVec 64)) =
-                            cfg.work_base + BitVec.ofNat 64 (128 + cfg.atom_bytes) :=
-                          bv_init_so_eq workBase nv nn avail.toNat hnv_lt hnn_lt hwb_fit hrem_ge
-                        have haig_c0 : workBase + ((128 : BitVec 64) +
-                            ((BitVec.ofNat 32 (u32At progBytes 2)).setWidth 64 <<<
-                              OfNat.ofNat 2 + (7 : BitVec 64) &&& ~~~(7 : BitVec 64)) +
-                            ((BitVec.ofNat 32 (u32At progBytes 3)).setWidth 64 <<<
-                              OfNat.ofNat 2 + (7 : BitVec 64) &&& ~~~(7 : BitVec 64))) =
-                            cfg.aig_ptr :=
-                          bv_init_aig_eq workBase nv nn avail.toNat hnv_lt hnn_lt hwb_fit hrem_ge
-                        have hht_c0 : cfg.aig_ptr + (BitVec.ofNat 64 ac <<< OfNat.ofNat 3) =
-                            cfg.ht_ptr := by
-                          dsimp only [cfg]; congr 1; apply BitVec.eq_of_toNat_eq
-                          unfold bvDimacsBound at hac_lt
-                          rw [BitVec.toNat_shiftLeft, BitVec.toNat_ofNat, BitVec.toNat_ofNat,
-                            Nat.shiftLeft_eq, Nat.mod_eq_of_lt hac_64,
-                            Nat.mod_eq_of_lt (by omega : ac * 2 ^ 3 < 2 ^ 64),
-                            Nat.mod_eq_of_lt (by omega : 8 * ac < 2 ^ 64)]
-                          omega
-                        have hlits_c0 : workBase + ((128 : BitVec 64) +
-                            ((BitVec.ofNat 32 (u32At progBytes 2)).setWidth 64 <<<
-                              OfNat.ofNat 2 + (7 : BitVec 64) &&& ~~~(7 : BitVec 64)) +
-                            ((BitVec.ofNat 32 (u32At progBytes 3)).setWidth 64 <<<
-                              OfNat.ofNat 2 + (7 : BitVec 64) &&& ~~~(7 : BitVec 64))) +
-                            (BitVec.ofNat 64 ac <<< OfNat.ofNat 3) +
-                            (BitVec.ofNat 64 s <<< OfNat.ofNat 2) = cfg.lits_ptr := by
-                          rw [haig_c0]
-                          exact bv_init_lits_eq cfg.aig_ptr ac s
-                            (by unfold bvDimacsBound at hac_lt; omega) (by omega)
+                        obtain ⟨hlcap_sw, hwe_eq, hso_eq, haig_c0, hht_c0, hlits_c0⟩ :=
+                          drv_init_hdr1_eqs (cfg := cfg) rfl rfl rfl rfl rfl rfl rfl rfl rfl
+                            hnv_lt hnn_lt hac_lt hs_le hlc_32 hwb_fit hrem_ge haig_ht_le
                         rw [hso_eq, hlits_c0, hlcap_sw, upd15_eq] at hm ⊢
                         rw [show hdr1.atom_base_ptr = cfg.work_base + 128 from rfl]
                         rw [show BitVec.ofNat 32 (u32At progBytes 2) = BitVec.ofNat 32 nv from rfl,
@@ -983,25 +1131,9 @@ theorem bv_init_workspace_wp (Γ : Env)
                               rw [Nat.mod_eq_of_lt hk32, Nat.mod_eq_of_lt hnv_lt] at hc'
                               exact hc'
                             clear hc
-                            have hcnt_k1 := countAtoms_mono_ne_zero (k := k + 1) hk_lt
-                              hp.valid.atoms_ok
-                            have hcnt_k := countAtoms_prev_ne_zero hcnt_k1.1
-                            have hk_w_fit : 4 * (8 + 2 * k + 1 + 1) ≤ progBytes.length := by
-                              omega
-                            have hk_idx_eq : ((8 : BitVec 64) +
-                                ((BitVec.ofNat 32 k).setWidth 64 <<< OfNat.ofNat 1) +
-                                (1 : BitVec 64)).toNat = 8 + 2 * k + 1 := by
-                              rw [BitVec.toNat_add, BitVec.toNat_add,
-                                show (8 : BitVec 64).toNat = 8 from rfl,
-                                show (1 : BitVec 64).toNat = 1 from rfl,
-                                BitVec.toNat_shiftLeft, BitVec.toNat_setWidth, BitVec.toNat_ofNat,
-                                Nat.mod_eq_of_lt hk32,
-                                Nat.mod_eq_of_lt (by omega : k < 2 ^ 64),
-                                Nat.shiftLeft_eq, Nat.pow_one,
-                                Nat.mod_eq_of_lt (by omega : k * 2 < 2 ^ 64),
-                                Nat.mod_eq_of_lt (by omega : 8 + k * 2 < 2 ^ 64),
-                                Nat.mod_eq_of_lt (by omega : 8 + k * 2 + 1 < 2 ^ 64)]
-                              omega
+                            obtain ⟨hk_w_fit, hk_idx_eq, hk_eq32, hca_k1, hpref'⟩ :=
+                              drv_init_ab_step htot_len.symm hp.valid.atoms_ok hk_lt hnv_lt hcnt_lt
+                                hab_len hpref
                             have hm_ab : (array (t := i32) (cfg.work_base + 128) ab ⋆
                                 (bytes progPtr progBytes ⋆ bvHdrMem cfg.work_base hdr1 ⋆
                                   region (cfg.work_base + BitVec.ofNat 64 (128 + 4 * nv))
@@ -1043,40 +1175,10 @@ theorem bv_init_workspace_wp (Γ : Env)
                             refine ⟨progBytes, _, hprog_fit,
                               by rw [hk_idx_eq]; exact hk_w_fit, hm_read, ?_⟩
                             c0_hstraight
-                            have hk1_32 : k + 1 < 2 ^ 32 := Nat.lt_of_le_of_lt hk_lt hnv_lt
-                            have hk_eq32 : BitVec.ofNat 32 k + 1 = BitVec.ofNat 32 (k + 1) := by
-                              apply BitVec.eq_of_toNat_eq
-                              simp only [BitVec.toNat_add, BitVec.toNat_ofNat,
-                                show (1 : BitVec 32).toNat = 1 from rfl,
-                                Nat.mod_eq_of_lt hk32, Nat.mod_eq_of_lt hk1_32]
-                            have hvw_lt : u32At progBytes (8 + 2 * k + 1) < 2 ^ 32 := by
-                              have := u32At_lt progBytes (8 + 2 * k + 1)
-                              unfold u32Bound at this; exact this
-                            have hca_k1 : BitVec.ofNat 32 (countAtoms progBytes k) +
-                                BitVec.ofNat 32 (u32At progBytes (8 + 2 * k + 1)) =
-                                BitVec.ofNat 32 (countAtoms progBytes (k + 1)) := by
-                              apply BitVec.eq_of_toNat_eq
-                              rw [hcnt_k.2.2]
-                              unfold bvDimacsBound at hcnt_lt
-                              have := hcnt_k1.2
-                              rw [BitVec.toNat_add, BitVec.toNat_ofNat, BitVec.toNat_ofNat,
-                                BitVec.toNat_ofNat,
-                                Nat.mod_eq_of_lt (by omega : countAtoms progBytes k < 2 ^ 32),
-                                Nat.mod_eq_of_lt hvw_lt,
-                                Nat.mod_eq_of_lt (by omega : countAtoms progBytes k +
-                                  u32At progBytes (8 + 2 * k + 1) < 2 ^ 32)]
                             dsimp only
                             rw [hk_eq32, hk_idx_eq, hca_k1]
                             refine ih_ab (k + 1, ab') m (by omega)
-                              ⟨hk_lt, by simp [ab', hab_len], fun p hp_lt => ?_, ?_⟩
-                            · by_cases hpk : p = k
-                              · subst hpk
-                                rw [list_getD_set_self _ _ _ (by rw [hab_len]; exact hk_lt),
-                                  BitVec.toNat_ofNat, Nat.mod_eq_of_lt]
-                                unfold bvDimacsBound at hcnt_lt
-                                have := hcnt_k1.2; have := hcnt_k.2.2; omega
-                              · rw [list_getD_set_ne _ _ _ hpk]; exact hpref p (by omega)
-                            · exact sep_ac hm
+                              ⟨hk_lt, by simp [ab', hab_len], hpref', sep_ac hm⟩
                           · have hk_eq : k = nv := by
                               have hc' : ¬ k % 2 ^ 32 < nv % 2 ^ 32 := hc
                               rw [Nat.mod_eq_of_lt hk32, Nat.mod_eq_of_lt hnv_lt] at hc'
@@ -1098,219 +1200,25 @@ theorem bv_init_workspace_wp (Γ : Env)
                                 array (t := i32) cfg.lits_ptr lp0 ⋆
                                 region (cfg.lits_ptr + BitVec.ofNat 64 (4 * lcap))
                                   (litsB - 4 * lcap) ⋆ R)) ml := sep_ac hm_loop
-                            have hmask_lt : (BitVec.ofNat 64 s - (1 : BitVec 64)).setWidth 32 =
-                                BitVec.ofNat 32 (s - 1) := by
-                              apply BitVec.eq_of_toNat_eq
-                              rw [BitVec.toNat_setWidth,
-                                BitVec.toNat_sub_of_le (BitVec.le_def.mpr (by
-                                  rw [BitVec.toNat_ofNat,
-                                    show (1 : BitVec 64).toNat = 1 from rfl,
-                                    Nat.mod_eq_of_lt hs_lt64]; omega))]
-                              simp [Nat.mod_eq_of_lt (by omega : s - 1 < 2 ^ 32)]
+                            obtain ⟨hmask_lt, hht_len, hnum_pre⟩ := drv_init_aig_pre hs_pos hs_le
+                              hs_lt64 hht0_len hnv_mod hcnt_pos hcnt_lt hnum_lt hac_lt
                             rw [haig_c0, hht_c0, hmask_lt]
                             c0_call hAigInit
-                            refine ⟨hdr1, ht0, _, ?_, by rw [hht0_len]; exact hs_le, ?_,
-                              hm_aig_call, ?_⟩
-                            · rw [hht0_len, BitVec.toNat_ofNat,
-                                Nat.mod_eq_of_lt (by omega : s - 1 < 2 ^ 32)]
-                              dsimp only [cfg]; omega
-                            · unfold bvDimacsBound at hcnt_lt
-                              have hnv_bv :
-                                  (BitVec.ofNat 32 (u32At progBytes 2)).toNat = nv := by
-                                rw [BitVec.toNat_ofNat, hnv_mod]
-                              rw [BitVec.toNat_setWidth,
-                                BitVec.toNat_sub_of_le (BitVec.le_def.mpr (by
-                                  rw [BitVec.toNat_ofNat,
-                                    show (1 : BitVec 64).toNat = 1 from rfl,
-                                    hnv_bv, Nat.mod_eq_of_lt hcnt_64]; omega))]
-                              rw [BitVec.toNat_ofNat, hnv_bv, Nat.mod_eq_of_lt hcnt_64,
-                                show (1 : BitVec 64).toNat = 1 from rfl]
-                              simp only [Nat.mod_eq_of_lt
-                                (by omega : countAtoms progBytes nv - 1 < 2 ^ 32)]
-                              omega
+                            refine ⟨hdr1, ht0, _, hht_len, by rw [hht0_len]; exact hs_le,
+                              hnum_pre, hm_aig_call, ?_⟩
                             · intro m' hm'
                               c0_hstraight
-                              have hnv_bv :
-                                  (BitVec.ofNat 32 (u32At progBytes 2)).toNat = nv := by
-                                rw [BitVec.toNat_ofNat, hnv_mod]
-                              have hac_sw :
-                                  (BitVec.ofNat 64 ac).setWidth 32 = BitVec.ofNat 32 ac := by
-                                apply BitVec.eq_of_toNat_eq
-                                unfold bvDimacsBound at hac_lt
-                                rw [BitVec.toNat_setWidth, BitVec.toNat_ofNat, BitVec.toNat_ofNat,
-                                  Nat.mod_eq_of_lt hac_64,
-                                  Nat.mod_eq_of_lt (by omega : ac < 2 ^ 32)]
-                              have hnum_sw :
-                                  (BitVec.ofNat 64 (countAtoms progBytes
-                                    (BitVec.ofNat 32 (u32At progBytes 2)).toNat) - 1).setWidth
-                                    32 = BitVec.ofNat 32 (countAtoms progBytes nv - 1) := by
-                                rw [hnv_bv]
-                                apply BitVec.eq_of_toNat_eq
-                                rw [BitVec.toNat_setWidth,
-                                  BitVec.toNat_sub_of_le (BitVec.le_def.mpr (by
-                                    rw [BitVec.toNat_ofNat,
-                                      show (1 : BitVec 64).toNat = 1 from rfl,
-                                      Nat.mod_eq_of_lt hcnt_64]; exact hcnt_pos)),
-                                  BitVec.toNat_ofNat, BitVec.toNat_ofNat,
-                                  show (1 : BitVec 64).toNat = 1 from rfl,
-                                  Nat.mod_eq_of_lt hcnt_64,
-                                  Nat.mod_eq_of_lt (by unfold bvDimacsBound at hcnt_lt; omega :
-                                    countAtoms progBytes nv - 1 < 2 ^ 32)]
-                              let hdr2 : BVHdrState :=
-                                { hdr1 with
-                                  aig_ptr := cfg.aig_ptr
-                                  aig_cap := BitVec.ofNat 32 ac
-                                  ht_ptr := cfg.ht_ptr
-                                  ht_mask := BitVec.ofNat 32 (s - 1)
-                                  num_atoms := BitVec.ofNat 32 (countAtoms progBytes nv - 1)
-                                  aig_len := BitVec.ofNat 32 (countAtoms progBytes nv - 1) + 1#32
-                                  oom := 0#32 }
-                              rw [hac_sw, hnum_sw,
-                                show { hdr1 with
-                                  aig_ptr := cfg.aig_ptr
-                                  aig_cap := BitVec.ofNat 32 ac
-                                  ht_ptr := cfg.ht_ptr
-                                  ht_mask := BitVec.ofNat 32 (s - 1)
-                                  num_atoms := BitVec.ofNat 32 (countAtoms progBytes nv - 1)
-                                  aig_len :=
-                                    BitVec.ofNat 32 (countAtoms progBytes nv - 1) + 1#32
-                                  oom := 0#32 : BVHdrState } = hdr2 from rfl,
-                                show (workBase : BitVec 64) = cfg.work_base from rfl] at hm'
-                              have hm_aig_arr : (region cfg.aig_ptr (8 * ac) ⋆
-                                  (bvHdrMem cfg.work_base hdr2 ⋆
-                                    array (t := i32) cfg.ht_ptr
-                                      (List.replicate ((BitVec.ofNat 32 (s - 1)).toNat + 1)
-                                        0#32) ⋆
-                                    bytes progPtr progBytes ⋆
-                                    array (t := i32) (cfg.work_base + 128) ab ⋆
-                                    region (cfg.work_base + BitVec.ofNat 64 (128 + 4 * nv))
-                                      (atomB - 4 * nv) ⋆
-                                    array (t := i32)
-                                      (cfg.work_base + BitVec.ofNat 64 (128 + atomB)) so0 ⋆
-                                    region (cfg.work_base + BitVec.ofNat 64 (128 + atomB + 4 * nn))
-                                      (sliceB - 4 * nn) ⋆
-                                    array (t := i32) cfg.lits_ptr lp0 ⋆
-                                    region (cfg.lits_ptr + BitVec.ofNat 64 (4 * lcap))
-                                      (litsB - 4 * lcap) ⋆ R)) m' := sep_ac hm'
-                              obtain ⟨aw, hx⟩ := sep_ex_l.mp (sep_mono (fun _ h =>
-                                region_to_array64 ac (by unfold bvDimacsBound at hac_lt; omega) h)
-                                hm_aig_arr)
-                              obtain ⟨haw_len, hm_aw⟩ := sep_pure_l.mp hx
-                              have hok_fin : BVWorkspaceOk cfg hdr2 ab so0 aw
-                                  (List.replicate ((BitVec.ofNat 32 (s - 1)).toNat + 1) 0#32)
-                                  lp0 :=
-                                { fit := hwb_fit
-                                  hdr_wb := rfl
-                                  hdr_we := hwe_eq
-                                  hdr_ab := rfl
-                                  hdr_so := rfl
-                                  hdr_aig := rfl
-                                  hdr_ht := rfl
-                                  hdr_lits := rfl
-                                  hdr_nv := rfl
-                                  hdr_nn := rfl
-                                  hdr_acap := rfl
-                                  hdr_htmask := rfl
-                                  hdr_lcap := rfl
-                                  atom_align := align8_ge (4 * nv)
-                                  slice_align := align8_ge (4 * nn)
-                                  aig_ptr_eq := rfl
-                                  ht_ptr_eq := rfl
-                                  lits_ptr_eq := rfl
-                                  lits_fit := hlc_fit
-                                  total_eq := hcfg_tot
-                                  nv_lt := hnv_lt
-                                  nn_lt := hnn_lt
-                                  acap_lt := hac_lt
-                                  ht_pos := hs_pos
-                                  ht_lt := hs_le
-                                  ht_mask_lt := bv64_pow2_mask_lt hs_pow hs_pos hs_le
-                                  lcap_lt := hlc_32
-                                  ab_len := hab_len
-                                  so_len := hso0_len
-                                  aig_len_eq := haw_len
-                                  ht_len := by
-                                    rw [List.length_replicate, BitVec.toNat_ofNat,
-                                      Nat.mod_eq_of_lt (by omega : s - 1 < 2 ^ 32)]
-                                    dsimp only [cfg]; omega
-                                  lits_len := hlp0_len }
-                              have haig_fin : AigInv hdr2
-                                  ⟨countAtoms progBytes cfg.n_vars - 1, #[]⟩
-                                  aw (List.replicate
-                                    ((BitVec.ofNat 32 (s - 1)).toNat + 1) 0#32) :=
-                                { wf := fun _ hi => by cases hi
-                                  num_atoms_eq := by
-                                    rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt]
-                                    unfold bvDimacsBound at hcnt_lt; omega
-                                  aig_len_eq := by
-                                    unfold bvDimacsBound at hcnt_lt
-                                    dsimp only [hdr2, cfg]
-                                    rw [BitVec.toNat_add, BitVec.toNat_ofNat,
-                                      show (1#32 : BitVec 32).toNat = 1 from rfl,
-                                      show (#[] : Array (UInt32 × UInt32)).size = 0 from rfl,
-                                      Nat.mod_eq_of_lt (by omega : countAtoms progBytes nv - 1 <
-                                        2 ^ 32),
-                                      Nat.mod_eq_of_lt (by omega :
-                                        countAtoms progBytes nv - 1 + 1 < 2 ^ 32)]
-                                  aig_len_le_cap := by rw [haw_len]; exact hnum_lt
-                                  aig_cap_eq := by
-                                    dsimp only [hdr2]
-                                    rw [haw_len, BitVec.toNat_ofNat, Nat.mod_eq_of_lt]
-                                    unfold bvDimacsBound at hac_lt; omega
-                                  aig_cap_lt := by rw [haw_len]; exact hac_lt
-                                  gates_bound := by simp
-                                  words_match :=
-                                    { bound := by rw [haw_len]; exact hnum_lt
-                                      gate_eq := fun _ hi => by cases hi }
-                                  ht_len := by dsimp only [hdr2]; simp
-                                  ht_mask_lt := fun x => by
-                                    simp only [List.length_replicate]
-                                    have hm1 := bv64_pow2_mask_lt hs_pow hs_pos hs_le x
-                                    have heq_m : BitVec.ofNat 32 (s - 1) = hdr2.ht_mask := rfl
-                                    rw [← heq_m]
-                                    rw [BitVec.toNat_ofNat,
-                                      Nat.mod_eq_of_lt (by omega : s - 1 < 2 ^ 32)]
-                                    omega
-                                  ht_pos := by simp
-                                  ht_bound := by
-                                    rw [List.length_replicate, BitVec.toNat_ofNat,
-                                      Nat.mod_eq_of_lt (by omega : s - 1 < 2 ^ 32)]
-                                    omega }
-                              have hinv_fin : BlastEvalInv cfg progPtr progBytes vars cwords nodes
-                                  prog hdr2 ⟨countAtoms progBytes cfg.n_vars - 1, #[]⟩
-                                  ab so0 aw
-                                  (List.replicate ((BitVec.ofNat 32 (s - 1)).toNat + 1) 0#32)
-                                  lp0 0 :=
-                                { ws_ok := hok_fin
-                                  parsed := hp
-                                  prog_ptr_eq := rfl
-                                  prog_fit := hprog_fit
-                                  nv_eq := rfl
-                                  nn_eq := rfl
-                                  nc_eq := by
-                                    dsimp only [hdr2, hdr1, updHdr15]
-                                    rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hnc_lt]
-                                  root_eq := by
-                                    dsimp only [hdr2, hdr1, updHdr15]
-                                    rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hrt_lt]
-                                  lits_le_cap := by dsimp only [hdr2, hdr1, updHdr15, cfg]; simp
-                                  aig_inv := haig_fin
-                                  atoms_eq := rfl
-                                  atom_bases_eq := fun v hv => hpref v hv
-                                  k_le := Nat.zero_le _
-                                  prefix_ok := fun _ _ hi => absurd hi (Nat.not_lt_zero _) }
-                              have hm_fin : (bytes progPtr progBytes ⋆
-                                  bvBlastMem cfg hdr2 ab so0 aw
-                                    (List.replicate ((BitVec.ofNat 32 (s - 1)).toNat + 1) 0#32)
-                                    lp0 ⋆ R) m' := by
-                                rw [bvBlastMem_hdr_left]; exact sep_ac hm_aw
-                              by_cases hfc : bvInitFitsCond progBytes avail.toNat
-                              · exact hFits hfc cfg hdr2 ab so0 aw
-                                  (List.replicate ((BitVec.ofNat 32 (s - 1)).toNat + 1) 0#32)
-                                  lp0 m' rfl rfl rfl hinv_fin hm_fin
-                              · exact (hNotFits hfc).1 cfg hdr2 ab so0 aw
-                                  (List.replicate ((BitVec.ofNat 32 (s - 1)).toNat + 1) 0#32)
-                                  lp0 m' rfl rfl rfl hinv_fin hm_fin
+                              exact drv_init_post_aigInit hp hprog_fit hwb_fit rfl rfl rfl rfl rfl
+                                rfl rfl rfl rfl rfl rfl rfl rfl hcfg_tot (align8_ge (4 * nv))
+                                (align8_ge (4 * nn)) hlc_fit hnv_lt hnn_lt hnc_lt hrt_lt hac_lt
+                                hs_pos hs_le hlc_32 rfl rfl rfl rfl hcnt_pos hcnt_lt hnum_lt hab_len
+                                hso0_len hlp0_len hpref hwe_eq rfl rfl rfl rfl rfl rfl rfl rfl rfl
+                                rfl rfl rfl (fun x => by
+                                  dsimp only [cfg]
+                                  exact Nat.lt_of_lt_of_le (bv64_pow2_mask_lt hs_pow hs_pos hs_le x)
+                                    (by rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt
+                                      (by omega : s - 1 < 2 ^ 32)]; omega))
+                                hm' hFits (fun h => (hNotFits h).1)
                       · -- acap/lcap join
                         intro J3 hJ3
                         c0_hstraight
@@ -1344,35 +1252,12 @@ theorem bv_init_workspace_wp (Γ : Env)
                       c0_hstraight
                       c0_hsplit
                       · -- loop step: 8 * s <= rem / 8 ∧ s < 2^30
-                        have hsub_nat : (2 ^ 64 - fixed + avail.toNat) % 2 ^ 64 = rem := by
-                          dsimp only [rem]; omega
-                        have h8s : 8 * s ≤ rem / 8 := by
-                          rw [hfb_raw, hsub_nat, Nat.mod_eq_of_lt hs_lt64,
-                            show (2 ^ OfNat.ofNat 3 : Nat) = 8 from rfl,
-                            Nat.mod_eq_of_lt (by omega : s * 8 < 2 ^ 64)] at hc_bud
-                          omega
-                        have hs_lt30 : s < 2 ^ 30 := by
-                          rw [Nat.mod_eq_of_lt hs_lt64] at hc
-                          exact hc
-                        have h2s_64 : 2 * s < 2 ^ 64 := by omega
-                        have hs2_eq :
-                            BitVec.ofNat 64 s <<< (1 : Nat) = BitVec.ofNat 64 (2 * s) := by
-                          apply BitVec.eq_of_toNat_eq
-                          simp only [BitVec.toNat_shiftLeft, BitVec.toNat_ofNat, Nat.shiftLeft_eq,
-                            Nat.mod_eq_of_lt hs_lt64, Nat.mod_eq_of_lt h2s_64,
-                            Nat.mod_eq_of_lt (by omega : s * 2 ^ 1 < 2 ^ 64)]
-                          omega
+                        obtain ⟨p, rfl⟩ := hs_pow
+                        obtain ⟨hs2_eq, hq, hpos', h2p_le, hbud'⟩ :=
+                          drv_init_ht_step hfb_raw hfix_lt hrem_ge hs_le hs_lt64 hc_bud hc
                         c0_hstraight
                         rw [hs2_eq]
-                        obtain ⟨p, rfl⟩ := hs_pow
-                        have hp_lt : p < 30 := Nat.lt_of_not_le fun hp =>
-                          Nat.not_lt_of_ge (Nat.pow_le_pow_right (by omega) hp) hs_lt30
-                        have h2p_le : 2 * 2 ^ p ≤ 2 ^ 30 := by
-                          rw [Nat.mul_comm, ← Nat.pow_succ]
-                          exact Nat.pow_le_pow_right (by omega) (by omega)
-                        exact ih (2 * 2 ^ p) m (by omega)
-                          ⟨rfl, ⟨p + 1, by rw [Nat.pow_succ, Nat.mul_comm]⟩, by omega, h2p_le,
-                            by omega⟩
+                        exact ih (2 * 2 ^ p) m (by omega) ⟨rfl, hq, hpos', h2p_le, hbud'⟩
                       · exact hJ_exit m rfl
                     · exact hJ_exit m rfl
             · intro J2 hJ2
