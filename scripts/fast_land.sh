@@ -210,7 +210,7 @@ needs_qbe=0
 needs_kissat_warm=0
 for c in "${cmds[@]}"; do
   case "$c" in
-    "./test/run.sh"|"./test/arm64/run.sh"|"./test/t_qbe/run.sh"|"./test/lrc/run.sh"|"./test/lcnf/run.sh")
+    "./test/run.sh"|"./test/arm64/run.sh"|"./test/t_qbe/run.sh"|"./test/lcnf/run.sh")
       needs_qbe=1 ;;
     "./test/kissat/run.sh")
       needs_kissat_warm=1 ;;

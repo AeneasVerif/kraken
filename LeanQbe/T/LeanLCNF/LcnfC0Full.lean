@@ -181,7 +181,7 @@ def rtC0CoreMissingCalls : List Sym :=
 (`rtC0CoreFns`), removing all 35 verified runtime functions from `.externs`. When `withFloats` is
 `false`, `.externs` is empty (`[]`); when `true`, only the 3 `lcnf_float_*` externs remain. -/
 def linkLcnfWithRtC0 (tfs : List Frontend.C0.TFlatFn) (withFloats : Bool := false) : Module :=
-  { fns := rtC0CoreFns ++ LeanLRC.tflatFnsToFns tfs
+  { fns := rtC0CoreFns ++ Frontend.C0.tflatFnsToFns tfs
     externs := if withFloats then rtC0FloatExterns else []
     exits := rtExitSyms }
 

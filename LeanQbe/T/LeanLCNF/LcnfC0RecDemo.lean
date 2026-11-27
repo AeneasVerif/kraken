@@ -110,7 +110,7 @@ lcnf_lower_thm! recDemoTfs recDemoLcMod
 
 /-- Standalone user `Module` containing the lowered structurally recursive `listSum` function. -/
 @[expose] def recDemoProgMod : Module :=
-  { fns := LeanLRC.tflatFnsToFns recDemoTfs, externs := [], exits := rtExitSyms }
+  { fns := Frontend.C0.tflatFnsToFns recDemoTfs, externs := [], exits := rtExitSyms }
 
 /-- Full `87`-function linked `Module`: `rtC0CoreMod` (`86` fns) ++ `recDemoProgMod` (`1` fn). -/
 @[expose] def recDemoLinkedMod : Module :=

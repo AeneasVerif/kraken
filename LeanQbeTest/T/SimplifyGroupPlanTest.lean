@@ -278,7 +278,7 @@ def deepLadderFn (n : Nat) : Func [i64] [i64] :=
 def demoTfs : List LeanQbe.T.Frontend.C0.TFlatFn :=
   (LeanLCNF.lowerModule LeanLCNF.Demo.lcnfProgram).toOption.getD []
 
-def demoFns : List Fn := LeanLRC.tflatFnsToFns demoTfs
+def demoFns : List Fn := Frontend.C0.tflatFnsToFns demoTfs
 
 -- LratBytes: all 6 functions (raw + post-`earlyCore`)
 #guard lratBytesFns.length == 6

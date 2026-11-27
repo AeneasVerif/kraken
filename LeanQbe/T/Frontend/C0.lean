@@ -23,6 +23,6 @@ Umbrella module re-exporting the untrusted, shape-stable, PHOAS-first C0 fronten
 * `Lower`: shape-stable SSA/join-point lowering, `#c0_shape` metadata, and `promoteExitCalls`
 * `Elab`: direct PHOAS `Lean.Expr` elaborator, `c0_header!`, `c0_decl!`, `c0_file!`,
   `#c0_shape`, `#c0_audit`
-* `ToFlat`: `LExpr → TFlat` bridge (`LFlatCtx`, `TFlatFn`, `compileC0Source`)
+* `ToFlat`: `LExpr → TFlat` bridge (`LFlatCtx`, `TFlatFn`, `tflatFnsToFns`, `compileC0Source`)
 * `LayoutElab`: `c0_layout_lemmas!` struct footprints and `c0_load`/`c0_store` field lemmas
 -/

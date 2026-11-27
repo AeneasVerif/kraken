@@ -1,7 +1,7 @@
 # LeanQbe.T
 
 **LeanQbe.T** is a formally verified optimizing compiler written in Lean 4. It compiles typed
-Static Single Assignment (SSA) programs—from extended C0, Lean `LCNF`, Lean `λRC`, WebAssembly,
+Static Single Assignment (SSA) programs—from extended C0, Lean `LCNF`, WebAssembly,
 and Bedrock2 frontends—to native **SysV x86-64** and **AAPCS64 AArch64** assembly (as well as
 QBE IL and C++20), with end-to-end semantic preservation proved inside Lean's kernel.
 
@@ -16,9 +16,9 @@ zero native-code reflection tactics (`native_decide`, `bv_decide`, `ofReduceBool
   ───────────────────────────    ────────────────────────────────────    ──────────────────────────
   Extended C0 (structs, macros)  ┌──────────────────────────────────┐    ┌────────────────────────┐
   Lean LCNF + C0 runtime & FFI ─▶│ LeanQbe.T PHOAS / First-Order IR │───▶│ SysV x86-64 (+AVX2/512)│
-  Lean λRC (LeanLRC)             │  WP separation-logic semantics   │    │ AAPCS64 AArch64        │
-  WebAssembly (SFI sandbox)      │  earlyOpt → legal → mid → spill  │    │ QBE IL / C++20 output  │
-  Bedrock2 (CFG recovery)        │  → graph-coloring rega → link    │    └────────────────────────┘
+  WebAssembly (SFI sandbox)      │  WP separation-logic semantics   │    │ AAPCS64 AArch64        │
+  Bedrock2 (CFG recovery)        │  earlyOpt → legal → mid → spill  │    │ QBE IL / C++20 output  │
+                                 │  → graph-coloring rega → link    │    └────────────────────────┘
                                  └──────────────────────────────────┘
 ```
 
@@ -130,8 +130,6 @@ timeout 120 env CHECK_SCOPE=auto CHECK_BASE=HEAD~1 bash scripts/check.sh
     lowered Lean callers without recompiling Kissat or the runtime) in
     [LcnfC0FfiPilotCertX64.lean](LeanQbeTest/T/LcnfC0FfiPilotCertX64.lean) and
     [LcnfC0FfiPilotCertArm64.lean](LeanQbeTest/T/LcnfC0FfiPilotCertArm64.lean).
-- **Lean `λRC` ([LeanLRC/Hub.lean](LeanQbe/T/LeanLRC/Hub.lean)):** Compiles Lean's reference-counted
-  IR to `LeanQbe.T`.
 - **WebAssembly SFI Sandbox ([Wasm/Safety.lean](LeanQbe/T/Wasm/Safety.lean),
   [Wasm/BulkSafety.lean](LeanQbe/T/Wasm/BulkSafety.lean)):** Decodes, validates, and compiles Wasm
   modules (including bulk-memory operations) with proved Software Fault Isolation host-memory
@@ -394,10 +392,10 @@ scripts/build_bounded.sh -j 2 -m 18G -t 900 --allow-broad -- LeanQbeBootstrap0Te
 
 | Suite | Coverage |
 | :--- | :--- |
-| [test/run.sh](test/run.sh) | Core x86-64 scalar/litmus binaries, `PrintQbe` cross-compilation, and C0/LRC/Kissat integration |
+| [test/run.sh](test/run.sh) | Core x86-64 scalar/litmus binaries, `PrintQbe` cross-compilation, and C0/Kissat integration |
 | [test/arm64/run.sh](test/arm64/run.sh) | AAPCS64 AArch64 assembly vs. stock QBE under `qemu-aarch64` |
 | [test/c0/run.sh](test/c0/run.sh) | Positive/negative C0 probes, SysV struct/bitfield layout, and host C differential tests |
-| [test/lcnf/run.sh](test/lcnf/run.sh), [test/lcnf/run_c0rt.sh](test/lcnf/run_c0rt.sh), [test/lrc/run.sh](test/lrc/run.sh) | `LeanLCNF` / `LeanLRC` reference Lean executables vs. C++20, x86-64, and AArch64 (including compiled `rtC0CoreMod`) |
+| [test/lcnf/run.sh](test/lcnf/run.sh), [test/lcnf/run_c0rt.sh](test/lcnf/run_c0rt.sh) | `LeanLCNF` reference Lean executables vs. C++20, x86-64, and AArch64 (including compiled `rtC0CoreMod`) |
 | [test/cpp/run.sh](test/cpp/run.sh) | C++20 standalone compilation and trap checks under `g++` and `clang++` ASan/UBSan |
 | [test/t_bignum/run.sh](test/t_bignum/run.sh), [test/t_chacha/run.sh](test/t_chacha/run.sh) | Differential x86-64 & AArch64 tests for Curve25519 arithmetic and RFC 8439 ChaCha20 |
 | [test/t_lrat/run.sh](test/t_lrat/run.sh), [test/t_qbe/run.sh](test/t_qbe/run.sh) | C++20 ASan/UBSan checks for `lrat_check_bytes` and stock QBE IL emission |
@@ -414,7 +412,7 @@ scripts/build_bounded.sh -j 2 -m 18G -t 900 --allow-broad -- LeanQbeBootstrap0Te
 | [Main.lean](Main.lean), [MainArm64.lean](MainArm64.lean), [Driver.lean](LeanQbe/T/Driver.lean) | Native CLI executables (`leanqbe`, `leanqbe-arm64`) |
 | `LeanQbe/T/` | Core SSA IR (`IL`, `Flat`), WP semantics (`WP`), PHOAS & flat-IR optimizers (`Opt`, `OptFlat*`, `Main`, `MainFlat`), spilling (`Spill`), register allocation (`Rega`), certificates (`MainCert*`), linking (`MainLink*`, `LinkRec`, `LinkScc`, `LinkLfp`), QBE/C++20 printers (`PrintQbe`, `PrintCpp`) |
 | `LeanQbe/T/Amd64/` & `LeanQbe/T/Arm64/` | SysV x86-64 and AAPCS64 AArch64 target contracts, instruction selection, frame lowering, certificates, and assembly printers |
-| `LeanQbe/T/Frontend/C0/`, `LeanLCNF/`, `LeanLRC/`, `Wasm/`, `Bedrock2/`, `BedrockWord/` | Source language frontends, SFI Wasm compiler, `LCNF` two-tier semantics (`Sem/`), pure-C0 runtime (`LcnfC0Full`), and zero-axiom C0 FFI (`LcnfC0Ffi`) |
+| `LeanQbe/T/Frontend/C0/`, `LeanLCNF/`, `Wasm/`, `Bedrock2/`, `BedrockWord/` | Source language frontends, SFI Wasm compiler, `LCNF` two-tier semantics (`Sem/`), pure-C0 runtime (`LcnfC0Full`), and zero-axiom C0 FFI (`LcnfC0Ffi`) |
 | `LeanQbe/T/Unified/` & `LeanQbe/T/Xcap/` | Bedrock2 CFG recovery & contification (`CfgRecovery`, `CfgContify`) and bidirectional `FnSpec` ↔ `Xcap.cptr` assembly interop |
 | `LeanQbe/T/Logic/` | Separation-logic slab/tree automation, symbolic C0 stepper (`C0Step`), and legality combinators |
 | `LeanQbe/T/Examples/` | Verified `ChaCha20`, `Curve25519` bignum, `UnionFind`, `LratBytes`, `Kissat` (`fidStep12Module`, `Plain`, `ExportCnf`), and WIP `Bitblast` |

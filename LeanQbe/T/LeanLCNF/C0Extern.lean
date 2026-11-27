@@ -37,7 +37,6 @@ namespace LeanQbe.T.LeanLCNF
 
 open LeanQbe.T
 open LeanQbe.T.Frontend.C0
-open LeanQbe.T.LeanLRC
 
 /-! ## 1. `C0Extern` Specification & Validation -/
 

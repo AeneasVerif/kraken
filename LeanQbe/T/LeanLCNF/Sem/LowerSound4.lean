@@ -323,7 +323,7 @@ private theorem progFn_wp_from_decl {m : LcModule}
         ∃ (ha : fn.as = i64 :: (d.params.map (·.ty.toTTy) |>.take regArgs))
           (hr : fn.rs = [d.retTy.toTTy]),
           liftDeclSpec (Δs d.name) d.params d.retTy (ha ▸ xs) mem (hr ▸ Q) X := by
-  dsimp only [lcnfProgMod, LeanLRC.tflatFnsToFns] at hfnMem
+  dsimp only [lcnfProgMod, Frontend.C0.tflatFnsToFns] at hfnMem
   rw [List.mem_map] at hfnMem
   obtain ⟨tf, htfMem, htfEq⟩ := hfnMem
   have hmapM := lowerModule_firstOrder_decls hfrag hlow

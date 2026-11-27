@@ -74,7 +74,6 @@ CANARY_FRONTIER: tuple[str, ...] = (
     "LeanQbe.T.PassFlatKit",
     "LeanQbe.T.Wasm.BulkSafety",
     "LeanQbe.T.LeanLCNF.LcnfC0RtProofCommon",
-    "LeanQbe.T.LeanLRC.Runtime",
     "LeanQbe.T.Frontend.Bedrock2.ToT",
     "LeanQbe.T.MainLinkReuseLegalCalls",
     "LeanQbe.T.Amd64.Targ",

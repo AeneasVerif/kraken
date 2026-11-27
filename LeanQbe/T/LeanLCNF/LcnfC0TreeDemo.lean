@@ -149,7 +149,7 @@ lcnf_lower_thm! treeDemoTfs treeDemoLcMod
 
 /-- Standalone user `Module` containing the lowered two-branch recursive `treeSum` & `treeSize`. -/
 @[expose] def treeDemoProgMod : Module :=
-  { fns := LeanLRC.tflatFnsToFns treeDemoTfs, externs := [], exits := rtExitSyms }
+  { fns := Frontend.C0.tflatFnsToFns treeDemoTfs, externs := [], exits := rtExitSyms }
 
 /-- Full `88`-function linked `Module`: `rtC0CoreMod` (`86` fns) ++ `treeDemoProgMod` (`2` fns). -/
 @[expose] def treeDemoLinkedMod : Module :=

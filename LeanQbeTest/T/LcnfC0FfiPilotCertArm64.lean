@@ -135,7 +135,7 @@ theorem pilotArm64_checkSatBA_fnSpec :
     armTarget.FnSpec pilotArm64Cert.host pilotTfs.tf_0.toFn.name
       pilotKissatSolveBASpec (pilotArm64Cert.bound pilotTfs.tf_0.toFn.name) 64 :=
   let h := pilotArm64_fnSpec_src
-    (by simp [pilotProgMod, lcnfTModuleWithExts, LeanLRC.tflatFnsToFns, pilotTfs])
+    (by simp [pilotProgMod, lcnfTModuleWithExts, Frontend.C0.tflatFnsToFns, pilotTfs])
     (by decide) (by decide)
   ⟨h.1, Target.FnSpec.of_spec armTarget h.2 fun _ _ _ _ hs =>
     pilotProgEnv_le_pilotLinkedEnv (pilotProgEnv_checkSatBA hs)⟩
@@ -145,7 +145,7 @@ theorem pilotArm64_checkSatNat_fnSpec :
     armTarget.FnSpec pilotArm64Cert.host pilotTfs.tf_1.toFn.name
       pilotKissatSolveNatSpec (pilotArm64Cert.bound pilotTfs.tf_1.toFn.name) 64 :=
   let h := pilotArm64_fnSpec_src
-    (by simp [pilotProgMod, lcnfTModuleWithExts, LeanLRC.tflatFnsToFns, pilotTfs])
+    (by simp [pilotProgMod, lcnfTModuleWithExts, Frontend.C0.tflatFnsToFns, pilotTfs])
     (by decide) (by decide)
   ⟨h.1, Target.FnSpec.of_spec armTarget h.2 fun _ _ _ _ hs =>
     pilotProgEnv_le_pilotLinkedEnv (pilotProgEnv_checkSatNat hs)⟩
@@ -155,7 +155,7 @@ theorem pilotArm64_xorBA_fnSpec :
     armTarget.FnSpec pilotArm64Cert.host pilotTfs.tf_2.toFn.name
       pilotXorBASpec (pilotArm64Cert.bound pilotTfs.tf_2.toFn.name) 64 :=
   let h := pilotArm64_fnSpec_src
-    (by simp [pilotProgMod, lcnfTModuleWithExts, LeanLRC.tflatFnsToFns, pilotTfs])
+    (by simp [pilotProgMod, lcnfTModuleWithExts, Frontend.C0.tflatFnsToFns, pilotTfs])
     (by decide) (by decide)
   ⟨h.1, Target.FnSpec.of_spec armTarget h.2 fun _ _ _ _ hs =>
     pilotProgEnv_le_pilotLinkedEnv (pilotProgEnv_xorBA hs)⟩
@@ -165,7 +165,7 @@ theorem pilotArm64_xorNat_fnSpec :
     armTarget.FnSpec pilotArm64Cert.host pilotTfs.tf_3.toFn.name
       pilotXorNatSpec (pilotArm64Cert.bound pilotTfs.tf_3.toFn.name) 64 :=
   let h := pilotArm64_fnSpec_src
-    (by simp [pilotProgMod, lcnfTModuleWithExts, LeanLRC.tflatFnsToFns, pilotTfs])
+    (by simp [pilotProgMod, lcnfTModuleWithExts, Frontend.C0.tflatFnsToFns, pilotTfs])
     (by decide) (by decide)
   ⟨h.1, Target.FnSpec.of_spec armTarget h.2 fun _ _ _ _ hs =>
     pilotProgEnv_le_pilotLinkedEnv (pilotProgEnv_xorNat hs)⟩
@@ -175,7 +175,7 @@ theorem pilotArm64_solveXorBA_fnSpec :
     armTarget.FnSpec pilotArm64Cert.host pilotTfs.tf_4.toFn.name
       pilotSolveXorBASpec (pilotArm64Cert.bound pilotTfs.tf_4.toFn.name) 64 :=
   let h := pilotArm64_fnSpec_src
-    (by simp [pilotProgMod, lcnfTModuleWithExts, LeanLRC.tflatFnsToFns, pilotTfs])
+    (by simp [pilotProgMod, lcnfTModuleWithExts, Frontend.C0.tflatFnsToFns, pilotTfs])
     (by decide) (by decide)
   ⟨h.1, Target.FnSpec.of_spec armTarget h.2 fun _ _ _ _ hs =>
     pilotProgEnv_le_pilotLinkedEnv (pilotProgEnv_solveXorBA hs)⟩

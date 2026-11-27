@@ -25,7 +25,7 @@ import sync_hubs as sh  # noqa: E402
 
 class TestHubIsolationAndNoLegacy(unittest.TestCase):
     def test_no_legacy_libs_or_imports(self) -> None:
-        self.assertEqual(len(sh.ALL_HUBS), 20)
+        self.assertEqual(len(sh.ALL_HUBS), 19)
         for hub in sh.ALL_HUBS:
             self.assertNotIn("Legacy", hub)
         self.assertFalse((REPO_ROOT / "LeanQbeLegacyTest").exists())
@@ -115,10 +115,6 @@ class TestSelectTests(unittest.TestCase):
         self.assertEqual(
             st.select_suites(["LeanQbe/T/LeanLCNF/Lower.lean"]),
             ["./test/lcnf/run.sh"],
-        )
-        self.assertEqual(
-            st.select_suites(["LeanQbe/T/LeanLRC/Lower.lean"]),
-            ["./test/lrc/run.sh"],
         )
         self.assertEqual(
             st.select_suites(["LeanQbe/T/Bootstrap0/Emit.lean"]),

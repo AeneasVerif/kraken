@@ -203,7 +203,7 @@ theorem factLoopLinkedMod_wp (fn : Fn) (hfn : fn ∈ factLoopLinkedMod.fns)
     dsimp only [factLoopEnv] at hpre
     rw [ite_eq_right hdisj] at hpre
     have hprogMem : fn ∈ [factLoopTfs.tf_0.toFn, factLoopTfs.tf_1.toFn] := by
-      simpa [lcnfProgMod, factLoopTfs, LeanLRC.tflatFnsToFns] using hprog
+      simpa [lcnfProgMod, factLoopTfs, Frontend.C0.tflatFnsToFns] using hprog
     rcases List.mem_cons.mp hprogMem with rfl | hmem1
     · rcases hpre with ⟨⟨has, hrs⟩, _, hsp⟩ | ⟨_, hnm, _⟩
       · cases has; cases hrs; exact factAcc_wp xs m Q X hsp

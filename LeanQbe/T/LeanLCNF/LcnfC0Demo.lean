@@ -47,7 +47,7 @@ splice_lcnf_tflat! demoNatStrTfs demoNatStrLcMod
 
 /-- Standalone user `Module` containing the three lowered Lean `LCNF` functions. -/
 @[expose] def demoNatStrProgMod : Module :=
-  { fns := LeanLRC.tflatFnsToFns demoNatStrTfs, externs := [], exits := rtExitSyms }
+  { fns := Frontend.C0.tflatFnsToFns demoNatStrTfs, externs := [], exits := rtExitSyms }
 
 /-- Full `89`-function linked `Module`: `rtC0CoreMod` (`86` fns) ++
 `demoNatStrProgMod` (`3` fns). -/

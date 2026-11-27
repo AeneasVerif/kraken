@@ -13,7 +13,8 @@ public meta import LeanQbe.T.MainCertElab
 
 Provides the `splice_lcnf_tflat!` command elaborator used to materialize `lowerModule lcMod` into
 exposed kernel `TFlatFn` definitions ordered strictly callees-first via post-order DFS topological
-sort, feeding `LeanLRC.tflatFnsToFns` + `LeanLRC.tflatFnsToFns_wf` and `compile_linked_chunks!`.
+sort, feeding `Frontend.C0.tflatFnsToFns` + `Frontend.C0.tflatFnsToFns_wf` and
+`compile_linked_chunks!`.
 
 The splice is *not trusted*: besides `<tfs>` (callees-first) the command emits
 * `<tfs>_raw : List TFlatFn`, the same `tf_i` constants in `lowerModule`'s own order,

@@ -24,7 +24,6 @@ globs = [
   "LeanQbe.T.Wasm.Hub",
   "LeanQbe.T.Frontend.C0.Hub",
   "LeanQbe.T.LeanLCNF.Hub",
-  "LeanQbe.T.LeanLRC.Hub",
   "LeanQbe.T.Examples.Hub",
 ]
 

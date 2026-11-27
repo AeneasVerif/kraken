@@ -2,8 +2,8 @@
 """Check and generate LeanQbe barrel and subsystem hub modules.
 
 Inspects tracked `.lean` files under `LeanQbe/` and validates or generates the
-20 pure re-export barrel/hub files (`LeanQbe.lean`, `LeanQbeAmd64.lean`,
-`LeanQbeArm64.lean`, `LeanQbeBootstrap0.lean`, and the 16 subsystem `*Hub.lean`
+19 pure re-export barrel/hub files (`LeanQbe.lean`, `LeanQbeAmd64.lean`,
+`LeanQbeArm64.lean`, `LeanQbeBootstrap0.lean`, and the 15 subsystem `*Hub.lean`
 files), respecting the exact arch-isolation partition from `lakefile.toml` and
 `scripts/check.sh`.
 
@@ -72,10 +72,6 @@ HUB_DOCSTRINGS: dict[str, str] = {
     ),
     "LeanQbe.T.LeanLCNF.Hub": (
         "/-! Subsystem hub re-exporting LeanLCNF frontend and coverage "
-        "modules. -/"
-    ),
-    "LeanQbe.T.LeanLRC.Hub": (
-        "/-! Subsystem hub re-exporting LeanLRC IR, runtime, and lowering "
         "modules. -/"
     ),
     "LeanQbe.T.Examples.Hub": (
@@ -249,8 +245,6 @@ def classify_module(mod: str) -> str | None:
         return "LeanQbe.T.Frontend.C0.Hub"
     if mod.startswith("LeanQbe.T.LeanLCNF."):
         return "LeanQbe.T.LeanLCNF.Hub"
-    if mod.startswith("LeanQbe.T.LeanLRC."):
-        return "LeanQbe.T.LeanLRC.Hub"
     if mod.startswith("LeanQbe.T.Examples.Kissat."):
         sub = mod[len("LeanQbe.T.Examples.Kissat.") :]
         if sub.startswith("FullFidelity"):
@@ -368,7 +362,7 @@ def render_hub(hub: str, imports: list[str]) -> str:
 
 
 def run_check(root: Path, strict: bool) -> int:
-    """Verify all 20 hub/barrel files against tracked modules and invariants."""
+    """Verify all 19 hub/barrel files against tracked modules and invariants."""
     errors = verify_lakefile(root)
     tracked = list_tracked_lean_modules(root)
     partitions, part_errors = build_partitions(tracked)
@@ -455,7 +449,7 @@ def run_check(root: Path, strict: bool) -> int:
 
 
 def run_write(root: Path) -> int:
-    """Regenerate all 20 hub/barrel files deterministically from tracked files."""
+    """Regenerate all 19 hub/barrel files deterministically from tracked files."""
     errors = verify_lakefile(root)
     tracked = list_tracked_lean_modules(root)
     partitions, part_errors = build_partitions(tracked)
