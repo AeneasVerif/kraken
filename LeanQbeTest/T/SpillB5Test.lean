@@ -653,12 +653,12 @@ meta def highPressureBlockFn : Fn :=
 
 /-! ## 12. Callee-saved `.call` eviction & `tryLoopBoundarySplit` profitability guards -/
 
--- `full_cong_work_step` emits `0` callee-saved `.call`-site `.st` moves across all calls;
--- in `full_bve_var`, `noArmX` emits `0` and `{}` emits only `ip=65` (`st 8 r14` flushed from
--- the enclosing `jnz 63` arm eviction).
+-- `full_cong_work_step` and `full_bve_var` emit `0` callee-saved `.call`-site `.st` moves
+-- across all calls (Wave-6.1 `OPT-1`/`OPT-3` eliminated the remaining `ip=65` eviction in
+-- `full_bve_var`).
 #guard congWorkCmp.csCallStIps.isEmpty
 #guard bveVarCmp.noArmXCsCallSts == 0
-#guard bveVarCmp.csCallStIps == [65]
+#guard bveVarCmp.csCallStIps.isEmpty
 #guard congWorkCmp.defMoves ≤ 130
 #guard bveVarCmp.defMoves ≤ 18
 #guard shrinkBlkCmp.defMoves ≤ 32
