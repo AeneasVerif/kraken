@@ -6,7 +6,7 @@ public import Lean.Compiler.IR.CompilerM
 public meta import Lean.Compiler.IR.CompilerM
 
 /-!
-# Trust-Pure `bv_decide_qbe` End-to-End Unit Tests (`S3d`)
+# Trust-Pure `bv_decide_qbe` End-to-End Unit Tests (`Step 2`)
 
 Verifies:
 1. Concrete UNSAT BitVec theorems proved directly via `by bv_decide_qbe` and `by bv_decide_qbe +uf`.
@@ -14,9 +14,10 @@ Verifies:
    `[propext, Classical.choice, Quot.sound, <thm>._leanqbe.bv_solve.ax_1]` (0 source axioms).
 3. `_expr_def` is added via `Lean.addDecl` ONLY (zero `compileDecl` IR entries).
 4. Pure kernel `Eq.refl` reduction (`BVProg.parseWords ws = some _expr_def`) `< 5 ms`.
-5. SAT counterexample decoding (`evalEfficient`-validated) and formatting via `bvDecideQbe'`.
-6. Injectable `SolveFn` tests: `2x` `.workTooSmall` retry escalation, real `solveDimacsBackend`
-   retry, corrupt SAT model rejection by `evalEfficient`, and `.unknown` / OOM error handling.
+5. SAT counterexample decoding (`evalEfficient`-validated) and formatting via `bvDecideQbe'` with
+   ZERO axioms added to the environment on SAT or intermediate `+uf` CEGAR probes.
+6. Real in-process `bv_solve_bytes` retry escalation (`initWorkOverride? := some 1024`), corrupt SAT
+   model rejection by `evalEfficient`, and `.unknown` (`fuel := 1`) / `.workTooSmall` error paths.
 -/
 
 set_option autoImplicit false
@@ -94,11 +95,16 @@ theorem thm_cegar_bool (p : BitVec 8 → Bool) (x y : BitVec 8)
     (h : x + 1#8 = y + 1#8) : p x = p y := by
   bv_decide_qbe +uf
 
+theorem thm_cegar_chain (f g : BitVec 8 → BitVec 8) (x y : BitVec 8)
+    (h : x ^^^ y = 0#8) : f (g x) = f (g y) := by
+  bv_decide_qbe +uf
+
 #print axioms thm_a1
 #print axioms thm_a2
 #print axioms thm_b4
 #print axioms thm_b5
 #print axioms thm_cegar_e1
+#print axioms thm_cegar_chain
 
 /-! ## 2. Programmatic MetaM / Kernel Verification Suite -/
 
@@ -109,6 +115,10 @@ private def stdAxioms : Array Name := #[``propext, ``Classical.choice, ``Quot.so
 
 private def resolveAuxName (env : Environment) (base : Name) : Name :=
   if env.contains base then base else mkPrivateName env base
+
+private def countBvSolveAxioms (env : Environment) : Nat :=
+  env.constants.fold (init := 0) fun acc name _ =>
+    if name.toString.contains "_leanqbe.bv_solve.ax" then acc + 1 else acc
 
 private def checkTheoremAxioms (thmName : Name) (expectPerGoalAx : Bool) : CoreM Unit := do
   let axs ← collectAxioms thmName
@@ -196,7 +206,7 @@ private def runAllCore : CoreM Unit := do
   -- 1. Audit axioms and non-compilation of _expr_def on reflected theorems
   for thm in [``thm_a1, ``thm_a2, ``thm_a3, ``thm_a5, ``thm_b1, ``thm_b2,
               ``thm_b4, ``thm_b5, ``thm_d6, ``thm_uint32, ``thm_cegar_e1,
-              ``thm_cegar_multi, ``thm_cegar_bool] do
+              ``thm_cegar_multi, ``thm_cegar_bool, ``thm_cegar_chain] do
     checkTheoremAxioms thm true
   checkTheoremAxioms ``thm_preproc_only false
 
@@ -205,7 +215,7 @@ private def runAllCore : CoreM Unit := do
   let reflectedNames : List Name :=
     [``thm_a1, ``thm_a2, ``thm_a3, ``thm_a5, ``thm_b1, ``thm_b2,
      ``thm_b4, ``thm_b5, ``thm_d6, ``thm_uint32, ``thm_cegar_e1,
-     ``thm_cegar_multi, ``thm_cegar_bool]
+     ``thm_cegar_multi, ``thm_cegar_bool, ``thm_cegar_chain]
   for (name, _) in env.constants do
     let s := name.toString
     if (s.startsWith "BvDecideQbe." || s.startsWith "BvDecideQbeTest.") &&
@@ -240,7 +250,7 @@ private def runAllCore : CoreM Unit := do
     let nsDag ← checkKernelEqReflTiming dagWs dag120
     assertTrue s!"kernel rfl dag120 took {nsDag / 1000000} ms (< 500 ms)" (nsDag < 500000000)
 
-    -- 4. UNSAT via bvDecideQbe' upfront work sizing (attempts == 1)
+    -- 4. UNSAT via bvDecideQbe' upfront work sizing (attempts == 1) & single axiom emission
     let bv32Ty := mkApp (mkConst ``BitVec) (mkNatLit 32)
     let propUnsat ← withLocalDeclD `x bv32Ty fun x =>
       withLocalDeclD `y bv32Ty fun y => do
@@ -253,7 +263,11 @@ private def runAllCore : CoreM Unit := do
         mkForallFVars #[x, y] (← mkEq lhs rhs)
     let cfgNoPre : Lean.Elab.Tactic.BVDecide.BVDecideConfig :=
       { embeddedConstraintSubst := false, andFlattening := false }
+    let axBeforeUnsat := countBvSolveAxioms (← getEnv)
     let resUnsat ← runMetaGoal propUnsat cfgNoPre
+    let axAfterUnsat := countBvSolveAxioms (← getEnv)
+    assertTrue "UNSAT commits exactly 1 _leanqbe.bv_solve.ax"
+      (axAfterUnsat == axBeforeUnsat + 1)
     match resUnsat with
     | .ok (.ok cres) =>
       match cres.proveResult? with
@@ -264,14 +278,16 @@ private def runAllCore : CoreM Unit := do
     | .ok (.error _) => throwError "unexpected counterexample on UNSAT goal"
     | .error err => throwError "unexpected error on UNSAT goal: {err}"
 
-    -- 5. SAT counterexample decoding & formatting (`x + 1#8 = 0#8` -> x = 255#8)
+    -- 5. SAT counterexample decoding & formatting (`x + 1#8 = 0#8` -> x = 255#8, 0 axioms emitted)
     let propSat ← mkTestBvForall 8 fun x => do
       let one := mkApp2 (mkConst ``BitVec.ofNat) (mkNatLit 8) (mkNatLit 1)
       let zero := mkApp2 (mkConst ``BitVec.ofNat) (mkNatLit 8) (mkNatLit 0)
       let sum ← mkAppM ``HAdd.hAdd #[x, one]
       pure (mkNot (← mkEq sum zero))
+    let axBeforeSat := countBvSolveAxioms (← getEnv)
     match ← runMetaGoal propSat with
     | .ok (.error cex) =>
+      assertTrue "SAT emits 0 axioms" (countBvSolveAxioms (← getEnv) == axBeforeSat)
       assertTrue "SAT counterexample has 1 equation" (cex.equations.size == 1)
       assertTrue "SAT counterexample value == 255#8" (cex.equations[0]!.2.bv.toNat == 255)
       let msg ← cex.goal.withContext do (← explainCounterExampleQuality cex).toString
@@ -280,39 +296,41 @@ private def runAllCore : CoreM Unit := do
     | .ok (.ok _) => throwError "expected SAT counterexample, got UNSAT"
     | .error err => throwError "unexpected error on SAT goal: {err}"
 
-    -- 6. UF SAT counterexample (`+uf` on `f x = f y`)
+    -- 6. UF SAT counterexample (`+uf` on `f x = f y`, 0 axioms emitted)
     let bv8Ty := mkApp (mkConst ``BitVec) (mkNatLit 8)
     let fnTy ← mkArrow bv8Ty bv8Ty
     let propUfSat ← withLocalDeclD `f fnTy fun f =>
       withLocalDeclD `x bv8Ty fun x =>
       withLocalDeclD `y bv8Ty fun y => do
         mkForallFVars #[f, x, y] (← mkEq (mkApp f x) (mkApp f y))
+    let axBeforeUfSat := countBvSolveAxioms (← getEnv)
     match ← runMetaGoal propUfSat { uf := true } with
     | .ok (.error cex) =>
+      assertTrue "UF SAT emits 0 axioms" (countBvSolveAxioms (← getEnv) == axBeforeUfSat)
       assertTrue "UF SAT counterexample has functionAtoms" (!cex.functionAtoms.isEmpty)
     | .ok (.ok _) => throwError "expected UF SAT counterexample, got UNSAT"
     | .error err => throwError "unexpected error on UF SAT goal: {err}"
 
-    -- 7. Injectable backend: 2x `.workTooSmall` retry escalation (1024 -> 16384 in 5 attempts)
-    let mockRetryCtx : QbeContext := {
-      initWorkOverride? := some 1024
-      maxWorkBytes := 65536
-      solveFn := fun _ work _ => if work < 16384 then .workTooSmall else .unsat
-    }
-    match ← runMetaGoal propUnsat cfgNoPre mockRetryCtx with
+    -- 7. UF UNSAT multi-round CEGAR (`+uf` single-solve emits exactly 1 axiom)
+    let propUfUnsat ← withLocalDeclD `f fnTy fun f =>
+      withLocalDeclD `g fnTy fun g =>
+      withLocalDeclD `x bv8Ty fun x =>
+      withLocalDeclD `y bv8Ty fun y => do
+        let h ← mkEq x y
+        let concl ← mkEq (mkApp f (mkApp g x)) (mkApp f (mkApp g y))
+        mkForallFVars #[f, g, x, y] (← mkArrow h concl)
+    let axBeforeUfUnsat := countBvSolveAxioms (← getEnv)
+    match ← runMetaGoal propUfUnsat { uf := true, embeddedConstraintSubst := false } with
     | .ok (.ok cres) =>
-      match cres.proveResult? with
-      | some pr =>
-        assertTrue s!"mock retry attempts == 5 (got {pr.attempts})" (pr.attempts == 5)
-        assertTrue s!"mock retry work == 16384 (got {pr.workBytesUsed})"
-          (pr.workBytesUsed == 16384)
-      | none => throwError "expected proveResult?"
-    | other => throwError "mock retry failed: {repr (other.map (fun _ => ()))}"
+      assertTrue "UF UNSAT emits exactly 1 axiom (single-solve)"
+        (countBvSolveAxioms (← getEnv) == axBeforeUfUnsat + 1)
+      assertTrue "UF UNSAT has proveResult?" cres.proveResult?.isSome
+    | .ok (.error _) => throwError "unexpected counterexample on UF UNSAT goal"
+    | .error err => throwError "unexpected error on UF UNSAT goal: {err}"
 
-    -- 8. Real `solveDimacsBackend` retry fallback from 1024 B
+    -- 8. Real `bv_solve_bytes` 2x `.workTooSmall` retry escalation from 1024 B
     let realRetryCtx : QbeContext := {
       initWorkOverride? := some 1024
-      solveFn := solveDimacsBackend
     }
     match ← runMetaGoal propUnsat cfgNoPre realRetryCtx with
     | .ok (.ok cres) =>
@@ -320,27 +338,28 @@ private def runAllCore : CoreM Unit := do
       | some pr =>
         assertTrue s!"real retry attempts > 1 (got {pr.attempts})" (pr.attempts > 1)
       | none => throwError "expected proveResult?"
-    | _ => throwError "real solveDimacsBackend retry failed"
+    | _ => throwError "real bv_solve_bytes retry failed"
 
     -- 9. Corrupt SAT model rejected by `evalEfficient`
-    let badSatCtx : QbeContext := {
-      solveFn := fun _ _ _ => .sat (ByteArray.mk #[0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
-    }
-    match ← runMetaGoal propSat {} badSatCtx with
+    let badSatExpr : BVLogicalExpr :=
+      .literal (.bin (.bin (.var 0 : BVExpr 8) .add (.const 1#8)) .eq (.const 0#8))
+    let some badEnc := BvDecideQbe.encode badSatExpr
+      | throwError "encode badSatExpr failed"
+    let badModel := ByteArray.mk #[0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    match reconstructValidatedCounterExample badSatExpr badEnc badModel {} with
     | .error msg =>
       assertTrue s!"evalEfficient rejection message: {msg}" (msg.contains "evalEfficient")
     | .ok _ => throwError "corrupt SAT model was not rejected"
 
-    -- 10. `.unknown` and `.workTooSmall` error paths
-    match ← runMetaGoal propUnsat cfgNoPre { solveFn := fun _ _ _ => .unknown } with
+    -- 10. Real `bv_solve_bytes` `.unknown` (`fuel := 1`) and `.workTooSmall` (`4096 B`)
+    match ← runMetaGoal propUnsat cfgNoPre { fuel := 1 } with
     | .error msg =>
       assertTrue s!"unknown message: {msg}" (msg.contains "unknown")
-    | .ok _ => throwError ".unknown should fail"
+    | .ok _ => throwError "fuel=1 should fail with unknown"
 
     let oomCtx : QbeContext := {
       initWorkOverride? := some 1024
       maxWorkBytes := 4096
-      solveFn := fun _ _ _ => .workTooSmall
     }
     match ← runMetaGoal propUnsat cfgNoPre oomCtx with
     | .error msg =>
@@ -348,7 +367,7 @@ private def runAllCore : CoreM Unit := do
     | .ok _ => throwError "exhausted workspace should fail"
 
   IO.println
-    "UnitTest: ALL PASSED (theorems, +uf CEGAR, axioms, rfl <5ms, CEX, retry, evalEfficient)"
+    "UnitTest: ALL PASSED (+uf CEGAR single-solve, axioms, rfl <5ms, CEX, real retry, evalEff)"
 
 def runAll : IO Unit := do
   let opts : Options := {}
