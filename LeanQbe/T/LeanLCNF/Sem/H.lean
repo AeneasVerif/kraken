@@ -85,14 +85,14 @@ open Std.ExtHashMap
   | .uproj i x =>
     match ρ.getBV64? x with
     | some addr =>
-      ∃ o ∈ σ.objs, o.addr = addr ∧ o.tag ≤ 244 ∧ o.fields.length ≤ i ∧
+      ∃ o ∈ σ.objs, o.addr = addr ∧ o.Wf ∧ o.tag ≤ 244 ∧ o.fields.length ≤ i ∧
         let bOff := 8 * (i - o.fields.length)
         bOff + 8 ≤ o.scalarData.length ∧ K (Word.i64 (readBitsLE 64 o.scalarData bOff)) σ
     | none => False
   | .sproj n off x =>
     match ρ.getBV64? x with
     | some addr =>
-      ∃ o ∈ σ.objs, o.addr = addr ∧ o.tag ≤ 244 ∧ o.fields.length ≤ n ∧
+      ∃ o ∈ σ.objs, o.addr = addr ∧ o.Wf ∧ o.tag ≤ 244 ∧ o.fields.length ≤ n ∧
         let bOff := 8 * (n - o.fields.length) + off
         bOff + ty.toTTy.bytes ≤ o.scalarData.length ∧
         K ⟨ty.toTTy, readBitsLE ty.width o.scalarData bOff⟩ σ
@@ -166,8 +166,8 @@ open Std.ExtHashMap
     | some addr =>
       match ty with
       | .uint64 | .usize | .float =>
-        ∃ o ∈ σ.objs, o.addr = addr ∧ o.tag = 0 ∧ o.fields = [] ∧ 8 ≤ o.scalarData.length ∧
-          K (Word.i64 (readBitsLE 64 o.scalarData 0)) σ
+        ∃ o ∈ σ.objs, o.addr = addr ∧ o.Wf ∧ o.tag = 0 ∧ o.fields = [] ∧
+          8 ≤ o.scalarData.length ∧ K (Word.i64 (readBitsLE 64 o.scalarData 0)) σ
       | _ => K ⟨ty.toTTy, (addr >>> 1).setWidth ty.width⟩ σ
     | none => False
   | .isShared x =>
@@ -250,7 +250,7 @@ mutual
       else
         ∃ (idx : Nat) (hidx : idx < σ.objs.length),
           let o := σ.objs[idx]'hidx
-          o.addr = addr ∧ (0 < o.rc.toInt → o.rc.toNat + n < 2 ^ 31 - 1) ∧
+          o.addr = addr ∧ o.Wf ∧ (0 < o.rc.toInt → o.rc.toNat + n < 2 ^ 31 - 1) ∧
           let rc' := if 0 < o.rc.toInt then o.rc + BitVec.ofNat 32 n else o.rc
           HWp Δ rt retTy J ρ Q X k { σ with objs := σ.objs.set idx (o.withRc rc') }
     | none => False
@@ -409,14 +409,16 @@ theorem HVal.wp_conseq {Δ₁ Δ₂ : HEnv} {rt : BitVec 64} {ρ : HValEnv} {ty 
     | none => simp [hx] at h
     | some _ =>
       simp only [hx] at h ⊢
-      rcases h with ⟨o, hm, ha, ht, hle, hsz, hk⟩; exact ⟨o, hm, ha, ht, hle, hsz, hK _ _ hk⟩
+      rcases h with ⟨o, hm, ha, hwf, ht, hle, hsz, hk⟩
+      exact ⟨o, hm, ha, hwf, ht, hle, hsz, hK _ _ hk⟩
   | sproj n off x =>
     dsimp only [HVal.wp] at h ⊢
     cases hx : ρ.getBV64? x with
     | none => simp [hx] at h
     | some _ =>
       simp only [hx] at h ⊢
-      rcases h with ⟨o, hm, ha, ht, hle, hsz, hk⟩; exact ⟨o, hm, ha, ht, hle, hsz, hK _ _ hk⟩
+      rcases h with ⟨o, hm, ha, hwf, ht, hle, hsz, hk⟩
+      exact ⟨o, hm, ha, hwf, ht, hle, hsz, hK _ _ hk⟩
   | fap f as =>
     dsimp only [HVal.wp] at h ⊢
     cases has : ρ.evalArgsOwn as with
@@ -487,8 +489,8 @@ theorem HVal.wp_conseq {Δ₁ Δ₂ : HEnv} {rt : BitVec 64} {ρ : HValEnv} {ty 
       all_goals
         first
           | exact hK _ _ h
-          | (rcases h with ⟨o, hm, h1, h2, h3, h4, hk⟩;
-             exact ⟨o, hm, h1, h2, h3, h4, hK _ _ hk⟩)
+          | (rcases h with ⟨o, hm, h1, hwf, h2, h3, h4, hk⟩;
+             exact ⟨o, hm, h1, hwf, h2, h3, h4, hK _ _ hk⟩)
   | isShared x =>
     dsimp only [HVal.wp] at h ⊢
     cases hx : ρ.getBV64? x with
@@ -577,8 +579,8 @@ theorem HWp_conseq {Δ₁ Δ₂ : HEnv} {rt : BitVec 64} {retTy : LcTy}
         by_cases hsc : (addr &&& 1#64) ≠ 0#64
         · rw [ite_eq_left hsc] at h ⊢; exact ⟨h.1, h.2.1, HWp_conseq hΔ hQ hX k hJ ρ σ h.2.2⟩
         · rw [ite_eq_right hsc] at h ⊢
-          rcases h with ⟨idx, hidx, h1, h2, hk⟩
-          exact ⟨idx, hidx, h1, h2, HWp_conseq hΔ hQ hX k hJ ρ _ hk⟩
+          rcases h with ⟨idx, hidx, h1, hwf, h2, hk⟩
+          exact ⟨idx, hidx, h1, hwf, h2, HWp_conseq hΔ hQ hX k hJ ρ _ hk⟩
   | .dec x n chk k, _, _, hJ, ρ, σ, h => by
     dsimp only [HWp] at h ⊢
     cases hx : ρ.getTypedBV64? x with

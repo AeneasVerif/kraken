@@ -121,17 +121,9 @@ public theorem demoNatStr_addNat_hwp (Δ : HEnv) (rt : BitVec 64)
     scrLimbs := List.replicate 32 0#64 }
 
 public theorem scalarInitState_inv : HInv scalarRtBase scalarInitState := by
-  refine ⟨?_, ?_, ?_, ?_, ?_⟩
-  · refine ⟨?_, by decide, by decide, by decide, by decide, by decide⟩
-    unfold RtC0State.Bounded48
-    decide
-  · intro _ ho
-    cases ho
-  · intro _ ho
-    cases ho
-  · decide
-  · intro _ ho
-    cases ho
+  refine ⟨?_, by decide, by decide, by decide, by decide, by decide⟩
+  unfold RtC0State.Bounded48
+  decide
 
 public theorem demoNatStr_addNat_scalar_hwp :
     HWp HEnv.bot scalarRtBase addNatDecl.retTy HJEnv.empty
@@ -191,32 +183,9 @@ public theorem nvHState_mem : nvHState.mem nvBnRtBase nvBnMem := by
   exact nvBnMem_ok
 
 public theorem nvHState_inv : HInv nvBnRtBase nvHState := by
-  refine ⟨⟨?_, by decide, by decide, by decide, by decide, by decide⟩,
-    ?_, ?_, by decide, ?_⟩
-  · unfold RtC0State.Bounded48
-    decide
-  · intro o ho
-    simp only [nvHState, nvBnObjs, List.mem_map, List.mem_cons,
-      List.not_mem_nil, or_false] at ho
-    rcases ho with ⟨bo, rfl | rfl | rfl | rfl, rfl⟩ <;>
-      · refine ⟨by decide, by decide, by decide, by decide, by decide,
-          by decide, by decide, by decide, by decide, ?_⟩
-        simp [bnObjToRtR0, nvBnNatA, nvBnNatB, nvBnIntNegA, nvBnIntPosB,
-          closureTag, arrayTag, sarrayTag, stringTag, mpzTag]
-        decide
-  · intro o ho src hsrc
-    simp only [nvHState, nvBnObjs, List.mem_map, List.mem_cons,
-      List.not_mem_nil, or_false] at ho
-    rcases ho with ⟨bo, rfl | rfl | rfl | rfl, rfl⟩ <;>
-      · simp only [LcnfObj.childFields, bnObjToRtR0, nvBnNatA, nvBnNatB,
-          nvBnIntNegA, nvBnIntPosB] at hsrc
-        by_cases hc : BigNumRt.mpzTag ≤ 244 ∨ BigNumRt.mpzTag = closureTag ∨
-            BigNumRt.mpzTag = arrayTag <;>
-          simp [hc] at hsrc
-  · intro o ho
-    simp only [nvHState, nvBnObjs, List.mem_map, List.mem_cons,
-      List.not_mem_nil, or_false] at ho
-    rcases ho with ⟨bo, rfl | rfl | rfl | rfl, rfl⟩ <;> decide
+  refine ⟨?_, by decide, by decide, by decide, by decide, by decide⟩
+  unfold RtC0State.Bounded48
+  decide
 
 private theorem nvBnNatA_rep :
     natRepR0 nvBnAddrNatA nvValNatA nvHState.objs := by

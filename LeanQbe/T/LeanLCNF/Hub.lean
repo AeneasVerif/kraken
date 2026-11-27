@@ -70,6 +70,22 @@ public import LeanQbe.T.LeanLCNF.Lower1
 public import LeanQbe.T.LeanLCNF.Sem.H
 public import LeanQbe.T.LeanLCNF.Sem.HBase
 public import LeanQbe.T.LeanLCNF.Sem.HPrim
+public import LeanQbe.T.LeanLCNF.Sem.LowerSound0
+public import LeanQbe.T.LeanLCNF.Sem.LowerSound0Bridge
+public import LeanQbe.T.LeanLCNF.Sem.LowerSound1
+public import LeanQbe.T.LeanLCNF.Sem.LowerSound1b
+public import LeanQbe.T.LeanLCNF.Sem.LowerSound1c
+public import LeanQbe.T.LeanLCNF.Sem.LowerSound2
+public import LeanQbe.T.LeanLCNF.Sem.LowerSound2NatHelpers
+public import LeanQbe.T.LeanLCNF.Sem.LowerSound2a
+public import LeanQbe.T.LeanLCNF.Sem.LowerSound2b
+public import LeanQbe.T.LeanLCNF.Sem.LowerSound2c
+public import LeanQbe.T.LeanLCNF.Sem.LowerSound2d
+public import LeanQbe.T.LeanLCNF.Sem.LowerSound3
+public import LeanQbe.T.LeanLCNF.Sem.LowerSound3Cases
+public import LeanQbe.T.LeanLCNF.Sem.LowerSound3a
+public import LeanQbe.T.LeanLCNF.Sem.LowerSound3b
+public import LeanQbe.T.LeanLCNF.Sem.LowerSound4
 public import LeanQbe.T.LeanLCNF.Sem.SpecNorm
 public import LeanQbe.T.LeanLCNF.Sem.SpecNormProof
 

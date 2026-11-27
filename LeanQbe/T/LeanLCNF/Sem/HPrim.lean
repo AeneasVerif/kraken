@@ -103,7 +103,7 @@ open LeanQbe.T.LeanLCNF
 
 /-- WP of `lcnf_nat_to_str(rt, n)` (`Nat.reprFast`) over `HState`. -/
 @[expose] def HNatReprFastWp (n : BitVec 64) (K : HPost) (X : HXPost) (σ : HState) : Prop :=
-  ∃ val, NatInHeap n val σ.objs ∧
+  ∃ val, NatInHeap n val σ.objs ∧ (∀ o ∈ σ.objs, o.Wf) ∧
     let dec := natToDecimalBytes val
     if (n &&& 1#64) ≠ 0#64 then
       canAllocBytesR0 σ.st (strAllocBytes (dec.length + 1)) ∧
@@ -256,6 +256,7 @@ open LeanQbe.T.LeanLCNF
 @[expose] def HStringAppendWp (s1 s2 : BitVec 64) (K : HPost) (X : HXPost) (σ : HState) : Prop :=
   ∃ s1Obj ∈ σ.objs, s1Obj.addr = s1 ∧ StrCanon s1Obj ∧
     ∃ s2Obj ∈ σ.objs, s2Obj.addr = s2 ∧ StrCanon s2Obj ∧
+      (∀ o ∈ σ.objs, o.Wf) ∧
       let p1 := strPayload s1Obj
       let p2 := strPayload s2Obj
       if p2.length = 0 then K (Word.i64 s1) σ
@@ -292,7 +293,7 @@ open LeanQbe.T.LeanLCNF
     | some s => ∃ sObj ∈ σ.objs, sObj.addr = s ∧ StrCanon sObj ∧
         K (Word.i64 ((BitVec.ofNat 64 (sObj.arrSize - 1) <<< 1) ||| 1#64)) σ
     | none => False
-  | ["propagateMark"], [_, w] => K w σ
+  | ["propagateMark"], [_, w] => w.1 = i64 ∧ K w σ
   | ["append"], [w1, w2] | ["Internal", "append"], [w1, w2] =>
     match w1.toBV64?, w2.toBV64? with
     | some s1, some s2 => HStringAppendWp s1 s2 K X σ
@@ -320,6 +321,7 @@ open LeanQbe.T.LeanLCNF
   ∃ (k : Nat) (hk : k < σ.objs.length),
     let arrObj := σ.objs[k]'hk
     arrObj.addr = arr ∧ ArrCanon arrObj ∧ arrObj.addr ∉ arrObj.fields ∧
+    (∀ o ∈ σ.objs, o.Wf) ∧ lcnfHeapClosed σ.objs ∧
     let iNat := if (idx &&& 1#64) ≠ 0#64 then (idx >>> 1).toNat else arrObj.fields.length
     if hlt : iNat < arrObj.fields.length then
       let old := arrObj.fields[iNat]'hlt
@@ -365,7 +367,7 @@ open LeanQbe.T.LeanLCNF
     | some arr => ∃ arrObj ∈ σ.objs, arrObj.addr = arr ∧ ArrCanon arrObj ∧
         K (Word.i64 (BitVec.ofNat 64 arrObj.fields.length)) σ
     | none => False
-  | "propagateMark", [_, _, _, ys] => K ys σ
+  | "propagateMark", [_, _, _, ys] => ys.1 = i64 ∧ K ys σ
   | "empty", [_] =>
     canAllocBytesR0 σ.st (arrAllocBytes 0) ∧
     ∀ p st', p ≠ 0#64 → p.toNat % 8 = 0 → st'.PreservesMeta σ.st → st'.rem ≤ σ.st.rem →
@@ -388,7 +390,7 @@ open LeanQbe.T.LeanLCNF
       ∃ (k : Nat) (hk : k < σ.objs.length),
         let arrObj := σ.objs[k]'hk
         let childObjs := σ.objs.eraseIdx k
-        arrObj.addr = arr ∧ ArrCanon arrObj ∧
+        arrObj.addr = arr ∧ ArrCanon arrObj ∧ (∀ y ∈ childObjs, y.Wf) ∧
         (arrObj.rc ≠ 1#32 →
           (∀ f ∈ arrObj.fields, (f &&& 1#64) = 0#64 → ∃ y ∈ childObjs, y.addr = f) ∧
           (∀ y ∈ childObjs, 0 < y.rc.toInt →
@@ -413,7 +415,7 @@ open LeanQbe.T.LeanLCNF
   | "get!Internal", [_, wdv, wa, wi] =>
     match wdv.toBV64?, wa.toBV64?, wi.toBV64? with
     | some dv, some arr, some idx =>
-      ∃ arrObj ∈ σ.objs, arrObj.addr = arr ∧ ArrCanon arrObj ∧
+      ∃ arrObj ∈ σ.objs, arrObj.addr = arr ∧ ArrCanon arrObj ∧ (∀ o ∈ σ.objs, o.Wf) ∧
         let ret :=
           if (idx &&& 1#64) ≠ 0#64 then
             if h : (idx >>> 1).toNat < arrObj.fields.length then arrObj.fields[(idx >>> 1).toNat]
@@ -428,7 +430,7 @@ open LeanQbe.T.LeanLCNF
   | "get!InternalBorrowed", [_, wdv, wa, wi] =>
     match wdv.toBV64?, wa.toBV64?, wi.toBV64? with
     | some dv, some arr, some idx =>
-      ∃ arrObj ∈ σ.objs, arrObj.addr = arr ∧ ArrCanon arrObj ∧
+      ∃ arrObj ∈ σ.objs, arrObj.addr = arr ∧ ArrCanon arrObj ∧ (∀ o ∈ σ.objs, o.Wf) ∧
         let ret :=
           if (idx &&& 1#64) ≠ 0#64 then
             if h : (idx >>> 1).toNat < arrObj.fields.length then arrObj.fields[(idx >>> 1).toNat]
@@ -456,7 +458,7 @@ open LeanQbe.T.LeanLCNF
     | some ba => ∃ baObj ∈ σ.objs, baObj.addr = ba ∧ BaCanon baObj ∧
         K (Word.i64 (BitVec.ofNat 64 baObj.arrSize)) σ
     | none => False
-  | "propagateMark", [_, b] => K b σ
+  | "propagateMark", [_, b] => b.1 = i64 ∧ K b σ
   | "get!", [wba, wi] | "get", [wba, wi, _] =>
     match wba.toBV64?, wi.toBV64? with
     | some ba, some idx => ∃ baObj ∈ σ.objs, baObj.addr = ba ∧ BaCanon baObj ∧
@@ -499,7 +501,7 @@ open LeanQbe.T.LeanLCNF
     match wx?.bind Word.toBV64? with
     | some x =>
       if (x &&& 1#64) ≠ 0#64 then K (Word.i64 x) σ
-      else ∃ o ∈ σ.objs, o.addr = x ∧
+      else ∃ o ∈ σ.objs, o.addr = x ∧ o.Wf ∧
         K (Word.i64 ((BitVec.ofNat 64 o.tag <<< 1) ||| 1#64)) σ
     | none => False
   | ["outOfBounds", "_redArg"] =>
@@ -529,8 +531,8 @@ private theorem HNatBitsSlowWp_mono {rt : BitVec 64} {op : Nat} {a b : BitVec 64
 private theorem HNatReprFastWp_mono {n : BitVec 64} {K₁ K₂ : HPost} {X₁ X₂ : HXPost}
     (hK : ∀ r σ, K₁ r σ → K₂ r σ) (hX : ∀ c σ, X₁ c σ → X₂ c σ) {σ : HState}
     (h : HNatReprFastWp n K₁ X₁ σ) : HNatReprFastWp n K₂ X₂ σ := by
-  rcases h with ⟨val, hnih, hrest⟩
-  refine ⟨val, hnih, ?_⟩
+  rcases h with ⟨val, hnih, hwf, hrest⟩
+  refine ⟨val, hnih, hwf, ?_⟩
   dsimp only at hrest ⊢
   by_cases hsc : (n &&& 1#64) ≠ 0#64
   · rw [ite_eq_left hsc] at hrest ⊢
@@ -710,8 +712,8 @@ private theorem HUintPrimWp_mono {rt : BitVec 64} {w : Nat} {op : String} {as : 
 private theorem HStringAppendWp_mono {s1 s2 : BitVec 64} {K₁ K₂ : HPost} {X₁ X₂ : HXPost}
     (hK : ∀ r σ, K₁ r σ → K₂ r σ) (hX : ∀ c σ, X₁ c σ → X₂ c σ) {σ : HState}
     (h : HStringAppendWp s1 s2 K₁ X₁ σ) : HStringAppendWp s1 s2 K₂ X₂ σ := by
-  rcases h with ⟨o1, hm1, ha1, hc1, o2, hm2, ha2, hc2, hrest⟩
-  refine ⟨o1, hm1, ha1, hc1, o2, hm2, ha2, hc2, ?_⟩
+  rcases h with ⟨o1, hm1, ha1, hc1, o2, hm2, ha2, hc2, hwf, hrest⟩
+  refine ⟨o1, hm1, ha1, hc1, o2, hm2, ha2, hc2, hwf, ?_⟩
   dsimp only at hrest ⊢
   by_cases h0 : (strPayload o2).length = 0
   · rw [ite_eq_left h0] at hrest ⊢; exact hK _ _ hrest
@@ -754,7 +756,7 @@ private theorem HStringPrimWp_mono {parts : List String} {as : List Word}
         | cons _ rest => cases rest with
           | nil => exact False.elim h
           | cons _ tail => cases tail with
-            | nil => exact hK _ _ h
+            | nil => exact ⟨h.1, hK _ _ h.2⟩
             | cons _ _ => exact False.elim h
       · by_cases h4 : parts = ["append"] ∨ parts = ["Internal", "append"]
         · rcases h4 with rfl | rfl <;> (
@@ -816,8 +818,8 @@ private theorem HStringPrimWp_mono {parts : List String} {as : List Word}
 private theorem HArraySetWp_mono {arr idx v : BitVec 64} {K₁ K₂ : HPost}
     (hK : ∀ r σ, K₁ r σ → K₂ r σ) {σ : HState}
     (h : HArraySetWp arr idx v K₁ σ) : HArraySetWp arr idx v K₂ σ := by
-  rcases h with ⟨k, hk, a1, a2, a3, hif⟩
-  refine ⟨k, hk, a1, a2, a3, ?_⟩
+  rcases h with ⟨k, hk, a1, a2, a3, hwf, hcl, hif⟩
+  refine ⟨k, hk, a1, a2, a3, hwf, hcl, ?_⟩
   dsimp only at hif ⊢
   by_cases hlt :
       (if (idx &&& 1#64) ≠ 0#64 then (idx >>> 1).toNat else (σ.objs[k]'hk).fields.length) <
@@ -857,7 +859,7 @@ private theorem HArrayPrimWp_mono {op : String} {as : List Word}
           | cons _ r3 => cases r3 with
             | nil => exact False.elim h
             | cons _ tail => cases tail with
-              | nil => exact hK _ _ h
+              | nil => exact ⟨h.1, hK _ _ h.2⟩
               | cons _ _ => exact False.elim h
     · by_cases h3 : op = "empty"
       · subst h3; cases as with
@@ -897,8 +899,8 @@ private theorem HArrayPrimWp_mono {op : String} {as : List Word}
                       | none => simp [ha, hv] at h
                       | some _ =>
                         simp only [ha, hv] at h ⊢
-                        rcases h with ⟨k, hk, a1, a2, a3, hif⟩
-                        refine ⟨k, hk, a1, a2, a3, ?_⟩
+                        rcases h with ⟨k, hk, a1, a2, hwf, a3, hif⟩
+                        refine ⟨k, hk, a1, a2, hwf, a3, ?_⟩
                         by_cases hcap : (σ.objs[k]'hk).cap ≤ (σ.objs[k]'hk).fields.length ∧
                             arrMaxCap ≤ (σ.objs[k]'hk).cap
                         · rw [ite_eq_left hcap] at hif ⊢; exact hX _ _ hif
@@ -926,10 +928,10 @@ private theorem HArrayPrimWp_mono {op : String} {as : List Word}
                               | some _ =>
                                 simp only [hdv, ha, hi] at h ⊢
                                 first
-                                  | (rcases h with ⟨o, hm, ha', hc, hpre, hk⟩;
-                                     exact ⟨o, hm, ha', hc, hpre, hK _ _ hk⟩)
-                                  | (rcases h with ⟨o, hm, ha', hc, hk⟩;
-                                     exact ⟨o, hm, ha', hc, hK _ _ hk⟩))
+                                  | (rcases h with ⟨o, hm, ha', hc, hwf, hpre, hk⟩;
+                                     exact ⟨o, hm, ha', hc, hwf, hpre, hK _ _ hk⟩)
+                                  | (rcases h with ⟨o, hm, ha', hc, hwf, hk⟩;
+                                     exact ⟨o, hm, ha', hc, hwf, hK _ _ hk⟩))
             · by_cases h7 : op = "set!" ∨ op = "set"
               · rcases h7 with rfl | rfl <;> (
                   cases as with
@@ -989,7 +991,7 @@ private theorem HByteArrayPrimWp_mono {op : String} {as : List Word}
       | cons _ rest => cases rest with
         | nil => exact False.elim h
         | cons _ tail => cases tail with
-          | nil => exact hK _ _ h
+          | nil => exact ⟨h.1, hK _ _ h.2⟩
           | cons _ _ => exact False.elim h
     · by_cases h3 : op = "get!" ∨ op = "get"
       · rcases h3 with rfl | rfl <;> (
@@ -1063,13 +1065,13 @@ theorem HPrim.wp_mono {rt : BitVec 64} {name : String} {as : List Word}
         (match w.toBV64? with
          | some x =>
            if (x &&& 1#64) ≠ 0#64 then K₁ (Word.i64 x) σ
-           else ∃ o ∈ σ.objs, o.addr = x ∧
+           else ∃ o ∈ σ.objs, o.addr = x ∧ o.Wf ∧
              K₁ (Word.i64 ((BitVec.ofNat 64 o.tag <<< 1) ||| 1#64)) σ
          | none => False) →
         (match w.toBV64? with
          | some x =>
            if (x &&& 1#64) ≠ 0#64 then K₂ (Word.i64 x) σ
-           else ∃ o ∈ σ.objs, o.addr = x ∧
+           else ∃ o ∈ σ.objs, o.addr = x ∧ o.Wf ∧
              K₂ (Word.i64 ((BitVec.ofNat 64 o.tag <<< 1) ||| 1#64)) σ
          | none => False) := by
       intro w h'
@@ -1080,7 +1082,7 @@ theorem HPrim.wp_mono {rt : BitVec 64} {name : String} {as : List Word}
         by_cases hsc : (x &&& 1#64) ≠ 0#64
         · rw [ite_eq_left hsc] at h' ⊢; exact hK _ _ h'
         · rw [ite_eq_right hsc] at h' ⊢
-          rcases h' with ⟨o, hm, ha, hk⟩; exact ⟨o, hm, ha, hK _ _ hk⟩
+          rcases h' with ⟨o, hm, ha, hwf, hk⟩; exact ⟨o, hm, ha, hwf, hK _ _ hk⟩
     cases as with
     | nil => simp at h
     | cons a tail => cases tail with
