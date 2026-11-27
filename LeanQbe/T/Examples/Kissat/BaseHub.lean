@@ -238,6 +238,9 @@ public import LeanQbe.T.Examples.Kissat.Proof.Backtrack.WitnessLemmas
 public import LeanQbe.T.Examples.Kissat.Proof.Backtrack.Wp0
 public import LeanQbe.T.Examples.Kissat.Proof.Backtrack.Wp1
 public import LeanQbe.T.Examples.Kissat.Proof.Backtrack.Wp2
+public import LeanQbe.T.Examples.Kissat.Proof.Config.Cert
+public import LeanQbe.T.Examples.Kissat.Proof.Config.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Config.Wp
 public import LeanQbe.T.Examples.Kissat.Proof.Dimacs.Cert
 public import LeanQbe.T.Examples.Kissat.Proof.Dimacs.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Dimacs.Wp0
