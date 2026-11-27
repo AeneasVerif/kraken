@@ -45,7 +45,7 @@ compile_linked_budget_scc! treeDemoArm64ProgCert armTarget armLayout armLegalTar
   treeDemoBudgetMod 1 (maxBound := treeDemoExportBound)
   (exportBounds := treeDemoExportBounds)
   (ext := rtC0CoreArm64AllExt) (extSigs := rtC0CoreMod.fns.map Fn.sig)
-  (exits := rtExitSyms) (nX := 64)
+  (exits := rtExitSyms) (nX := 64) (flat := true)
 
 /-- Lift of the `86`-function acyclic runtime `rtC0CoreArm64Cert` into `LinkedCertScc`. -/
 @[expose] noncomputable def treeDemoRtSccCertArm64 :

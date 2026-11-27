@@ -83,6 +83,8 @@ private partial def decodeTy (e : Lean.Expr) : Option Ty :=
       Ty.pair <$> decodeTy (e.getArg! 0) <*> decodeTy (e.getArg! 1)
     else if e.isAppOfArity ``LeanQbe.T.Ty.vec 2 then
       Ty.vec <$> decodeNat (e.getArg! 0) <*> decodeTy (e.getArg! 1)
+    else if e.isAppOfArity ``LeanQbe.T.Ty.mask 1 then
+      Ty.mask <$> decodeTy (e.getArg! 0)
     else none
 
 private def decodeList {α : Type} (elem : Lean.Expr → Option α) (e0 : Lean.Expr) :
@@ -305,6 +307,15 @@ private def c0TFlatFnToFnName : Name := `LeanQbe.T.Frontend.C0.TFlatFn.toFn
 private def c0TFlatFnToCoreName : Name := `LeanQbe.T.Frontend.C0.TFlatFn.toCoreFlat
 private def lrcTFlatFnsToFnsName : Name := `LeanQbe.T.LeanLRC.tflatFnsToFns
 private def lcnfProgModName : Name := `LeanQbe.T.LeanLCNF.lcnfProgMod
+private def budgetModuleNm : Name := `LeanQbe.T.BudgetModule
+private def budgetModuleMkName : Name := `LeanQbe.T.BudgetModule.mk
+private def budgetModuleFnsName : Name := `LeanQbe.T.BudgetModule.fns
+private def budgetFnNm : Name := `LeanQbe.T.BudgetFn
+private def budgetFnMkName : Name := `LeanQbe.T.BudgetFn.mk
+private def budgetFnToFnName : Name := `LeanQbe.T.BudgetFn.toFn
+private def flatBudgetFnNm : Name := `LeanQbe.T.FlatBudgetFn
+private def flatBudgetFnMkName : Name := `LeanQbe.T.FlatBudgetFn.mk
+private def flatBudgetFnToBudgetFnName : Name := `LeanQbe.T.FlatBudgetFn.toBudgetFn
 
 private def findConstVal? (nm : Name) : OptionT MetaM Lean.Expr := do
   let some ci := (← getEnv).find? nm | failure
@@ -319,20 +330,20 @@ private partial def unfoldConstValue (e0 : Lean.Expr) : MetaM Lean.Expr := do
         return ← unfoldConstValue v
   return e
 
-private partial def resolveModuleFns (modE : Lean.Expr) (fuel : Nat := 16) :
-    OptionT MetaM Lean.Expr := do
+private partial def resolveModFnsField (mkNm : Name) (allowLcnf : Bool)
+    (modE : Lean.Expr) (fuel : Nat := 16) : OptionT MetaM Lean.Expr := do
   match fuel with
   | 0 => failure
   | fuel' + 1 =>
     let m := modE.consumeMData
-    if m.isAppOfArity ``LeanQbe.T.Module.mk 3 then return m.getArg! 0
-    else if m.isAppOfArity lcnfProgModName 1 then
+    if m.isAppOfArity mkNm 3 then return m.getArg! 0
+    else if allowLcnf && m.isAppOfArity lcnfProgModName 1 then
       return mkApp (Lean.mkConst lrcTFlatFnsToFnsName) (m.getArg! 0)
     else if let .const nm [] := m then
-      resolveModuleFns (← findConstVal? nm) fuel'
+      resolveModFnsField mkNm allowLcnf (← findConstVal? nm) fuel'
     else if let .const nm [] := m.getAppFn.consumeMData then
       let v ← findConstVal? nm
-      if v.isLambda then resolveModuleFns (v.beta m.getAppArgs) fuel'
+      if v.isLambda then resolveModFnsField mkNm allowLcnf (v.beta m.getAppArgs) fuel'
       else failure
     else failure
 
@@ -349,10 +360,16 @@ private partial def resolveListExpr (wrapFn? : Option Name) (e0 : Lean.Expr) :
     if let .const nm [] := cur then resolveListExpr wrapFn? (← findConstVal? nm)
     else if cur.isAppOfArity ``LeanQbe.T.Module.fns 1 then
       if wrapFn?.isSome then failure
-      else resolveListExpr none (← resolveModuleFns (cur.getArg! 0))
+      else resolveListExpr none (← resolveModFnsField ``LeanQbe.T.Module.mk true (cur.getArg! 0))
+    else if cur.isAppOfArity budgetModuleFnsName 1 then
+      if wrapFn?.isSome then failure
+      else resolveListExpr none (← resolveModFnsField budgetModuleMkName false (cur.getArg! 0))
     else if let .proj ``LeanQbe.T.Module 0 modE := cur then
       if wrapFn?.isSome then failure
-      else resolveListExpr none (← resolveModuleFns modE)
+      else resolveListExpr none (← resolveModFnsField ``LeanQbe.T.Module.mk true modE)
+    else if let .proj nm 0 modE := cur then
+      if wrapFn?.isSome || nm != budgetModuleNm then failure
+      else resolveListExpr none (← resolveModFnsField budgetModuleMkName false modE)
     else if cur.isAppOfArity ``List.append 3 then
       pure ((← resolveListExpr wrapFn? (cur.getArg! 1)) ++
         (← resolveListExpr wrapFn? (cur.getArg! 2)))
@@ -424,6 +441,15 @@ private def decodeFlatElem (fnE : Lean.Expr) : OptionT MetaM (TFlatFn × Lean.Ex
     return (tf, mkApp4 (Lean.mkConst ``LeanQbe.T.TFlatFn.mk) nmE asE rsE tfE)
   else failure
 
+private def mkFlatConsList (elemTy : Lean.Expr) (elems : Array Lean.Expr) : Lean.Expr :=
+  elems.foldr (fun fe acc => mkApp3 (Lean.mkConst ``List.cons [.zero]) elemTy fe acc)
+    (mkApp (Lean.mkConst ``List.nil [.zero]) elemTy)
+
+private def mkListEqProof (eqLevel : Level) (listTy lhs rhs : Lean.Expr) : Lean.Expr :=
+  let eqTy := mkApp3 (Lean.mkConst ``Eq [eqLevel]) listTy lhs rhs
+  let reflPf := mkApp2 (Lean.mkConst ``Eq.refl [eqLevel]) listTy rhs
+  mkApp2 (Lean.mkConst ``id [.zero]) eqTy reflPf
+
 /-- Decode a `List Fn` expression `fnsE` from exposed `.olean` definitions into
 `(flatFns, flatListExpr, fnsFlatEqProof)` with `fnsE = flatListExpr.map TFlatFn.toFn`,
 returning `none` when any element is not materialized as `TFlatFn` or `denoteFunc`. -/
@@ -435,16 +461,53 @@ def decodeFlatSliceExpr (fnsE : Lean.Expr) :
     let flatTy := Lean.mkConst ``LeanQbe.T.TFlatFn
     let fnTy := Lean.mkConst ``LeanQbe.T.Fn
     let listFnTy := mkApp (Lean.mkConst ``List [.one]) fnTy
-    let flatListExpr := decoded.foldr
-      (fun (_, fe) acc => mkApp3 (Lean.mkConst ``List.cons [.zero]) flatTy fe acc)
-      (mkApp (Lean.mkConst ``List.nil [.zero]) flatTy)
+    let flatListExpr := mkFlatConsList flatTy (decoded.map Prod.snd)
     let rhsE := mkApp4 (Lean.mkConst ``List.map [.zero, .one])
       flatTy fnTy (Lean.mkConst ``LeanQbe.T.TFlatFn.toFn) flatListExpr
     let l2 := Level.succ (.succ .zero)
-    let eqTy := mkApp3 (Lean.mkConst ``Eq [l2]) listFnTy fnsE rhsE
-    let reflPf := mkApp2 (Lean.mkConst ``Eq.refl [l2]) listFnTy rhsE
-    let pf := mkApp2 (Lean.mkConst ``id [.zero]) eqTy reflPf
-    return ((decoded.map Prod.fst).toList, flatListExpr, pf)
+    return ((decoded.map Prod.fst).toList, flatListExpr,
+      mkListEqProof l2 listFnTy fnsE rhsE)
+
+private def decodeFlatBudgetElem (bfnE : Lean.Expr) :
+    OptionT MetaM ((TFlatFn × Nat × Nat) × (Lean.Expr × Lean.Expr)) := do
+  let e ← unfoldConstValue bfnE
+  if !e.isAppOfArity budgetFnMkName 3 then failure
+  let (tf, tfExpr) ← decodeFlatElem (e.getArg! 0)
+  let maxF ← decodeNatM (e.getArg! 1)
+  let minE ← decodeNatM (e.getArg! 2)
+  let flatBfnExpr :=
+    mkApp3 (Lean.mkConst flatBudgetFnMkName) tfExpr (mkNatLit maxF) (mkNatLit minE)
+  return ((tf, maxF, minE), (tfExpr, flatBfnExpr))
+
+/-- Decode a `List BudgetFn` expression `bfsE` into
+`(items, flatBfsExpr, bfsEqProof, flatFnsExpr, fnsEqProof)` with
+`bfsE = flatBfsExpr.map FlatBudgetFn.toBudgetFn` and
+`bfsE.map BudgetFn.toFn = flatFnsExpr.map TFlatFn.toFn`. -/
+def decodeFlatBudgetSliceExpr (bfsE : Lean.Expr) :
+    MetaM (Option (List (TFlatFn × Nat × Nat) ×
+      Lean.Expr × Lean.Expr × Lean.Expr × Lean.Expr)) :=
+  OptionT.run do
+    if !(← getEnv).contains flatBudgetFnNm then failure
+    let elems ← resolveListExpr none bfsE
+    let decoded ← elems.mapM decodeFlatBudgetElem
+    let flatTy := Lean.mkConst ``LeanQbe.T.TFlatFn
+    let fnTy := Lean.mkConst ``LeanQbe.T.Fn
+    let listFnTy := mkApp (Lean.mkConst ``List [.one]) fnTy
+    let flatBfnTy := Lean.mkConst flatBudgetFnNm
+    let bfnTy := Lean.mkConst budgetFnNm
+    let listBfnTy := mkApp (Lean.mkConst ``List [.one]) bfnTy
+    let flatBfsExpr := mkFlatConsList flatBfnTy (decoded.map (·.2.2))
+    let flatFnsExpr := mkFlatConsList flatTy (decoded.map (·.2.1))
+    let l2 := Level.succ (.succ .zero)
+    let bfsRhsE := mkApp4 (Lean.mkConst ``List.map [.zero, .one])
+      flatBfnTy bfnTy (Lean.mkConst flatBudgetFnToBudgetFnName) flatBfsExpr
+    let fnsLhsE := mkApp4 (Lean.mkConst ``List.map [.one, .one])
+      bfnTy fnTy (Lean.mkConst budgetFnToFnName) bfsE
+    let fnsRhsE := mkApp4 (Lean.mkConst ``List.map [.zero, .one])
+      flatTy fnTy (Lean.mkConst ``LeanQbe.T.TFlatFn.toFn) flatFnsExpr
+    return ((decoded.map Prod.fst).toList, flatBfsExpr,
+      mkListEqProof l2 listBfnTy bfsE bfsRhsE,
+      flatFnsExpr, mkListEqProof l2 listFnTy fnsLhsE fnsRhsE)
 
 end
 
