@@ -753,29 +753,7 @@ theorem sliceDenotes_sliceBitVec {g : Ref.Aig} {ρ : Nat → Bool}
     List.getD_eq_getElem?_getD, List.getElem?_map, List.getElem?_range hj]
   simp
 
-/-! ## Header & `array (t := i32)` Load/Store Helpers -/
-
-theorem ops_load_hdr_oom {h : BitVec 64} {s : BVHdrState} {R : Mem 64 → Prop} {m : Mem 64}
-    (hm : (bvHdrMem h s ⋆ R) m) : loadVal m i32 (h + 120) = some s.oom :=
-  load_hdr_oom hm
-
-theorem ops_load_hdr_lits_ptr {h : BitVec 64} {s : BVHdrState} {R : Mem 64 → Prop} {m : Mem 64}
-    (hm : (bvHdrMem h s ⋆ R) m) : loadVal m i64 (h + 56) = some s.lits_ptr :=
-  load_hdr_lits_ptr hm
-
-theorem ops_load_hdr_lits_len {h : BitVec 64} {s : BVHdrState} {R : Mem 64 → Prop} {m : Mem 64}
-    (hm : (bvHdrMem h s ⋆ R) m) : loadVal m i32 (h + 112) = some s.lits_len :=
-  load_hdr_lits_len hm
-
-theorem ops_load_hdr_lits_cap {h : BitVec 64} {s : BVHdrState} {R : Mem 64 → Prop} {m : Mem 64}
-    (hm : (bvHdrMem h s ⋆ R) m) : loadVal m i32 (h + 116) = some s.lits_cap :=
-  load_hdr_lits_cap hm
-
-theorem ops_store_hdr_oom {h : BitVec 64} {s : BVHdrState} {R : Mem 64 → Prop} {m : Mem 64}
-    (v : BitVec 32) (hm : (bvHdrMem h s ⋆ R) m) :
-    storeOk m i32 (h + 120) ∧
-      (bvHdrMem h { s with oom := v } ⋆ R) (storeMem m i32 (h + 120) v) :=
-  store_hdr_oom v hm
+/-! ## `array (t := i32)` Load/Store Helpers -/
 
 theorem ops_load_array32_u32_add_mul4 {R : Mem 64 → Prop} {m : Mem 64} {a : BitVec 64}
     {off k : BitVec 32} {xs : List (BitVec 32)} (h : (array (t := i32) a xs ⋆ R) m)

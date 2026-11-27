@@ -36,38 +36,7 @@ open LeanQbe.T.Examples.Bitblast.Src.Driver
 open LeanQbe.T.Examples.Bitblast.Ref
 open LeanQbe.T.Examples.Bitblast.Ref.BVProg
 
-/-! ## 1. Local Memory Access Helpers (`BVHdr`, `array i32`) -/
-
-private def upd_work_base (s : BVHdrState) (v : BitVec 64) : BVHdrState :=
-  { s with work_base := v }
-private def upd_work_end (s : BVHdrState) (v : BitVec 64) : BVHdrState :=
-  { s with work_end := v }
-private def upd_prog_ptr (s : BVHdrState) (v : BitVec 64) : BVHdrState :=
-  { s with prog_ptr := v }
-private def upd_atom_base_ptr (s : BVHdrState) (v : BitVec 64) : BVHdrState :=
-  { s with atom_base_ptr := v }
-private def upd_slice_off_ptr (s : BVHdrState) (v : BitVec 64) : BVHdrState :=
-  { s with slice_off_ptr := v }
-private def upd_lits_ptr (s : BVHdrState) (v : BitVec 64) : BVHdrState :=
-  { s with lits_ptr := v }
-private def upd_marks_ptr (s : BVHdrState) (v : BitVec 64) : BVHdrState :=
-  { s with marks_ptr := v }
-private def upd_dimacs_start (s : BVHdrState) (v : BitVec 64) : BVHdrState :=
-  { s with dimacs_start := v }
-private def upd_n_vars (s : BVHdrState) (v : BitVec 32) : BVHdrState :=
-  { s with n_vars := v }
-private def upd_n_nodes (s : BVHdrState) (v : BitVec 32) : BVHdrState :=
-  { s with n_nodes := v }
-private def upd_n_cwords (s : BVHdrState) (v : BitVec 32) : BVHdrState :=
-  { s with n_cwords := v }
-private def upd_root_node (s : BVHdrState) (v : BitVec 32) : BVHdrState :=
-  { s with root_node := v }
-private def upd_lits_len (s : BVHdrState) (v : BitVec 32) : BVHdrState :=
-  { s with lits_len := v }
-private def upd_lits_cap (s : BVHdrState) (v : BitVec 32) : BVHdrState :=
-  { s with lits_cap := v }
-private def upd_dimacs_len (s : BVHdrState) (v : BitVec 32) : BVHdrState :=
-  { s with dimacs_len := v }
+/-! ## 1. Local Memory Access Helpers (`array i32`) -/
 
 private def updHdr15 (s : BVHdrState) (wb we pp ab so lp : BitVec 64)
     (nv nn nc rt lc : BitVec 32) : BVHdrState :=
@@ -80,106 +49,14 @@ private def updHdr15 (s : BVHdrState) (wb we pp ab so lp : BitVec 64)
 
 private theorem upd15_eq (s : BVHdrState) (wb we pp ab so lp : BitVec 64)
     (nv nn nc rt lc : BitVec 32) :
-    upd_dimacs_len (upd_lits_cap (upd_lits_len (upd_root_node (upd_n_cwords (upd_n_nodes
-      (upd_n_vars (upd_dimacs_start (upd_marks_ptr (upd_lits_ptr (upd_slice_off_ptr
-        (upd_atom_base_ptr (upd_prog_ptr (upd_work_end (upd_work_base s wb) we) pp)
-          ab) so) lp) (0 : BitVec 64)) (0 : BitVec 64)) nv) nn) nc) rt) (0 : BitVec 32))
-      lc) (0 : BitVec 32) =
-    updHdr15 s wb we pp ab so lp nv nn nc rt lc := by
-  cases s; rfl
-
-@[local c0_load] private theorem init_load_atom_base_ptr {h : BitVec 64} {s : BVHdrState}
-    {R : Mem 64 → Prop} {m : Mem 64} (hm : (bvHdrMem h s ⋆ R) m) :
-    loadVal m i64 (h + 40) = some s.atom_base_ptr := load_hdr_atom_base_ptr hm
-
-@[local c0_store] private theorem init_store_work_base {h : BitVec 64} {s : BVHdrState}
-    {R : Mem 64 → Prop} {m : Mem 64} (v : BitVec 64) (hm : (bvHdrMem h s ⋆ R) m) :
-    storeOk m i64 h ∧ (bvHdrMem h (upd_work_base s v) ⋆ R) (storeMem m i64 h v) :=
-  store_hdr_work_base v hm
-
-@[local c0_store] private theorem init_store_work_end {h : BitVec 64} {s : BVHdrState}
-    {R : Mem 64 → Prop} {m : Mem 64} (v : BitVec 64) (hm : (bvHdrMem h s ⋆ R) m) :
-    storeOk m i64 (h + 8) ∧
-      (bvHdrMem h (upd_work_end s v) ⋆ R) (storeMem m i64 (h + 8) v) :=
-  store_hdr_work_end v hm
-
-@[local c0_store] private theorem init_store_prog_ptr {h : BitVec 64} {s : BVHdrState}
-    {R : Mem 64 → Prop} {m : Mem 64} (v : BitVec 64) (hm : (bvHdrMem h s ⋆ R) m) :
-    storeOk m i64 (h + 16) ∧
-      (bvHdrMem h (upd_prog_ptr s v) ⋆ R) (storeMem m i64 (h + 16) v) :=
-  store_hdr_prog_ptr v hm
-
-@[local c0_store] private theorem init_store_atom_base_ptr {h : BitVec 64} {s : BVHdrState}
-    {R : Mem 64 → Prop} {m : Mem 64} (v : BitVec 64) (hm : (bvHdrMem h s ⋆ R) m) :
-    storeOk m i64 (h + 40) ∧
-      (bvHdrMem h (upd_atom_base_ptr s v) ⋆ R) (storeMem m i64 (h + 40) v) :=
-  store_hdr_atom_base_ptr v hm
-
-@[local c0_store] private theorem init_store_slice_off_ptr {h : BitVec 64} {s : BVHdrState}
-    {R : Mem 64 → Prop} {m : Mem 64} (v : BitVec 64) (hm : (bvHdrMem h s ⋆ R) m) :
-    storeOk m i64 (h + 48) ∧
-      (bvHdrMem h (upd_slice_off_ptr s v) ⋆ R) (storeMem m i64 (h + 48) v) :=
-  store_hdr_slice_off_ptr v hm
-
-@[local c0_store] private theorem init_store_lits_ptr {h : BitVec 64} {s : BVHdrState}
-    {R : Mem 64 → Prop} {m : Mem 64} (v : BitVec 64) (hm : (bvHdrMem h s ⋆ R) m) :
-    storeOk m i64 (h + 56) ∧
-      (bvHdrMem h (upd_lits_ptr s v) ⋆ R) (storeMem m i64 (h + 56) v) :=
-  store_hdr_lits_ptr v hm
-
-@[local c0_store] private theorem init_store_marks_ptr {h : BitVec 64} {s : BVHdrState}
-    {R : Mem 64 → Prop} {m : Mem 64} (v : BitVec 64) (hm : (bvHdrMem h s ⋆ R) m) :
-    storeOk m i64 (h + 64) ∧
-      (bvHdrMem h (upd_marks_ptr s v) ⋆ R) (storeMem m i64 (h + 64) v) :=
-  store_hdr_marks_ptr v hm
-
-@[local c0_store] private theorem init_store_dimacs_start {h : BitVec 64} {s : BVHdrState}
-    {R : Mem 64 → Prop} {m : Mem 64} (v : BitVec 64) (hm : (bvHdrMem h s ⋆ R) m) :
-    storeOk m i64 (h + 72) ∧
-      (bvHdrMem h (upd_dimacs_start s v) ⋆ R) (storeMem m i64 (h + 72) v) :=
-  store_hdr_dimacs_start v hm
-
-@[local c0_store] private theorem init_store_n_vars {h : BitVec 64} {s : BVHdrState}
-    {R : Mem 64 → Prop} {m : Mem 64} (v : BitVec 32) (hm : (bvHdrMem h s ⋆ R) m) :
-    storeOk m i32 (h + 80) ∧
-      (bvHdrMem h (upd_n_vars s v) ⋆ R) (storeMem m i32 (h + 80) v) :=
-  store_hdr_n_vars v hm
-
-@[local c0_store] private theorem init_store_n_nodes {h : BitVec 64} {s : BVHdrState}
-    {R : Mem 64 → Prop} {m : Mem 64} (v : BitVec 32) (hm : (bvHdrMem h s ⋆ R) m) :
-    storeOk m i32 (h + 84) ∧
-      (bvHdrMem h (upd_n_nodes s v) ⋆ R) (storeMem m i32 (h + 84) v) :=
-  store_hdr_n_nodes v hm
-
-@[local c0_store] private theorem init_store_n_cwords {h : BitVec 64} {s : BVHdrState}
-    {R : Mem 64 → Prop} {m : Mem 64} (v : BitVec 32) (hm : (bvHdrMem h s ⋆ R) m) :
-    storeOk m i32 (h + 88) ∧
-      (bvHdrMem h (upd_n_cwords s v) ⋆ R) (storeMem m i32 (h + 88) v) :=
-  store_hdr_n_cwords v hm
-
-@[local c0_store] private theorem init_store_root_node {h : BitVec 64} {s : BVHdrState}
-    {R : Mem 64 → Prop} {m : Mem 64} (v : BitVec 32) (hm : (bvHdrMem h s ⋆ R) m) :
-    storeOk m i32 (h + 92) ∧
-      (bvHdrMem h (upd_root_node s v) ⋆ R) (storeMem m i32 (h + 92) v) :=
-  store_hdr_root_node v hm
-
-@[local c0_store] private theorem init_store_lits_len {h : BitVec 64} {s : BVHdrState}
-    {R : Mem 64 → Prop} {m : Mem 64} (v : BitVec 32) (hm : (bvHdrMem h s ⋆ R) m) :
-    storeOk m i32 (h + 112) ∧
-      (bvHdrMem h (upd_lits_len s v) ⋆ R) (storeMem m i32 (h + 112) v) :=
-  store_hdr_lits_len v hm
-
-@[local c0_store] private theorem init_store_lits_cap {h : BitVec 64} {s : BVHdrState}
-    {R : Mem 64 → Prop} {m : Mem 64} (v : BitVec 32) (hm : (bvHdrMem h s ⋆ R) m) :
-    storeOk m i32 (h + 116) ∧
-      (bvHdrMem h (upd_lits_cap s v) ⋆ R) (storeMem m i32 (h + 116) v) :=
-  store_hdr_lits_cap v hm
-
-@[local c0_store] private theorem init_store_dimacs_len {h : BitVec 64} {s : BVHdrState}
-    {R : Mem 64 → Prop} {m : Mem 64} (v : BitVec 32) (hm : (bvHdrMem h s ⋆ R) m) :
-    storeOk m i32 (h + 124) ∧
-      (bvHdrMem h (upd_dimacs_len s v) ⋆ R) (storeMem m i32 (h + 124) v) :=
-  store_hdr_dimacs_len v hm
+    ({ work_base := wb, work_end := we, prog_ptr := pp, aig_ptr := s.aig_ptr,
+       ht_ptr := s.ht_ptr, atom_base_ptr := ab, slice_off_ptr := so, lits_ptr := lp,
+       marks_ptr := (0 : BitVec 64), dimacs_start := (0 : BitVec 64), n_vars := nv,
+       n_nodes := nn, n_cwords := nc, root_node := rt, num_atoms := s.num_atoms,
+       aig_len := s.aig_len, aig_cap := s.aig_cap, ht_mask := s.ht_mask,
+       lits_len := (0 : BitVec 32), lits_cap := lc, oom := s.oom,
+       dimacs_len := (0 : BitVec 32) } : BVHdrState) =
+    updHdr15 s wb we pp ab so lp nv nn nc rt lc := rfl
 
 private theorem init_bv32_shl2_add_eq (base : BitVec 64) (idx : BitVec 32) :
     base + (idx.setWidth 64 <<< (2 : Nat)) = base + BitVec.ofNat 64 (4 * idx.toNat) := by
@@ -1064,6 +941,7 @@ theorem bv_init_workspace_wp (Γ : Env)
                             rfl rfl rfl hnv_lt hnn_lt hac_lt hs_le hlc_32 (sep_ac hm)
                         clear hm
                         c0_hstraight
+                        dsimp -zeta only at hm ⊢
                         let hdr1 : BVHdrState :=
                           updHdr15 hdr0 workBase (workBase + avail) progPtr (workBase + 128)
                             (cfg.work_base + BitVec.ofNat 64 (128 + cfg.atom_bytes))
@@ -1072,8 +950,8 @@ theorem bv_init_workspace_wp (Γ : Env)
                         obtain ⟨hlcap_sw, hwe_eq, hso_eq, haig_c0, hht_c0, hlits_c0⟩ :=
                           drv_init_hdr1_eqs (cfg := cfg) rfl rfl rfl rfl rfl rfl rfl rfl rfl
                             hnv_lt hnn_lt hac_lt hs_le hlc_32 hwb_fit hrem_ge haig_ht_le
-                        rw [hso_eq, hlits_c0, hlcap_sw, upd15_eq] at hm ⊢
-                        rw [show hdr1.atom_base_ptr = cfg.work_base + 128 from rfl]
+                        rw [hso_eq, hlits_c0, hlcap_sw, upd15_eq] at hm
+                        rw [show workBase + (128 : BitVec 64) = cfg.work_base + 128 from rfl]
                         rw [show BitVec.ofNat 32 (u32At progBytes 2) = BitVec.ofNat 32 nv from rfl,
                           show BitVec.ofNat 32 (u32At progBytes 3) = BitVec.ofNat 32 nn from rfl,
                           show BitVec.ofNat 32 (u32At progBytes 4) = BitVec.ofNat 32 nc from rfl,

@@ -432,22 +432,6 @@ theorem bytes_append_merge {a : BitVec 64} {b1 b2 : List UInt8}
 
 end
 
-@[local c0_load] private theorem c0_load_hdr_aig_ptr {h : BitVec 64} {s : BVHdrState}
-    {R : Mem 64 → Prop} {m : Mem 64} (hm : (bvHdrMem h s ⋆ R) m) :
-    loadVal m i64 (h + (24 : BitVec 64)) = some s.aig_ptr := load_hdr_aig_ptr hm
-
-@[local c0_load] private theorem c0_load_hdr_marks_ptr {h : BitVec 64} {s : BVHdrState}
-    {R : Mem 64 → Prop} {m : Mem 64} (hm : (bvHdrMem h s ⋆ R) m) :
-    loadVal m i64 (h + (64 : BitVec 64)) = some s.marks_ptr := load_hdr_marks_ptr hm
-
-@[local c0_load] private theorem c0_load_hdr_num_atoms {h : BitVec 64} {s : BVHdrState}
-    {R : Mem 64 → Prop} {m : Mem 64} (hm : (bvHdrMem h s ⋆ R) m) :
-    loadVal m i32 (h + (96 : BitVec 64)) = some s.num_atoms := load_hdr_num_atoms hm
-
-@[local c0_load] private theorem c0_load_hdr_aig_len {h : BitVec 64} {s : BVHdrState}
-    {R : Mem 64 → Prop} {m : Mem 64} (hm : (bvHdrMem h s ⋆ R) m) :
-    loadVal m i32 (h + (100 : BitVec 64)) = some s.aig_len := load_hdr_aig_len hm
-
 @[local c0_load] private theorem c0_load_bytes_u32 {base : BitVec 64} {i : BitVec 32}
     {bs : List UInt8} {R : Mem 64 → Prop} {m : Mem 64}
     (hi : i.toNat < bs.length) (hlen : bs.length ≤ 2 ^ 64) (hm : (bytes base bs ⋆ R) m) :

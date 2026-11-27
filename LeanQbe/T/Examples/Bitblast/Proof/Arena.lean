@@ -12,6 +12,8 @@ public import LeanQbe.T.Logic.Rules
 import LeanQbe.T.Logic.MemLemmas
 import LeanQbe.T.Logic.Cells
 import LeanQbe.T.Logic.ProofKit
+import LeanQbe.T.Logic.C0StepAttr
+meta import LeanQbe.T.Logic.C0StepAttr
 import Kraken.Separation
 
 /-!
@@ -373,205 +375,373 @@ private theorem store_hdr_u32 (i : Nat) (hi : i < 12) (off : BitVec 64)
   rw [hs64, hs', sep_comm (array64 h s.u64s), sep_assoc]
   exact hm'
 
-theorem load_hdr_work_base (hm : (bvHdrMem h s ⋆ R) m) :
+@[c0_load] theorem load_hdr_work_base (hm : (bvHdrMem h s ⋆ R) m) :
     loadVal m i64 h = some s.work_base := by
   have h0 := load_hdr_u64 0 (by decide) 0#64 rfl hm
   rwa [BitVec.add_zero] at h0
 
-theorem load_hdr_work_end (hm : (bvHdrMem h s ⋆ R) m) :
+@[c0_load] theorem load_hdr_work_end (hm : (bvHdrMem h s ⋆ R) m) :
     loadVal m i64 (h + 8#64) = some s.work_end :=
   load_hdr_u64 1 (by decide) 8#64 rfl hm
 
-theorem load_hdr_prog_ptr (hm : (bvHdrMem h s ⋆ R) m) :
+@[c0_load] theorem load_hdr_prog_ptr (hm : (bvHdrMem h s ⋆ R) m) :
     loadVal m i64 (h + 16#64) = some s.prog_ptr :=
   load_hdr_u64 2 (by decide) 16#64 rfl hm
 
-theorem load_hdr_aig_ptr (hm : (bvHdrMem h s ⋆ R) m) :
+@[c0_load] theorem load_hdr_aig_ptr (hm : (bvHdrMem h s ⋆ R) m) :
     loadVal m i64 (h + 24#64) = some s.aig_ptr :=
   load_hdr_u64 3 (by decide) 24#64 rfl hm
 
-theorem load_hdr_ht_ptr (hm : (bvHdrMem h s ⋆ R) m) :
+@[c0_load] theorem load_hdr_ht_ptr (hm : (bvHdrMem h s ⋆ R) m) :
     loadVal m i64 (h + 32#64) = some s.ht_ptr :=
   load_hdr_u64 4 (by decide) 32#64 rfl hm
 
-theorem load_hdr_atom_base_ptr (hm : (bvHdrMem h s ⋆ R) m) :
+@[c0_load] theorem load_hdr_atom_base_ptr (hm : (bvHdrMem h s ⋆ R) m) :
     loadVal m i64 (h + 40#64) = some s.atom_base_ptr :=
   load_hdr_u64 5 (by decide) 40#64 rfl hm
 
-theorem load_hdr_slice_off_ptr (hm : (bvHdrMem h s ⋆ R) m) :
+@[c0_load] theorem load_hdr_slice_off_ptr (hm : (bvHdrMem h s ⋆ R) m) :
     loadVal m i64 (h + 48#64) = some s.slice_off_ptr :=
   load_hdr_u64 6 (by decide) 48#64 rfl hm
 
-theorem load_hdr_lits_ptr (hm : (bvHdrMem h s ⋆ R) m) :
+@[c0_load] theorem load_hdr_lits_ptr (hm : (bvHdrMem h s ⋆ R) m) :
     loadVal m i64 (h + 56#64) = some s.lits_ptr :=
   load_hdr_u64 7 (by decide) 56#64 rfl hm
 
-theorem load_hdr_marks_ptr (hm : (bvHdrMem h s ⋆ R) m) :
+@[c0_load] theorem load_hdr_marks_ptr (hm : (bvHdrMem h s ⋆ R) m) :
     loadVal m i64 (h + 64#64) = some s.marks_ptr :=
   load_hdr_u64 8 (by decide) 64#64 rfl hm
 
-theorem load_hdr_dimacs_start (hm : (bvHdrMem h s ⋆ R) m) :
+@[c0_load] theorem load_hdr_dimacs_start (hm : (bvHdrMem h s ⋆ R) m) :
     loadVal m i64 (h + 72#64) = some s.dimacs_start :=
   load_hdr_u64 9 (by decide) 72#64 rfl hm
 
-theorem load_hdr_n_vars (hm : (bvHdrMem h s ⋆ R) m) :
+@[c0_load] theorem load_hdr_n_vars (hm : (bvHdrMem h s ⋆ R) m) :
     loadVal m i32 (h + 80#64) = some s.n_vars :=
   load_hdr_u32 0 (by decide) 80#64 rfl hm
 
-theorem load_hdr_n_nodes (hm : (bvHdrMem h s ⋆ R) m) :
+@[c0_load] theorem load_hdr_n_nodes (hm : (bvHdrMem h s ⋆ R) m) :
     loadVal m i32 (h + 84#64) = some s.n_nodes :=
   load_hdr_u32 1 (by decide) 84#64 rfl hm
 
-theorem load_hdr_n_cwords (hm : (bvHdrMem h s ⋆ R) m) :
+@[c0_load] theorem load_hdr_n_cwords (hm : (bvHdrMem h s ⋆ R) m) :
     loadVal m i32 (h + 88#64) = some s.n_cwords :=
   load_hdr_u32 2 (by decide) 88#64 rfl hm
 
-theorem load_hdr_root_node (hm : (bvHdrMem h s ⋆ R) m) :
+@[c0_load] theorem load_hdr_root_node (hm : (bvHdrMem h s ⋆ R) m) :
     loadVal m i32 (h + 92#64) = some s.root_node :=
   load_hdr_u32 3 (by decide) 92#64 rfl hm
 
-theorem load_hdr_num_atoms (hm : (bvHdrMem h s ⋆ R) m) :
+@[c0_load] theorem load_hdr_num_atoms (hm : (bvHdrMem h s ⋆ R) m) :
     loadVal m i32 (h + 96#64) = some s.num_atoms :=
   load_hdr_u32 4 (by decide) 96#64 rfl hm
 
-theorem load_hdr_aig_len (hm : (bvHdrMem h s ⋆ R) m) :
+@[c0_load] theorem load_hdr_aig_len (hm : (bvHdrMem h s ⋆ R) m) :
     loadVal m i32 (h + 100#64) = some s.aig_len :=
   load_hdr_u32 5 (by decide) 100#64 rfl hm
 
-theorem load_hdr_aig_cap (hm : (bvHdrMem h s ⋆ R) m) :
+@[c0_load] theorem load_hdr_aig_cap (hm : (bvHdrMem h s ⋆ R) m) :
     loadVal m i32 (h + 104#64) = some s.aig_cap :=
   load_hdr_u32 6 (by decide) 104#64 rfl hm
 
-theorem load_hdr_ht_mask (hm : (bvHdrMem h s ⋆ R) m) :
+@[c0_load] theorem load_hdr_ht_mask (hm : (bvHdrMem h s ⋆ R) m) :
     loadVal m i32 (h + 108#64) = some s.ht_mask :=
   load_hdr_u32 7 (by decide) 108#64 rfl hm
 
-theorem load_hdr_lits_len (hm : (bvHdrMem h s ⋆ R) m) :
+@[c0_load] theorem load_hdr_lits_len (hm : (bvHdrMem h s ⋆ R) m) :
     loadVal m i32 (h + 112#64) = some s.lits_len :=
   load_hdr_u32 8 (by decide) 112#64 rfl hm
 
-theorem load_hdr_lits_cap (hm : (bvHdrMem h s ⋆ R) m) :
+@[c0_load] theorem load_hdr_lits_cap (hm : (bvHdrMem h s ⋆ R) m) :
     loadVal m i32 (h + 116#64) = some s.lits_cap :=
   load_hdr_u32 9 (by decide) 116#64 rfl hm
 
-theorem load_hdr_oom (hm : (bvHdrMem h s ⋆ R) m) :
+@[c0_load] theorem load_hdr_oom (hm : (bvHdrMem h s ⋆ R) m) :
     loadVal m i32 (h + 120#64) = some s.oom :=
   load_hdr_u32 10 (by decide) 120#64 rfl hm
 
-theorem load_hdr_dimacs_len (hm : (bvHdrMem h s ⋆ R) m) :
+@[c0_load] theorem load_hdr_dimacs_len (hm : (bvHdrMem h s ⋆ R) m) :
     loadVal m i32 (h + 124#64) = some s.dimacs_len :=
   load_hdr_u32 11 (by decide) 124#64 rfl hm
 
-theorem store_hdr_work_base (v : BitVec 64) (hm : (bvHdrMem h s ⋆ R) m) :
+@[c0_store] theorem store_hdr_work_base (v : BitVec 64) (hm : (bvHdrMem h s ⋆ R) m) :
     storeOk m i64 h ∧
       (bvHdrMem h { s with work_base := v } ⋆ R) (storeMem m i64 h v) := by
   simpa [BitVec.add_zero] using
     store_hdr_u64 0 (by decide) 0#64 rfl v hm { s with work_base := v } rfl rfl
 
-theorem store_hdr_work_end (v : BitVec 64) (hm : (bvHdrMem h s ⋆ R) m) :
+@[c0_store] theorem store_hdr_work_end (v : BitVec 64) (hm : (bvHdrMem h s ⋆ R) m) :
     storeOk m i64 (h + 8#64) ∧
       (bvHdrMem h { s with work_end := v } ⋆ R) (storeMem m i64 (h + 8#64) v) :=
   store_hdr_u64 1 (by decide) 8#64 rfl v hm { s with work_end := v } rfl rfl
 
-theorem store_hdr_prog_ptr (v : BitVec 64) (hm : (bvHdrMem h s ⋆ R) m) :
+@[c0_store] theorem store_hdr_prog_ptr (v : BitVec 64) (hm : (bvHdrMem h s ⋆ R) m) :
     storeOk m i64 (h + 16#64) ∧
       (bvHdrMem h { s with prog_ptr := v } ⋆ R) (storeMem m i64 (h + 16#64) v) :=
   store_hdr_u64 2 (by decide) 16#64 rfl v hm { s with prog_ptr := v } rfl rfl
 
-theorem store_hdr_aig_ptr (v : BitVec 64) (hm : (bvHdrMem h s ⋆ R) m) :
+@[c0_store] theorem store_hdr_aig_ptr (v : BitVec 64) (hm : (bvHdrMem h s ⋆ R) m) :
     storeOk m i64 (h + 24#64) ∧
       (bvHdrMem h { s with aig_ptr := v } ⋆ R) (storeMem m i64 (h + 24#64) v) :=
   store_hdr_u64 3 (by decide) 24#64 rfl v hm { s with aig_ptr := v } rfl rfl
 
-theorem store_hdr_ht_ptr (v : BitVec 64) (hm : (bvHdrMem h s ⋆ R) m) :
+@[c0_store] theorem store_hdr_ht_ptr (v : BitVec 64) (hm : (bvHdrMem h s ⋆ R) m) :
     storeOk m i64 (h + 32#64) ∧
       (bvHdrMem h { s with ht_ptr := v } ⋆ R) (storeMem m i64 (h + 32#64) v) :=
   store_hdr_u64 4 (by decide) 32#64 rfl v hm { s with ht_ptr := v } rfl rfl
 
-theorem store_hdr_atom_base_ptr (v : BitVec 64) (hm : (bvHdrMem h s ⋆ R) m) :
+@[c0_store] theorem store_hdr_atom_base_ptr (v : BitVec 64) (hm : (bvHdrMem h s ⋆ R) m) :
     storeOk m i64 (h + 40#64) ∧
       (bvHdrMem h { s with atom_base_ptr := v } ⋆ R) (storeMem m i64 (h + 40#64) v) :=
   store_hdr_u64 5 (by decide) 40#64 rfl v hm { s with atom_base_ptr := v } rfl rfl
 
-theorem store_hdr_slice_off_ptr (v : BitVec 64) (hm : (bvHdrMem h s ⋆ R) m) :
+@[c0_store] theorem store_hdr_slice_off_ptr (v : BitVec 64) (hm : (bvHdrMem h s ⋆ R) m) :
     storeOk m i64 (h + 48#64) ∧
       (bvHdrMem h { s with slice_off_ptr := v } ⋆ R) (storeMem m i64 (h + 48#64) v) :=
   store_hdr_u64 6 (by decide) 48#64 rfl v hm { s with slice_off_ptr := v } rfl rfl
 
-theorem store_hdr_lits_ptr (v : BitVec 64) (hm : (bvHdrMem h s ⋆ R) m) :
+@[c0_store] theorem store_hdr_lits_ptr (v : BitVec 64) (hm : (bvHdrMem h s ⋆ R) m) :
     storeOk m i64 (h + 56#64) ∧
       (bvHdrMem h { s with lits_ptr := v } ⋆ R) (storeMem m i64 (h + 56#64) v) :=
   store_hdr_u64 7 (by decide) 56#64 rfl v hm { s with lits_ptr := v } rfl rfl
 
-theorem store_hdr_marks_ptr (v : BitVec 64) (hm : (bvHdrMem h s ⋆ R) m) :
+@[c0_store] theorem store_hdr_marks_ptr (v : BitVec 64) (hm : (bvHdrMem h s ⋆ R) m) :
     storeOk m i64 (h + 64#64) ∧
       (bvHdrMem h { s with marks_ptr := v } ⋆ R) (storeMem m i64 (h + 64#64) v) :=
   store_hdr_u64 8 (by decide) 64#64 rfl v hm { s with marks_ptr := v } rfl rfl
 
-theorem store_hdr_dimacs_start (v : BitVec 64) (hm : (bvHdrMem h s ⋆ R) m) :
+@[c0_store] theorem store_hdr_dimacs_start (v : BitVec 64) (hm : (bvHdrMem h s ⋆ R) m) :
     storeOk m i64 (h + 72#64) ∧
       (bvHdrMem h { s with dimacs_start := v } ⋆ R) (storeMem m i64 (h + 72#64) v) :=
   store_hdr_u64 9 (by decide) 72#64 rfl v hm { s with dimacs_start := v } rfl rfl
 
-theorem store_hdr_n_vars (v : BitVec 32) (hm : (bvHdrMem h s ⋆ R) m) :
+@[c0_store] theorem store_hdr_n_vars (v : BitVec 32) (hm : (bvHdrMem h s ⋆ R) m) :
     storeOk m i32 (h + 80#64) ∧
       (bvHdrMem h { s with n_vars := v } ⋆ R) (storeMem m i32 (h + 80#64) v) :=
   store_hdr_u32 0 (by decide) 80#64 rfl v hm { s with n_vars := v } rfl rfl
 
-theorem store_hdr_n_nodes (v : BitVec 32) (hm : (bvHdrMem h s ⋆ R) m) :
+@[c0_store] theorem store_hdr_n_nodes (v : BitVec 32) (hm : (bvHdrMem h s ⋆ R) m) :
     storeOk m i32 (h + 84#64) ∧
       (bvHdrMem h { s with n_nodes := v } ⋆ R) (storeMem m i32 (h + 84#64) v) :=
   store_hdr_u32 1 (by decide) 84#64 rfl v hm { s with n_nodes := v } rfl rfl
 
-theorem store_hdr_n_cwords (v : BitVec 32) (hm : (bvHdrMem h s ⋆ R) m) :
+@[c0_store] theorem store_hdr_n_cwords (v : BitVec 32) (hm : (bvHdrMem h s ⋆ R) m) :
     storeOk m i32 (h + 88#64) ∧
       (bvHdrMem h { s with n_cwords := v } ⋆ R) (storeMem m i32 (h + 88#64) v) :=
   store_hdr_u32 2 (by decide) 88#64 rfl v hm { s with n_cwords := v } rfl rfl
 
-theorem store_hdr_root_node (v : BitVec 32) (hm : (bvHdrMem h s ⋆ R) m) :
+@[c0_store] theorem store_hdr_root_node (v : BitVec 32) (hm : (bvHdrMem h s ⋆ R) m) :
     storeOk m i32 (h + 92#64) ∧
       (bvHdrMem h { s with root_node := v } ⋆ R) (storeMem m i32 (h + 92#64) v) :=
   store_hdr_u32 3 (by decide) 92#64 rfl v hm { s with root_node := v } rfl rfl
 
-theorem store_hdr_num_atoms (v : BitVec 32) (hm : (bvHdrMem h s ⋆ R) m) :
+@[c0_store] theorem store_hdr_num_atoms (v : BitVec 32) (hm : (bvHdrMem h s ⋆ R) m) :
     storeOk m i32 (h + 96#64) ∧
       (bvHdrMem h { s with num_atoms := v } ⋆ R) (storeMem m i32 (h + 96#64) v) :=
   store_hdr_u32 4 (by decide) 96#64 rfl v hm { s with num_atoms := v } rfl rfl
 
-theorem store_hdr_aig_len (v : BitVec 32) (hm : (bvHdrMem h s ⋆ R) m) :
+@[c0_store] theorem store_hdr_aig_len (v : BitVec 32) (hm : (bvHdrMem h s ⋆ R) m) :
     storeOk m i32 (h + 100#64) ∧
       (bvHdrMem h { s with aig_len := v } ⋆ R) (storeMem m i32 (h + 100#64) v) :=
   store_hdr_u32 5 (by decide) 100#64 rfl v hm { s with aig_len := v } rfl rfl
 
-theorem store_hdr_aig_cap (v : BitVec 32) (hm : (bvHdrMem h s ⋆ R) m) :
+@[c0_store] theorem store_hdr_aig_cap (v : BitVec 32) (hm : (bvHdrMem h s ⋆ R) m) :
     storeOk m i32 (h + 104#64) ∧
       (bvHdrMem h { s with aig_cap := v } ⋆ R) (storeMem m i32 (h + 104#64) v) :=
   store_hdr_u32 6 (by decide) 104#64 rfl v hm { s with aig_cap := v } rfl rfl
 
-theorem store_hdr_ht_mask (v : BitVec 32) (hm : (bvHdrMem h s ⋆ R) m) :
+@[c0_store] theorem store_hdr_ht_mask (v : BitVec 32) (hm : (bvHdrMem h s ⋆ R) m) :
     storeOk m i32 (h + 108#64) ∧
       (bvHdrMem h { s with ht_mask := v } ⋆ R) (storeMem m i32 (h + 108#64) v) :=
   store_hdr_u32 7 (by decide) 108#64 rfl v hm { s with ht_mask := v } rfl rfl
 
-theorem store_hdr_lits_len (v : BitVec 32) (hm : (bvHdrMem h s ⋆ R) m) :
+@[c0_store] theorem store_hdr_lits_len (v : BitVec 32) (hm : (bvHdrMem h s ⋆ R) m) :
     storeOk m i32 (h + 112#64) ∧
       (bvHdrMem h { s with lits_len := v } ⋆ R) (storeMem m i32 (h + 112#64) v) :=
   store_hdr_u32 8 (by decide) 112#64 rfl v hm { s with lits_len := v } rfl rfl
 
-theorem store_hdr_lits_cap (v : BitVec 32) (hm : (bvHdrMem h s ⋆ R) m) :
+@[c0_store] theorem store_hdr_lits_cap (v : BitVec 32) (hm : (bvHdrMem h s ⋆ R) m) :
     storeOk m i32 (h + 116#64) ∧
       (bvHdrMem h { s with lits_cap := v } ⋆ R) (storeMem m i32 (h + 116#64) v) :=
   store_hdr_u32 9 (by decide) 116#64 rfl v hm { s with lits_cap := v } rfl rfl
 
-theorem store_hdr_oom (v : BitVec 32) (hm : (bvHdrMem h s ⋆ R) m) :
+@[c0_store] theorem store_hdr_oom (v : BitVec 32) (hm : (bvHdrMem h s ⋆ R) m) :
     storeOk m i32 (h + 120#64) ∧
       (bvHdrMem h { s with oom := v } ⋆ R) (storeMem m i32 (h + 120#64) v) :=
   store_hdr_u32 10 (by decide) 120#64 rfl v hm { s with oom := v } rfl rfl
 
-theorem store_hdr_dimacs_len (v : BitVec 32) (hm : (bvHdrMem h s ⋆ R) m) :
+@[c0_store] theorem store_hdr_dimacs_len (v : BitVec 32) (hm : (bvHdrMem h s ⋆ R) m) :
     storeOk m i32 (h + 124#64) ∧
       (bvHdrMem h { s with dimacs_len := v } ⋆ R) (storeMem m i32 (h + 124#64) v) :=
   store_hdr_u32 11 (by decide) 124#64 rfl v hm { s with dimacs_len := v } rfl rfl
+
+@[c0_load] theorem load_hdr_work_end_ofNat (hm : (bvHdrMem h s ⋆ R) m) :
+    loadVal m i64 (h + 8) = some s.work_end := load_hdr_work_end hm
+
+@[c0_load] theorem load_hdr_prog_ptr_ofNat (hm : (bvHdrMem h s ⋆ R) m) :
+    loadVal m i64 (h + 16) = some s.prog_ptr := load_hdr_prog_ptr hm
+
+@[c0_load] theorem load_hdr_aig_ptr_ofNat (hm : (bvHdrMem h s ⋆ R) m) :
+    loadVal m i64 (h + 24) = some s.aig_ptr := load_hdr_aig_ptr hm
+
+@[c0_load] theorem load_hdr_ht_ptr_ofNat (hm : (bvHdrMem h s ⋆ R) m) :
+    loadVal m i64 (h + 32) = some s.ht_ptr := load_hdr_ht_ptr hm
+
+@[c0_load] theorem load_hdr_atom_base_ptr_ofNat (hm : (bvHdrMem h s ⋆ R) m) :
+    loadVal m i64 (h + 40) = some s.atom_base_ptr := load_hdr_atom_base_ptr hm
+
+@[c0_load] theorem load_hdr_slice_off_ptr_ofNat (hm : (bvHdrMem h s ⋆ R) m) :
+    loadVal m i64 (h + 48) = some s.slice_off_ptr := load_hdr_slice_off_ptr hm
+
+@[c0_load] theorem load_hdr_lits_ptr_ofNat (hm : (bvHdrMem h s ⋆ R) m) :
+    loadVal m i64 (h + 56) = some s.lits_ptr := load_hdr_lits_ptr hm
+
+@[c0_load] theorem load_hdr_marks_ptr_ofNat (hm : (bvHdrMem h s ⋆ R) m) :
+    loadVal m i64 (h + 64) = some s.marks_ptr := load_hdr_marks_ptr hm
+
+@[c0_load] theorem load_hdr_dimacs_start_ofNat (hm : (bvHdrMem h s ⋆ R) m) :
+    loadVal m i64 (h + 72) = some s.dimacs_start := load_hdr_dimacs_start hm
+
+@[c0_load] theorem load_hdr_n_vars_ofNat (hm : (bvHdrMem h s ⋆ R) m) :
+    loadVal m i32 (h + 80) = some s.n_vars := load_hdr_n_vars hm
+
+@[c0_load] theorem load_hdr_n_nodes_ofNat (hm : (bvHdrMem h s ⋆ R) m) :
+    loadVal m i32 (h + 84) = some s.n_nodes := load_hdr_n_nodes hm
+
+@[c0_load] theorem load_hdr_n_cwords_ofNat (hm : (bvHdrMem h s ⋆ R) m) :
+    loadVal m i32 (h + 88) = some s.n_cwords := load_hdr_n_cwords hm
+
+@[c0_load] theorem load_hdr_root_node_ofNat (hm : (bvHdrMem h s ⋆ R) m) :
+    loadVal m i32 (h + 92) = some s.root_node := load_hdr_root_node hm
+
+@[c0_load] theorem load_hdr_num_atoms_ofNat (hm : (bvHdrMem h s ⋆ R) m) :
+    loadVal m i32 (h + 96) = some s.num_atoms := load_hdr_num_atoms hm
+
+@[c0_load] theorem load_hdr_aig_len_ofNat (hm : (bvHdrMem h s ⋆ R) m) :
+    loadVal m i32 (h + 100) = some s.aig_len := load_hdr_aig_len hm
+
+@[c0_load] theorem load_hdr_aig_cap_ofNat (hm : (bvHdrMem h s ⋆ R) m) :
+    loadVal m i32 (h + 104) = some s.aig_cap := load_hdr_aig_cap hm
+
+@[c0_load] theorem load_hdr_ht_mask_ofNat (hm : (bvHdrMem h s ⋆ R) m) :
+    loadVal m i32 (h + 108) = some s.ht_mask := load_hdr_ht_mask hm
+
+@[c0_load] theorem load_hdr_lits_len_ofNat (hm : (bvHdrMem h s ⋆ R) m) :
+    loadVal m i32 (h + 112) = some s.lits_len := load_hdr_lits_len hm
+
+@[c0_load] theorem load_hdr_lits_cap_ofNat (hm : (bvHdrMem h s ⋆ R) m) :
+    loadVal m i32 (h + 116) = some s.lits_cap := load_hdr_lits_cap hm
+
+@[c0_load] theorem load_hdr_oom_ofNat (hm : (bvHdrMem h s ⋆ R) m) :
+    loadVal m i32 (h + 120) = some s.oom := load_hdr_oom hm
+
+@[c0_load] theorem load_hdr_dimacs_len_ofNat (hm : (bvHdrMem h s ⋆ R) m) :
+    loadVal m i32 (h + 124) = some s.dimacs_len := load_hdr_dimacs_len hm
+
+@[c0_store] theorem store_hdr_work_end_ofNat (v : BitVec 64) (hm : (bvHdrMem h s ⋆ R) m) :
+    storeOk m i64 (h + 8) ∧
+      (bvHdrMem h { s with work_end := v } ⋆ R) (storeMem m i64 (h + 8) v) :=
+  store_hdr_work_end v hm
+
+@[c0_store] theorem store_hdr_prog_ptr_ofNat (v : BitVec 64) (hm : (bvHdrMem h s ⋆ R) m) :
+    storeOk m i64 (h + 16) ∧
+      (bvHdrMem h { s with prog_ptr := v } ⋆ R) (storeMem m i64 (h + 16) v) :=
+  store_hdr_prog_ptr v hm
+
+@[c0_store] theorem store_hdr_aig_ptr_ofNat (v : BitVec 64) (hm : (bvHdrMem h s ⋆ R) m) :
+    storeOk m i64 (h + 24) ∧
+      (bvHdrMem h { s with aig_ptr := v } ⋆ R) (storeMem m i64 (h + 24) v) :=
+  store_hdr_aig_ptr v hm
+
+@[c0_store] theorem store_hdr_ht_ptr_ofNat (v : BitVec 64) (hm : (bvHdrMem h s ⋆ R) m) :
+    storeOk m i64 (h + 32) ∧
+      (bvHdrMem h { s with ht_ptr := v } ⋆ R) (storeMem m i64 (h + 32) v) :=
+  store_hdr_ht_ptr v hm
+
+@[c0_store] theorem store_hdr_atom_base_ptr_ofNat (v : BitVec 64) (hm : (bvHdrMem h s ⋆ R) m) :
+    storeOk m i64 (h + 40) ∧
+      (bvHdrMem h { s with atom_base_ptr := v } ⋆ R) (storeMem m i64 (h + 40) v) :=
+  store_hdr_atom_base_ptr v hm
+
+@[c0_store] theorem store_hdr_slice_off_ptr_ofNat (v : BitVec 64) (hm : (bvHdrMem h s ⋆ R) m) :
+    storeOk m i64 (h + 48) ∧
+      (bvHdrMem h { s with slice_off_ptr := v } ⋆ R) (storeMem m i64 (h + 48) v) :=
+  store_hdr_slice_off_ptr v hm
+
+@[c0_store] theorem store_hdr_lits_ptr_ofNat (v : BitVec 64) (hm : (bvHdrMem h s ⋆ R) m) :
+    storeOk m i64 (h + 56) ∧
+      (bvHdrMem h { s with lits_ptr := v } ⋆ R) (storeMem m i64 (h + 56) v) :=
+  store_hdr_lits_ptr v hm
+
+@[c0_store] theorem store_hdr_marks_ptr_ofNat (v : BitVec 64) (hm : (bvHdrMem h s ⋆ R) m) :
+    storeOk m i64 (h + 64) ∧
+      (bvHdrMem h { s with marks_ptr := v } ⋆ R) (storeMem m i64 (h + 64) v) :=
+  store_hdr_marks_ptr v hm
+
+@[c0_store] theorem store_hdr_dimacs_start_ofNat (v : BitVec 64) (hm : (bvHdrMem h s ⋆ R) m) :
+    storeOk m i64 (h + 72) ∧
+      (bvHdrMem h { s with dimacs_start := v } ⋆ R) (storeMem m i64 (h + 72) v) :=
+  store_hdr_dimacs_start v hm
+
+@[c0_store] theorem store_hdr_n_vars_ofNat (v : BitVec 32) (hm : (bvHdrMem h s ⋆ R) m) :
+    storeOk m i32 (h + 80) ∧
+      (bvHdrMem h { s with n_vars := v } ⋆ R) (storeMem m i32 (h + 80) v) :=
+  store_hdr_n_vars v hm
+
+@[c0_store] theorem store_hdr_n_nodes_ofNat (v : BitVec 32) (hm : (bvHdrMem h s ⋆ R) m) :
+    storeOk m i32 (h + 84) ∧
+      (bvHdrMem h { s with n_nodes := v } ⋆ R) (storeMem m i32 (h + 84) v) :=
+  store_hdr_n_nodes v hm
+
+@[c0_store] theorem store_hdr_n_cwords_ofNat (v : BitVec 32) (hm : (bvHdrMem h s ⋆ R) m) :
+    storeOk m i32 (h + 88) ∧
+      (bvHdrMem h { s with n_cwords := v } ⋆ R) (storeMem m i32 (h + 88) v) :=
+  store_hdr_n_cwords v hm
+
+@[c0_store] theorem store_hdr_root_node_ofNat (v : BitVec 32) (hm : (bvHdrMem h s ⋆ R) m) :
+    storeOk m i32 (h + 92) ∧
+      (bvHdrMem h { s with root_node := v } ⋆ R) (storeMem m i32 (h + 92) v) :=
+  store_hdr_root_node v hm
+
+@[c0_store] theorem store_hdr_num_atoms_ofNat (v : BitVec 32) (hm : (bvHdrMem h s ⋆ R) m) :
+    storeOk m i32 (h + 96) ∧
+      (bvHdrMem h { s with num_atoms := v } ⋆ R) (storeMem m i32 (h + 96) v) :=
+  store_hdr_num_atoms v hm
+
+@[c0_store] theorem store_hdr_aig_len_ofNat (v : BitVec 32) (hm : (bvHdrMem h s ⋆ R) m) :
+    storeOk m i32 (h + 100) ∧
+      (bvHdrMem h { s with aig_len := v } ⋆ R) (storeMem m i32 (h + 100) v) :=
+  store_hdr_aig_len v hm
+
+@[c0_store] theorem store_hdr_aig_cap_ofNat (v : BitVec 32) (hm : (bvHdrMem h s ⋆ R) m) :
+    storeOk m i32 (h + 104) ∧
+      (bvHdrMem h { s with aig_cap := v } ⋆ R) (storeMem m i32 (h + 104) v) :=
+  store_hdr_aig_cap v hm
+
+@[c0_store] theorem store_hdr_ht_mask_ofNat (v : BitVec 32) (hm : (bvHdrMem h s ⋆ R) m) :
+    storeOk m i32 (h + 108) ∧
+      (bvHdrMem h { s with ht_mask := v } ⋆ R) (storeMem m i32 (h + 108) v) :=
+  store_hdr_ht_mask v hm
+
+@[c0_store] theorem store_hdr_lits_len_ofNat (v : BitVec 32) (hm : (bvHdrMem h s ⋆ R) m) :
+    storeOk m i32 (h + 112) ∧
+      (bvHdrMem h { s with lits_len := v } ⋆ R) (storeMem m i32 (h + 112) v) :=
+  store_hdr_lits_len v hm
+
+@[c0_store] theorem store_hdr_lits_cap_ofNat (v : BitVec 32) (hm : (bvHdrMem h s ⋆ R) m) :
+    storeOk m i32 (h + 116) ∧
+      (bvHdrMem h { s with lits_cap := v } ⋆ R) (storeMem m i32 (h + 116) v) :=
+  store_hdr_lits_cap v hm
+
+@[c0_store] theorem store_hdr_oom_ofNat (v : BitVec 32) (hm : (bvHdrMem h s ⋆ R) m) :
+    storeOk m i32 (h + 120) ∧
+      (bvHdrMem h { s with oom := v } ⋆ R) (storeMem m i32 (h + 120) v) :=
+  store_hdr_oom v hm
+
+@[c0_store] theorem store_hdr_dimacs_len_ofNat (v : BitVec 32) (hm : (bvHdrMem h s ⋆ R) m) :
+    storeOk m i32 (h + 124) ∧
+      (bvHdrMem h { s with dimacs_len := v } ⋆ R) (storeMem m i32 (h + 124) v) :=
+  store_hdr_dimacs_len v hm
 
 end HdrLoadStore
 

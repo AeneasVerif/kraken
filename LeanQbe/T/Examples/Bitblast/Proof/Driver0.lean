@@ -34,34 +34,6 @@ open LeanQbe.T.Examples.Bitblast.Src.Driver
 open LeanQbe.T.Examples.Bitblast.Ref
 open LeanQbe.T.Examples.Bitblast.Ref.BVProg
 
-@[local c0_load] private theorem drv_load_prog_ptr {h : BitVec 64} {s : BVHdrState}
-    {R : Mem 64 → Prop} {m : Mem 64} (hm : (bvHdrMem h s ⋆ R) m) :
-    loadVal m i64 (h + 16) = some s.prog_ptr := load_hdr_prog_ptr hm
-
-@[local c0_load] private theorem drv_load_atom_base_ptr {h : BitVec 64} {s : BVHdrState}
-    {R : Mem 64 → Prop} {m : Mem 64} (hm : (bvHdrMem h s ⋆ R) m) :
-    loadVal m i64 (h + 40) = some s.atom_base_ptr := load_hdr_atom_base_ptr hm
-
-@[local c0_load] private theorem drv_load_slice_off_ptr {h : BitVec 64} {s : BVHdrState}
-    {R : Mem 64 → Prop} {m : Mem 64} (hm : (bvHdrMem h s ⋆ R) m) :
-    loadVal m i64 (h + 48) = some s.slice_off_ptr := load_hdr_slice_off_ptr hm
-
-@[local c0_load] private theorem drv_load_lits_ptr {h : BitVec 64} {s : BVHdrState}
-    {R : Mem 64 → Prop} {m : Mem 64} (hm : (bvHdrMem h s ⋆ R) m) :
-    loadVal m i64 (h + 56) = some s.lits_ptr := load_hdr_lits_ptr hm
-
-@[local c0_load] private theorem drv_load_n_vars {h : BitVec 64} {s : BVHdrState}
-    {R : Mem 64 → Prop} {m : Mem 64} (hm : (bvHdrMem h s ⋆ R) m) :
-    loadVal m i32 (h + 80) = some s.n_vars := load_hdr_n_vars hm
-
-@[local c0_load] private theorem drv_load_n_cwords {h : BitVec 64} {s : BVHdrState}
-    {R : Mem 64 → Prop} {m : Mem 64} (hm : (bvHdrMem h s ⋆ R) m) :
-    loadVal m i32 (h + 88) = some s.n_cwords := load_hdr_n_cwords hm
-
-@[local c0_load] private theorem drv_load_oom {h : BitVec 64} {s : BVHdrState}
-    {R : Mem 64 → Prop} {m : Mem 64} (hm : (bvHdrMem h s ⋆ R) m) :
-    loadVal m i32 (h + 120) = some s.oom := load_hdr_oom hm
-
 /-! ## 1. `OpsCore` Postcondition Closing Helpers -/
 
 private theorem bv_add_cast {w1 w2 : Nat} (h : w1 = w2) (a b : BitVec w1) :

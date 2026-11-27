@@ -23,9 +23,6 @@ copy-out, and iterative halving loops.
 
 section
 
-attribute [local c0_load] load_hdr_oom load_hdr_lits_ptr load_hdr_lits_len load_hdr_lits_cap
-attribute [local c0_store] store_hdr_oom store_hdr_lits_len
-
 /-! ## Sub-expressions matching `bv_blast_cpop_body` -/
 
 public abbrev cpopInitInnerExpr (buf0 w row_off outer_i : Val i32) (ld : Val i64)
