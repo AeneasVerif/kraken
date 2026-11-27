@@ -1,5 +1,11 @@
 module
 
+public import LeanQbe.T.Examples.Arisca.ArtCore
+public import LeanQbe.T.Examples.Arisca.ArtCoreB
+public import LeanQbe.T.Examples.Arisca.ArtSound
+public import LeanQbe.T.Examples.Arisca.ArtSoundAux
+public import LeanQbe.T.Examples.Arisca.ArtSoundB
+public import LeanQbe.T.Examples.Arisca.ArtSoundPoly
 public import LeanQbe.T.Examples.BenchmarkCertKit
 public import LeanQbe.T.Examples.Bignum
 public import LeanQbe.T.Examples.BignumProg
