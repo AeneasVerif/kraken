@@ -1,6 +1,6 @@
 name = "LeanQbe"
 version = "0.1.0"
-defaultTargets = ["LeanQbe", "LeanQbeAmd64", "LeanQbeArm64", "LeanQbeTest", "leanqbe", "leanqbe-arm64"]
+defaultTargets = ["LeanQbe", "LeanQbeAmd64", "LeanQbeArm64", "leanqbe", "leanqbe-arm64"]
 requiresModuleSystem = true
 enableArtifactCache = true
 restoreAllArtifacts = true
@@ -43,12 +43,15 @@ globs = [
   "LeanQbe.T.Amd64.IselLemmas3",
   "LeanQbe.T.Amd64.IselLemmas4",
   "LeanQbe.T.Amd64.IselLemmas5",
+  "LeanQbe.T.Amd64.IselLemmas6",
   "LeanQbe.T.Amd64.IselLemmasBitcnt",
   "LeanQbe.T.Amd64.IselStepRules",
   "LeanQbe.T.Amd64.IselVec",
   "LeanQbe.T.Amd64.IselVecLemmas1",
   "LeanQbe.T.Amd64.IselVecLemmas2",
   "LeanQbe.T.Amd64.IselVecLemmas3",
+  "LeanQbe.T.Amd64.IselZero",
+  "LeanQbe.T.Amd64.IselZeroLemmas",
   "LeanQbe.T.Amd64.LinkRec",
   "LeanQbe.T.Amd64.Litmus",
   "LeanQbe.T.Amd64.LratBytes",
@@ -75,10 +78,18 @@ globs = [
   "LeanQbe.T.Arm64.FrameLemmas",
   "LeanQbe.T.Arm64.Isa",
   "LeanQbe.T.Arm64.Isel",
+  "LeanQbe.T.Arm64.IselFlagHooks",
+  "LeanQbe.T.Arm64.IselFlagHooksLemmas",
   "LeanQbe.T.Arm64.IselLemmas1",
   "LeanQbe.T.Arm64.IselLemmas2",
   "LeanQbe.T.Arm64.IselLemmas3",
+  "LeanQbe.T.Arm64.IselLemmas30",
+  "LeanQbe.T.Arm64.IselLemmas31",
   "LeanQbe.T.Arm64.IselLemmas4",
+  "LeanQbe.T.Arm64.IselNarrow",
+  "LeanQbe.T.Arm64.IselNarrowLemmas",
+  "LeanQbe.T.Arm64.IselShift",
+  "LeanQbe.T.Arm64.IselShiftLemmas",
   "LeanQbe.T.Arm64.IselStepRules",
   "LeanQbe.T.Arm64.LinkRec",
   "LeanQbe.T.Arm64.Litmus",

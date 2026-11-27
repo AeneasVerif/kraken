@@ -15,7 +15,7 @@
 #
 # Broad Target Guard:
 #   Unless --allow-broad is passed, bare umbrella targets (LeanQbe, LeanQbeAmd64,
-#   LeanQbeArm64, LeanQbeTest, LeanQbeLegacy*, LeanQbeBootstrap0*) or target lists
+#   LeanQbeArm64, LeanQbeTest, LeanQbeBootstrap0*) or target lists
 #   lacking a concrete target are rejected to prevent accidental heavy builds.
 #
 set -euo pipefail
@@ -30,7 +30,7 @@ Options:
   -m, --mem <SIZE>     systemd MemoryMax bound (default: 18G)
   -t, --timeout <SEC>  Timeout in seconds (default: 600)
   --allow-broad        Allow umbrella targets (LeanQbe, LeanQbeAmd64, LeanQbeArm64,
-                       LeanQbeTest, LeanQbeLegacy*, LeanQbeBootstrap0*) or empty targets
+                       LeanQbeTest, LeanQbeBootstrap0*) or empty targets
   --no-wfail           Do not pass --wfail to lake build
   --wfail              Pass --wfail to lake build (default: enabled)
   --dry-run            Print the exact command and exit 0 without executing
@@ -147,8 +147,8 @@ if [ "$ALLOW_BROAD" -eq 0 ]; then
     norm="${norm#+}"
     norm="${norm%%:*}"
     case "$norm" in
-      LeanQbe|LeanQbeAmd64|LeanQbeArm64|LeanQbeTest|LeanQbeLegacy*|LeanQbeBootstrap0*)
-        echo "build_bounded.sh: error: broad umbrella target '$tgt' rejected. Use fine-grained targets (e.g. LeanQbeCore, LeanQbeAmd64Core, LeanQbeArm64Core, LeanQbeCoreTest, or a specific module) or pass --allow-broad to override." >&2
+      LeanQbe|LeanQbeAmd64|LeanQbeArm64|LeanQbeTest|LeanQbeBootstrap0*)
+        echo "build_bounded.sh: error: broad umbrella target '$tgt' rejected. Use fine-grained targets (e.g. LeanQbeCore, LeanQbeAmd64Core, LeanQbeArm64Core, LeanQbeCompileGuards, or a specific module) or pass --allow-broad to override." >&2
         exit 2
         ;;
     esac

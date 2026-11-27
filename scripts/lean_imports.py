@@ -699,7 +699,7 @@ FORBIDDEN_CLASS0_RE = re.compile(
     r"|scripts/(?:check\.sh|common\.sh|_common\.py|lean_imports\.py|headline\.txt|headlines\.d/))"
 )
 CLASS0_RE = re.compile(
-    r"^(?:(?:LeanQbe-)?README\.md|NOTES\.md|DEVELOPER\.md|CONTRIBUTING\.md|docs/.*|bench/.*"
+    r"^(?:(?:LeanQbe-)?README\.md|NOTES\.md|DEVELOPER\.md|CONTRIBUTING\.md|docs/.*|img/.*|bench/.*"
     r"|test/.*\.(?:c|h|py|sh|cnf|lrat)|scripts/(?:fast_land|all|preflight)\.sh"
     r"|scripts/(?:gen_cert_slices|test_gen_cert_slices|test_infra_speedup"
     r"|merge_lean_imports|select_tests)\.py)$"

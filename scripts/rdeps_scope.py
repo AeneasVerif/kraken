@@ -46,7 +46,7 @@ FAIL_CLOSED_FILES: frozenset[str] = frozenset(
 
 SAFE_NONLEAN_RE = re.compile(
     r"^(?:(?:LeanQbe-)?README\.md|NOTES\.md|DEVELOPER\.md|CONTRIBUTING\.md"
-    r"|docs/.*|bench/.*"
+    r"|docs/.*|img/.*|bench/.*"
     r"|test/.*\.(?:c|h|py|sh|cnf|lrat|qbe|txt)"
     r"|scripts/(?:fast_land|all|preflight)\.sh"
     r"|scripts/(?:gen_cert_slices|test_gen_cert_slices|test_infra_speedup"
