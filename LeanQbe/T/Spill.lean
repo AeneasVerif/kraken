@@ -339,9 +339,9 @@ mutual
 def gatherAtFast {I : Isa} (c : Ctx I) (banksArr : Array Bank) (flagArr : Array Bool)
     (jnzMap : Std.HashMap Nat JnzInfo) (blk? : Option Nat)
     (rematRoot : Trie Nat := .empty) (rematOpIps : Trie Bool := .empty) :
-    List Nat → Std.HashSet Nat → List Nat → Std.HashSet Nat → Nat → Trie Bool →
+    List Nat → Std.HashSet Nat → List Nat → Std.HashSet Nat → Nat → Nat → Trie Bool →
     Tree → GatherAcc → GatherAcc
-  | lps, lpsS, lr, lrS, mult, isZ32, .let_ lv ip nv0 ts op k, acc =>
+  | lps, lpsS, lr, lrS, mult, loopMult, isZ32, .let_ lv ip nv0 ts op k, acc =>
     let la := k.lv
     let defs := defVarsRange nv0 ts.length
     let uses := dedup (c.addrDeps.getD ip (opVarIds op))
@@ -383,13 +383,19 @@ def gatherAtFast {I : Isa} (c : Ctx I) (banksArr : Array Bank) (flagArr : Array 
       | none => (acc.zextElide, acc.zextEdges)
     let isZ32' :=
       if opProducesZ32Static I c.r0? op then isZ32.insert nv0 true else isZ32
-    gatherAtFast c banksArr flagArr jnzMap blk? rematRoot rematOpIps lps lpsS lr lrS mult isZ32' k
+    let defW :=
+      if c.cfg.costPrio && I.supportsCmpMem i64 && !lps.isEmpty then
+        mult + mult / 2
+      else mult
+    let ws' := addWeight defW defs (addWeight mult uses acc.weights)
+    gatherAtFast c banksArr flagArr jnzMap blk? rematRoot rematOpIps
+      lps lpsS lr lrS mult loopMult isZ32' k
       { acc with
         ipW := acc.ipW.insert ip mult,
-        weights := (mult, defs ++ uses) :: acc.weights, defInterf := di, affEdges := aff,
+        weights := ws', defInterf := di, affEdges := aff,
         gprPts := gPts, gprPtBlks := gBlks, gprPtIps := gIps, vecPts := vPts, defWT := dw,
         zextElide := ze, zextEdges := zed }
-  | lps, lpsS, lr, lrS, mult, isZ32, .load lv ip x t a k, acc =>
+  | lps, lpsS, lr, lrS, mult, loopMult, isZ32, .load lv ip x t a k, acc =>
     let la := k.lv
     let uses := dedup (c.addrDeps.getD ip (argVarIds a))
     let di := if natMem x la then (x, la) :: acc.defInterf else acc.defInterf
@@ -406,25 +412,27 @@ def gatherAtFast {I : Isa} (c : Ctx I) (banksArr : Array Bank) (flagArr : Array 
       if (I.gpr.zeroExtLoad && isGprTy I t) || (I.gpr.zeroUpper32Load && tyEq t (.bits 32)) then
         isZ32.insert x true
       else isZ32
-    gatherAtFast c banksArr flagArr jnzMap blk? rematRoot rematOpIps lps lpsS lr lrS mult isZ32' k
+    gatherAtFast c banksArr flagArr jnzMap blk? rematRoot rematOpIps
+      lps lpsS lr lrS mult loopMult isZ32' k
       { acc with
         ipW := acc.ipW.insert ip mult,
         weights := (mult, x :: uses) :: acc.weights, defInterf := di,
         gprPts := gPts, gprPtBlks := gBlks, gprPtIps := gIps, vecPts := vPts,
         defWT := acc.defWT.insert x mult }
-  | lps, lpsS, lr, lrS, mult, isZ32, .store lv ip _ v a k, acc =>
+  | lps, lpsS, lr, lrS, mult, loopMult, isZ32, .store lv ip _ v a k, acc =>
     let uses := storeVarIds c.addrDeps c.rmwDeps ip v a
     let (gLv, vLv) := splitBankArr c.banks c.flagHome banksArr flagArr lv
     let (gUse, vUse) := splitBankArr c.banks c.flagHome banksArr flagArr uses
     let (gPts, gBlks, gIps) := addGprPtBlk blk? ip c.nGpr gUse (eraseMany gUse gLv)
       acc.gprPts acc.gprPtBlks acc.gprPtIps
-    gatherAtFast c banksArr flagArr jnzMap blk? rematRoot rematOpIps lps lpsS lr lrS mult isZ32 k
+    gatherAtFast c banksArr flagArr jnzMap blk? rematRoot rematOpIps
+      lps lpsS lr lrS mult loopMult isZ32 k
       { acc with
         ipW := acc.ipW.insert ip mult,
         weights := addWeight mult uses acc.weights, gprPts := gPts, gprPtBlks := gBlks,
         gprPtIps := gIps,
         vecPts := addVecPt c.nVec vUse.length (eraseMany vUse vLv) acc.vecPts }
-  | lps, lpsS, lr, lrS, mult, isZ32, .call _ ip nv0 _ as bs args k, acc =>
+  | lps, lpsS, lr, lrS, mult, loopMult, isZ32, .call _ ip nv0 _ as bs args k, acc =>
     let defs := defVarsRange nv0 bs.length
     let la := k.lv
     let across := eraseMany defs la
@@ -444,13 +452,14 @@ def gatherAtFast {I : Isa} (c : Ctx I) (banksArr : Array Bank) (flagArr : Array 
       else across.foldl (fun t x => t.insert x true) acc.loopCall
     let isZ32' := (defs.zip bs).foldl (fun z (d, t) =>
       if isGprTy I t then z.insert d true else z) isZ32
-    gatherAtFast c banksArr flagArr jnzMap blk? rematRoot rematOpIps lps lpsS lr lrS mult isZ32' k
+    gatherAtFast c banksArr flagArr jnzMap blk? rematRoot rematOpIps
+      lps lpsS lr lrS mult loopMult isZ32' k
       { acc with
         ipW := acc.ipW.insert ip mult,
         weights := addWeight mult (defs ++ mapRematVars rematRoot (tupVarIds args)) acc.weights,
         defInterf := di, abiGpr := ag2, abiVec := av2,
         callW := addWeight mult across acc.callW, loopCall := lc, defWT := dw }
-  | lps, lpsS, lr, lrS, mult, isZ32, .jnz lv ip cx _ t e, acc =>
+  | lps, lpsS, lr, lrS, mult, loopMult, isZ32, .jnz lv ip cx _ t e, acc =>
     let (gLv, _) := splitBankArr c.banks c.flagHome banksArr flagArr lv
     let (gUse, _) := splitBankArr c.banks c.flagHome banksArr flagArr [cx]
     let inLoop := !lps.isEmpty
@@ -491,17 +500,17 @@ def gatherAtFast {I : Isa} (c : Ctx I) (banksArr : Array Bank) (flagArr : Array 
     let (gPts, gBlks, gIps) := addGprPtBlk blk? ip c.nGpr gUse (eraseMany gUse gLv)
       acc.gprPts acc.gprPtBlks acc.gprPtIps
     let acc1 := gatherAtFast c banksArr flagArr jnzMap blk? rematRoot rematOpIps
-      lps lpsS lr lrS mE isZ32 e
+      lps lpsS lr lrS mE loopMult isZ32 e
       { acc with
         weights := (mult, [cx]) :: acc.weights, gprPts := gPts, gprPtBlks := gBlks,
         gprPtIps := gIps, brW := acc.brW.insert ip (mult, mT, mE),
         invertJnz := if Nat.blt mE mT then acc.invertJnz.insert ip true else acc.invertJnz }
     gatherAtFast c banksArr flagArr jnzMap blk? rematRoot rematOpIps
-      lps lpsS lr lrS mT isZ32 t acc1
-  | lps, lpsS, lr, lrS, mult, isZ32, .skip _ _ k, acc =>
+      lps lpsS lr lrS mT loopMult isZ32 t acc1
+  | lps, lpsS, lr, lrS, mult, loopMult, isZ32, .skip _ _ k, acc =>
     gatherAtFast c banksArr flagArr jnzMap blk? rematRoot rematOpIps
-      lps lpsS lr lrS mult isZ32 k acc
-  | lps, lpsS, _, _, mult, _, .jump _ ip j _ args, acc =>
+      lps lpsS lr lrS mult loopMult isZ32 k acc
+  | lps, lpsS, _, _, mult, _, _, .jump _ ip j _ args, acc =>
     let acc := { acc with
       jmpW := acc.jmpW.insert ip mult, inW := acc.inW.insert j (acc.inW.getD j 0 + mult) }
     let as := tupArgsToList args
@@ -516,11 +525,12 @@ def gatherAtFast {I : Isa} (c : Ctx I) (banksArr : Array Bank) (flagArr : Array 
     let (aff', anti') :=
       if c.cfg.backEdgeCoal then
         addJumpAffAnti (lpsS.contains j) lps.length as ps mult acc.affEdges acc.antiEdges
+          (c.cfg.joinCoal && Nat.ble 12 c.nGpr)
       else
         (addAffZip as ps (8 * mult) acc.affEdges, addAntiZip as ps (2 * mult) acc.antiEdges)
     { acc with weights := addWeight mult nonSelf acc.weights,
                affEdges := aff', antiEdges := anti' }
-  | _, _, _, _, mult, _, .ret _ ip rs vs, acc =>
+  | _, _, _, _, mult, _, _, .ret _ ip rs vs, acc =>
     let (ag, av) := match I.assignRets rs with
       | some locs =>
         addAbiArgs (tupArgsToList vs) (abiIdList c.allGpr c.allVec locs) (4 * mult)
@@ -528,7 +538,7 @@ def gatherAtFast {I : Isa} (c : Ctx I) (banksArr : Array Bank) (flagArr : Array 
       | none => (acc.abiGpr, acc.abiVec)
     { acc with weights := addWeight mult (mapRematVars rematRoot (tupVarIds vs)) acc.weights,
                abiGpr := ag, abiVec := av, ipW := acc.ipW.insert ip mult }
-  | _, _, _, _, mult, _, .exit _ ip _ as args, acc =>
+  | _, _, _, _, mult, _, _, .exit _ ip _ as args, acc =>
     let (ag, av) := match I.assignArgs as with
       | some locs =>
         addAbiArgs (tupArgsToList args) (abiIdList c.allGpr c.allVec locs) (4 * mult)
@@ -536,19 +546,20 @@ def gatherAtFast {I : Isa} (c : Ctx I) (banksArr : Array Bank) (flagArr : Array 
       | none => (acc.abiGpr, acc.abiVec)
     { acc with weights := addWeight mult (mapRematVars rematRoot (tupVarIds args)) acc.weights,
                abiGpr := ag, abiVec := av, ipW := acc.ipW.insert ip mult }
-  | _, _, _, _, _, _, .stop _, acc => acc
-  | lps, lpsS, lr, lrS, mult, isZ32, .group _ bs k, acc =>
-    gatherAtFastB c banksArr flagArr jnzMap rematRoot rematOpIps lps lpsS lr lrS mult bs
+  | _, _, _, _, _, _, _, .stop _, acc => acc
+  | lps, lpsS, lr, lrS, mult, loopMult, isZ32, .group _ bs k, acc =>
+    gatherAtFastB c banksArr flagArr jnzMap rematRoot rematOpIps
+      lps lpsS lr lrS mult loopMult bs
       (gatherAtFast c banksArr flagArr jnzMap blk? rematRoot rematOpIps
-        lps lpsS lr lrS mult isZ32 k acc)
+        lps lpsS lr lrS mult loopMult isZ32 k acc)
 
 def gatherAtFastB {I : Isa} (c : Ctx I) (banksArr : Array Bank) (flagArr : Array Bool)
     (jnzMap : Std.HashMap Nat JnzInfo) (rematRoot : Trie Nat := .empty)
     (rematOpIps : Trie Bool := .empty) :
-    List Nat → Std.HashSet Nat → List Nat → Std.HashSet Nat → Nat →
+    List Nat → Std.HashSet Nat → List Nat → Std.HashSet Nat → Nat → Nat →
     TreeBlocks → GatherAcc → GatherAcc
-  | _, _, _, _, _, .nil, acc => acc
-  | lps, lpsS, lr, lrS, mult, .cons l ps b bs, acc =>
+  | _, _, _, _, _, _, .nil, acc => acc
+  | lps, lpsS, lr, lrS, mult, loopMult, .cons l ps b bs, acc =>
     let pvars := ps.map Prod.fst
     let le := b.lv
     let di := pvars.foldl (fun d p =>
@@ -559,21 +570,26 @@ def gatherAtFastB {I : Isa} (c : Ctx I) (banksArr : Array Bank) (flagArr : Array
     let extraDepth := lps'.length - lps.length
     let pow10 : Nat → Nat
       | 0 => 1 | 1 => 10 | 2 => 100 | 3 => 1000 | _ => 10000
+    let pow4 : Nat → Nat
+      | 0 => 1 | 1 => 4 | 2 => 16 | 3 => 64 | _ => 256
     let mB :=
       if Nat.ble 1 extraDepth then
-        let f := pow10 extraDepth
+        let coldLoop := c.cfg.coldNest && !lps.isEmpty && Nat.ble (8 * mult) loopMult
+        let f := if coldLoop then pow4 extraDepth else pow10 extraDepth
         let scaled := if lps.isEmpty then max (f * mult) (f * baseMult) else f * max mult 1
-        min scaled 160000
+        min scaled (if coldLoop then max 1 (4 * mult) else 160000)
       else mult
+    let loopMult' := if Nat.ble 1 extraDepth then mB else loopMult
     let lr' := lps'.foldl (fun a lh => union (c.loopReach.getD lh []) a) lr
     let lpsS' := if Nat.ble 1 extraDepth then hashSetOfList lps' else lpsS
     let lrS' := if Nat.ble 1 extraDepth || !lps'.isEmpty then hashSetOfList lr' else lrS
     let dw := pvars.foldl (fun t p => t.insert p mB) acc.defWT
     let bp := pvars.foldl (fun t p => t.insert p true) acc.isBP
     let pW := if !lps'.isEmpty then max (baseMult / 4) (mB / 4) else baseMult / 4
-    gatherAtFastB c banksArr flagArr jnzMap rematRoot rematOpIps lps lpsS lr lrS mult bs
+    gatherAtFastB c banksArr flagArr jnzMap rematRoot rematOpIps
+      lps lpsS lr lrS mult loopMult bs
       (gatherAtFast c banksArr flagArr jnzMap (some l) rematRoot rematOpIps
-        lps' lpsS' lr' lrS' mB .empty b
+        lps' lpsS' lr' lrS' mB loopMult' .empty b
         { acc with weights := addWeight pW pvars acc.weights,
                    defInterf := di, defWT := dw, isBP := bp })
 end
@@ -586,7 +602,7 @@ def gather {I : Isa} (c : Ctx I) (lps lr : List Nat) (mult : Nat) (isZ32 : Trie 
   let bArr := if banksArr.isEmpty then #[] else banksArr
   let fArr := if flagArr.isEmpty then #[] else flagArr
   gatherAtFast c bArr fArr jnzMap none rematRoot rematOpIps
-    lps (hashSetOfList lps) lr (hashSetOfList lr) mult isZ32 t acc
+    lps (hashSetOfList lps) lr (hashSetOfList lr) mult 0 isZ32 t acc
 
 def triePush {α : Type} (t : Trie (List α)) (k : Nat) (v : α) : Trie (List α) :=
   t.insert k (v :: t.getD k [])
@@ -1434,7 +1450,13 @@ def refineColorsArr {I : Isa} (c : Ctx I) (p : ColorPre I) (order : List (Nat ×
         | none => hArr
       | _ => hArr
   let pass (hArr : Array (Home I.Cond)) := order.foldl (fun h (_, x) => stepOne h x) hArr
-  pass (pass hArr0)
+  let h1 := pass hArr0
+  let h2 :=
+    if c.cfg.joinCoal then
+      swapColorsArr c order p.interfDedup p.affArr p.antiArr p.abiGArr p.zextArr armEvArr
+        p.varBlksArr forceEv usedCs (armShareArr p armEvArr) h1
+    else h1
+  pass h2
 
 def colorVarsFast {I : Isa} (c : Ctx I) (nv : Nat) (banksArr : Array Bank)
     (flagHome : Trie I.Cond) (acc : GatherAcc) (fnParams : List Nat)
@@ -1796,7 +1818,7 @@ def pickRegIn {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond)) (usedCs : List N
   let gprBudget := c.nGpr + usedCs.length
   let cinByLbl : Std.HashMap Nat (List (Nat × Nat × Bool × Nat)) :=
     cin.reverse.foldl (fun m (l, x, r, d, w) => m.insert l ((x, r, d, w) :: m.getD l [])) {}
-  blocks.foldl (fun acc (l, ps, body) =>
+  let rin0 := blocks.foldl (fun acc (l, ps, body) =>
     let es := cinByLbl.getD l []
     if es.isEmpty then acc
     else
@@ -1837,6 +1859,9 @@ def pickRegIn {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond)) (usedCs : List N
             else if Nat.blt costSR costS then ((x, r, true) :: sel, r :: busy)
             else (sel, busy)) ([], busy0)
       if sel.isEmpty then acc else acc.insert l sel) .empty
+  let needMap : Std.HashMap Nat Nat := blocks.foldl (fun m (l, ps, _) =>
+    m.insert l (countPlocGprs c home (fun p => slotOk.getD p false) ps)) {}
+  addLoopRegIn c home usedCs (fun b => needMap.getD b 0) blocks rin0
 
 /-- Weighted reload `(cost, leafCount)` inside `t` when split var `x` enters evicted (`ev`). -/
 def evBodyCost {I : Isa} (c : Ctx I) (x : Nat) (isCaller : Bool) (evIn : Trie (List Nat)) :
@@ -2285,6 +2310,7 @@ def hints (I : Isa) (f : Fn)
       jmpW := acc.jmpW, inW := acc.inW, blkUses := blkUses }
     let blkEdges := jmpEdges rootId baseMult t ++
       tBlocks.flatMap fun (l, _, body) => jmpEdges l (c.inW.getD l 0) body
+    let c := { c with blkEdges := blkEdges }
     let (edgesBySrc, edgesByDst) := blkEdges.foldl (fun (bs, bd) e@(src, dst, _, _) =>
       (bs.insert src (e :: bs.getD src []), bd.insert dst (e :: bd.getD dst [])))
       (({} : Std.HashMap Nat (List (Nat × Nat × Nat × List Nat))),

@@ -34,11 +34,17 @@ def pow8 : Nat → Nat
 latches (`isLatch = true`) by `8^depth` and weighting simultaneous `(src_i, dst_j)` (`i ≠ j`)
 anti-affinity to avoid 2/3-cycle register swaps. -/
 def addJumpAffAnti (isLatch : Bool) (depth : Nat) (as : List (Option Nat)) (ps : List Nat)
-    (mult : Nat) (affEdges antiEdges : List (Nat × Nat × Nat)) :
+    (mult : Nat) (affEdges antiEdges : List (Nat × Nat × Nat)) (joinCoal : Bool := false) :
     List (Nat × Nat × Nat) × List (Nat × Nat × Nat) :=
-  let boost := if isLatch then min (pow8 depth) 512 else 1
+  let boost :=
+    if isLatch then min (pow8 depth) 512
+    else if joinCoal then 2
+    else 1
+  let antiMul :=
+    if isLatch then 4 * boost
+    else 2
   let affW := min (8 * mult * boost) 100000000
-  let antiW := min ((if isLatch then 4 * boost else 2) * mult) 100000000
+  let antiW := min (antiMul * mult) 100000000
   let aff' := (as.zip ps).foldl (fun a (ao, p) =>
     match ao with | some x => (x, p, affW) :: a | none => a) affEdges
   let anti' := (as.zip ps).foldl (fun a (ao, p) =>
@@ -125,6 +131,83 @@ def refineColors {I : Isa} (c : Ctx I) (order : List (Nat × Nat))
       | _ => hT
   let pass (hT : Trie (Home I.Cond)) := order.foldl (fun h (_, x) => stepOne h x) hT
   pass (pass hT0)
+
+/-- Pairwise color-swap pass (`cfg.joinCoal`, `D5`): when `x` (in `rx`) wants same-class `ry`
+that is blocked by exactly one interfering same-class variable `y`, swap `x ↔ y` iff legal and
+strictly improving total `Σ affinity - Σ anti-affinity`. Preserves register classes, `gPb`,
+`usedCs`, `zextPeers`, and `armEv`/`forceEv` invariants. -/
+def swapColorsArr {I : Isa} (c : Ctx I) (order : List (Nat × Nat))
+    (interf : Array (List Nat)) (affArr antiArr abiGArr : Array (List (Nat × Nat)))
+    (zextArr armEvArr varBlksArr : Array (List Nat)) (forceEv : Trie (List Nat))
+    (usedCs : List Nat) (armShareFn : Nat → Nat → Bool)
+    (hArr0 : Array (Home I.Cond)) : Array (Home I.Cond) :=
+  let isForced (x : Nat) : Bool :=
+    (varBlksArr.getD x []).any fun b => natMem x (forceEv.getD b [])
+  let canMove (x : Nat) : Bool :=
+    (armEvArr.getD x []).isEmpty && !isForced x && (zextArr.getD x []).isEmpty
+  let scoreExcl (hArr : Array (Home I.Cond)) (u excl r : Nat) : Nat × Nat :=
+    let p0 := (abiGArr.getD u []).foldl (fun s (r', w) =>
+      if Nat.beq r r' then s + w else s) 0
+    let p := (affArr.getD u []).foldl (fun s (v, w) =>
+      if Nat.beq v excl then s
+      else match hArr.getD v .none with
+        | .gpr rv => if Nat.beq r rv then s + w else s
+        | _ => s) p0
+    let an := (antiArr.getD u []).foldl (fun s (v, w) =>
+      if Nat.beq v excl then s
+      else match hArr.getD v .none with
+        | .gpr rv => if Nat.beq r rv then s + w else s
+        | _ => s) 0
+    (p, an)
+  let stepSwap (hArr : Array (Home I.Cond)) (x : Nat) : Array (Home I.Cond) :=
+    if !canMove x then hArr
+    else match hArr.getD x .none with
+      | .gpr rx =>
+        let isCaller := Nat.blt rx c.nGpr
+        let cands0 := if isCaller then c.gAlloc else usedCs
+        let xI := interf.getD x []
+        let best := cands0.foldl (fun (b : Option (Nat × Nat × Nat × Nat)) ry =>
+          if Nat.beq ry rx then b
+          else
+            let blockers := xI.filter fun y => match hArr.getD y .none with
+              | .gpr r => Nat.beq r ry && !armShareFn y x
+              | _ => false
+            match blockers with
+            | [y] =>
+              if !canMove y then b
+              else
+                let yI := interf.getD y []
+                let yBlocked := yI.any fun z =>
+                  !Nat.beq z x && match hArr.getD z .none with
+                    | .gpr rz => Nat.beq rz rx && !armShareFn z y
+                    | _ => false
+                if yBlocked then b
+                else
+                  let (pxO, axO) := scoreExcl hArr x y rx
+                  let (pxN, axN) := scoreExcl hArr x y ry
+                  let (pyO, ayO) := scoreExcl hArr y x ry
+                  let (pyN, ayN) := scoreExcl hArr y x rx
+                  let pOld := pxO + pyO; let anOld := axO + ayO
+                  let pNew := pxN + pyN; let anNew := axN + ayN
+                  let lhs := pNew + anOld; let rhs := pOld + anNew
+                  let ok := Nat.ble (rhs + 1) lhs ||
+                    (Nat.beq lhs rhs && Nat.ble (anNew + 1) anOld)
+                  if !ok then b
+                  else
+                    let gain := lhs - rhs
+                    let anDrop := anOld - anNew
+                    match b with
+                    | none => some (y, ry, gain, anDrop)
+                    | some (_, _, bg, ba) =>
+                      if Nat.blt bg gain || (Nat.beq gain bg && Nat.blt ba anDrop) then
+                        some (y, ry, gain, anDrop)
+                      else b
+            | _ => b) none
+        match best with
+        | some (y, ry, _, _) => (hArr.set! x (.gpr ry)).set! y (.gpr rx)
+        | none => hArr
+      | _ => hArr
+  order.foldl (fun h (_, x) => stepSwap h x) hArr0
 
 end Spill
 end LeanQbe.T

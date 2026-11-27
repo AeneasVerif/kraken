@@ -151,11 +151,14 @@ structure Cfg where
   (armEvict armLoops : Bool := true)
   (armX : Bool := true)
   (backEdgeCoal immMoviDedup : Bool := true)
+  (loopRegIn : Bool := true) (coldNest : Bool := false)
+  (costPrio : Bool := false) (dfKeep : Bool := false) (joinCoal : Bool := true)
 
 /-- Baseline configuration (all `Spill.Cfg` switches off), for ablation and regression tests. -/
 def Cfg.legacy : Cfg :=
   { sink := false, joinGuard := false, cacheHint := false, regEntry := false, armEvict := false,
-    backEdgeCoal := false, immMoviDedup := false }
+    backEdgeCoal := false, immMoviDedup := false, loopRegIn := false, coldNest := false,
+    costPrio := false, dfKeep := false, joinCoal := false }
 
 /-- A non-trivial `jnz` arm (`key = 2 * ip + 1` for the then-arm, `2 * ip` for the else-arm):
 its ip interval `[lo, hi)` (arms are contiguous in `Tree.ofFn` numbering), entry weight `w`,
@@ -432,13 +435,14 @@ def buildPre {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond)) (usedCs : List Na
 def allocDefs {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond))
     (bk : Trie (Nat × SlotWidth × Bool)) (usedCs : List Nat) (defs la : List Nat)
     (prefVar? : Option Nat) (cachedGPairs : List (Nat × Nat)) (cachedV : List Nat)
-    (dest : Trie I.Loc) (evAfter : List Nat := []) :
+    (dest : Trie I.Loc) (evAfter : List Nat := []) (dfRegs : List Nat := []) :
     Trie I.Loc × List (Nat × Nat × Nat) × List (Nat × Nat × SlotWidth × Nat) ×
       List Nat × List Nat :=
   let gOf (r : Nat) := c.gReg.getD r I.frame.sp
   let cachedG := cachedGPairs.filterMap fun (y, r) => if natMem y la then some r else none
+  let keepG := if c.cfg.dfKeep then dfRegs else []
   let pickG (gb sibG : List Nat) (pref : Option Nat) :=
-    pref.filter (!natMem · sibG) <|> freshRegAvoid (c.gAlloc ++ usedCs) gb cachedG <|>
+    pref.filter (!natMem · sibG) <|> freshRegAvoid (c.gAlloc ++ usedCs) gb cachedG keepG <|>
       c.gAlloc.find? (!natMem · sibG) <|> c.gAlloc.head?
   let pickV (vb sibV : List Nat) (pref : Option Nat) :=
     pref.filter (!natMem · sibV) <|> freshRegAvoid c.vAlloc vb cachedV <|>
@@ -732,7 +736,7 @@ def emitAlloc {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond))
         else buildPre c home st.usedCs lv laAfter ops pd
           (splitMoves c home bk false rl) rlWG rlWV gC vC noLoad evAfter
       let (dest, gSt', vSt', wG, wV) := allocDefs c home bk st.usedCs defs k.lv
-        (prefOpVarSkip op k.lv noLoad) gC1 (vC1.map Prod.snd) st.dest evAfter
+        (prefOpVarSkip op k.lv noLoad) gC1 (vC1.map Prod.snd) st.dest evAfter (df1.map (·.2.2))
       let (mvs, df2) := flushDf c (natMem ·.2.2 wG) mvs0 df1
       let var' := match r0, r1, st.variant.find? ip, dest.find? nv0 with
         | some a0, some a1, none, some (.gpr rd) =>
@@ -761,7 +765,7 @@ def emitAlloc {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond))
     let (mvs0, gC1, vC1, df1) := buildPre c home st.usedCs lv laAfter ops pd
       (splitMoves c home bk false rl) rlWG rlWV gC vC [] evAfter
     let (dest, gSt', vSt', wG, wV) := allocDefs c home bk st.usedCs [x] k.lv none
-      gC1 (vC1.map Prod.snd) st.dest evAfter
+      gC1 (vC1.map Prod.snd) st.dest evAfter (df1.map (·.2.2))
     let (mvs, df2) := flushDf c (natMem ·.2.2 wG) mvs0 df1
     let gC2 := gC1.filter fun (y, r) => natMem y k.lv && !natMem r wG
     let vC2 := vC1.filter fun (y, v) => natMem y k.lv && !natMem v wV
@@ -955,6 +959,129 @@ def emitAllocB {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond))
       { st with entry := st.entry.insert l ⟨liveL, plocs⟩, usedCs := cs' }
     emitAllocB c home bk slotOk clrAt r0 r1 bs st1
 end
+
+/-- Weighted uses of `x` in block body `t` (excluding nested `.group` block defs), including
+compare/ALU uses that `slotOpNoLoad` would otherwise fold from the stack on every iteration. -/
+private def blkUseWeight {I : Isa} (c : Ctx I) (x : Nat) : Tree → Nat
+  | .let_ _ ip _ _ op k =>
+    let w := if natMem x (c.addrDeps.getD ip (opVarIds op)) then c.ipW.getD ip 0 else 0
+    w + blkUseWeight c x k
+  | .load _ ip _ _ a k =>
+    let w := if natMem x (c.addrDeps.getD ip (argVarIds a)) then c.ipW.getD ip 0 else 0
+    w + blkUseWeight c x k
+  | .store _ ip _ v a k =>
+    let w := if natMem x (storeVarIds c.addrDeps c.rmwDeps ip v a) then c.ipW.getD ip 0 else 0
+    w + blkUseWeight c x k
+  | .call _ ip _ _ _ _ args k =>
+    let w := if natMem x (tupVarIds args) then c.ipW.getD ip 0 else 0
+    w + blkUseWeight c x k
+  | .jnz _ ip cx _ t e =>
+    let w := if Nat.beq cx x then (c.brW.getD ip (0, 0, 0)).1 else 0
+    w + blkUseWeight c x t + blkUseWeight c x e
+  | .skip _ _ k | .group _ _ k => blkUseWeight c x k
+  | .jump _ ip _ _ args => if natMem x (tupVarIds args) then c.jmpW.getD ip 0 else 0
+  | .ret _ ip _ vs => if natMem x (tupVarIds vs) then c.ipW.getD ip 0 else 0
+  | .exit _ ip _ _ args => if natMem x (tupVarIds args) then c.ipW.getD ip 0 else 0
+  | .stop _ => 0
+
+private def blkHasCall : Tree → Bool
+  | .call .. => true
+  | .let_ _ _ _ _ _ k | .load _ _ _ _ _ k | .store _ _ _ _ _ k
+  | .skip _ _ k | .group _ _ k => blkHasCall k
+  | .jnz _ _ _ _ t e => blkHasCall t || blkHasCall e
+  | .jump .. | .ret .. | .exit .. | .stop _ => false
+
+/-- Loop-scoped register residency (`cfg.loopRegIn`, `D1`): for each loop header `l` (innermost
+first), give slot-homed loop invariants `x ∈ lTrie[l]` a free GPR unused across the whole loop
+and attach `(x, r, inS := true)` to `l` and every loop block where `x` is live. -/
+def addLoopRegIn {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond)) (usedCs : List Nat)
+    (needPlocOf : Nat → Nat) (blocks : List (Nat × List (Nat × Ty) × Tree))
+    (rin0 : Trie (List (Nat × Nat × Bool))) : Trie (List (Nat × Nat × Bool)) :=
+  if !c.cfg.loopRegIn then rin0
+  else
+    let gprBudget := c.nGpr + usedCs.length
+    let blkMap : Std.HashMap Nat (List (Nat × Ty) × Tree) :=
+      blocks.foldl (fun m (l, ps, body) => m.insert l (ps, body)) {}
+    let isSlot64 (x : Nat) : Bool :=
+      !(c.banks.getD x .gpr).isVec &&
+        match home.getD x .none with | .slot _ .w64 => true | _ => false
+    let loopHdrs0 := blocks.filterMap fun (l, _, _) =>
+      if c.loops.getD l false then
+        let lbs := union [l] (c.loopReach.getD l [])
+        some (lbs.length, l, lbs)
+      else none
+    let loopHdrs := loopHdrs0.mergeSort fun a b => Nat.ble a.1 b.1
+    loopHdrs.foldl (fun rin (_, l, loopBlks) =>
+      let loopSet := hashSetOfList loopBlks
+      let hasCall := loopBlks.any fun b =>
+        match blkMap.get? b with | some (_, body) => blkHasCall body | none => false
+      let pool := if hasCall then usedCs else c.gAlloc ++ usedCs
+      let busyAt (rT : Trie (List (Nat × Nat × Bool))) (b : Nat) : List Nat :=
+        let ps := c.bparams.getD b []
+        dedup (gprHomes home (c.lTrie.getD b [] ++ ps) ++ (rT.getD b []).map (·.2.1))
+      let usedInLoop (rT : Trie (List (Nat × Nat × Bool))) : List Nat :=
+        dedup (loopBlks.flatMap fun b =>
+          gprHomes home (c.lTrie.getD b [] ++ c.bparams.getD b [] ++ c.blkUses.getD b []) ++
+            (rT.getD b []).map (·.2.1))
+      let isParamInLoop (x : Nat) : Bool :=
+        loopBlks.any fun b => natMem x (c.bparams.getD b [])
+      let liveBlksOf (x : Nat) : List Nat :=
+        loopBlks.filter fun b => natMem x (c.lTrie.getD b [])
+      -- First propagate any `regIn` entry already chosen at header `l` to other loop blocks.
+      let rin1 := (rin.getD l []).foldl (fun rT (x, r, _) =>
+        if !isSlot64 x || isParamInLoop x || !natMem r pool then rT
+        else
+          let lbs := liveBlksOf x
+          let ok := lbs.all fun b =>
+            (rT.getD b []).any (fun (y, r', _) => Nat.beq y x && Nat.beq r' r) ||
+              (let bz := busyAt rT b
+               !natMem r bz && Nat.blt (bz.length + needPlocOf b) gprBudget)
+          if !ok then rT
+          else lbs.foldl (fun t b =>
+            if (t.getD b []).any (fun (y, _, _) => Nat.beq y x) then t
+            else t.insert b ((x, r, true) :: t.getD b [])) rT) rin
+      let free1 := pool.filter (!natMem · (usedInLoop rin1))
+      if free1.isEmpty then rin1
+      else
+        let slotVarsUsed := dedup (loopBlks.flatMap fun b =>
+          (c.blkUses.getD b []).filter isSlot64)
+        let cands0 := (c.lTrie.getD l []).filterMap fun x =>
+          if !isSlot64 x || isParamInLoop x then none
+          else if loopBlks.any (fun b => (rin1.getD b []).any fun (y, _, _) => Nat.beq y x) then
+            none
+          else
+            let useW := loopBlks.foldl (fun s b =>
+              if natMem x (c.blkUses.getD b []) then
+                match blkMap.get? b with
+                | some (_, body) => s + blkUseWeight c x body
+                | none => s
+              else s) 0
+            if Nat.beq useW 0 then none
+            else
+              let entryW := c.blkEdges.foldl (fun s (src, dst, w, _) =>
+                if !loopSet.contains src && loopSet.contains dst &&
+                    natMem x (c.lTrie.getD dst []) then s + w
+                else s) 0
+              if Nat.blt (entryW + entryW / 2) useW then some (useW, x) else none
+        let cands := cands0.mergeSort fun a b => Nat.ble b.1 a.1
+        (cands.foldl (fun (rT, fr, prom) (_, x) =>
+          match fr with
+          | [] => (rT, [], prom)
+          | r :: frRest =>
+            let hasOtherSlot := slotVarsUsed.any fun u =>
+              !Nat.beq u x && !natMem u prom &&
+                !(rin1.getD l []).any fun (y, _, _) => Nat.beq y u
+            if frRest.isEmpty && hasOtherSlot then (rT, fr, prom)
+            else
+              let lbs := liveBlksOf x
+              let ok := lbs.all fun b =>
+                let bz := busyAt rT b
+                !natMem r bz && Nat.blt (bz.length + needPlocOf b) gprBudget
+              if !ok then (rT, fr, prom)
+              else
+                let rT' := lbs.foldl (fun t b =>
+                  t.insert b ((x, r, true) :: t.getD b [])) rT
+                (rT', frRest, x :: prom)) (rin1, free1, [])).1) rin0
 
 end Spill
 end LeanQbe.T
