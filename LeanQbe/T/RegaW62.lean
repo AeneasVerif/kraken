@@ -111,6 +111,7 @@ def addSlotEntry (vw : Trie SlotWidth) (sa : SymArg) (i : Nat) (w : SlotWidth)
     if !slotWidthEq w .w64 then none
     else match slots.find? i with
       | some (.gpr sas) => some (slots.insert i (.gpr (sa :: sas)))
+      | some (.gprZ sas) => some (slots.insert i (.gprZ ((sa, false) :: sas)))
       | _ => some ((clearSlotRange i 1 slots).insert i (.gpr [sa]))
 
 /-- Add a `.gprZ` entry into a 64-bit slot in `slots` (clearing overlaps if overwriting non-GPR). -/

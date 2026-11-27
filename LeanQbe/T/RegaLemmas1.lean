@@ -1409,6 +1409,16 @@ theorem addSlotEntry_ok {vw : Trie SlotWidth} {sa : SymArg} {i : Nat} {w : SlotW
       obtain ⟨⟨x, h1, h2⟩, h3⟩ := hsl i _ hf
       exact hsl.insert ⟨⟨x, h1,
         fun sa' hm => (List.mem_cons.mp hm).elim (· ▸ hall x h1) (h2 sa')⟩, hsc' sas h3⟩
+    · rename_i sas hf; simp only [Option.some.injEq] at ha; subst ha
+      obtain ⟨⟨x, h1, h2⟩, h3⟩ := hsl i _ hf
+      refine hsl.insert ⟨⟨x, h1, fun p hp => ?_⟩, fun sa' hsa' => ?_⟩
+      · rcases List.mem_cons.mp hp with rfl | hp'
+        · exact ⟨hall x h1, fun h => by cases h⟩
+        · exact h2 p hp'
+      · simp only [SlotEntry.sas, List.map_cons, List.mem_cons] at hsa'
+        rcases hsa' with rfl | hsa''
+        · exact hsc
+        · exact h3 sa' hsa''
     · simp only [Option.some.injEq] at ha; subst ha; exact (hsl.clear _ _).insert hfresh
 
 theorem Agree.setSlots (hA : Agree T G nv st s σ) {sl : Trie SlotEntry} (h : SlotsOk G nv σ sl) :
