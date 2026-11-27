@@ -160,17 +160,6 @@ def rtC0WithFfiEnv : Env := fun f as bs xs m Q X =>
   Env.ofModule rtC0CoreMod rtC0CoreEnv f as bs xs m Q X ∨
     Env.ofModule ffiPureMod ffiEnv f as bs xs m Q X
 
-private theorem ffiEnv_ofTable_sub {tbl : List SpecEntry} {Γ' : Env}
-    (h : ∀ e ∈ tbl, ∀ xs m Q X, e.eff xs m Q X → Γ' e.name e.as e.rs xs m Q X) :
-    ∀ f as bs xs m Q X, Env.ofTable tbl f as bs xs m Q X → Γ' f as bs xs m Q X := by
-  induction tbl with
-  | nil => intro _ _ _ _ _ _ _ hf; exact hf.elim
-  | cons e es ih =>
-    intro f as bs xs m Q X hs
-    rcases hs with ⟨⟨rfl, rfl, rfl⟩, he⟩ | ⟨_, hrest⟩
-    · exact h e List.mem_cons_self xs m Q X he
-    · exact ih (fun e' he' => h e' (List.mem_cons_of_mem _ he')) f as bs xs m Q X hrest
-
 theorem rtC0CoreMod_env_le_rtC0WithFfiEnv :
     ∀ f as bs xs m Q X,
       Env.ofModule rtC0CoreMod rtC0CoreEnv f as bs xs m Q X →
@@ -179,7 +168,7 @@ theorem rtC0CoreMod_env_le_rtC0WithFfiEnv :
 
 theorem ffiEnv_le_rtC0WithFfiEnv :
     ∀ f as bs xs m Q X, ffiEnv f as bs xs m Q X → rtC0WithFfiEnv f as bs xs m Q X := by
-  refine ffiEnv_ofTable_sub (fun e he xs m Q X h => ?_)
+  refine env_ofTable_sub (fun e he xs m Q X h => ?_)
   simp only [ffiSpecEntries, List.mem_cons, List.not_mem_nil, or_false] at he
   rcases he with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
     rfl | rfl | rfl | rfl

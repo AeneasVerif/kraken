@@ -377,56 +377,6 @@ private theorem HDecN_nonCold_run {bv : BitVec 64} {ty : LcTy} {chk : Bool}
         have hoe := obj_eq_of_addr_nodup hnodup ho1 (List.getElem_mem hidx) (h1a.trans haddr.symm)
         rw [hoe] at h1rc; exact hne1 h1rc
 
-private theorem dec_varInv_backed_parent {rf : RcFrame} {objs : List LcnfObj}
-    (hwf : ∀ o ∈ objs, o.Wf)
-    (howned : ∀ pv ∈ rf.ctx.vars, pv.noRc = false → pv.persistent = false →
-      pv.resetTok = false → 0 < pv.owned → ∃ ty w, rf.envH pv.id = some (ty, w))
-    (hclean : CleanVars rf.ctx) (hpo : ParentsOwned rf.ctx)
-    {u : RcVar} (hu : u ∈ rf.ctx.vars) {bv : BitVec 64}
-    (hpback : Backed objs ((match u.parent? with
-      | none => []
-      | some p => match rf.envH p with
-        | some (_, w) => match w.toBV64? with | some bp => [bp] | none => []
-        | none => []) ++ (rf.extH ++ rf.ghostH)) bv) :
-    Backed objs (frameHandles rf) bv := by
-  rcases hpback with ⟨o, ho, hoa, hrc0⟩ | ⟨r, hr, hreach⟩
-  · exact Or.inl ⟨o, ho, hoa, hrc0⟩
-  · rcases List.mem_append.mp hr with hpar | hext
-    · cases hpu : u.parent? with
-      | none => simp [hpu] at hpar
-      | some p =>
-        rw [hpu] at hpar
-        obtain ⟨pv, hpvm, hpvid, hp1, hp2, hp3, _⟩ := hpo u hu p hpu
-        have hprtok : pv.resetTok = false := (hclean pv hpvm).2.2.2.2
-        obtain ⟨_, wp, hwp⟩ := howned pv hpvm hp1 hp2 hprtok hp3
-        rw [hpvid] at hwp
-        simp only [hwp] at hpar
-        cases hwb : wp.toBV64? with
-        | none => simp [hwb] at hpar
-        | some bp =>
-          simp only [hwb] at hpar
-          have hreq : r = bp := by simpa using hpar
-          rcases hreq.symm with rfl
-          have heven : (bp &&& 1#64) = 0#64 := by
-            induction hreach with
-            | refl h =>
-              obtain ⟨o, ho, hoa, _⟩ := h
-              exact hoa ▸ obj_addr_and1_zero (hwf o ho)
-            | step _ _ _ _ ih => exact ih
-          have hmem_vh : bp ∈ varHandles rf.envH pv := by
-            simp only [varHandles, hp1, hp2, hprtok, beq_false_of_ne (Nat.ne_of_gt hp3),
-              hpvid, hwp, hwb, Bool.false_or, Bool.false_eq_true, ↓reduceIte,
-              beq_iff_eq.mpr heven]
-            exact List.mem_replicate.mpr ⟨Nat.ne_of_gt hp3, rfl⟩
-          have hmem_fh : bp ∈ frameHandles rf := by
-            refine List.mem_append.mpr (Or.inl (List.mem_append.mpr (Or.inl ?_)))
-            exact List.mem_flatten.mpr
-              ⟨varHandles rf.envH pv, List.mem_map.mpr ⟨pv, hpvm, rfl⟩, hmem_vh⟩
-          exact Or.inr ⟨bp, hmem_fh, hreach⟩
-    · rcases List.mem_append.mp hext with he1 | he2
-      · exact Or.inr ⟨r, List.mem_append.mpr (Or.inl (List.mem_append.mpr (Or.inr he1))), hreach⟩
-      · exact Or.inr ⟨r, List.mem_append.mpr (Or.inr he2), hreach⟩
-
 private theorem dec_heap_sound_vars {rt : BitVec 64} {rf : RcFrame} {σ : HState}
     (hinv : RcInv rt rf σ) (hclean : CleanVars rf.ctx)
     {x n : Nat} (hn : 0 < n) {v : RcVar} (hget : rf.ctx.get? x = some v)
@@ -663,7 +613,7 @@ private theorem dec_heap_sound_vars {rt : BitVec 64} {rf : RcFrame} {σ : HState
           rw [hpar] at hbk2; dsimp only at hbk2 ⊢
           obtain ⟨pv, hpvm, hpvid, hp1, hp2, hp3, hp_bk⟩ := hbk2
           exact backed_mono_rc_pos hmap_rc hwf_all (fun _ hr => hr) hp_bk
-      refine ⟨dec_varInv_backed_parent hwf_all' howned' hclean1 hpo1 hu hbk2', ?_⟩
+      refine ⟨varInv_backed_parent hwf_all' howned' hclean1 hpo1 hu hbk2', ?_⟩
       cases hpar : u.parent? with
       | none =>
         rw [hpar] at hbk2; dsimp only at hbk2 ⊢

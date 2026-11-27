@@ -95,7 +95,7 @@ theorem rtC0CoreSpecEntries_nodup : (rtC0CoreSpecEntries.map SpecEntry.name).Nod
   refine listNodup_nodup ?_
   decide
 
-private theorem env_ofTable_sub {tbl : List SpecEntry} {Γ' : Env}
+theorem env_ofTable_sub {tbl : List SpecEntry} {Γ' : Env}
     (h : ∀ e ∈ tbl, ∀ xs m Q X, e.eff xs m Q X → Γ' e.name e.as e.rs xs m Q X) :
     ∀ f as bs xs m Q X, Env.ofTable tbl f as bs xs m Q X → Γ' f as bs xs m Q X := by
   induction tbl with
