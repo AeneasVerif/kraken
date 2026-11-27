@@ -15,8 +15,7 @@ Mirrors upstream `kissat/src/clause.c` (`4` live functions, DAG level `L2`):
 - `full_add_clause` (R4: `kissat_new_clause`)
 - `full_add_bin_m6` (R4: `kissat_new_binary_clause_impl`)
 - `full_add_bin` (R4: `kissat_new_binary_clause`)
-- `full_add_unit` (R4: `kissat_assign_unit`)
--/
+- `full_add_unit` (R4: `kissat_assign_unit`)-/
 
 set_option autoImplicit false
 
@@ -30,11 +29,11 @@ open LeanQbe.T.Examples.Kissat.Src
 kissat_c0! clause "
 #include \"kissat_internal.h\"
 
-extern u64 full_alloc_cl(FullHdr *h, u32 sz, u32 glue, bool red);
 extern bool full_watch_push(FullHdr *h, u32 lit, u32 w0, u32 w1, u32 cnt);
 extern void full_watch_pop_c0(FullHdr *h, u32 lit, u32 cnt);
-extern bool full_has_bin(FullHdr *h, u32 a, u32 b);
+extern u64 full_alloc_cl(FullHdr *h, u32 sz, u32 glue, bool red);
 extern void full_assign_lvl(FullHdr *h, u32 lit, u32 rsn, u32 alvl);
+extern bool full_has_bin(FullHdr *h, u32 a, u32 b);
 extern void full_backtrack(FullHdr *h, u64 target_lvl);
 
 u64 full_add_clause(FullHdr *h, u32 len, u32 glue, bool red) {
@@ -47,6 +46,10 @@ u64 full_add_clause(FullHdr *h, u32 len, u32 glue, bool red) {
       full_watch_pop_c0(h, tmp[0], 1u);
       return 0xFFFFFFFFULL;
     }
+    u32 *fl_b = (u32 *)h->flags;
+    u32 v0 = tmp[0] >> 1; u32 v1 = tmp[1] >> 1;
+    fl_b[v0] = fl_b[v0] | 8u | 16u | (((tmp[0] & 1u) != 0u) ? 64u : 32u);
+    fl_b[v1] = fl_b[v1] | 8u | 16u | (((tmp[1] & 1u) != 0u) ? 64u : 32u);
     h->num_binary = h->num_binary + 1ULL;
     return 0xFFFFFFFEULL;
   }
@@ -90,9 +93,9 @@ u64 full_add_bin_m6(FullHdr *h, u32 a, u32 b) {
   }
   u32 *fl = (u32 *)h->flags;
   u32 va = a >> 1; u32 vb = b >> 1;
-  u32 addf = FL_TRANS | FL_BONE0 | FL_BONE1;
-  fl[va] = fl[va] | addf;
-  fl[vb] = fl[vb] | addf;
+  u32 addf = FL_TRANS | FL_BONE0 | FL_BONE1 | FL_SUBSUME | FL_ELIM_C;
+  fl[va] = fl[va] | addf | (((a & 1u) != 0u) ? 64u : 32u);
+  fl[vb] = fl[vb] | addf | (((b & 1u) != 0u) ? 64u : 32u);
   h->num_binary = h->num_binary + 1ULL;
   return 1ULL;
 }

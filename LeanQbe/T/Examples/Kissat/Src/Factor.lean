@@ -11,7 +11,7 @@ meta import LeanQbe.T.Examples.Kissat.Src.Header
 /-!
 # Kissat C0 Bounded Variable Addition (BVA / Factorization) (`Src/Factor.lean`)
 
-Mirrors upstream `kissat/src/factor.c` (`14` live functions, DAG level `L5`):
+Mirrors upstream `kissat/src/factor.c` (`15` live functions, DAG level `L5`):
 - `full_bva_steps_cap_fid` (R4: `kissat_factor_steps_cap`)
 - `full_bva_clines_fid` (R4: `kissat_factor_clause_lines`)
 - `full_fheap_up_fid` (R4: `kissat_factor_heap_up`)
@@ -26,7 +26,7 @@ Mirrors upstream `kissat/src/factor.c` (`14` live functions, DAG level `L5`):
 - `full_bva_try_lit` (R4: `kissat_factor_try_literal`)
 - `full_bva_upd_lit_fid` (R4: `kissat_factor_update_literal`)
 - `full_factor` (R4: `kissat_factor`)
--/
+- `full_has_factor_cands_fid`-/
 
 set_option autoImplicit false
 
@@ -40,16 +40,16 @@ open LeanQbe.T.Examples.Kissat.Src
 kissat_c0! factor "
 #include \"kissat_internal.h\"
 
-extern void full_fill_u64_m7(u64 *dst, u64 n, u64 val);
+extern void full_fwd_flush_large_m7(FullHdr *h);
 extern u32 full_arena_next(FullHdr *h, u32 cref);
-extern u64 full_alloc_cl(FullHdr *h, u32 sz, u32 glue, bool red);
-extern void full_wstack_defrag(FullHdr *h);
 extern bool full_watch_push(FullHdr *h, u32 lit, u32 w0, u32 w1, u32 cnt);
+extern void full_wstack_defrag(FullHdr *h);
+extern void full_fill_u64_m7(u64 *dst, u64 n, u64 val);
+extern void full_init_fresh_var(FullHdr *h, u32 fv);
+extern u64 full_add_bin(FullHdr *h, u32 a, u32 b);
+extern u64 full_alloc_cl(FullHdr *h, u32 sz, u32 glue, bool red);
 extern void full_unwatch_large(FullHdr *h, u32 lit, u32 cref);
 extern void full_delete_binary(FullHdr *h, u32 a, u32 b);
-extern u64 full_add_bin(FullHdr *h, u32 a, u32 b);
-extern void full_init_fresh_var(FullHdr *h, u32 fv);
-extern void full_fwd_flush_large_m7(FullHdr *h);
 
 u32 full_bva_steps_cap_fid(u64 cap) {
   if (cap >= 8192ULL) { return 256u; }
@@ -301,10 +301,10 @@ u32 full_bva_scan_cands(FullHdr *h, u32 row_off, u32 cur_qn, u64 init_lits) {
         u32 nw = wstk[qp];
         if ((nw & PW_BIN_FLAG) != 0u) {
           u32 cand = nw & PW_LIT_MASK;
-          if ((u64)cand < init_lits && (lm[cand] & (u8)1) == (u8)0 &&
+          if ((u64)cand <= init_lits && (lm[cand] & (u8)1) == (u8)0 &&
               (fl[cand >> 1] & FL_ACTIVE) != 0u && vals[cand] == (i8)0) {
             if (cnt[cand] == 0u) {
-              if ((u64)ncntd < init_lits) { cntd[ncntd] = cand; ncntd = ncntd + 1u; }
+              if ((u64)ncntd < (h->max_vars << 1)) { cntd[ncntd] = cand; ncntd = ncntd + 1u; }
             }
             if (cnt[cand] < 0xFFFFFFFFu) { cnt[cand] = cnt[cand] + 1u; }
           }
@@ -349,7 +349,7 @@ u32 full_bva_scan_cands(FullHdr *h, u32 row_off, u32 cur_qn, u64 init_lits) {
             }
             dj = dj + 1u;
           }
-          if (ok && cand != 0xFFFFFFFFu && (u64)cand < init_lits &&
+          if (ok && cand != 0xFFFFFFFFu && (u64)cand <= init_lits &&
               (fl[cand >> 1] & FL_ACTIVE) != 0u && vals[cand] == (i8)0) {
             if ((u64)nnou < mxv) {
               lm[cand] = lm[cand] | (u8)4;
@@ -362,7 +362,7 @@ u32 full_bva_scan_cands(FullHdr *h, u32 row_off, u32 cur_qn, u64 init_lits) {
               nql = nql + 1u;
             }
             if (cnt[cand] == 0u) {
-              if ((u64)ncntd < init_lits) { cntd[ncntd] = cand; ncntd = ncntd + 1u; }
+              if ((u64)ncntd < (h->max_vars << 1)) { cntd[ncntd] = cand; ncntd = ncntd + 1u; }
             }
             if (cnt[cand] < 0xFFFFFFFFu) { cnt[cand] = cnt[cand] + 1u; }
           }
@@ -561,7 +561,7 @@ bool full_bva_commit(FullHdr *h, u32 best_k) {
   u64 irred_add = 0ULL;
   si = 0u;
   while (si < dm) {
-    u32 fs = scr[si];
+    u32 fs = scr[(dm - 1u) - si];
     if (!defrag_dirty) {
       u64 wl_c = h->wlen; u64 wu_c = h->wusable; u64 wc_c = h->wcap;
       u64 sza = (u64)wvec[((u64)fresh << 1) + 1ULL];
@@ -569,14 +569,18 @@ bool full_bva_commit(FullHdr *h, u32 best_k) {
       u64 na = (sza == 0ULL) ? 2ULL : (sza << 1);
       u64 nb = (szb == 0ULL) ? 2ULL : (szb << 1);
       if (wl_c == 0ULL || fresh == fs || wc_c < wl_c || wl_c + na + nb > wc_c ||
-          ((wl_c + na) * 4ULL >= wc_c * 3ULL && (wu_c + na) * 4ULL >= wl_c * 3ULL)) {
+          ((wl_c + na > 262144ULL || (wl_c + na) * 4ULL >= wc_c * 3ULL) &&
+           (wu_c + na) * 4ULL >= wl_c * 3ULL)) {
         defrag_dirty = true;
       }
     }
+    u64 pw_b1 = h->wlen;
     u64 br = full_add_bin(h, fresh, fs);
+    if (h->wlen < pw_b1) { defrag_dirty = true; }
     if (br == 2ULL || br == 20ULL || h->oom != 0ULL) { ok = false; break; }
-    fl[fs >> 1] = fl[fs >> 1] | (((fs & 1u) != 0u) ? FL_FACT_N : FL_FACT_P);
-    fl[fresh >> 1] = fl[fresh >> 1] | FL_FACT_P;
+    u32 fbit_fs = ((fs & 1u) != 0u) ? FL_FACT_N : FL_FACT_P;
+    fl[fs >> 1] = fl[fs >> 1] | FL_SUBSUME | FL_ELIM_C | fbit_fs;
+    fl[fresh >> 1] = fl[fresh >> 1] | FL_SUBSUME | FL_ELIM_C | FL_FACT_P;
     si = si + 1u;
   }
   m = 0u;
@@ -592,13 +596,17 @@ bool full_bva_commit(FullHdr *h, u32 best_k) {
         u64 na = (sza == 0ULL) ? 2ULL : (sza << 1);
         u64 nb = (szb == 0ULL) ? 2ULL : (szb << 1);
         if (wl_c == 0ULL || nf == q || wc_c < wl_c || wl_c + na + nb > wc_c ||
-            ((wl_c + na) * 4ULL >= wc_c * 3ULL && (wu_c + na) * 4ULL >= wl_c * 3ULL)) {
+            ((wl_c + na > 262144ULL || (wl_c + na) * 4ULL >= wc_c * 3ULL) &&
+             (wu_c + na) * 4ULL >= wl_c * 3ULL)) {
           defrag_dirty = true;
         }
       }
+      u64 pw_b2 = h->wlen;
       u64 br = full_add_bin(h, fresh ^ 1u, q);
-      fl[fresh >> 1] = fl[fresh >> 1] | FL_FACT_N;
-      fl[q >> 1] = fl[q >> 1] | (((q & 1u) != 0u) ? FL_FACT_N : FL_FACT_P);
+      if (h->wlen < pw_b2) { defrag_dirty = true; }
+      u32 fbit_q = ((q & 1u) != 0u) ? FL_FACT_N : FL_FACT_P;
+      fl[fresh >> 1] = fl[fresh >> 1] | FL_SUBSUME | FL_ELIM_C | FL_FACT_N;
+      fl[q >> 1] = fl[q >> 1] | FL_SUBSUME | FL_ELIM_C | fbit_q;
       if (br == 2ULL || br == 20ULL || h->oom != 0ULL) { ok = false; break; }
     } else {
       u32 csz = ar[(u64)c_top + 2ULL]; u32 flit = scr[best_k]; u32 tk = 1u; u32 j = 0u;
@@ -617,7 +625,7 @@ bool full_bva_commit(FullHdr *h, u32 best_k) {
           dj = dj + 1u;
         }
         if (wl_c == 0ULL || wc_c < wl_c || wl_c + sum_nw > wc_c ||
-            ((wl_c + sum_nw) * 4ULL >= wc_c * 3ULL &&
+            ((wl_c + sum_nw > 262144ULL || (wl_c + sum_nw) * 4ULL >= wc_c * 3ULL) &&
              (wu_c + sum_nw) * 4ULL >= wl_c * 3ULL)) {
           defrag_dirty = true;
         }
@@ -646,7 +654,10 @@ bool full_bva_commit(FullHdr *h, u32 best_k) {
       }
       j = 0u;
       while (j < tk) {
-        if (!full_watch_push(h, tmp[j], tk & PW_LIT_MASK, (u32)ncr, 2u)) {
+        u64 pw_l = h->wlen;
+        bool wp_l = full_watch_push(h, tmp[j], tk & PW_LIT_MASK, (u32)ncr, 2u);
+        if (h->wlen < pw_l) { defrag_dirty = true; }
+        if (!wp_l) {
           u32 uk = 0u;
           while (uk < j) { full_unwatch_large(h, tmp[uk], (u32)ncr); uk = uk + 1u; }
           ar[ncr] = ar[ncr] | PH_GARB;
@@ -654,7 +665,8 @@ bool full_bva_commit(FullHdr *h, u32 best_k) {
           ok = false; break;
         }
         u32 tv = tmp[j] >> 1;
-        fl[tv] = fl[tv] | (((tmp[j] & 1u) != 0u) ? FL_FACT_N : FL_FACT_P);
+        u32 fbit_t = ((tmp[j] & 1u) != 0u) ? FL_FACT_N : FL_FACT_P;
+        fl[tv] = fl[tv] | FL_SUBSUME | FL_ELIM_C | fbit_t;
         j = j + 1u;
       }
       if (ok) { irred_add = irred_add + 1ULL; }
@@ -697,6 +709,7 @@ bool full_bva_commit(FullHdr *h, u32 best_k) {
         u32 csz = ar[(u64)cs + 2ULL]; u32 k = 0u;
         while (k < csz) {
           u32 dl = ar[(u64)cs + 3ULL + (u64)k];
+          fl[dl >> 1] = fl[dl >> 1] | FL_ELIM_C;
           full_unwatch_large(h, dl, cs);
           k = k + 1u;
         }
@@ -986,11 +999,24 @@ u64 full_factor(FullHdr *h, u64 budget) {
       p = (u64)qn[p];
     }
     h->q_cur_stamp = s;
-    if (h->q_search_idx < cv) {
-      h->q_search_stamp = (u64)qs[h->q_search_idx];
-    }
+    h->q_search_idx = h->q_last;
+    h->q_search_stamp = s;
   }
   return 1ULL;
+}
+
+bool full_has_factor_cands_fid(FullHdr *h) {
+  u64 cv = h->cur_vars;
+  u32 *fl = (u32 *)h->flags;
+  i8 *vals = (i8 *)h->values;
+  u64 v = 0ULL;
+  while (v < cv) {
+    if ((fl[v] & 1u) != 0u && vals[v << 1] == (i8)0 && (fl[v] & (32u | 64u)) != 0u) {
+      return true;
+    }
+    v = v + 1ULL;
+  }
+  return false;
 }
 "
 

@@ -5,7 +5,6 @@ Released under Apache 2.0 license as described in the file LICENSE.
 module
 
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Contracts
-public import LeanQbe.T.Examples.Kissat.Src.Limits
 public import LeanQbe.T.Logic.C0Step
 public import LeanQbe.T.Logic.C0HeadStep
 public import LeanQbe.T.Logic.ControlComb
@@ -16,7 +15,7 @@ public import Kraken.Separation
 # Kissat `D-Full` Per-Function UNSAT-Only `Spec` Contracts (`Proof.Spec.Contracts1`)
 
 Part 1 of the Stage-4 function contracts (`full_is_zero` .. `full_reduce`, plus shared
-`FullKissatMath` arithmetic / `full_log10_q16_core_wp` helpers over `Src.Limits`).
+`FullKissatMath` arithmetic helpers).
 -/
 
 set_option autoImplicit false
@@ -1197,7 +1196,7 @@ theorem q16_mul_bounds {x d frac : BitVec 64} (hd : d.toNat ≤ 19) (hf : frac.t
     rw [BitVec.toNat_add, hmul, Nat.mod_eq_of_lt (by omega)]
   exact ⟨by rw [hsum]; omega, fun hx => by have := h10 hx; rw [hsum]; omega⟩
 
-/-! ## 2. Shared `wp_let` Math Combinators & `full_log10_q16` WP Core -/
+/-! ## 2. Shared `wp_let` Math Combinators -/
 
 theorem wp_let_ult64_m {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     {m : Mem 64} {hm : Ty.bool = Ty.mask i64} {a b : Arg Val i64}
@@ -1226,89 +1225,6 @@ theorem wp_let_udiv64_imm_m {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     (hb : ib ≠ 0#64) :
     wp Γ Q X (.let_ (Op.mk (.udiv 64) (a, .imm ib, ())) k) m ↔
       wp Γ Q X (k (a.val / ib, ())) m := wp_let_udiv64_m hb
-
-/-- Shared WP theorem for the Q32 repeated-squaring `full_log10_q16` algorithm
-(certifying `LeanQbe.T.Examples.Kissat.Src.Limits.full_log10_q16_m7_body`). -/
-theorem full_log10_q16_core_wp (Γ : Env) (x : BitVec 64) (m : Mem 64)
-    (Q : Post [i64]) (X : XPost)
-    (hQ : ∀ r : BitVec 64, r.toNat < 20 * 65536 →
-      (10 ≤ x.toNat → 65536 ≤ r.toNat) → Q (r, ()) m) :
-    Func.wp Γ LeanQbe.T.Examples.Kissat.Src.Limits.full_log10_q16_m7_body (x, ()) m Q X := by
-  c0_hsteps_nogrp
-  · have hx1 : x.toNat ≤ 1 := by c0_bound
-    exact hQ 0#64 (by decide) (fun hx10 => by omega)
-  · refine wp_loop_inv (ts := [i64, i64])
-      (fun (d, pow10, ()) m1 =>
-        m = m1 ∧ d.toNat ≤ 19 ∧ 1 ≤ pow10.toNat ∧ pow10.toNat ≤ 10 ^ d.toNat ∧
-        (d.toNat = 0 → pow10.toNat = 1))
-      (fun (d, _, ()) _ => 19 - d.toNat) ?_ ?_
-    · intro J hJ
-      c0_hsteps; exact hJ (0#64, 1#64, ()) m ⟨rfl, by decide, by decide, by decide, fun _ => rfl⟩
-    · rintro J ⟨d, pow10, ⟨⟩⟩ _ ⟨rfl, hd19, hp1, hple, hd0p⟩ hJ
-      refine wp_join_group (ts := []) (fun _ m1 => m = m1 ∧ (10 ≤ x.toNat → 1 ≤ d.toNat))
-        ?_ ?_
-      · rintro _ ⟨⟩ _ ⟨rfl, hd10⟩
-        c0_hsteps_nogrp
-        refine wp_join_group (ts := [i64, i64]) (fun (_, pm', ()) m2 => m = m2 ∧ 1 ≤ pm'.toNat)
-          ?_ ?_
-        · rintro _ ⟨xm', pm', ⟨⟩⟩ m2 ⟨hm2, hpm⟩
-          subst m2
-          have hpm_ne : pm' ≠ 0#64 := fun h0 => by subst h0; simp at hpm
-          c0_hsteps_nogrp
-          all_goals try exact hpm_ne
-          refine wp_loop_inv (ts := [i64, i64, i64])
-            (fun (_mv, frac, i, ()) m3 => m = m3 ∧ i.toNat ≤ 16 ∧ frac.toNat < 2 ^ i.toNat)
-            (fun (_, _, i, ()) _ => 16 - i.toNat) ?_ ?_
-          · intro J2 hJ2; c0_hsteps; exact hJ2 (_, 0#64, 0#64, ()) m ⟨rfl, by decide, by decide⟩
-          · rintro J2 ⟨mv, frac, i, ⟨⟩⟩ m3 ⟨hm3, hi16, hfl⟩ hJ2
-            subst m3; c0_hsteps
-            · have hi_lt : i.toNat < 16 := by c0_bound
-              have hf_lt : frac.toNat < 2 ^ 15 :=
-                Nat.lt_of_lt_of_le hfl (Nat.pow_le_pow_right (by omega) (by omega))
-              have hi1 : (i + 1#64).toNat = i.toNat + 1 := bv64_add1_toNat_lt (by omega)
-              have hf2p1 : (frac <<< (1 : Nat) + 1#64).toNat = 2 * frac.toNat + 1 := by bv_omega
-              have hf2p1_lt : 2 * frac.toNat + 1 < 2 ^ (i.toNat + 1) := by rw [Nat.pow_succ]; omega
-              exact hJ2 (_, (frac <<< (1 : Nat)) + 1#64, i + 1#64, ()) m (by dsimp only; omega)
-                ⟨rfl, by omega, by rw [hi1, hf2p1]; exact hf2p1_lt⟩
-            · have hi_lt : i.toNat < 16 := by c0_bound
-              have hf_lt : frac.toNat < 2 ^ 15 :=
-                Nat.lt_of_lt_of_le hfl (Nat.pow_le_pow_right (by omega) (by omega))
-              have hf_sh : (frac <<< (1 : Nat)).toNat = 2 * frac.toNat := by
-                rw [BitVec.toNat_shiftLeft]; simp [Nat.shiftLeft_eq]; omega
-              have hf2_lt : 2 * frac.toNat < 2 ^ (i.toNat + 1) := by rw [Nat.pow_succ]; omega
-              have hi1 : (i + 1#64).toNat = i.toNat + 1 := bv64_add1_toNat_lt (by omega)
-              exact hJ2 (_, frac <<< (1 : Nat), i + 1#64, ()) m (by dsimp only; omega)
-                ⟨rfl, by omega, by rw [hi1, hf_sh]; exact hf2_lt⟩
-            · have hflt : frac.toNat < 65536 :=
-                Nat.lt_of_lt_of_le hfl (Nat.pow_le_pow_right (by omega) hi16)
-              obtain ⟨hlt, hge⟩ := q16_shl_bounds hd19 hflt hd10
-              exact hQ ((d <<< (16 : Nat)) + frac) hlt hge
-        · intro _ hJm; c0_hsteps_nogrp
-          · have hpm_gt : 100000000 < pow10.toNat := by c0_bound
-            intro h0; have ht := congrArg BitVec.toNat h0
-            change pow10.toNat / 100000000 = 0 at ht
-            have hpos : 0 < pow10.toNat / 100000000 :=
-              Nat.div_pos (Nat.le_of_lt hpm_gt) (by decide)
-            omega
-          · exact hJm (x / (pow10 / 100000000#64), 100000000#64, ()) m ⟨rfl, by decide⟩
-          · exact hJm (x, pow10, ()) m ⟨rfl, hp1⟩
-      · intro _ hJexit; c0_hsteps_nogrp
-        · have hd_lt : d.toNat < 19 := by c0_bound
-          obtain ⟨hp10, _, hp_mul⟩ := pow10_succ_mul10 hd_lt hple
-          have hd1 : (d + 1#64).toNat = d.toNat + 1 := bv64_add1_toNat_lt (by omega)
-          exact hJ (d + 1#64, pow10 * 10#64, ()) m (by dsimp only; omega)
-            ⟨rfl, by omega, by omega, by rw [hd1, hp_mul]; exact hp10,
-             fun h0 => by rw [hd1] at h0; omega⟩
-        · have hge : 19 ≤ d.toNat := by c0_bound
-          exact hJexit () m ⟨rfl, fun _ => by omega⟩
-        · have hlt : x.toNat / 10 < pow10.toNat := by
-            have hdiv : (x / 10#64).toNat < pow10.toNat := by c0_bound
-            have hmod : (x / 10#64).toNat = x.toNat / 10 := by bv_omega
-            omega
-          refine hJexit () m ⟨rfl, fun hx10 => ?_⟩
-          rcases Nat.eq_zero_or_pos d.toNat with hd0 | hdpos
-          · have hp1' := hd0p hd0; omega
-          · exact hdpos
 
 end FullKissatMath
 

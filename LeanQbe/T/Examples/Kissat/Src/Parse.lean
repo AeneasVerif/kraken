@@ -16,8 +16,7 @@ Mirrors upstream `kissat/src/parse.c` (`5` live functions, DAG level `L3`):
 - `full_ingest_cl` (R4: `kissat_parse_clause`)
 - `full_tumble_finish_fid` (R4: `kissat_tumble_finish`)
 - `full_parse_body_m6` (R4: `kissat_parse_dimacs_body_impl`)
-- `full_parse_body` (R4: `kissat_parse_dimacs_body`)
--/
+- `full_parse_body` (R4: `kissat_parse_dimacs_body`)-/
 
 set_option autoImplicit false
 
@@ -31,13 +30,16 @@ open LeanQbe.T.Examples.Kissat.Src
 kissat_c0! parse "
 #include \"kissat_internal.h\"
 
-extern u64 kissat_skip_ws_comments(u64 p, u64 end);
-extern u64 kissat_next_lit(u64 cnf_end, KissatDimacs *d);
-extern bool full_skip_cl(u64 cnf_end, KissatDimacs *d);
+extern u64 f64u_sub(u64 a, u64 b);
+extern u64 f64u_inv_u64(u64 k);
 extern void full_heap_push(FullHdr *h, u32 v);
+extern u64 kissat_next_lit(u64 cnf_end, KissatDimacs *d);
 extern void full_assign_lvl(FullHdr *h, u32 lit, u32 rsn, u32 alvl);
 extern u64 full_add_clause(FullHdr *h, u32 len, u32 glue, bool red);
+extern bool full_skip_cl(u64 cnf_end, KissatDimacs *d);
 extern u64 full_propagate(FullHdr *h);
+extern u64 kissat_skip_ws_comments(u64 p, u64 end);
+extern void full_wstack_defrag(FullHdr *h);
 
 void full_activate_lit_fid(FullHdr *h, u32 v) {
   u64 cv = h->cur_vars;
@@ -70,8 +72,8 @@ void full_activate_lit_fid(FullHdr *h, u32 v) {
   h->q_search_stamp = (u64)qs[v];
   u64 *sc = (u64 *)h->score;
   u64 k64 = (u64)k;
-  sc[v] = h->scinc - (h->scinc / k64);
-  full_heap_push(h, v);
+  sc[v] = f64u_sub(0x3FF0000000000000ULL, f64u_inv_u64(k64));
+  if (h->stable != 0ULL) { full_heap_push(h, v); }
 }
 
 u64 full_ingest_cl(FullHdr *h, u64 cnf_end) {
@@ -205,6 +207,7 @@ u64 full_parse_body_m6(FullHdr *h, u64 cnf_end) {
   if (h->d.cur != cnf_end) { return 0ULL; }
   full_tumble_finish_fid(h);
   if (unsat_seen) { return 20ULL; }
+  full_wstack_defrag(h);
   return 1ULL;
 }
 

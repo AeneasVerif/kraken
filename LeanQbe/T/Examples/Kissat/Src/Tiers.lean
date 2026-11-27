@@ -14,6 +14,7 @@ meta import LeanQbe.T.Examples.Kissat.Src.Header
 Mirrors upstream `kissat/src/tiers.c` (`18` live functions, DAG level `L0`):
 - `m6_hdr_init` (R4: `kissat_tiers_init`)
 - `m6_ext_ensure_init` (R4: `kissat_tiers_ensure_init`)
+- `m6_hdr_add_ticks`
 - `m6_hdr_sync_legacy_tiers` (R4: `kissat_sync_tier_limits`)
 - `m6_hdr_recompute_tiers_mode` (R4: `kissat_compute_tier_limits_mode`)
 - `m6_hdr_recompute_tiers` (R4: `kissat_compute_and_set_tier_limits`)
@@ -28,9 +29,7 @@ Mirrors upstream `kissat/src/tiers.c` (`18` live functions, DAG level `L0`):
 - `m6_hdr_set_watermark` (R4: `kissat_set_watermark`)
 - `m6_hdr_dr_init` (R4: `kissat_decision_rate_init`)
 - `m6_hdr_dr_update` (R4: `kissat_decision_rate_update`)
-- `m6_hdr_dr_allow` (R4: `kissat_decision_rate_allow`)
-- `full_recompute_tiers` (R4: `kissat_recompute_tiers_legacy`)
--/
+- `m6_hdr_dr_allow` (R4: `kissat_decision_rate_allow`)-/
 
 set_option autoImplicit false
 
@@ -44,6 +43,13 @@ open LeanQbe.T.Examples.Kissat.Src
 kissat_c0! tiers "
 #include \"kissat_internal.h\"
 
+extern u64 f64u_to_u64(u64 a);
+extern u64 f64u_mul(u64 a, u64 b);
+extern u64 f64u_from_u64(u64 x);
+extern u64 f64u_add(u64 a, u64 b);
+extern u64 f64u_sub(u64 a, u64 b);
+extern u64 f64u_div(u64 a, u64 b);
+
 void m6_hdr_init(FullHdr *h) {
   u64 *e = (u64 *)((u64)h - M6_EXT_BYTES);
   u64 i = 0ULL;
@@ -53,8 +59,8 @@ void m6_hdr_init(FullHdr *h) {
   }
   u64 sw = h->switched & 127ULL;
   e[M6W_DR_STATE] = (1ULL << 63) | (sw << 56);
-  e[M6W_DR_SE] = 1ULL << 32;
-  e[M6W_DR_SE + 1ULL] = 1ULL << 32;
+  e[M6W_DR_SE] = 0x3FF0000000000000ULL;
+  e[M6W_DR_SE + 1ULL] = 0x3FF0000000000000ULL;
   e[M6W_TIER1] = 2ULL;
   e[M6W_TIER1 + 1ULL] = 2ULL;
   e[M6W_TIER2] = 6ULL;
@@ -70,6 +76,18 @@ void m6_ext_ensure_init(FullHdr *h) {
   if (e[M6W_MAGIC] != M6_HDR_MAGIC) {
     m6_hdr_init(h);
   }
+}
+
+void m6_hdr_add_ticks(FullHdr *h, u64 ticks) {
+  m6_ext_ensure_init(h);
+  u64 *e = (u64 *)((u64)h - M6_EXT_BYTES);
+  if (h->probing != 0ULL) {
+    e[M6W_WM_BASE + M6_WM_PROBING_TICKS] = e[M6W_WM_BASE + M6_WM_PROBING_TICKS] + ticks;
+    return;
+  }
+  h->search_ticks = h->search_ticks + ticks;
+  u64 mk = (h->stable != 0ULL) ? M6_WM_STABLE_TICKS : M6_WM_FOCUSED_TICKS;
+  e[M6W_WM_BASE + mk] = e[M6W_WM_BASE + mk] + ticks;
 }
 
 void m6_hdr_sync_legacy_tiers(FullHdr *h) {
@@ -98,9 +116,8 @@ void m6_hdr_recompute_tiers_mode(FullHdr *h, u64 st) {
   e[M6W_TOTAL_USED + mode] = total;
   u64 t1 = 2ULL; u64 t2 = 6ULL;
   if (total > 0ULL) {
-    u64 lim1 = (total == 1ULL) ? 1ULL : (total >> 1);
-    u64 lim2 = (total == 1ULL) ? 1ULL :
-      ((total / 10ULL) * 9ULL + (((total % 10ULL) * 9ULL) / 10ULL));
+    u64 lim1 = total >> 1;
+    u64 lim2 = f64u_to_u64(f64u_mul(f64u_from_u64(total), 0x3FECCCCCCCCCCCCDULL));
     u64 acc = 0ULL; bool got1 = false; bool got2 = false;
     g = 0ULL;
     while (g < M6_GLUE_BINS) {
@@ -221,8 +238,8 @@ void m6_hdr_dr_init(FullHdr *h) {
   e[M6W_DR_PREV + 1ULL] = 0ULL;
   e[M6W_DR_SB] = 0ULL;
   e[M6W_DR_SB + 1ULL] = 0ULL;
-  e[M6W_DR_SE] = 1ULL << 32;
-  e[M6W_DR_SE + 1ULL] = 1ULL << 32;
+  e[M6W_DR_SE] = 0x3FF0000000000000ULL;
+  e[M6W_DR_SE + 1ULL] = 0x3FF0000000000000ULL;
 }
 
 void m6_hdr_dr_update(FullHdr *h) {
@@ -238,21 +255,25 @@ void m6_hdr_dr_update(FullHdr *h) {
     e[M6W_DR_STATE] = (1ULL << 63) | (cur_sw << 56) | cur;
     e[M6W_DR_PREV + mode] = cur;
     e[M6W_DR_SB + mode] = 0ULL;
-    e[M6W_DR_SE + mode] = 1ULL << 32;
+    e[M6W_DR_SE + mode] = 0x3FF0000000000000ULL;
     return;
   }
   u64 prev = e[M6W_DR_PREV + mode];
   e[M6W_DR_PREV + mode] = cur;
   u64 d = (cur >= prev) ? (cur - prev) : 0ULL;
-  if (d > 16383ULL) { d = 16383ULL; }
-  u64 ys = d << 32;
+  u64 y = f64u_from_u64(d);
   u64 sb = e[M6W_DR_SB + mode];
   u64 se = e[M6W_DR_SE + mode];
-  if (ys >= sb) { sb = sb + ((ys - sb) / 100000ULL); }
-  else { sb = sb - ((sb - ys) / 100000ULL); }
-  if (se > 0ULL) {
-    u64 ds = se / 100000ULL;
-    se = (ds == 0ULL) ? 0ULL : (se - ds);
+  u64 alpha = 0x3EE4F8B588E368F1ULL;
+  u64 beta  = 0x3FEFFFEB074A771DULL;
+  if (y >= sb) {
+    sb = f64u_add(sb, f64u_mul(alpha, f64u_sub(y, sb)));
+  } else {
+    sb = f64u_sub(sb, f64u_mul(alpha, f64u_sub(sb, y)));
+  }
+  if (se != 0ULL) {
+    u64 nse = f64u_mul(se, beta);
+    se = (nse == se) ? 0ULL : nse;
   }
   e[M6W_DR_SB + mode] = sb;
   e[M6W_DR_SE + mode] = se;
@@ -265,36 +286,13 @@ bool m6_hdr_dr_allow(FullHdr *h) {
   u64 mode = (h->stable != 0ULL) ? 1ULL : 0ULL;
   u64 sb = e[M6W_DR_SB + mode];
   u64 se = e[M6W_DR_SE + mode];
-  u64 scale = 1ULL << 32;
-  u64 sd = (scale > se) ? (scale - se) : 0ULL;
-  if (sd == 0ULL) { return true; }
-  return sb < (sd * 10ULL);
-}
-
-void full_recompute_tiers(FullHdr *h) {
-  u32 *gu = (u32 *)h->glue_used;
-  u64 total = 0ULL;
-  u64 g = 0ULL;
-  while (g < 64ULL) { total = total + (u64)gu[g]; g = g + 1ULL; }
-  u64 t1 = 2ULL;
-  u64 t2 = 6ULL;
-  if (total > 0ULL) {
-    u64 lim1 = (total + 1ULL) >> 1;
-    u64 lim2 = (total * 9ULL + 9ULL) / 10ULL;
-    u64 acc = 0ULL;
-    bool got1 = false; bool got2 = false;
-    g = 0ULL;
-    while (g < 64ULL) {
-      acc = acc + (u64)gu[g];
-      if (!got1 && acc >= lim1) { t1 = g; got1 = true; }
-      if (!got2 && acc >= lim2) { t2 = g; got2 = true; break; }
-      g = g + 1ULL;
-    }
-    if (!got1) { t1 = 2ULL; t2 = 6ULL; }
-    else if (!got2) { t2 = t1; }
+  u64 val = sb;
+  if (se != 0ULL) {
+    u64 div = f64u_sub(0x3FF0000000000000ULL, se);
+    if (div == 0ULL) { return true; }
+    val = f64u_div(sb, div);
   }
-  if (t2 < t1) { t2 = t1; }
-  h->tier1 = t1; h->tier2 = t2;
+  return val < 0x4024000000000000ULL;
 }
 "
 

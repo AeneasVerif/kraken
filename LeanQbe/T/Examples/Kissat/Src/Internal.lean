@@ -11,7 +11,7 @@ meta import LeanQbe.T.Examples.Kissat.Src.Header
 /-!
 # Kissat C0 Solver Workspace Initialization, Flags & Fresh Variables (`Src/Internal.lean`)
 
-Mirrors upstream `kissat/src/internal.c, flags.c, resize.c` (`14` live functions, DAG level `L1`):
+Mirrors upstream `kissat/src/internal.c, flags.c, resize.c` (`15` live functions, DAG level `L1`):
 - `full_zero_tables1` (R4: `kissat_zero_tables_part1`)
 - `full_zero_tables2` (R4: `kissat_zero_tables_part2`)
 - `full_fixed_bytes` (R4: `kissat_fixed_bytes`)
@@ -26,7 +26,7 @@ Mirrors upstream `kissat/src/internal.c, flags.c, resize.c` (`14` live functions
 - `full_m6_mem_init` (R4: `kissat_init_workspace`)
 - `full_set_inactive` (R4: `kissat_deactivate_variable`)
 - `full_init_fresh_var` (R4: `kissat_init_fresh_variable`)
--/
+- `full_update_classify_fid`-/
 
 set_option autoImplicit false
 
@@ -42,6 +42,11 @@ kissat_c0! internal "
 
 extern bool kissat_parse_header(u64 cnf_ptr, u64 cnf_end, KissatDimacs *d);
 extern void m6_hdr_init(FullHdr *h);
+extern void full_heap_up(FullHdr *h, u32 v);
+extern void full_heap_down(FullHdr *h, u32 v);
+extern void full_heap_push(FullHdr *h, u32 v);
+extern u64 m6_wm4_get(FullHdr *h);
+extern void m6_wm4_set(FullHdr *h, u64 v);
 
 void full_zero_tables1(FullHdr *h) {
   u64 mx = h->max_vars;
@@ -95,7 +100,7 @@ void full_zero_tables2(FullHdr *h) {
   u64 *sig = (u64 *)h->sim_sig;
   u64 v = 0ULL;
   while (v < mx) {
-    mrk[v] = (u8)0; ph[v] = (i8)1; ptgt[v] = (i8)0; pbst[v] = (i8)0; wbst[v] = (i8)1;
+    mrk[v] = (u8)0; ph[v] = (i8)0; ptgt[v] = (i8)0; pbst[v] = (i8)0; wbst[v] = (i8)1;
     lvl[v] = 0u; rsns[v] = 0xFFFFFFFFu;
     ftrl[v] = 0u; fdec[v] = 0xFFFFFFFFu; sc[v] = 0ULL; sig[v] = 0ULL;
     fl[v] = 0u; hp[v] = 0u; ps[v] = 0xFFFFFFFFu;
@@ -171,7 +176,7 @@ void full_init_hdr(FullHdr *h, u64 mv, u64 max_v, u64 fuel) {
   h->unflushed = 0ULL; h->probing = 0ULL; h->trail_end = 0ULL; h->propagated = 0ULL;
   h->cur_level = 0ULL; h->fuel = fuel; h->confl_ref = 0xFFFFFFFFULL;
   h->confl_type = 0ULL; h->confl_lit0 = 0ULL; h->confl_lit1 = 0ULL;
-  h->tmp_cnt = 0ULL; h->tmp_len = 0ULL; h->heap_len = 0ULL; h->scinc = 1ULL << 28;
+  h->tmp_cnt = 0ULL; h->tmp_len = 0ULL; h->heap_len = 0ULL; h->scinc = 0x3FF0000000000000ULL;
   h->min_clr_len = 0ULL; h->min_clr_full = 0ULL;
   h->rel_period = 1024ULL; h->rel_limit = 1048576ULL; h->rel_wait = 1024ULL;
   h->rel_u = 1ULL; h->rel_v = 1ULL; h->rel_trigger = 0ULL;
@@ -188,8 +193,8 @@ void full_init_hdr(FullHdr *h, u64 mv, u64 max_v, u64 fuel) {
   h->reduce_limit = 1000ULL; h->reductions = 0ULL;
   h->tier1 = 2ULL; h->tier2 = 6ULL;
   h->restarts = 0ULL; h->restart_limit = 1ULL;
-  h->ema_fast_biased = 0ULL; h->ema_fast_exp = 1ULL << 24;
-  h->ema_slow_biased = 0ULL; h->ema_slow_exp = 1ULL << 24;
+  h->ema_fast_biased = 0ULL; h->ema_fast_exp = 0x3FF0000000000000ULL;
+  h->ema_slow_biased = 0ULL; h->ema_slow_exp = 0x3FF0000000000000ULL;
   h->oom = 0ULL; h->extend_len = 0ULL;
   h->rng_state = 0x9E3779B97F4A7C15ULL ^ (mv + 1ULL);
   h->chrono_levels = 100ULL; h->otfs_cnt = 0ULL; h->eager_sub_cnt = 0ULL;
@@ -287,24 +292,68 @@ u64 full_m6_mem_init(u64 cnf_ptr, u64 cnf_end, u64 work_base, u64 avail, u64 fue
 }
 
 void full_set_inactive(FullHdr *h, u32 v, u32 flag) {
-  if ((u64)v >= h->cur_vars) { return; }
+  u64 cv = h->cur_vars;
+  if ((u64)v >= cv) { return; }
   u32 *fl = (u32 *)h->flags;
   i8 *vals = (i8 *)h->values;
-  if ((fl[v] & FL_ACTIVE) != 0u && vals[(u64)v << 1] == (i8)0 && h->unassigned > 0ULL) {
+  bool was_active = ((fl[v] & FL_ACTIVE) != 0u);
+  if (was_active && vals[(u64)v << 1] == (i8)0 && h->unassigned > 0ULL) {
     h->unassigned = h->unassigned - 1ULL;
   }
   fl[v] = (fl[v] & (~FL_ACTIVE)) | flag;
+  u32 *qp = (u32 *)h->q_prev;
+  u32 *qn = (u32 *)h->q_next;
+  u32 *qs = (u32 *)h->q_stamp;
+  u32 pv = qp[v];
+  u32 nv = qn[v];
+  if ((u64)pv < cv || (u64)nv < cv || h->q_first == (u64)v || h->q_last == (u64)v) {
+    if (h->q_search_idx == (u64)v) {
+      u32 srch = nv;
+      if ((u64)srch >= cv) { srch = pv; }
+      if ((u64)srch >= cv) {
+        h->q_search_idx = 0xFFFFFFFFULL;
+        h->q_search_stamp = 0ULL;
+      } else {
+        h->q_search_idx = (u64)srch;
+        h->q_search_stamp = (u64)qs[srch];
+      }
+    }
+    qp[v] = 0xFFFFFFFFu;
+    qn[v] = 0xFFFFFFFFu;
+    if ((u64)pv >= cv) { h->q_first = (u64)nv; } else { qn[pv] = nv; }
+    if ((u64)nv >= cv) { h->q_last = (u64)pv; } else { qp[nv] = pv; }
+  }
+  u32 *ps = (u32 *)h->pos;
+  u32 *hp = (u32 *)h->heap;
+  u64 n__ = h->heap_len;
+  u32 p__ = ps[v];
+  if (n__ > 0ULL && n__ <= cv && (u64)p__ < n__ && hp[p__] == v) {
+    u32 last__ = hp[n__ - 1ULL];
+    h->heap_len = n__ - 1ULL;
+    ps[v] = 0xFFFFFFFFu;
+    if (last__ != v && (u64)last__ < cv) {
+      hp[p__] = last__;
+      ps[last__] = p__;
+      full_heap_up(h, last__);
+      full_heap_down(h, last__);
+    }
+  }
 }
 
 void full_init_fresh_var(FullHdr *h, u32 fv) {
   i8 *vals = (i8 *)h->values; u8 *mrk = (u8 *)h->mark; u32 *fl = (u32 *)h->flags;
   u32 *lvl = (u32 *)h->level; u32 *rsns = (u32 *)h->reason; u32 *ps = (u32 *)h->pos;
   u32 *qp = (u32 *)h->q_prev; u32 *qn = (u32 *)h->q_next; u32 *qs = (u32 *)h->q_stamp;
-  i8 *ph = (i8 *)h->phases; u32 *wvec = (u32 *)h->watch_vec; u64 *sc = (u64 *)h->score;
+  i8 *ph = (i8 *)h->phases;
+  i8 *ptgt = (i8 *)h->phases_target;
+  i8 *pbst = (i8 *)h->phases_best;
+  i8 *wbst = (i8 *)h->walk_best;
+  u32 *wvec = (u32 *)h->watch_vec; u64 *sc = (u64 *)h->score;
   wvec[(u64)fv << 2] = 0u; wvec[((u64)fv << 2) + 1ULL] = 0u;
   wvec[((u64)fv << 2) + 2ULL] = 0u; wvec[((u64)fv << 2) + 3ULL] = 0u;
   vals[(u64)fv << 1] = (i8)0; vals[((u64)fv << 1) | 1ULL] = (i8)0;
-  mrk[fv] = (u8)0; ph[fv] = (i8)1;
+  mrk[fv] = (u8)0; ph[fv] = (i8)0;
+  ptgt[fv] = (i8)0; pbst[fv] = (i8)0; wbst[fv] = (i8)1;
   lvl[fv] = 0u; rsns[fv] = 0xFFFFFFFFu; ps[fv] = 0xFFFFFFFFu; sc[fv] = 0ULL;
   fl[fv] = FL_ACTIVE | FL_SUBSUME | FL_ELIM_C | FL_SWEEP |
            FL_FACT_P | FL_FACT_N | FL_BONE0 | FL_BONE1 | FL_TRANS;
@@ -313,7 +362,20 @@ void full_init_fresh_var(FullHdr *h, u32 fv) {
   if ((u64)old_first < h->cur_vars) { qn[fv] = old_first; qp[old_first] = fv; }
   else { qn[fv] = 0xFFFFFFFFu; h->q_last = (u64)fv; }
   h->q_first = (u64)fv; qs[fv] = 0u;
+  if (h->stable != 0ULL) { full_heap_push(h, fv); }
   h->unassigned = h->unassigned + 1ULL;
+}
+
+void full_update_classify_fid(FullHdr *h) {
+  u64 clauses = h->num_binary + h->num_irred;
+  bool bigbig = false;
+  if (clauses > 100000ULL && (h->num_binary * 100000ULL >= clauses * 990ULL)) {
+    bigbig = true;
+  }
+  u64 wm4 = m6_wm4_get(h);
+  if (bigbig) { wm4 = wm4 | 2ULL; }
+  else { wm4 = wm4 & (~2ULL); }
+  m6_wm4_set(h, wm4);
 }
 "
 

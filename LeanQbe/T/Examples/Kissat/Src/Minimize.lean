@@ -11,15 +11,13 @@ meta import LeanQbe.T.Examples.Kissat.Src.Header
 /-!
 # Kissat C0 Recursive Clause Minimization & Block Shrinking (`Src/Minimize.lean`)
 
-Mirrors upstream `kissat/src/minimize.c, shrink.c` (`7` live functions, DAG level `L0`):
+Mirrors upstream `kissat/src/minimize.c, shrink.c` (`6` live functions, DAG level `L0`):
 - `full_min_mark` (R4: `kissat_minimize_mark`)
 - `full_sort_tmp` (R4: `kissat_sort_deduced_clause`)
 - `full_min_lit_dfs_m8` (R4: `kissat_minimize_literal`)
 - `full_shrink_lower_m8` (R4: `kissat_shrink_lower_literal`)
 - `full_shrink_blk_bool_m8` (R4: `kissat_shrink_block`)
-- `full_min_shrink_m6` (R4: `kissat_shrink_and_minimize_impl`)
-- `full_min_shrink` (R4: `kissat_shrink_and_minimize`)
--/
+- `full_min_shrink_m6` (R4: `kissat_shrink_and_minimize_impl`)-/
 
 set_option autoImplicit false
 
@@ -164,9 +162,13 @@ bool full_min_lit_dfs_m8(FullHdr *h, u32 root_lit, bool minimizing, bool check_u
       used[rlvl] <= 1u) {
     return false;
   }
+  u64 mv = h->max_vars;
+  u64 alen = h->arena_len;
+  u64 clvl = h->cur_level;
+  u64 mdepth = h->min_depth;
   stk[0] = root_v; stk[1] = 0u;
   u64 sp = 0ULL; u64 cur_depth = 0ULL; bool ok = false; u64 steps = 0ULL;
-  u64 max_steps = (h->arena_len + cv) * 4ULL + 64ULL;
+  u64 max_steps = (alen + cv) * 4ULL + 64ULL;
   while (steps < max_steps) {
     steps = steps + 1ULL;
     u32 v = stk[sp << 1]; u32 pword = stk[(sp << 1) + 1ULL];
@@ -186,8 +188,8 @@ bool full_min_lit_dfs_m8(FullHdr *h, u32 root_lit, bool minimizing, bool check_u
         if ((mu & (u8)2) != (u8)0) { continue; }
         if ((mu & (u8)4) != (u8)0) { break; }
         if (rsns[u] == 0xFFFFFFFFu) { full_min_mark(h, u, (u8)4); break; }
-        if (check_used && (u64)ul < cv && (u64)ul < h->cur_level && used[ul] == 0u) { break; }
-        if (sp + 1ULL >= h->max_vars) { break; }
+        if (check_used && (u64)ul < cv && (u64)ul < clvl && used[ul] == 0u) { break; }
+        if (sp + 1ULL >= mv) { break; }
         sp = sp + 1ULL; stk[sp << 1] = u; stk[(sp << 1) + 1ULL] = 0u;
         continue;
       }
@@ -197,9 +199,9 @@ bool full_min_lit_dfs_m8(FullHdr *h, u32 root_lit, bool minimizing, bool check_u
       sp = sp - 1ULL;
       continue;
     }
-    if ((u64)rsn + 3ULL > h->arena_len) { break; }
+    if ((u64)rsn + 3ULL > alen) { break; }
     u32 sz = ar[(u64)rsn + 2ULL];
-    if (sz < 3u || (u64)rsn + 3ULL + (u64)sz > h->arena_len) { break; }
+    if (sz < 3u || (u64)rsn + 3ULL + (u64)sz > alen) { break; }
     if (pos == 0u) { h->search_ticks = h->search_ticks + 1ULL; }
     if (pos < sz) {
       stk[(sp << 1) + 1ULL] = (pword & 0x80000000u) | (pos + 1u);
@@ -212,8 +214,8 @@ bool full_min_lit_dfs_m8(FullHdr *h, u32 root_lit, bool minimizing, bool check_u
       if ((mu & (u8)2) != (u8)0) { continue; }
       if ((mu & (u8)4) != (u8)0) { break; }
       if (rsns[u] == 0xFFFFFFFFu) { full_min_mark(h, u, (u8)4); break; }
-      if (check_used && (u64)ul < cv && (u64)ul < h->cur_level && used[ul] == 0u) { break; }
-      if (cur_depth + 1ULL >= h->min_depth || sp + 1ULL >= h->max_vars) { break; }
+      if (check_used && (u64)ul < cv && (u64)ul < clvl && used[ul] == 0u) { break; }
+      if (cur_depth + 1ULL >= mdepth || sp + 1ULL >= mv) { break; }
       cur_depth = cur_depth + 1ULL;
       sp = sp + 1ULL; stk[sp << 1] = u; stk[(sp << 1) + 1ULL] = 0x80000000u;
       continue;
@@ -246,7 +248,7 @@ bool full_shrink_blk_bool_m8(FullHdr *h, u64 beg, u64 end_b, u32 blvl, u64 max_t
   u32 *tmp = (u32 *)h->tmp_lits; u8 *mrk = (u8 *)h->mark;
   u32 *lvl = (u32 *)h->level; u32 *rsns = (u32 *)h->reason;
   u32 *trl = (u32 *)h->trail; u32 *sstk = (u32 *)h->shrink_stk;
-  u32 *ar = (u32 *)h->arena; u64 cv = h->cur_vars;
+  u32 *ar = (u32 *)h->arena; u64 cv = h->cur_vars; u64 alen = h->arena_len;
   u64 open = end_b - beg; u64 slen = 0ULL; u64 k = beg;
   while (k < end_b) {
     u32 v = tmp[k] >> 1; mrk[v] = mrk[v] | (u8)8;
@@ -271,9 +273,9 @@ bool full_shrink_blk_bool_m8(FullHdr *h, u64 beg, u64 end_b, u32 blvl, u64 max_t
     bool is_bin = ((rsn & PW_BIN_FLAG) != 0u);
     u32 csz = 1u;
     if (!is_bin) {
-      if ((u64)rsn + 3ULL > h->arena_len) { failed = true; break; }
+      if ((u64)rsn + 3ULL > alen) { failed = true; break; }
       csz = ar[(u64)rsn + 2ULL];
-      if (csz < 3u || (u64)rsn + 3ULL + (u64)csz > h->arena_len) { failed = true; break; }
+      if (csz < 3u || (u64)rsn + 3ULL + (u64)csz > alen) { failed = true; break; }
       h->search_ticks = h->search_ticks + 1ULL;
     }
     u32 i = 0u;
@@ -330,7 +332,14 @@ void full_min_shrink_m6(FullHdr *h) {
       end_b = end_b + 1ULL;
     }
     if (end_b - beg >= 2ULL) {
-      if (!full_shrink_blk_bool_m8(h, beg, end_b, blvl, max_tr)) {
+      if (full_shrink_blk_bool_m8(h, beg, end_b, blvl, max_tr)) {
+        u32 *ana_s = (u32 *)h->work_stk1;
+        u32 uip_v = tmp[beg] >> 1;
+        if ((u64)uip_v < cv && h->res_sz < cv) {
+          ana_s[h->res_sz] = uip_v;
+          h->res_sz = h->res_sz + 1ULL;
+        }
+      } else {
         u64 mk2 = beg;
         while (mk2 < end_b) {
           if (full_min_lit_dfs_m8(h, tmp[mk2], false, false)) { tmp[mk2] = 0xFFFFFFFFu; }
@@ -356,12 +365,29 @@ void full_min_shrink_m6(FullHdr *h) {
     }
   }
   h->min_clr_len = 0ULL; h->min_clr_full = 0ULL; h->tmp_len = keep;
+  if (keep > 2ULL) {
+    u64 lo = 1ULL;
+    u64 hi = keep - 1ULL;
+    while (lo < hi) {
+      u32 sw = tmp[lo]; tmp[lo] = tmp[hi]; tmp[hi] = sw;
+      lo = lo + 1ULL; hi = hi - 1ULL;
+    }
+    u64 rb = 1ULL;
+    while (rb < keep) {
+      u32 rl = lvl[((u64)tmp[rb]) >> 1];
+      u64 re = rb + 1ULL;
+      while (re < keep && lvl[((u64)tmp[re]) >> 1] == rl) { re = re + 1ULL; }
+      u64 rl_i = rb;
+      u64 rh_i = re - 1ULL;
+      while (rl_i < rh_i) {
+        u32 sw = tmp[rl_i]; tmp[rl_i] = tmp[rh_i]; tmp[rh_i] = sw;
+        rl_i = rl_i + 1ULL; rh_i = rh_i - 1ULL;
+      }
+      rb = re;
+    }
+  }
   h->min_removed = h->min_removed + (orig_tlen - keep);
   h->learned_lits = h->learned_lits + keep;
-}
-
-void full_min_shrink(FullHdr *h) {
-  full_min_shrink_m6(h);
 }
 "
 

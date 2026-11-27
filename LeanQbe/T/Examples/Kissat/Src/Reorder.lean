@@ -14,8 +14,7 @@ meta import LeanQbe.T.Examples.Kissat.Src.Header
 Mirrors upstream `kissat/src/reorder.c` (`3` live functions, DAG level `L2`):
 - `full_reorder_sift_fid` (R4: `kissat_reorder_sift`)
 - `full_reorder_queue_m7` (R4: `kissat_reorder_impl`)
-- `full_reorder_m6` (R4: `kissat_reorder`)
--/
+- `full_reorder_m6` (R4: `kissat_reorder`)-/
 
 set_option autoImplicit false
 
@@ -29,9 +28,11 @@ open LeanQbe.T.Examples.Kissat.Src
 kissat_c0! reorder "
 #include \"kissat_internal.h\"
 
+extern u64 f64u_add(u64 a, u64 b);
 extern u32 full_arena_next(FullHdr *h, u32 cref);
-extern void full_heap_up(FullHdr *h, u32 v);
+extern u64 f64u_mul(u64 a, u64 b);
 extern void full_rescale(FullHdr *h);
+extern void full_heap_up(FullHdr *h, u32 v);
 
 void full_reorder_sift_fid(FullHdr *h, u64 start, u64 n) {
   if (n == 0ULL || start >= n || n > h->cur_vars) { return; }
@@ -81,8 +82,7 @@ u64 full_reorder_queue_m7(FullHdr *h) {
   u32 *qs = (u32 *)h->q_stamp;
   u64 *wl = (u64 *)h->tarjan_mark;
   u64 *wr = (u64 *)h->tarjan_reach;
-  u64 w2 = 1ULL << 40;
-  u64 wcap = 1ULL << 60;
+  u64 w2 = 0x3FF0000000000000ULL;
   u64 z = 0ULL;
   while (z < cv) {
     wl[z] = 0ULL;
@@ -108,24 +108,18 @@ u64 full_reorder_queue_m7(FullHdr *h) {
         }
         ci = ci + 1ULL;
       }
-      if (!sat && sz >= 2ULL && sz <= 100ULL) {
-        u64 w = (sz >= 2ULL && sz <= 42ULL) ? ((1ULL << 40) >> (sz - 2ULL)) : 0ULL;
-        if (w > 0ULL) {
-          ci = 0ULL;
-          while (ci < clen) {
-            u32 lit = ar[p + 3ULL + ci];
-            if ((u64)lit < nlits) {
-              u32 av = lit >> 1;
-              if ((lit & 1u) == 0u) {
-                u64 cur = wl[av];
-                wl[av] = (cur > wcap - w) ? wcap : (cur + w);
-              } else {
-                u64 cur = wr[av];
-                wr[av] = (cur > wcap - w) ? wcap : (cur + w);
-              }
-            }
-            ci = ci + 1ULL;
+      if (!sat && sz >= 2ULL) {
+        if (sz > 100ULL) { sz = 100ULL; }
+        u64 w = (1025ULL - sz) << 52;
+        ci = 0ULL;
+        while (ci < clen) {
+          u32 lit = ar[p + 3ULL + ci];
+          if ((u64)lit < nlits) {
+            u32 av = lit >> 1;
+            if ((lit & 1u) == 0u) { wl[av] = f64u_add(wl[av], w); }
+            else { wr[av] = f64u_add(wr[av], w); }
           }
+          ci = ci + 1ULL;
         }
       }
     }
@@ -152,20 +146,10 @@ u64 full_reorder_queue_m7(FullHdr *h) {
           if ((u64)other > lit && (u64)other < nlits) {
             u64 ov = (u64)(other >> 1);
             if ((fl[ov] & FL_ACTIVE) != 0u && vals[other] == (i8)0) {
-              if ((lit & 1ULL) == 0ULL) {
-                u64 c1 = wl[lvar];
-                wl[lvar] = (c1 > wcap - w2) ? wcap : (c1 + w2);
-              } else {
-                u64 c1 = wr[lvar];
-                wr[lvar] = (c1 > wcap - w2) ? wcap : (c1 + w2);
-              }
-              if ((other & 1u) == 0u) {
-                u64 c2 = wl[ov];
-                wl[ov] = (c2 > wcap - w2) ? wcap : (c2 + w2);
-              } else {
-                u64 c2 = wr[ov];
-                wr[ov] = (c2 > wcap - w2) ? wcap : (c2 + w2);
-              }
+              if ((lit & 1ULL) == 0ULL) { wl[lvar] = f64u_add(wl[lvar], w2); }
+              else { wr[lvar] = f64u_add(wr[lvar], w2); }
+              if ((other & 1u) == 0u) { wl[ov] = f64u_add(wl[ov], w2); }
+              else { wr[ov] = f64u_add(wr[ov], w2); }
             }
           }
           wp = wp + 1ULL;
@@ -178,33 +162,80 @@ u64 full_reorder_queue_m7(FullHdr *h) {
   while (fv < cv) {
     u64 a = wl[fv];
     u64 b = wr[fv];
-    wl[fv] = (a >= b) ? (a + (b << 1)) : (b + (a << 1));
+    wl[fv] = (a >= b) ? f64u_add(a, f64u_mul(b, 0x4000000000000000ULL))
+                      : f64u_add(b, f64u_mul(a, 0x4000000000000000ULL));
     fv = fv + 1ULL;
   }
   if (h->stable != 0ULL) {
     full_rescale(h);
     u64 *sc = (u64 *)h->score;
+    u64 n_s = 0ULL;
     u64 sv = 0ULL;
-    u64 maxw = 0ULL;
     while (sv < cv) {
-      if ((fl[sv] & FL_ACTIVE) != 0u && wl[sv] > maxw) { maxw = wl[sv]; }
+      if ((fl[sv] & FL_ACTIVE) != 0u) { ws[n_s] = (u32)sv; n_s = n_s + 1ULL; }
       sv = sv + 1ULL;
     }
-    u64 scale_ref = h->scinc;
-    if (scale_ref < (1ULL << 20)) { scale_ref = 1ULL << 20; }
-    sv = 0ULL;
-    while (sv < cv) {
-      if ((fl[sv] & FL_ACTIVE) != 0u && wl[sv] > 0ULL) {
-        u64 add = (maxw > 0ULL) ? ((wl[sv] >> 20) * (scale_ref >> 20)) : 0ULL;
-        if (add > (1ULL << 52)) { add = 1ULL << 52; }
-        u64 cur = sc[sv];
-        u64 nsc = (cur > (1ULL << 60) - add) ? (1ULL << 60) : (cur + add);
-        sc[sv] = nsc;
-        full_heap_up(h, (u32)sv);
+    if (n_s > 1ULL) {
+      u64 s = n_s >> 1;
+      while (s > 0ULL) {
+        s = s - 1ULL;
+        u64 root = s;
+        while (true) {
+          u64 ch = (root << 1) + 1ULL;
+          if (ch >= n_s) { break; }
+          u64 best = root;
+          u32 bv = ws[best]; u64 bw = wl[bv]; u64 bs = sc[bv];
+          u32 cv1 = ws[ch]; u64 cw = wl[cv1]; u64 cs = sc[cv1];
+          if (cw > bw || (cw == bw && (cs > bs || (cs == bs && cv1 < bv)))) {
+            best = ch; bv = cv1; bw = cw; bs = cs;
+          }
+          u64 rch = ch + 1ULL;
+          if (rch < n_s) {
+            u32 rv1 = ws[rch]; u64 rw = wl[rv1]; u64 rs = sc[rv1];
+            if (rw > bw || (rw == bw && (rs > bs || (rs == bs && rv1 < bv)))) {
+              best = rch; bv = rv1;
+            }
+          }
+          if (best == root) { break; }
+          u32 t = ws[root]; ws[root] = bv; ws[best] = t;
+          root = best;
+        }
       }
-      sv = sv + 1ULL;
+      u64 e = n_s;
+      while (e > 1ULL) {
+        e = e - 1ULL;
+        u32 sw = ws[0]; ws[0] = ws[e]; ws[e] = sw;
+        u64 root = 0ULL;
+        while (true) {
+          u64 ch = (root << 1) + 1ULL;
+          if (ch >= e) { break; }
+          u64 best = root;
+          u32 bv = ws[best]; u64 bw = wl[bv]; u64 bs = sc[bv];
+          u32 cv1 = ws[ch]; u64 cw = wl[cv1]; u64 cs = sc[cv1];
+          if (cw > bw || (cw == bw && (cs > bs || (cs == bs && cv1 < bv)))) {
+            best = ch; bv = cv1; bw = cw; bs = cs;
+          }
+          u64 rch = ch + 1ULL;
+          if (rch < e) {
+            u32 rv1 = ws[rch]; u64 rw = wl[rv1]; u64 rs = sc[rv1];
+            if (rw > bw || (rw == bw && (rs > bs || (rs == bs && rv1 < bv)))) {
+              best = rch; bv = rv1;
+            }
+          }
+          if (best == root) { break; }
+          u32 t = ws[root]; ws[root] = bv; ws[best] = t;
+          root = best;
+        }
+      }
     }
-    return cv;
+    u64 rem_s = n_s;
+    while (rem_s > 0ULL) {
+      rem_s = rem_s - 1ULL;
+      u32 idx = ws[rem_s];
+      sc[idx] = f64u_add(sc[idx], wl[idx]);
+      full_heap_up(h, idx);
+    }
+    return n_s;
   }
   u64 n = 0ULL;
   u64 av = 0ULL;

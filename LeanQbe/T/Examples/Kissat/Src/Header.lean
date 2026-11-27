@@ -245,6 +245,9 @@ _Static_assert(offsetof(FullHdr, res_sz) == 1144, \"FullHdr.res_sz offset must b
 #define M6_WM_PROBE_TICKS     0ULL
 #define M6_WM_REDUCE_CONFL    2ULL
 #define M6_WM_REDUCE_TICKS    3ULL
+#define M6_WM_PROBING_TICKS   5ULL
+#define M6_WM_FOCUSED_TICKS   6ULL
+#define M6_WM_STABLE_TICKS    7ULL
 
 #define SWP_GU_COMPLETED      28u
 #define SWP_GU_INCOMPLETE     29u

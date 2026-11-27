@@ -6,6 +6,7 @@ module
 
 public import LeanQbe.T.Module
 public import LeanQbe.T.Examples.Kissat.Src.Header
+public import LeanQbe.T.Examples.Kissat.Src.Float64
 public import LeanQbe.T.Examples.Kissat.Src.Dimacs
 public import LeanQbe.T.Examples.Kissat.Src.Limits
 public import LeanQbe.T.Examples.Kissat.Src.Arena
@@ -47,6 +48,7 @@ public import LeanQbe.T.Examples.Kissat.Src.Reorder
 public import LeanQbe.T.Examples.Kissat.Src.Probe
 public import LeanQbe.T.Examples.Kissat.Src.Search
 meta import LeanQbe.T.Module
+meta import LeanQbe.T.Examples.Kissat.Src.Float64
 meta import LeanQbe.T.Examples.Kissat.Src.Dimacs
 meta import LeanQbe.T.Examples.Kissat.Src.Limits
 meta import LeanQbe.T.Examples.Kissat.Src.Arena
@@ -89,12 +91,12 @@ meta import LeanQbe.T.Examples.Kissat.Src.Probe
 meta import LeanQbe.T.Examples.Kissat.Src.Search
 
 /-!
-# Flat `410`-Function Kissat 4.0.4 Full Solver Module (`Src/Full.lean`)
+# Flat `418`-Function Kissat 4.0.4 Full Solver Module (`Src/Full.lean`)
 
-Direct acyclic list concatenation of all `40` upstream-mirrored `Src/*.lean` C0 modules
-(`Dimacs.fns ++ Limits.fns ++ ... ++ Search.fns`) with:
+Direct acyclic list concatenation of all `41` upstream-mirrored `Src/*.lean` C0 modules
+(`Float64.fns ++ Dimacs.fns ++ ... ++ Search.fns`) with:
 - **`0` `PatchModule` / `patchFns` / `spliceFns` / `befores` / `renameFuncCalls`**
-- **`0` dead function slots** (`410` live functions, `0` externs, `0` exits)
+- **`0` dead function slots** (`418` live functions, `0` externs, `0` exits)
 - **`0` `*Proof*`/`*Spec*`/`*Lemmas*`/`*Audit*`/`Amd64`/`Arm64`/`Kraken` imports**
 - Kernel-verified `kissatModule_wf : ∀ f ∈ kissatModule.fns, f.Wf` (`<= std3` axioms).
 -/
@@ -108,10 +110,11 @@ open LeanQbe.T.Examples.Kissat.Src
 
 @[expose] public section
 
-/-- Flat `410`-function topological concatenation of all `40` upstream-mirrored `Src/*.lean`
+/-- Flat `418`-function topological concatenation of all `41` upstream-mirrored `Src/*.lean`
 modules (`0` dead slots, `0` back-edges). -/
 def kissatFns : List Fn :=
-  Dimacs.fns
+  Float64.fns
+  ++ Dimacs.fns
   ++ Limits.fns
   ++ Arena.fns
   ++ Watch.fns
@@ -124,13 +127,13 @@ def kissatFns : List Fn :=
   ++ PropSearch.fns
   ++ Parse.fns
   ++ Collect.fns
+  ++ Compact.fns
   ++ Reduce.fns
   ++ Deduce.fns
   ++ Minimize.fns
   ++ Learn.fns
   ++ Analyze.fns
   ++ Decide.fns
-  ++ Walk.fns
   ++ Restart.fns
   ++ Extend.fns
   ++ Lucky.fns
@@ -147,19 +150,19 @@ def kissatFns : List Fn :=
   ++ Definition.fns
   ++ Eliminate.fns
   ++ Factor.fns
-  ++ Compact.fns
   ++ Reorder.fns
   ++ Probe.fns
+  ++ Walk.fns
   ++ Search.fns
 
-/-- Closed `410`-function Kissat 4.0.4 `LeanQbe.T.Module` (`0` externs, `0` exits). -/
+/-- Closed `418`-function Kissat 4.0.4 `LeanQbe.T.Module` (`0` externs, `0` exits). -/
 def kissatModule : LeanQbe.T.Module :=
   { fns := kissatFns, externs := [], exits := [] }
 
 end
 
-#guard kissatModule.fns.length == 410
-#guard (kissatModule.fns.map Fn.name).eraseDups.length == 410
+#guard kissatModule.fns.length == 418
+#guard (kissatModule.fns.map Fn.name).eraseDups.length == 418
 #guard kissatModule.checkAcyclic == true
 #guard kissatModule.externs.isEmpty && kissatModule.exits.isEmpty
 
@@ -178,7 +181,8 @@ private theorem append_wf {xs ys : List Fn}
 
 /-- Every function in `kissatModule` is PHOAS well-formed (`Func.Wf`). -/
 theorem kissatModule_wf : ∀ f ∈ kissatModule.fns, f.Wf := by
-  have h := append_wf Dimacs.fns_wf Limits.fns_wf
+  have h := append_wf Float64.fns_wf Dimacs.fns_wf
+  have h := append_wf h Limits.fns_wf
   have h := append_wf h Arena.fns_wf
   have h := append_wf h Watch.fns_wf
   have h := append_wf h Heap.fns_wf
@@ -190,13 +194,13 @@ theorem kissatModule_wf : ∀ f ∈ kissatModule.fns, f.Wf := by
   have h := append_wf h PropSearch.fns_wf
   have h := append_wf h Parse.fns_wf
   have h := append_wf h Collect.fns_wf
+  have h := append_wf h Compact.fns_wf
   have h := append_wf h Reduce.fns_wf
   have h := append_wf h Deduce.fns_wf
   have h := append_wf h Minimize.fns_wf
   have h := append_wf h Learn.fns_wf
   have h := append_wf h Analyze.fns_wf
   have h := append_wf h Decide.fns_wf
-  have h := append_wf h Walk.fns_wf
   have h := append_wf h Restart.fns_wf
   have h := append_wf h Extend.fns_wf
   have h := append_wf h Lucky.fns_wf
@@ -213,9 +217,9 @@ theorem kissatModule_wf : ∀ f ∈ kissatModule.fns, f.Wf := by
   have h := append_wf h Definition.fns_wf
   have h := append_wf h Eliminate.fns_wf
   have h := append_wf h Factor.fns_wf
-  have h := append_wf h Compact.fns_wf
   have h := append_wf h Reorder.fns_wf
   have h := append_wf h Probe.fns_wf
+  have h := append_wf h Walk.fns_wf
   exact append_wf h Search.fns_wf
 
 end

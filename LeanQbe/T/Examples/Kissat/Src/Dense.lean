@@ -11,7 +11,9 @@ meta import LeanQbe.T.Examples.Kissat.Src.Header
 /-!
 # Kissat C0 Dense Watch Mode Transition & Propagation (`Src/Dense.lean`)
 
-Mirrors upstream `kissat/src/dense.c, propdense.c` (`7` live functions, DAG level `L3`):
+Mirrors upstream `kissat/src/dense.c, propdense.c` (`10` live functions, DAG level `L3`):
+- `full_dense_occ_cnt_fid`
+- `full_enter_dense_ex_fid`
 - `full_enter_dense` (R4: `kissat_enter_dense_mode`)
 - `full_rebuild_watches_nosort_fid` (R4: `kissat_resume_sparse_nosort`)
 - `full_rebuild_watches` (R4: `kissat_resume_sparse_mode`)
@@ -19,7 +21,7 @@ Mirrors upstream `kissat/src/dense.c, propdense.c` (`7` live functions, DAG leve
 - `full_m6_dense_prop` (R4: `kissat_dense_propagate`)
 - `full_dense_prop_unit_m7` (R4: `kissat_dense_propagate_unit`)
 - `full_dense_flush_units_m7` (R4: `kissat_dense_flush_units`)
--/
+- `full_watch_large_clauses_fid`-/
 
 set_option autoImplicit false
 
@@ -33,23 +35,45 @@ open LeanQbe.T.Examples.Kissat.Src
 kissat_c0! dense "
 #include \"kissat_internal.h\"
 
-extern u32 full_arena_next(FullHdr *h, u32 cref);
+extern void full_backtrack(FullHdr *h, u64 target_lvl);
+extern u64 full_flush_trail(FullHdr *h);
+extern u64 full_arena_sweep(FullHdr *h);
+extern u64 full_propagate(FullHdr *h);
+extern void full_sweep_bins(FullHdr *h);
 extern bool full_watch_push(FullHdr *h, u32 lit, u32 w0, u32 w1, u32 cnt);
+extern u32 full_arena_next(FullHdr *h, u32 cref);
 extern void full_sort_bin_watches_fid(FullHdr *h);
 extern void full_assign_lvl(FullHdr *h, u32 lit, u32 rsn, u32 alvl);
-extern void full_backtrack(FullHdr *h, u64 target_lvl);
 extern bool full_add_unit(FullHdr *h, u32 lit);
-extern u64 full_propagate(FullHdr *h);
-extern u64 full_flush_trail(FullHdr *h);
-extern void full_sweep_bins(FullHdr *h);
-extern u64 full_arena_sweep(FullHdr *h);
+extern u64 full_lit_rank_m6(i8 *vals, u32 *lvl, u32 l);
+extern bool full_watch_push_m6(FullHdr *h, u32 lit, u32 w0, u32 w1, u32 cnt);
 
-bool full_enter_dense(FullHdr *h) {
+u64 full_dense_occ_cnt_fid(FullHdr *h, u32 lit, u64 cap) {
+  u32 *wvec = (u32 *)h->watch_vec;
+  u64 off = (u64)wvec[(u64)lit << 1];
+  u64 sz = (u64)wvec[((u64)lit << 1) + 1ULL];
+  if (sz <= cap) { return sz; }
+  u32 *wstk = (u32 *)h->watch_stk;
+  u64 p = off;
+  u64 end = off + sz;
+  u64 cnt = 0ULL;
+  while (p < end) {
+    u32 w0 = wstk[p];
+    if ((w0 & 0x80000000u) != 0u) { p = p + 1ULL; }
+    else { p = p + 2ULL; }
+    cnt = cnt + 1ULL;
+    if (cnt > cap) { return cnt; }
+  }
+  return cnt;
+}
+
+bool full_enter_dense_ex_fid(FullHdr *h, bool connect_large) {
   if (h->cur_level != 0ULL) { full_backtrack(h, 0ULL); }
   if (h->oom != 0ULL) { return false; }
   if (h->dense_mode != 0ULL) { return true; }
+  bool had_unfl = (h->unflushed > 0ULL);
   if (full_flush_trail(h) != 1ULL) { return false; }
-  if (h->unflushed > 0ULL) {
+  if (had_unfl) {
     u64 sr_d = full_arena_sweep(h);
     if (sr_d == 2ULL) { h->inconsistent = 1ULL; return false; }
     if (full_propagate(h) == 1ULL) { h->inconsistent = 1ULL; return false; }
@@ -57,23 +81,45 @@ bool full_enter_dense(FullHdr *h) {
     h->unflushed = 0ULL;
   }
   full_sweep_bins(h);
-  u32 *ar = (u32 *)h->arena; u64 p = 0ULL;
-  while (p < h->arena_len) {
-    u32 hdr = ar[p]; u32 sz = ar[p + 2ULL];
-    if ((hdr & (PH_GARB | PH_RED)) == 0u && sz >= 3u) {
-      u32 k = 0u;
-      while (k < sz) {
-        u32 lit = ar[p + 3ULL + (u64)k];
-        if (!full_watch_push(h, lit, sz & PW_LIT_MASK, (u32)p, 2u)) {
-          h->oom = 0ULL; full_arena_sweep(h); return false;
+  if (connect_large) {
+    i8 *vals = (i8 *)h->values;
+    u32 *ar = (u32 *)h->arena;
+    u64 nlits = h->cur_vars << 1;
+    u64 p = 0ULL;
+    while (p < h->arena_len) {
+      u32 hdr = ar[p]; u32 sz = ar[p + 2ULL];
+      if ((hdr & (PH_GARB | PH_RED)) == 0u && sz >= 3u) {
+        bool sat = false;
+        u32 k = 0u;
+        while (k < sz) {
+          u32 lit = ar[p + 3ULL + (u64)k];
+          if ((u64)lit < nlits && vals[lit] > (i8)0) { sat = true; break; }
+          k = k + 1u;
         }
-        k = k + 1u;
+        if (sat) {
+          ar[p] = hdr | PH_GARB;
+          h->arena_garbage = h->arena_garbage + 3ULL + (u64)sz;
+          if (h->num_irred > 0ULL) { h->num_irred = h->num_irred - 1ULL; }
+        } else {
+          k = 0u;
+          while (k < sz) {
+            u32 lit = ar[p + 3ULL + (u64)k];
+            if (!full_watch_push(h, lit, sz & PW_LIT_MASK, (u32)p, 2u)) {
+              h->oom = 0ULL; full_arena_sweep(h); return false;
+            }
+            k = k + 1u;
+          }
+        }
       }
+      p = (u64)full_arena_next(h, (u32)p);
     }
-    p = (u64)full_arena_next(h, (u32)p);
   }
   h->dense_mode = 1ULL;
   return true;
+}
+
+bool full_enter_dense(FullHdr *h) {
+  return full_enter_dense_ex_fid(h, true);
 }
 
 u64 full_rebuild_watches_nosort_fid(FullHdr *h) {
@@ -253,6 +299,53 @@ bool full_dense_flush_units_m7(FullHdr *h) {
   }
   h->propagated = (q <= h->trail_end) ? q : h->trail_end;
   return h->inconsistent == 0ULL;
+}
+
+void full_watch_large_clauses_fid(FullHdr *h) {
+  u32 *ar = (u32 *)h->arena;
+  i8 *vals = (i8 *)h->values;
+  u32 *lvl = (u32 *)h->level;
+  bool at_root = (h->cur_level == 0ULL);
+  u64 p = 0ULL;
+  while (p < h->arena_len) {
+    u32 hdr = ar[p];
+    u32 sz = ar[p + 2ULL];
+    u64 np = (u64)full_arena_next(h, (u32)p);
+    if ((hdr & PH_GARB) == 0u && sz >= 3u && p + 3ULL + (u64)sz <= h->arena_len) {
+      if (!at_root) {
+        u32 i0 = 0u; u64 r0 = full_lit_rank_m6(vals, lvl, ar[p + 3ULL]);
+        u32 i = 1u;
+        while (i < sz) {
+          u64 rk = full_lit_rank_m6(vals, lvl, ar[p + 3ULL + (u64)i]);
+          if (rk > r0) { r0 = rk; i0 = i; }
+          i = i + 1u;
+        }
+        if (i0 != 0u) {
+          u32 t = ar[p + 3ULL]; ar[p + 3ULL] = ar[p + 3ULL + (u64)i0];
+          ar[p + 3ULL + (u64)i0] = t;
+        }
+        u32 i1 = 1u; u64 r1 = full_lit_rank_m6(vals, lvl, ar[p + 4ULL]);
+        i = 2u;
+        while (i < sz) {
+          u64 rk = full_lit_rank_m6(vals, lvl, ar[p + 3ULL + (u64)i]);
+          if (rk > r1) { r1 = rk; i1 = i; }
+          i = i + 1u;
+        }
+        if (i1 != 1u) {
+          u32 t = ar[p + 4ULL]; ar[p + 4ULL] = ar[p + 3ULL + (u64)i1];
+          ar[p + 3ULL + (u64)i1] = t;
+        }
+      }
+      ar[p + 1ULL] = 2u;
+      u32 l0 = ar[p + 3ULL]; u32 l1 = ar[p + 4ULL];
+      if (!full_watch_push_m6(h, l0, l1 & PW_LIT_MASK, (u32)p, 2u) ||
+          !full_watch_push_m6(h, l1, l0 & PW_LIT_MASK, (u32)p, 2u)) {
+        h->oom = 1ULL; return;
+      }
+    }
+    if (np <= p) { break; }
+    p = np;
+  }
 }
 "
 

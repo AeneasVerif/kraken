@@ -11,18 +11,14 @@ meta import LeanQbe.T.Examples.Kissat.Src.Header
 /-!
 # Kissat C0 1-UIP Conflict Deduction & On-the-Fly Strengthening (OTFS) (`Src/Deduce.lean`)
 
-Mirrors upstream `kissat/src/deduce.c, strengthen.c` (`10` live functions, DAG level `L1`):
+Mirrors upstream `kissat/src/deduce.c, strengthen.c` (`7` live functions, DAG level `L1`):
 - `full_analyze_lit` (R4: `kissat_analyze_literal`)
-- `full_analyze_rsn` (R4: `kissat_analyze_reason_basic`)
 - `full_analyze_rsn_m6_hdr` (R4: `kissat_analyze_reason`)
 - `full_clear_ana` (R4: `kissat_reset_analyzed`)
 - `full_otfs_large` (R4: `kissat_large_on_the_fly_strengthen`)
 - `full_otfs_bin` (R4: `kissat_binary_on_the_fly_strengthen`)
 - `full_otfs_subsume` (R4: `kissat_on_the_fly_subsume`)
-- `full_deduce_1uip_m6` (R4: `kissat_deduce_first_uip_basic_impl`)
-- `full_deduce_1uip` (R4: `kissat_deduce_first_uip_basic`)
-- `full_deduce_1uip_m6_hdr` (R4: `kissat_deduce_first_uip_clause`)
--/
+- `full_deduce_1uip_m6_hdr` (R4: `kissat_deduce_first_uip_clause`)-/
 
 set_option autoImplicit false
 
@@ -36,11 +32,11 @@ open LeanQbe.T.Examples.Kissat.Src
 kissat_c0! deduce "
 #include \"kissat_internal.h\"
 
-extern u32 full_arena_next(FullHdr *h, u32 cref);
+extern void m6_hdr_record_used(FullHdr *h, u64 glue);
 extern void full_wstack_defrag(FullHdr *h);
 extern bool full_watch_push(FullHdr *h, u32 lit, u32 w0, u32 w1, u32 cnt);
 extern void full_unwatch_large(FullHdr *h, u32 lit, u32 cref);
-extern void m6_hdr_record_used(FullHdr *h, u64 glue);
+extern u32 full_arena_next(FullHdr *h, u32 cref);
 
 bool full_analyze_lit(FullHdr *h, u32 l, u32 skip_var) {
   u8 *mrk = (u8 *)h->mark;
@@ -72,60 +68,6 @@ bool full_analyze_lit(FullHdr *h, u32 l, u32 skip_var) {
   return true;
 }
 
-bool full_analyze_rsn(FullHdr *h, u32 rsn, u32 skip_var) {
-  if (rsn == 0xFFFFFFFFu) { return false; }
-  if ((rsn & PW_BIN_FLAG) != 0u) {
-    return full_analyze_lit(h, rsn & PW_LIT_MASK, skip_var);
-  }
-  u32 *ar = (u32 *)h->arena;
-  if ((u64)rsn + 3ULL > h->arena_len) { return false; }
-  u32 hdr = ar[rsn];
-  u32 sz = ar[(u64)rsn + 2ULL];
-  if (sz < 3u || (u64)rsn + 3ULL + (u64)sz > h->arena_len) { return false; }
-  if ((hdr & PH_RED) != 0u) {
-    u64 glue = (u64)(hdr & PH_GLUE_MASK);
-    if (glue > 1ULL) {
-      u64 lim = glue - 1ULL;
-      if (lim > h->tier2) { lim = h->tier2; }
-      if (lim > 32ULL) { lim = 32ULL; }
-      u32 *lv = (u32 *)h->level;
-      u64 cv = h->cur_vars;
-      u64 ng = 0ULL; u64 lo = 0ULL; bool more = true;
-      while (more && ng <= lim) {
-        u64 best = 0xFFFFFFFFFFFFFFFFULL; u32 k = 0u;
-        while (k < sz) {
-          u64 kv = (u64)(ar[(u64)rsn + 3ULL + (u64)k] >> 1);
-          if (kv < cv) {
-            u64 kl = (u64)lv[kv];
-            if (kl >= lo && kl < best) { best = kl; }
-          }
-          k = k + 1u;
-        }
-        if (best == 0xFFFFFFFFFFFFFFFFULL) { more = false; }
-        else { ng = ng + 1ULL; lo = best + 1ULL; }
-      }
-      if (!more && ng > 0ULL && ng < glue) {
-        hdr = (hdr & (~PH_GLUE_MASK)) | (u32)ng;
-        ar[rsn] = hdr;
-        glue = ng;
-      }
-    }
-    u32 *gu = (u32 *)h->glue_used;
-    if (glue < 36ULL) {
-      if (gu[glue] < 0xFFFFFFFFu) { gu[glue] = gu[glue] + 1u; }
-    }
-    u32 old_u = (hdr >> 27) & 31u;
-    if (31u > old_u) { ar[rsn] = (hdr & 0x07FFFFFFu) | (31u << 27); }
-  }
-  u32 i = 0u;
-  while (i < sz) {
-    u32 l = ar[(u64)rsn + 3ULL + (u64)i];
-    if (!full_analyze_lit(h, l, skip_var)) { return false; }
-    i = i + 1u;
-  }
-  return true;
-}
-
 bool full_analyze_rsn_m6_hdr(FullHdr *h, u32 rsn, u32 skip_var) {
   if (rsn == 0xFFFFFFFFu) { return false; }
   if ((rsn & PW_BIN_FLAG) != 0u) {
@@ -139,24 +81,32 @@ bool full_analyze_rsn_m6_hdr(FullHdr *h, u32 rsn, u32 skip_var) {
   if ((hdr & PH_RED) != 0u) {
     u64 glue = (u64)(hdr & PH_GLUE_MASK);
     if (glue > 1ULL) {
-      u64 lim = glue - 1ULL;
       u32 *lv = (u32 *)h->level;
+      u32 *ftrl = (u32 *)h->frame_trail;
+      u32 *mclr = (u32 *)h->min_clr;
       u64 cv = h->cur_vars;
-      u64 ng = 0ULL; u64 lo = 0ULL; bool more = true;
-      while (more && ng <= lim) {
-        u64 best = 0xFFFFFFFFFFFFFFFFULL; u32 k = 0u;
-        while (k < sz) {
-          u64 kv = (u64)(ar[(u64)rsn + 3ULL + (u64)k] >> 1);
-          if (kv < cv) {
-            u64 kl = (u64)lv[kv];
-            if (kl >= lo && kl < best) { best = kl; }
+      u64 ng = 0ULL;
+      u32 k = 0u;
+      while (k < sz) {
+        u64 kv = (u64)(ar[(u64)rsn + 3ULL + (u64)k] >> 1);
+        if (kv < cv) {
+          u64 kl = (u64)lv[kv];
+          if (kl <= h->cur_level && (ftrl[kl] & 0x80000000u) == 0u) {
+            ftrl[kl] = ftrl[kl] | 0x80000000u;
+            mclr[ng] = (u32)kl;
+            ng = ng + 1ULL;
+            if (ng >= glue) { break; }
           }
-          k = k + 1u;
         }
-        if (best == 0xFFFFFFFFFFFFFFFFULL) { more = false; }
-        else { ng = ng + 1ULL; lo = best + 1ULL; }
+        k = k + 1u;
       }
-      if (!more && ng > 0ULL && ng < glue) {
+      u64 ui = 0ULL;
+      while (ui < ng) {
+        u32 ml = mclr[ui];
+        ftrl[ml] = ftrl[ml] & 0x7FFFFFFFu;
+        ui = ui + 1ULL;
+      }
+      if (ng > 0ULL && ng < glue) {
         hdr = (hdr & (~PH_GLUE_MASK)) | (u32)ng;
         ar[rsn] = hdr;
         glue = ng;
@@ -236,6 +186,21 @@ bool full_otfs_large(FullHdr *h, u32 cref, u32 uip) {
   }
   u32 hdr = ar[cref];
   ar[(u64)cref + 2ULL] = new_sz; ar[(u64)cref + 1ULL] = 2u;
+  if ((hdr & 0x00400000u) != 0u) {
+    if ((hdr & 0x7FFFFu) >= new_sz) {
+      hdr = (hdr & (~0x7FFFFu)) | (new_sz - 1u);
+      ar[cref] = hdr;
+    }
+  } else {
+    u32 *fl_ot = (u32 *)h->flags;
+    fl_ot[uip >> 1] = fl_ot[uip >> 1] | 24u;
+    u32 oi_ot = 0u;
+    while (oi_ot < new_sz) {
+      u32 ol_ot = ar[cb + (u64)oi_ot];
+      fl_ot[ol_ot >> 1] = fl_ot[ol_ot >> 1] | 24u;
+      oi_ot = oi_ot + 1u;
+    }
+  }
   if ((hdr & PH_SHRK) == 0u) {
     ar[cref] = hdr | PH_SHRK;
     ar[cb + (u64)old_sz - 1ULL] = 0xFFFFFFFFu;
@@ -345,81 +310,6 @@ void full_otfs_subsume(FullHdr *h, u32 new_confl, u64 old_ctype, u64 old_cref, b
       h->num_irred = h->num_irred + 1ULL;
     }
   }
-}
-
-u64 full_deduce_1uip_m6(FullHdr *h) {
-  h->tmp_cnt = 0ULL; h->tmp_len = 1ULL; h->min_clr_len = 0ULL;
-  h->ant_sz = 0ULL; h->res_sz = 0ULL;
-  bool seed_ok = false;
-  if (h->confl_type == 1ULL) {
-    seed_ok = full_analyze_lit(h, (u32)h->confl_lit0, 0xFFFFFFFFu) &&
-              full_analyze_lit(h, (u32)h->confl_lit1, 0xFFFFFFFFu);
-  } else if (h->confl_ref + 3ULL <= h->arena_len) {
-    seed_ok = full_analyze_rsn(h, (u32)h->confl_ref, 0xFFFFFFFFu);
-  }
-  u64 init_res_sz = h->res_sz;
-  u64 tcnt = h->tmp_cnt;
-  if (!seed_ok || tcnt == 0ULL) {
-    full_clear_ana(h);
-    if (seed_ok && h->tmp_len == 1ULL) { return 20ULL; }
-    return 0ULL;
-  }
-  u8 *mrk = (u8 *)h->mark; u32 *lvl = (u32 *)h->level;
-  u32 *rsns = (u32 *)h->reason; u32 *trl = (u32 *)h->trail;
-  u32 *tmp = (u32 *)h->tmp_lits;
-  u64 cv = h->cur_vars;
-  u32 cur_lvl = (u32)h->cur_level; u64 idx = h->trail_end;
-  u32 uip_lit = 0xFFFFFFFFu; u64 resolved = 0ULL;
-  while (tcnt > 0ULL) {
-    if (idx == 0ULL) { full_clear_ana(h); return 0ULL; }
-    idx = idx - 1ULL;
-    u32 p = trl[idx]; u32 pv = p >> 1;
-    if ((u64)pv >= cv) { full_clear_ana(h); return 0ULL; }
-    if (mrk[pv] != (u8)0 && lvl[pv] == cur_lvl) {
-      tcnt = tcnt - 1ULL;
-      h->tmp_cnt = tcnt;
-      if (tcnt == 0ULL) { uip_lit = p ^ 1u; break; }
-      u32 rsn = rsns[pv]; h->ant_sz = 0ULL; resolved = resolved + 1ULL;
-      if (!full_analyze_rsn(h, rsn, pv)) { full_clear_ana(h); return 0ULL; }
-      tcnt = h->tmp_cnt;
-      u64 rsz = h->res_sz;
-      if (rsz > 0ULL) { rsz = rsz - 1ULL; h->res_sz = rsz; }
-      u64 asz = h->ant_sz;
-      if (asz >= 3ULL && rsz < asz && (rsn & PW_BIN_FLAG) == 0u) {
-        u64 old_ct = h->confl_type; u64 old_cr = h->confl_ref;
-        if (asz == 3ULL) {
-          if (full_otfs_bin(h, rsn, p)) {
-            u32 *ar = (u32 *)h->arena;
-            bool rsn_red = ((ar[rsn] & PH_RED) != 0u);
-            if (rsn_red) {
-              if (h->num_redundant > 0ULL) { h->num_redundant = h->num_redundant - 1ULL; }
-            } else {
-              if (h->num_irred > 0ULL) { h->num_irred = h->num_irred - 1ULL; }
-            }
-            if (resolved == 1ULL && h->res_sz < init_res_sz) {
-              full_otfs_subsume(h, 0u, old_ct, old_cr, true);
-            }
-            h->res_sz = h->min_clr_len; full_clear_ana(h); return 2ULL;
-          }
-        } else if (full_otfs_large(h, rsn, p)) {
-          h->confl_type = 2ULL; h->confl_ref = (u64)rsn;
-          if (resolved == 1ULL && h->res_sz < init_res_sz) {
-            full_otfs_subsume(h, rsn, old_ct, old_cr, false);
-          }
-          h->res_sz = h->min_clr_len; full_clear_ana(h); return 2ULL;
-        }
-      }
-    }
-  }
-  if (uip_lit == 0xFFFFFFFFu) { full_clear_ana(h); return 0ULL; }
-  tmp[0] = uip_lit;
-  h->res_sz = h->min_clr_len;
-  full_clear_ana(h);
-  return 1ULL;
-}
-
-u64 full_deduce_1uip(FullHdr *h) {
-  return full_deduce_1uip_m6(h);
 }
 
 u64 full_deduce_1uip_m6_hdr(FullHdr *h) {

@@ -12,12 +12,10 @@ meta import LeanQbe.T.Examples.Kissat.Src.Header
 # Kissat C0 Limits, Smooth EMAs, Reluctant, RNG & Utilities (`Src/Limits.lean`)
 
 Mirrors upstream `kissat/src/kimits.c, smooth.c, reluctant.c, random.h, sort.c`
-(`17` live functions, DAG level `L0`):
+(`15` live functions, DAG level `L0`):
 - `full_isqrt` (R4: `kissat_isqrt`)
 - `full_ilog10` (R4: `kissat_ilog10`)
-- `full_rng_next` (R4: `kissat_rng_next`)
 - `full_tick_rel` (R4: `kissat_tick_reluctant`)
-- `full_log10_q16_m7` (R4: `kissat_log10_q16`)
 - `full_scale_delta_m5` (R4: `kissat_scale_delta_probe`)
 - `full_ema_update` (R4: `kissat_update_smooth`)
 - `full_scale_delta` (R4: `kissat_scale_delta`)
@@ -29,8 +27,7 @@ Mirrors upstream `kissat/src/kimits.c, smooth.c, reluctant.c, random.h, sort.c`
 - `full_m7_get64` (R4: `kissat_ext_get64`)
 - `full_m7_set64` (R4: `kissat_ext_set64`)
 - `full_m7_state_init` (R4: `kissat_mode_state_init`)
-- `full_ema_swap_m7` (R4: `kissat_swap_averages`)
--/
+- `full_ema_swap_m7` (R4: `kissat_swap_averages`)-/
 
 set_option autoImplicit false
 
@@ -43,6 +40,13 @@ open LeanQbe.T.Examples.Kissat.Src
 
 kissat_c0! limits "
 #include \"kissat_internal.h\"
+
+extern u64 f64u_log10_u64(u64 x);
+extern u64 f64u_sub(u64 a, u64 b);
+extern u64 f64u_mul(u64 a, u64 b);
+extern u64 f64u_add(u64 a, u64 b);
+extern u64 f64u_to_u64(u64 a);
+extern u64 f64u_from_u64(u64 x);
 
 u64 full_isqrt(u64 x) {
   if (x <= 1ULL) { return x; }
@@ -71,12 +75,6 @@ u64 full_ilog10(u64 x) {
   return r;
 }
 
-u64 full_rng_next(FullHdr *h) {
-  u64 x = h->rng_state * 6364136223846793005ULL + 1442695040888963407ULL;
-  h->rng_state = x;
-  return x >> 32;
-}
-
 void full_tick_rel(FullHdr *h) {
   if (h->stable == 0ULL || h->rel_period == 0ULL || h->rel_trigger != 0ULL) { return; }
   if (h->rel_wait > 0ULL) { h->rel_wait = h->rel_wait - 1ULL; }
@@ -91,93 +89,45 @@ void full_tick_rel(FullHdr *h) {
   h->rel_trigger = 1ULL; h->rel_wait = wait; h->rel_u = u; h->rel_v = v;
 }
 
-u64 full_log10_q16_m7(u64 x) {
-  if (x <= 1ULL) { return 0ULL; }
-  u64 d = 0ULL;
-  u64 pow10 = 1ULL;
-  while (x / 10ULL >= pow10 && d < 19ULL) {
-    d = d + 1ULL;
-    pow10 = pow10 * 10ULL;
-  }
-  u64 xm = x;
-  u64 pm = pow10;
-  if (pm > 100000000ULL) {
-    u64 sc = pm / 100000000ULL;
-    xm = xm / sc;
-    pm = 100000000ULL;
-  }
-  u64 m = (xm << 32) / pm;
-  u64 lim10 = 10ULL << 32;
-  u64 frac = 0ULL;
-  u64 i = 0ULL;
-  while (i < 16ULL) {
-    u64 m_hi = m >> 16;
-    u64 m_lo = m & 0xFFFFULL;
-    u64 q = (m_lo * m_lo) >> 16;
-    u64 mid = (2ULL * m_hi * m_lo) + q;
-    m = (m_hi * m_hi) + (mid >> 16);
-    frac = frac << 1;
-    if (m >= lim10) {
-      m = m / 10ULL;
-      frac = frac + 1ULL;
-    }
-    i = i + 1ULL;
-  }
-  return (d << 16) + frac;
-}
-
 u64 full_scale_delta_m5(FullHdr *h, u64 delta) {
   if (delta == 0ULL) { return 0ULL; }
   u64 ir = h->num_irred;
   u64 bn = h->num_binary;
   u64 clauses = (ir > 0xFFFFFFFFFFFFFFFFULL - bn) ? 0xFFFFFFFFFFFFFFFFULL : (ir + bn);
   u64 arg = (clauses > 0xFFFFFFFFFFFFFFF5ULL) ? 0xFFFFFFFFFFFFFFFFULL : (clauses + 10ULL);
-  u64 l = full_log10_q16_m7(arg);
-  if (l < 65536ULL) { l = 65536ULL; }
-  if (l > 1310720ULL) { l = 1310720ULL; }
-  u64 target = 327680ULL;
-  u64 f_abs = (l >= target) ? (l - target) : (target - l);
-  u64 fff_q16 = ((9ULL * f_abs * f_abs) >> 17) + 1638400ULL;
-  u64 lim = 0xFFFFFFFFFFFFFFFFULL / fff_q16;
-  if (delta <= lim) {
-    return (fff_q16 * delta) >> 16;
-  }
-  u64 hi = delta >> 16;
-  if (hi <= lim) {
-    u64 lo = delta & 0xFFFFULL;
-    u64 q1 = hi * fff_q16;
-    u64 q2 = (lo * fff_q16) >> 16;
-    if (q1 > 0xFFFFFFFFFFFFFFFFULL - q2) { return 0xFFFFFFFFFFFFFFFFULL; }
-    return q1 + q2;
-  }
-  return 0xFFFFFFFFFFFFFFFFULL;
+  u64 l = f64u_log10_u64(arg);
+  if (l < 0x3FF0000000000000ULL) { l = 0x3FF0000000000000ULL; }
+  u64 five = 0x4014000000000000ULL;
+  u64 f_abs = (l >= five) ? f64u_sub(l, five) : f64u_sub(five, l);
+  u64 ff = f64u_mul(f_abs, f_abs);
+  u64 fff = f64u_add(f64u_mul(0x4012000000000000ULL, ff), 0x4039000000000000ULL);
+  return f64u_to_u64(f64u_mul(fff, f64u_from_u64(delta)));
 }
 
 void full_ema_update(FullHdr *h, u64 glue) {
   if (h->stable != 0ULL) { return; }
-  u64 g = (glue > 16383ULL) ? 16383ULL : glue;
-  u64 ys = g << 32;
+  u64 y = f64u_from_u64(glue);
   u64 fb = h->ema_fast_biased;
   u64 fe = h->ema_fast_exp;
   u64 sb = h->ema_slow_biased;
   u64 se = h->ema_slow_exp;
-  if (fe == (1ULL << 24) && se == (1ULL << 24) && fb == 0ULL && sb == 0ULL) {
-    fe = 1ULL << 32;
-    se = 1ULL << 32;
-  }
-  if (ys >= fb) { fb = fb + ((ys - fb) / 33ULL); }
-  else { fb = fb - ((fb - ys) / 33ULL); }
+  u64 af = 0x3F9F07C1F07C1F08ULL;
+  u64 bf = 0x3FEF07C1F07C1F08ULL;
+  if (y >= fb) { fb = f64u_add(fb, f64u_mul(af, f64u_sub(y, fb))); }
+  else { fb = f64u_sub(fb, f64u_mul(af, f64u_sub(fb, y))); }
   h->ema_fast_biased = fb;
-  if (fe > 0ULL) {
-    u64 df = fe / 33ULL;
-    h->ema_fast_exp = (df == 0ULL) ? 0ULL : (fe - df);
+  if (fe != 0ULL) {
+    u64 nfe = f64u_mul(fe, bf);
+    h->ema_fast_exp = (nfe == fe) ? 0ULL : nfe;
   }
-  if (ys >= sb) { sb = sb + ((ys - sb) / 100000ULL); }
-  else { sb = sb - ((sb - ys) / 100000ULL); }
+  u64 as = 0x3EE4F8B588E368F1ULL;
+  u64 bs = 0x3FEFFFEB074A771DULL;
+  if (y >= sb) { sb = f64u_add(sb, f64u_mul(as, f64u_sub(y, sb))); }
+  else { sb = f64u_sub(sb, f64u_mul(as, f64u_sub(sb, y))); }
   h->ema_slow_biased = sb;
-  if (se > 0ULL) {
-    u64 ds = se / 100000ULL;
-    h->ema_slow_exp = (ds == 0ULL) ? 0ULL : (se - ds);
+  if (se != 0ULL) {
+    u64 nse = f64u_mul(se, bs);
+    h->ema_slow_exp = (nse == se) ? 0ULL : nse;
   }
 }
 
@@ -187,25 +137,13 @@ u64 full_scale_delta(FullHdr *h, u64 delta) {
   u64 bn = h->num_binary;
   u64 clauses = (ir > 0xFFFFFFFFFFFFFFFFULL - bn) ? 0xFFFFFFFFFFFFFFFFULL : (ir + bn);
   u64 arg = (clauses > 0xFFFFFFFFFFFFFFF5ULL) ? 0xFFFFFFFFFFFFFFFFULL : (clauses + 10ULL);
-  u64 l = full_log10_q16_m7(arg);
-  if (l < 65536ULL) { l = 65536ULL; }
-  if (l > 1310720ULL) { l = 1310720ULL; }
-  u64 target = 327680ULL;
-  u64 f_abs = (l >= target) ? (l - target) : (target - l);
-  u64 fff_q16 = ((9ULL * f_abs * f_abs) >> 17) + 1638400ULL;
-  u64 lim = 0xFFFFFFFFFFFFFFFFULL / fff_q16;
-  if (delta <= lim) {
-    return (fff_q16 * delta) >> 16;
-  }
-  u64 hi = delta >> 16;
-  if (hi <= lim) {
-    u64 lo = delta & 0xFFFFULL;
-    u64 q1 = hi * fff_q16;
-    u64 q2 = (lo * fff_q16) >> 16;
-    if (q1 > 0xFFFFFFFFFFFFFFFFULL - q2) { return 0xFFFFFFFFFFFFFFFFULL; }
-    return q1 + q2;
-  }
-  return 0xFFFFFFFFFFFFFFFFULL;
+  u64 l = f64u_log10_u64(arg);
+  if (l < 0x3FF0000000000000ULL) { l = 0x3FF0000000000000ULL; }
+  u64 five = 0x4014000000000000ULL;
+  u64 f_abs = (l >= five) ? f64u_sub(l, five) : f64u_sub(five, l);
+  u64 ff = f64u_mul(f_abs, f_abs);
+  u64 fff = f64u_add(f64u_mul(0x4012000000000000ULL, ff), 0x4039000000000000ULL);
+  return f64u_to_u64(f64u_mul(fff, f64u_from_u64(delta)));
 }
 
 void full_fill_u64_m7(u64 *dst, u64 n, u64 val) {
@@ -303,7 +241,7 @@ void full_m7_state_init(FullHdr *h) {
   full_m7_set64(h, M7_GU_MAGIC, M7_SEARCH_MAGIC);
   u64 cm = (h->stable != 0ULL) ? 1ULL : 0ULL;
   full_m7_set64(h, M7_GU_EMA_MASK, 1ULL << cm);
-  u64 init_exp = 1ULL << 32;
+  u64 init_exp = 0x3FF0000000000000ULL;
   if (cm == 0ULL) {
     full_m7_set64(h, M7_GU_EMA0_FB, h->ema_fast_biased);
     full_m7_set64(h, M7_GU_EMA0_FE, h->ema_fast_exp);
@@ -349,7 +287,7 @@ void full_ema_swap_m7(FullHdr *h, u64 old_m, u64 new_m) {
     h->ema_slow_biased = full_m7_get64(h, new_base + 4ULL);
     h->ema_slow_exp = full_m7_get64(h, new_base + 6ULL);
   } else {
-    u64 init_exp = 1ULL << 32;
+    u64 init_exp = 0x3FF0000000000000ULL;
     h->ema_fast_biased = 0ULL;
     h->ema_fast_exp = init_exp;
     h->ema_slow_biased = 0ULL;

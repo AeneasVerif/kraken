@@ -11,7 +11,7 @@ meta import LeanQbe.T.Examples.Kissat.Src.Header
 /-!
 # Kissat C0 Bounded Variable Elimination (BVE) & Resolution (`Src/Eliminate.lean`)
 
-Mirrors upstream `kissat/src/eliminate.c, resolve.c` (`15` live functions, DAG level `L5`):
+Mirrors upstream `kissat/src/eliminate.c, resolve.c` (`16` live functions, DAG level `L5`):
 - `full_bve_collect_m7` (R4: `kissat_bve_collect_occurrences`)
 - `full_bve_resolve_pair` (R4: `kissat_generate_resolvent_pair`)
 - `full_bve_weaken` (R4: `kissat_bve_weaken_clauses`)
@@ -26,8 +26,8 @@ Mirrors upstream `kissat/src/eliminate.c, resolve.c` (`15` live functions, DAG l
 - `full_bve_heap_pop_m7` (R4: `kissat_elim_heap_pop`)
 - `full_bve_collect_nbrs_m7` (R4: `kissat_elim_collect_neighbors`)
 - `full_elim_bve_m7` (R4: `kissat_eliminate_variables`)
-- `full_eliminate_m6` (R4: `kissat_eliminate`)
--/
+- `full_has_elim_cands_fid`
+- `full_eliminate_m6` (R4: `kissat_eliminate`)-/
 
 set_option autoImplicit false
 
@@ -41,25 +41,29 @@ open LeanQbe.T.Examples.Kissat.Src
 kissat_c0! eliminate "
 #include \"kissat_internal.h\"
 
-extern u64 full_log10_q16_m7(u64 x);
-extern u64 full_scale_delta(FullHdr *h, u64 delta);
-extern u64 full_elim_dticks(FullHdr *h, bool initial);
-extern u64 full_alloc_cl(FullHdr *h, u32 sz, u32 glue, bool red);
-extern void full_wstack_defrag(FullHdr *h);
-extern bool full_watch_push(FullHdr *h, u32 lit, u32 w0, u32 w1, u32 cnt);
-extern void full_delete_binary(FullHdr *h, u32 a, u32 b);
-extern void full_assign_lvl(FullHdr *h, u32 lit, u32 rsn, u32 alvl);
-extern u64 full_add_bin(FullHdr *h, u32 a, u32 b);
-extern bool full_add_unit(FullHdr *h, u32 lit);
-extern void full_set_inactive(FullHdr *h, u32 v, u32 flag);
 extern bool full_extend_push2(FullHdr *h, u32 blk_lit, u32 other);
+extern void full_delete_binary(FullHdr *h, u32 a, u32 b);
 extern bool full_extend_push_cl(FullHdr *h, u32 blk_lit, u32 cref);
-extern bool full_enter_dense(FullHdr *h);
-extern u64 full_rebuild_watches(FullHdr *h);
-extern bool full_dense_flush_units_m7(FullHdr *h);
-extern u64 full_forward_sub_m7(FullHdr *h, u64 budget);
-extern void full_bve_gates_m7(FullHdr *h, u32 v, u32 np, u32 nn);
+extern bool full_add_unit(FullHdr *h, u32 lit);
+extern u64 full_add_bin(FullHdr *h, u32 a, u32 b);
+extern u64 full_alloc_cl(FullHdr *h, u32 sz, u32 glue, bool red);
+extern bool full_watch_push(FullHdr *h, u32 lit, u32 w0, u32 w1, u32 cnt);
+extern void full_set_inactive(FullHdr *h, u32 v, u32 flag);
 extern void full_bve_gates_fid(FullHdr *h, u32 v, u32 np, u32 nn);
+extern void full_bve_gates_m7(FullHdr *h, u32 v, u32 np, u32 nn);
+extern void full_assign_lvl(FullHdr *h, u32 lit, u32 rsn, u32 alvl);
+extern void full_wstack_defrag(FullHdr *h);
+extern bool full_dense_flush_units_m7(FullHdr *h);
+extern u64 full_dense_occ_cnt_fid(FullHdr *h, u32 lit, u64 cap);
+extern u64 f64u_to_u64(u64 a);
+extern u64 full_elim_dticks(FullHdr *h, bool initial);
+extern u64 f64u_mul(u64 a, u64 b);
+extern u64 f64u_nlogpown(u64 count, u64 exponent);
+extern u64 full_scale_delta(FullHdr *h, u64 delta);
+extern bool full_enter_dense_ex_fid(FullHdr *h, bool connect_large);
+extern u64 full_forward_sub_m7(FullHdr *h, u64 budget);
+extern u64 full_rebuild_watches(FullHdr *h);
+extern void full_update_classify_fid(FullHdr *h);
 
 u32 full_bve_collect_m7(FullHdr *h, u32 lit, u32 *out, u32 cap) {
   u32 *wvec = (u32 *)h->watch_vec;
@@ -388,15 +392,16 @@ u64 full_bve_var_m7(FullHdr *h, u32 v) {
 u64 full_bve_var_key_m7(FullHdr *h, u32 v) {
   if ((u64)v >= h->cur_vars) { return 0ULL; }
   u32 *wvec = (u32 *)h->watch_vec;
-  u64 pos = (u64)wvec[((u64)v << 2) + 1ULL];
-  u64 neg = (u64)wvec[((u64)v << 2) + 3ULL];
+  u64 pos = full_dense_occ_cnt_fid(h, v << 1, 2000ULL);
+  u64 neg = full_dense_occ_cnt_fid(h, (v << 1) | 1u, 2000ULL);
   if (pos > 2000ULL) { pos = 2000ULL; }
   if (neg > 2000ULL) { neg = 2000ULL; }
   u64 base = (4004000ULL + pos + neg) - (pos * neg);
   u64 rel = 0ULL;
   if (h->stable != 0ULL) {
     u64 *sc = (u64 *)h->score;
-    rel = sc[v] >> 28;
+    rel = f64u_to_u64(sc[v]);
+    if (rel > (1ULL << 61)) { rel = 1ULL << 61; }
   } else {
     u32 *qs = (u32 *)h->q_stamp;
     rel = (u64)qs[v];
@@ -644,19 +649,35 @@ u64 full_elim_bve_m7(FullHdr *h, u64 res_lim) {
   return (h->inconsistent != 0ULL) ? 20ULL : 1ULL;
 }
 
+bool full_has_elim_cands_fid(FullHdr *h) {
+  u64 cv = h->cur_vars;
+  u32 *fl = (u32 *)h->flags;
+  i8 *vals = (i8 *)h->values;
+  u64 v = 0ULL;
+  while (v < cv) {
+    if ((fl[v] & 1u) != 0u && vals[v << 1] == (i8)0 && (fl[v] & (8u | 16u)) != 0u) {
+      return true;
+    }
+    v = v + 1ULL;
+  }
+  return false;
+}
+
 u64 full_eliminate_m6(FullHdr *h, bool initial) {
   u64 saved_st = h->search_ticks;
   u64 dticks = full_elim_dticks(h, initial);
   if (!initial) {
     h->eliminations = h->eliminations + 1ULL;
-    u64 arg = (h->eliminations > (~0ULL) - 9ULL) ? (~0ULL) : (h->eliminations + 9ULL);
-    u64 qlog = full_log10_q16_m7(arg);
-    u64 ec = (h->eliminations > 100000000ULL) ? 100000000ULL : h->eliminations;
-    u64 nloge = ((((500ULL * ec) * qlog) >> 16) * qlog) >> 16;
+    u64 nloge = f64u_to_u64(
+      f64u_mul(0x407F400000000000ULL, f64u_nlogpown(h->eliminations, 2ULL)));
     u64 delta = full_scale_delta(h, nloge);
     h->elim_limit = h->conflicts + delta;
   }
-  if (!full_enter_dense(h)) {
+  if (!initial && !full_has_elim_cands_fid(h)) {
+    h->fwd_str_cnt = h->search_ticks;
+    return 1ULL;
+  }
+  if (!full_enter_dense_ex_fid(h, false)) {
     h->fwd_str_cnt = h->search_ticks;
     return (h->inconsistent != 0ULL) ? 20ULL : 1ULL;
   }
@@ -678,6 +699,7 @@ u64 full_eliminate_m6(FullHdr *h, bool initial) {
   u64 res = full_elim_bve_m7(h, res_lim);
   u64 rr = full_rebuild_watches(h);
   h->search_ticks = saved_st;
+  full_update_classify_fid(h);
   h->fwd_str_cnt = h->search_ticks;
   if (res == 20ULL || rr == 20ULL || h->inconsistent != 0ULL) { return 20ULL; }
   return 1ULL;

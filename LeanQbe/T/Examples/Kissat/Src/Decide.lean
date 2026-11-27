@@ -11,12 +11,12 @@ meta import LeanQbe.T.Examples.Kissat.Src.Header
 /-!
 # Kissat C0 Decision Variable Selection & Phase Choice (`Src/Decide.lean`)
 
-Mirrors upstream `kissat/src/decide.c` (`4` live functions, DAG level `L2`):
+Mirrors upstream `kissat/src/decide.c` (`5` live functions, DAG level `L2`):
 - `full_next_dec_var` (R4: `kissat_next_decision_variable`)
+- `full_randec_var_lvl_fid`
 - `full_randec_var_m7` (R4: `kissat_next_random_decision`)
 - `full_decide_m7` (R4: `kissat_decide_core`)
-- `m6_hdr_decide_fid` (R4: `kissat_decide`)
--/
+- `m6_hdr_decide_fid` (R4: `kissat_decide`)-/
 
 set_option autoImplicit false
 
@@ -30,12 +30,14 @@ open LeanQbe.T.Examples.Kissat.Src
 kissat_c0! decide "
 #include \"kissat_internal.h\"
 
-extern u64 full_log10_q16_m7(u64 x);
-extern u64 full_lcg_next_m7(FullHdr *h);
+extern u64 full_heap_pop(FullHdr *h);
+extern void full_m7_state_init(FullHdr *h);
 extern u64 full_m7_get64(FullHdr *h, u64 idx);
 extern void full_m7_set64(FullHdr *h, u64 idx, u64 val);
-extern void full_m7_state_init(FullHdr *h);
-extern u64 full_heap_pop(FullHdr *h);
+extern u64 f64u_log10_u64(u64 x);
+extern u64 f64u_to_u64(u64 a);
+extern u64 f64u_mul(u64 a, u64 b);
+extern u64 full_lcg_next_m7(FullHdr *h);
 extern void full_assign(FullHdr *h, u32 lit, u32 rsn);
 extern void m6_hdr_dr_init(FullHdr *h);
 
@@ -88,7 +90,7 @@ u64 full_next_dec_var(FullHdr *h) {
   return 0xFFFFFFFFFFFFFFFFULL;
 }
 
-u64 full_randec_var_m7(FullHdr *h) {
+u64 full_randec_var_lvl_fid(FullHdr *h, u64 max_lvl) {
   u64 cv = h->cur_vars;
   if (cv == 0ULL || h->stable != 0ULL || h->probing != 0ULL) {
     return 0xFFFFFFFFFFFFFFFFULL;
@@ -103,16 +105,16 @@ u64 full_randec_var_m7(FullHdr *h) {
     full_m7_set64(h, M7_GU_RANDEC_CFL, h->conflicts);
   }
   if (rem == 0ULL) {
-    if (h->cur_level > 0ULL) { return 0xFFFFFFFFFFFFFFFFULL; }
+    if (h->cur_level > max_lvl) { return 0xFFFFFFFFFFFFFFFFULL; }
     u64 lim = full_m7_get64(h, M7_GU_RANDEC_LIM);
     if (h->conflicts < lim) { return 0xFFFFFFFFFFFFFFFFULL; }
     u64 cnt = full_m7_get64(h, M7_GU_RANDEC_SEQ) + 1ULL;
     full_m7_set64(h, M7_GU_RANDEC_SEQ, cnt);
-    u64 qarg = (cnt < 1000000000000ULL) ? (cnt + 9ULL) : 1000000000009ULL;
-    u64 lg = full_log10_q16_m7(qarg);
-    u64 len = (10ULL * lg) >> 16;
+    u64 qarg = (cnt > (~0ULL) - 9ULL) ? (~0ULL) : (cnt + 9ULL);
+    u64 lg = f64u_log10_u64(qarg);
+    u64 len = f64u_to_u64(f64u_mul(0x4024000000000000ULL, lg));
     if (len < 10ULL) { len = 10ULL; }
-    u64 delta = (500ULL * lg) >> 16;
+    u64 delta = f64u_to_u64(f64u_mul(0x407F400000000000ULL, lg));
     full_m7_set64(h, M7_GU_RANDEC_REM, len);
     full_m7_set64(h, M7_GU_RANDEC_LIM, h->conflicts + delta);
     rem = len;
@@ -129,6 +131,10 @@ u64 full_randec_var_m7(FullHdr *h) {
     tries = tries + 1ULL;
   }
   return 0xFFFFFFFFFFFFFFFFULL;
+}
+
+u64 full_randec_var_m7(FullHdr *h) {
+  return full_randec_var_lvl_fid(h, 0ULL);
 }
 
 u64 full_decide_m7(FullHdr *h) {

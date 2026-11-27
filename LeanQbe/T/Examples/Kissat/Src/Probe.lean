@@ -13,8 +13,7 @@ meta import LeanQbe.T.Examples.Kissat.Src.Header
 
 Mirrors upstream `kissat/src/probe.c` (`2` live functions, DAG level `L6`):
 - `full_probe_dticks_m6_hdr` (R4: `kissat_probe_delta_ticks`)
-- `full_probe_m6` (R4: `kissat_probe`)
--/
+- `full_probe_m6` (R4: `kissat_probe`)-/
 
 set_option autoImplicit false
 
@@ -28,23 +27,28 @@ open LeanQbe.T.Examples.Kissat.Src
 kissat_c0! probe "
 #include \"kissat_internal.h\"
 
-extern u64 full_log10_q16_m7(u64 x);
-extern u64 full_scale_delta_m5(FullHdr *h, u64 delta);
-extern void full_sort_bin_watches_fid(FullHdr *h);
-extern bool m6_hdr_delaying(FullHdr *h, u64 id);
-extern void m6_hdr_bump_delay(FullHdr *h, u64 id);
-extern void m6_hdr_reduce_delay(FullHdr *h, u64 id);
 extern u64 m6_hdr_get_watermark(FullHdr *h, u64 kind);
-extern void m6_hdr_set_watermark(FullHdr *h, u64 kind, u64 val);
-extern u64 full_vivify_m6_hdr(FullHdr *h);
-extern u64 full_backbone_m6(FullHdr *h, u64 tick_lim);
-extern u64 full_transitive_m6(FullHdr *h, u64 tick_lim);
-extern u64 full_substitute(FullHdr *h);
+extern bool m6_hdr_delaying(FullHdr *h, u64 id);
 extern bool full_enter_dense(FullHdr *h);
-extern u64 full_rebuild_watches_nosort_fid(FullHdr *h);
 extern u64 full_congruence_dense(FullHdr *h, u64 tick_lim);
+extern void full_dense_bin_roundtrip_fid(FullHdr *h);
+extern u64 full_rebuild_watches_nosort_fid(FullHdr *h);
+extern void m6_hdr_set_watermark(FullHdr *h, u64 kind, u64 val);
+extern void m6_hdr_reduce_delay(FullHdr *h, u64 id);
+extern void m6_hdr_bump_delay(FullHdr *h, u64 id);
+extern u64 full_substitute(FullHdr *h);
+extern u64 full_backbone_m6(FullHdr *h, u64 tick_lim);
 extern u64 full_sweep_dense_m6(FullHdr *h, u64 budget, u64 tick_lim);
+extern bool full_has_factor_cands_fid(FullHdr *h);
+extern bool full_enter_dense_ex_fid(FullHdr *h, bool connect_large);
 extern u64 full_factor(FullHdr *h, u64 budget);
+extern u64 full_vivify_m6_hdr(FullHdr *h);
+extern u64 full_transitive_m6(FullHdr *h, u64 tick_lim);
+extern void full_update_classify_fid(FullHdr *h);
+extern u64 f64u_mul(u64 a, u64 b);
+extern u64 f64u_nlogpown(u64 count, u64 exponent);
+extern u64 full_scale_delta_m5(FullHdr *h, u64 delta);
+extern u64 f64u_to_u64(u64 a);
 
 u64 full_probe_dticks_m6_hdr(FullHdr *h, bool initial) {
   if (initial) { return 10000000ULL; }
@@ -57,21 +61,17 @@ u64 full_probe_m6(FullHdr *h, bool initial) {
   u64 saved_st = h->search_ticks;
   u64 dticks = full_probe_dticks_m6_hdr(h, initial);
   h->probings = h->probings + 1ULL;
-  if (!initial) {
-    u64 parg = (h->probings > (~0ULL) - 9ULL) ? (~0ULL) : (h->probings + 9ULL);
-    u64 qlog = full_log10_q16_m7(parg);
-    u64 pc = (h->probings > 100000000ULL) ? 100000000ULL : h->probings;
-    u64 nlogp = (100ULL * pc * qlog) >> 16;
-    h->probe_limit = h->conflicts + full_scale_delta_m5(h, nlogp);
-  }
-  bool bin_dirty = false;
+  u64 saved_prob = h->probing;
+  h->probing = 1ULL;
   if (initial) {
     bool subst_at_end = true;
     if (!m6_hdr_delaying(h, M6_DELAY_CONGRUENCE)) {
       if (full_enter_dense(h)) {
         u64 cb = h->cong_cnt;
-        if (full_congruence_dense(h, dticks * 2ULL + 16384ULL) == 20ULL) {
+        if (full_congruence_dense(h, 0xFFFFFFFFFFFFFFFFULL) == 20ULL) {
+          full_dense_bin_roundtrip_fid(h);
           full_rebuild_watches_nosort_fid(h);
+          h->probing = saved_prob;
           m6_hdr_set_watermark(h, M6_WM_PROBE_TICKS, h->search_ticks);
           return 20ULL;
         }
@@ -81,25 +81,29 @@ u64 full_probe_m6(FullHdr *h, bool initial) {
         } else {
           m6_hdr_bump_delay(h, M6_DELAY_CONGRUENCE);
         }
+        full_dense_bin_roundtrip_fid(h);
         if (full_rebuild_watches_nosort_fid(h) == 20ULL) {
+          h->probing = saved_prob;
           m6_hdr_set_watermark(h, M6_WM_PROBE_TICKS, h->search_ticks);
           return 20ULL;
         }
-        bin_dirty = true;
         if (ca > cb) {
           subst_at_end = false;
           if (h->num_binary > 0ULL && full_substitute(h) == 20ULL) {
+            h->probing = saved_prob;
             m6_hdr_set_watermark(h, M6_WM_PROBE_TICKS, h->search_ticks);
             return 20ULL;
           }
         }
       } else if (h->inconsistent != 0ULL) {
+        h->probing = saved_prob;
         m6_hdr_set_watermark(h, M6_WM_PROBE_TICKS, h->search_ticks);
         return 20ULL;
       }
     }
     if (h->num_binary > 0ULL &&
-        full_backbone_m6(h, (dticks / 50ULL) + 65536ULL) == 20ULL) {
+        full_backbone_m6(h, dticks / 50ULL) == 20ULL) {
+      h->probing = saved_prob;
       m6_hdr_set_watermark(h, M6_WM_PROBE_TICKS, h->search_ticks);
       return 20ULL;
     }
@@ -110,6 +114,7 @@ u64 full_probe_m6(FullHdr *h, bool initial) {
         u64 sb = h->sweep_cnt;
         if (full_sweep_dense_m6(h, h->cur_vars, dticks / 10ULL) == 20ULL) {
           full_rebuild_watches_nosort_fid(h);
+          h->probing = saved_prob;
           m6_hdr_set_watermark(h, M6_WM_PROBE_TICKS, h->search_ticks);
           return 20ULL;
         }
@@ -121,35 +126,66 @@ u64 full_probe_m6(FullHdr *h, bool initial) {
           m6_hdr_bump_delay(h, M6_DELAY_SWEEP);
         }
         if (full_rebuild_watches_nosort_fid(h) == 20ULL) {
+          h->probing = saved_prob;
           m6_hdr_set_watermark(h, M6_WM_PROBE_TICKS, h->search_ticks);
           return 20ULL;
         }
-        bin_dirty = true;
         if (sa > sb) {
           subst_at_end = false;
           if (h->num_binary > 0ULL && full_substitute(h) == 20ULL) {
+            h->probing = saved_prob;
             m6_hdr_set_watermark(h, M6_WM_PROBE_TICKS, h->search_ticks);
             return 20ULL;
           }
         }
       } else if (h->inconsistent != 0ULL) {
+        h->probing = saved_prob;
         m6_hdr_set_watermark(h, M6_WM_PROBE_TICKS, h->search_ticks);
         return 20ULL;
       }
     }
     if (subst_at_end && h->num_binary > 0ULL && full_substitute(h) == 20ULL) {
+      h->probing = saved_prob;
       m6_hdr_set_watermark(h, M6_WM_PROBE_TICKS, h->search_ticks);
       return 20ULL;
+    }
+    u64 fr = 1ULL; u64 fp = 10ULL; u64 fa = h->unassigned / 10ULL;
+    while (fa >= fp && fr < 19ULL) { fr = fr + 1ULL; fp = fp * 10ULL; }
+    u64 fe4 = (h->eliminations > (~0ULL) - 4ULL) ? (~0ULL) : (h->eliminations + 4ULL);
+    if (h->unassigned > 0ULL && fr <= fe4 && full_has_factor_cands_fid(h)) {
+      if (full_enter_dense_ex_fid(h, false)) {
+        u64 nfact = m6_hdr_get_watermark(h, 1ULL) + 1ULL;
+        m6_hdr_set_watermark(h, 1ULL, nfact);
+        u64 fbud = (nfact <= 1ULL) ? 700000000ULL : (dticks / 20ULL);
+        full_factor(h, fbud);
+        if (full_rebuild_watches_nosort_fid(h) == 20ULL) {
+          h->probing = saved_prob;
+          m6_hdr_set_watermark(h, M6_WM_PROBE_TICKS, h->search_ticks);
+          return 20ULL;
+        }
+      } else if (h->inconsistent != 0ULL) {
+        h->probing = saved_prob;
+        m6_hdr_set_watermark(h, M6_WM_PROBE_TICKS, h->search_ticks);
+        return 20ULL;
+      }
     }
   } else {
     u64 round = 0ULL;
     while (round < 2ULL) {
-      u64 before_unass = h->unassigned;
+      u32 *fl_a = (u32 *)h->flags;
+      u64 before_act = 0ULL;
+      u64 ai = 0ULL;
+      while (ai < h->cur_vars) {
+        if ((fl_a[ai] & 1u) != 0u) { before_act = before_act + 1ULL; }
+        ai = ai + 1ULL;
+      }
       if (!m6_hdr_delaying(h, M6_DELAY_CONGRUENCE)) {
         if (full_enter_dense(h)) {
           u64 cb = h->cong_cnt;
-          if (full_congruence_dense(h, dticks * 2ULL + 16384ULL) == 20ULL) {
+          if (full_congruence_dense(h, 0xFFFFFFFFFFFFFFFFULL) == 20ULL) {
+            full_dense_bin_roundtrip_fid(h);
             full_rebuild_watches_nosort_fid(h);
+            h->probing = saved_prob;
             m6_hdr_set_watermark(h, M6_WM_PROBE_TICKS, h->search_ticks);
             return 20ULL;
           }
@@ -159,26 +195,31 @@ u64 full_probe_m6(FullHdr *h, bool initial) {
           } else {
             m6_hdr_bump_delay(h, M6_DELAY_CONGRUENCE);
           }
+          full_dense_bin_roundtrip_fid(h);
           if (full_rebuild_watches_nosort_fid(h) == 20ULL) {
+            h->probing = saved_prob;
             m6_hdr_set_watermark(h, M6_WM_PROBE_TICKS, h->search_ticks);
             return 20ULL;
           }
-          bin_dirty = true;
         } else if (h->inconsistent != 0ULL) {
+          h->probing = saved_prob;
           m6_hdr_set_watermark(h, M6_WM_PROBE_TICKS, h->search_ticks);
           return 20ULL;
         }
       }
       if (h->num_binary > 0ULL && full_substitute(h) == 20ULL) {
+        h->probing = saved_prob;
         m6_hdr_set_watermark(h, M6_WM_PROBE_TICKS, h->search_ticks);
         return 20ULL;
       }
       if (h->num_binary > 0ULL &&
-          full_backbone_m6(h, (dticks / 50ULL) + 65536ULL) == 20ULL) {
+          full_backbone_m6(h, dticks / 50ULL) == 20ULL) {
+        h->probing = saved_prob;
         m6_hdr_set_watermark(h, M6_WM_PROBE_TICKS, h->search_ticks);
         return 20ULL;
       }
       if (full_vivify_m6_hdr(h) == 20ULL) {
+        h->probing = saved_prob;
         m6_hdr_set_watermark(h, M6_WM_PROBE_TICKS, h->search_ticks);
         return 20ULL;
       }
@@ -189,6 +230,7 @@ u64 full_probe_m6(FullHdr *h, bool initial) {
           u64 sb = h->sweep_cnt;
           if (full_sweep_dense_m6(h, h->cur_vars, dticks / 10ULL) == 20ULL) {
             full_rebuild_watches_nosort_fid(h);
+            h->probing = saved_prob;
             m6_hdr_set_watermark(h, M6_WM_PROBE_TICKS, h->search_ticks);
             return 20ULL;
           }
@@ -199,57 +241,70 @@ u64 full_probe_m6(FullHdr *h, bool initial) {
             m6_hdr_bump_delay(h, M6_DELAY_SWEEP);
           }
           if (full_rebuild_watches_nosort_fid(h) == 20ULL) {
+            h->probing = saved_prob;
             m6_hdr_set_watermark(h, M6_WM_PROBE_TICKS, h->search_ticks);
             return 20ULL;
           }
-          bin_dirty = true;
         } else if (h->inconsistent != 0ULL) {
+          h->probing = saved_prob;
           m6_hdr_set_watermark(h, M6_WM_PROBE_TICKS, h->search_ticks);
           return 20ULL;
         }
       }
       if (h->num_binary > 0ULL && full_substitute(h) == 20ULL) {
+        h->probing = saved_prob;
         m6_hdr_set_watermark(h, M6_WM_PROBE_TICKS, h->search_ticks);
         return 20ULL;
       }
-      u64 tr_lim = (dticks / 50ULL) + 100000ULL;
+      u64 tr_lim = dticks / 50ULL;
       if (h->num_binary > 0ULL && full_transitive_m6(h, tr_lim) == 20ULL) {
+        h->probing = saved_prob;
         m6_hdr_set_watermark(h, M6_WM_PROBE_TICKS, h->search_ticks);
         return 20ULL;
       }
       if (h->num_binary > 0ULL &&
-          full_backbone_m6(h, (dticks / 50ULL) + 65536ULL) == 20ULL) {
+          full_backbone_m6(h, dticks / 50ULL) == 20ULL) {
+        h->probing = saved_prob;
         m6_hdr_set_watermark(h, M6_WM_PROBE_TICKS, h->search_ticks);
         return 20ULL;
       }
-      if (h->unassigned >= before_unass) { break; }
+      u64 fr = 1ULL; u64 fp = 10ULL; u64 fa = h->unassigned / 10ULL;
+      while (fa >= fp && fr < 19ULL) { fr = fr + 1ULL; fp = fp * 10ULL; }
+      u64 fe4 = (h->eliminations > (~0ULL) - 4ULL) ? (~0ULL) : (h->eliminations + 4ULL);
+      if (h->unassigned > 0ULL && fr <= fe4 && full_has_factor_cands_fid(h)) {
+        if (full_enter_dense_ex_fid(h, false)) {
+          u64 nfact = m6_hdr_get_watermark(h, 1ULL) + 1ULL;
+          m6_hdr_set_watermark(h, 1ULL, nfact);
+          u64 fbud = (nfact <= 1ULL) ? 700000000ULL : (dticks / 20ULL);
+          full_factor(h, fbud);
+          if (full_rebuild_watches_nosort_fid(h) == 20ULL) {
+            h->probing = saved_prob;
+            m6_hdr_set_watermark(h, M6_WM_PROBE_TICKS, h->search_ticks);
+            return 20ULL;
+          }
+        } else if (h->inconsistent != 0ULL) {
+          h->probing = saved_prob;
+          m6_hdr_set_watermark(h, M6_WM_PROBE_TICKS, h->search_ticks);
+          return 20ULL;
+        }
+      }
+      fl_a = (u32 *)h->flags;
+      u64 after_act = 0ULL;
+      ai = 0ULL;
+      while (ai < h->cur_vars) {
+        if ((fl_a[ai] & 1u) != 0u) { after_act = after_act + 1ULL; }
+        ai = ai + 1ULL;
+      }
+      if (before_act == after_act) { break; }
       round = round + 1ULL;
     }
   }
-  u64 fr = 1ULL;
-  u64 fp = 10ULL;
-  u64 fa = h->unassigned / 10ULL;
-  while (fa >= fp && fr < 19ULL) {
-    fr = fr + 1ULL;
-    fp = fp * 10ULL;
+  full_update_classify_fid(h);
+  if (!initial) {
+    u64 nlogp = f64u_mul(0x4059000000000000ULL, f64u_nlogpown(h->probings, 1ULL));
+    h->probe_limit = h->conflicts + full_scale_delta_m5(h, f64u_to_u64(nlogp));
   }
-  u64 fe4 = (h->eliminations > (~0ULL) - 4ULL) ? (~0ULL) : (h->eliminations + 4ULL);
-  if (h->unassigned > 0ULL && fr <= fe4 && full_enter_dense(h)) {
-    u64 nfact = m6_hdr_get_watermark(h, 1ULL) + 1ULL;
-    m6_hdr_set_watermark(h, 1ULL, nfact);
-    u64 fbud = (nfact <= 1ULL) ? 700000000ULL : (dticks / 20ULL);
-    full_factor(h, fbud);
-    if (full_rebuild_watches_nosort_fid(h) == 20ULL) {
-      m6_hdr_set_watermark(h, M6_WM_PROBE_TICKS, h->search_ticks);
-      return 20ULL;
-    }
-    bin_dirty = true;
-  } else if (h->inconsistent != 0ULL) {
-    m6_hdr_set_watermark(h, M6_WM_PROBE_TICKS, h->search_ticks);
-    return 20ULL;
-  }
-  if (bin_dirty) { full_sort_bin_watches_fid(h); }
-  h->search_ticks = saved_st;
+  h->probing = saved_prob;
   m6_hdr_set_watermark(h, M6_WM_PROBE_TICKS, h->search_ticks);
   return 1ULL;
 }
