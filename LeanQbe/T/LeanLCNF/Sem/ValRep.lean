@@ -735,9 +735,18 @@ theorem objRep_ctor_not_in_fields {cidx : Nat} {fs : List PVal} {sc : List UInt8
 
 /-! ## 4. `HeapClean`, `Backed`, `RcFrame`, and `RcInv` -/
 
+/-- Full heap-well-formedness bundle required across Perceus steps (`HInv` plus object well-formedness,
+heap closure, worklist capacity, and RC bound). -/
+@[expose] def HInvFull (rt : BitVec 64) (σ : HState) : Prop :=
+  HInv rt σ ∧
+  (∀ o ∈ σ.objs, o.Wf) ∧
+  lcnfHeapClosed σ.objs ∧
+  σ.objs.length ≤ σ.st.workCap ∧
+  (∀ o ∈ σ.objs, o.rc.toNat < 2 ^ 31 - 1)
+
 /-- Well-formed Tier-H state plus unique heap object addresses. -/
 @[expose] def HeapClean (rt : BitVec 64) (σ : HState) : Prop :=
-  HInv rt σ ∧ (σ.objs.map LcnfObj.addr).Nodup
+  HInvFull rt σ ∧ (σ.objs.map LcnfObj.addr).Nodup
 
 /-- Heap pointer `a` is kept alive in `objs` by persistence (`rc = 0`)
 or reachability from `roots`. -/

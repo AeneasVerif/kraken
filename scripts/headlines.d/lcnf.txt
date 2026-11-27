@@ -26,3 +26,7 @@ LeanQbe.T.LeanLCNF.LcnfC0ArrayDemo LeanQbe.T.LeanLCNF.arrayDemoTfs_perm
 LeanQbe.T.LeanLCNF.LcnfC0RecDemo LeanQbe.T.LeanLCNF.recDemoTfs_lower
 LeanQbe.T.LeanLCNF.LcnfC0TreeDemo LeanQbe.T.LeanLCNF.treeDemoTfs_lower
 LeanQbe.T.LeanLCNF.LcnfC0MutRecDemo LeanQbe.T.LeanLCNF.mutRecDemoTfs_lower
+LeanQbe.T.LeanLCNF.Sem.Perceus LeanQbe.T.LeanLCNF.Sem.perceus_sound
+LeanQbe.T.LeanLCNF.Sem.Perceus LeanQbe.T.LeanLCNF.Sem.perceus_sound_idx
+LeanQbe.T.LeanLCNF.Sem.Perceus LeanQbe.T.LeanLCNF.Sem.perceus_sound_res
+LeanQbe.T.LeanLCNF.Sem.Perceus LeanQbe.T.LeanLCNF.Sem.perceus_sound_res_idx

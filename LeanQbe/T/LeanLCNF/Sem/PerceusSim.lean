@@ -35,7 +35,7 @@ public theorem heapClean_swap_rt {rt1 rt2 : BitVec 64} {σ : HState}
 
 public theorem rcInv_swap_rt {rt1 rt2 : BitVec 64} {rf : RcFrame} {σ : HState}
     (hrc : RcInv rt1 rf σ) (hinv2 : HInv rt2 σ) : RcInv rt2 rf σ :=
-  ⟨⟨hinv2, hrc.1.2⟩, hrc.2⟩
+  ⟨⟨⟨hinv2, hrc.1.1.2⟩, hrc.1.2⟩, hrc.2⟩
 
 private theorem localHandles_eq_nil_of_checkNoLeaks {ctx : RcCtx} {envH : HValEnv}
     (hnl : ctx.checkNoLeaks [] = .ok ()) : localHandles ctx envH = [] := by

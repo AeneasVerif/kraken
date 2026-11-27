@@ -1207,7 +1207,7 @@ public theorem inc_step_ctx {m : LcModule} {env : RcModEnv} {retTy : LcTy} {Δr 
               rw [← hget_idx]
               simp [List.set_getElem_self]
             simp [hev]
-            refine ⟨idx, hidx, ?_, fun hp => ?_, ?_⟩
+            refine ⟨idx, hidx, ?_, hwf_all _ (List.getElem_mem hidx), fun hp => ?_, ?_⟩
             · simp [hget_idx, hoa, heq_bv]
             · simp [hget_idx, ho0] at hp
             · rw [show σ.objs[idx] = o from hget_idx, hoset]
@@ -1300,7 +1300,7 @@ public theorem inc_step_ctx {m : LcModule} {env : RcModEnv} {retTy : LcTy} {Δr 
           · have hqeq : q = q' := obj_eq_of_addr_nodup hnodup_objs hq
               (hget_j ▸ List.getElem_mem hj) hqa.symm
             subst hqeq; exact objDataEq_refl q (hwf_all q hq)
-        refine ⟨idx, hidx, hget_idx ▸ hoa, hbd_o, ?_⟩
+        refine ⟨idx, hidx, hget_idx ▸ hoa, hwf_all _ (List.getElem_mem hidx), hbd_o, ?_⟩
         exact hk
           (rf' := { rf with ctx := rf.ctx.put { v with owned := v.owned + n, excl := false } })
           (σ' := σ') (rcr' := rcr - n)

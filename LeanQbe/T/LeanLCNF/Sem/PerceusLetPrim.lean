@@ -1150,8 +1150,8 @@ theorem prim_step {m : LcModule} {Δr : PResEnv} {Δh : HEnv}
                       simp only [hlst, hgy, lcTy_beq_iff] at hm_last
                       exact ⟨y, vy, rfl, hgy, hm_last⟩
             simp only [HVal.wp, hevh, his_prim, ↓reduceIte]
-            refine primP_sim hrc.2.2.2.1 hpw hprw hpaw hlive hevp_rf hevh hsafe hpval hpm_cond
-              (fun {rw} hvr hpost => ?_)
+            refine primP_sim hrc.2.2.2.1 hrc.1.1.2.1 hpw hprw hpaw hlive hevp_rf hevh hsafe hpval
+              hpm_cond (fun {rw} hvr hpost => ?_)
             cases retKind with
             | persistent => exact False.elim (primRcSig_not_persistent hpw hsig)
             | borrowed idx =>

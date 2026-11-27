@@ -196,7 +196,7 @@ private theorem uproj_step {rt : BitVec 64} {rf0 rf : RcFrame} {σ0 σ : HState}
                        exact Or.inl ⟨PVal.readBitsLE 64 pscal (8 * (i - fs.length)), rfl, by
                          rw [hr_eq, Word.i64]⟩)
                 simp only [HVal.wp, getBV64_of_envH hev_hy]
-                refine ⟨o_y, ho_y, ha_y, hle244, hi_o, hb_o, ?_⟩
+                refine ⟨o_y, ho_y, ha_y, hrc.1.1.2.1 o_y ho_y, hle244, hi_o, hb_o, ?_⟩
                 exact let_nonPtr_wrap hjok hrc hcl hpo hno hpcb hsth hhih hep hsbp hex hsh
                   hsmwf hres hjsc hfr hvr_res (fun h => absurd hsc (by simp [h])) hpr hcont
             · simp only [hbb, ↓reduceIte] at hgu'
@@ -309,7 +309,7 @@ private theorem sproj_step {rt : BitVec 64} {rf0 rf : RcFrame} {σ0 σ : HState}
                   exact ⟨PVal.readBitsLE ty.width pscal (8 * (n - fs.length) + off), rfl,
                     by rw [hr_eq]⟩
                 simp only [HVal.wp, getBV64_of_envH hev_hy]
-                refine ⟨o_y, ho_y, ha_y, hle244, hi_o, hb_o, ?_⟩
+                refine ⟨o_y, ho_y, ha_y, hrc.1.1.2.1 o_y ho_y, hle244, hi_o, hb_o, ?_⟩
                 exact let_nonPtr_wrap hjok hrc hcl hpo hno hpcb hsth hhih hep hsbp hex hsh
                   hsmwf hres hjsc hfr hvr_res (fun h => absurd hsc (by simp [h])) hpr hcont
             · simp only [hbb, ↓reduceIte] at hgs'
@@ -632,7 +632,8 @@ private theorem unbox_step {rt : BitVec 64} {rf0 rf : RcFrame} {σ0 σ : HState}
             have hvr_res := hvr64 ty hsc (by rcases hbig with rfl | rfl | rfl <;> rfl)
             have hwrap := let_nonPtr_wrap hjok hrc hcl hpo hno hpcb hsth hhih hep hsbp hex hsh
               hsmwf hres hjsc hfr hvr_res (fun h => absurd hsc (by simp [h])) hK hcont
-            rcases hbig with rfl | rfl | rfl <;> exact ⟨o_y, ho_y, ha_y, htag0, hf0, hlen8, hwrap⟩
+            rcases hbig with rfl | rfl | rfl <;>
+              exact ⟨o_y, ho_y, ha_y, hrc.1.1.2.1 o_y ho_y, htag0, hf0, hlen8, hwrap⟩
         · have hne64 : ty ≠ .uint64 ∧ ty ≠ .usize ∧ ty ≠ .float :=
             ⟨fun h => hbig (Or.inl h), fun h => hbig (Or.inr (Or.inl h)),
               fun h => hbig (Or.inr (Or.inr h))⟩

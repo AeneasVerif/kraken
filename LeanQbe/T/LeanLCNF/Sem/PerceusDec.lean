@@ -255,7 +255,7 @@ private theorem rcInv_consumeVar_no_sp {rt : BitVec 64} {rf : RcFrame} {σ : HSt
     exact hown v hgx vx' (hget0' x ▸ hgx')
 
 private theorem HDecN_skip {bv : BitVec 64} {ty : LcTy} {chk : Bool} {K : HState → Prop}
-    {σ : HState} (hnodup : (σ.objs.map LcnfObj.addr).Nodup)
+    {σ : HState} (hnodup : (σ.objs.map LcnfObj.addr).Nodup) (hwf : ∀ o ∈ σ.objs, o.Wf)
     (hcond : ¬ty.needsRc = true ∨ (bv &&& 1#64 ≠ 0#64 ∧ chk = true ∧ ty = .tobject) ∨
       (bv &&& 1#64 = 0#64 ∧ ∃ o ∈ σ.objs, o.addr = bv ∧ o.rc = 0#32)) :
     ∀ n : Nat, K σ → HDecN bv ty chk n K σ := by
@@ -274,7 +274,7 @@ private theorem HDecN_skip {bv : BitVec 64} {ty : LcTy} {chk : Bool} {K : HState
       · refine ⟨?_, fun σ' hrel => ?_⟩
         · simp only [HDec1Pre, hnr, Bool.not_true, Bool.false_eq_true, ite_false, hev, ne_eq,
             not_true_eq_false]
-          exact ⟨o, ho, hoa, fun h1 => by rw [horc0] at h1; cases h1⟩
+          exact ⟨o, ho, hoa, hwf o ho, fun h1 => by rw [horc0] at h1; cases h1⟩
         · simp only [HDec1Rel, hnr, Bool.not_true, Bool.false_eq_true, ite_false, hev, ne_eq,
             not_true_eq_false] at hrel
           rcases hrel with ⟨_, _, _, _, rfl⟩ | ⟨idx, hidx, haddr, hgt, _⟩ | hcold
@@ -311,6 +311,7 @@ private theorem HDecN_nonCold_run {bv : BitVec 64} {ty : LcTy} {chk : Bool}
     (hne : ty.needsRc = true) (hev : bv &&& 1#64 = 0#64) {idx : Nat} {K : HState → Prop} :
     ∀ (k : Nat) (σ : HState),
       (σ.objs.map LcnfObj.addr).Nodup → ∀ (hidx : idx < σ.objs.length), σ.objs[idx].addr = bv →
+      (∀ o ∈ σ.objs, o.Wf) →
       σ.objs[idx].rc.toNat < 2 ^ 31 - 1 → k < σ.objs[idx].rc.toNat →
       K { σ with
           objs := σ.objs.set idx
@@ -319,13 +320,13 @@ private theorem HDecN_nonCold_run {bv : BitVec 64} {ty : LcTy} {chk : Bool}
   intro k
   induction k with
   | zero =>
-    intro σ _ hidx _ _ _ hK
+    intro σ _ hidx _ _ _ _ hK
     have hrc0 : σ.objs[idx].withRc (σ.objs[idx].rc - BitVec.ofNat 32 0) = σ.objs[idx] := by
       cases ho : σ.objs[idx]; simp [LcnfObj.withRc]
     rw [hrc0, List.set_getElem_self] at hK
     exact hK
   | succ k ih =>
-    intro σ hnodup hidx haddr hbd hlt hK
+    intro σ hnodup hidx haddr hwf hbd hlt hK
     have hgt1 : 1 < σ.objs[idx].rc.toInt := by
       have h0 : 0 ≤ σ.objs[idx].rc.toInt := by
         rw [BitVec.toInt_eq_toNat_cond]; split <;> omega
@@ -337,7 +338,8 @@ private theorem HDecN_nonCold_run {bv : BitVec 64} {ty : LcTy} {chk : Bool}
     refine ⟨?_, fun σ' hrel => ?_⟩
     · simp only [HDec1Pre, hne, Bool.not_true, Bool.false_eq_true, ite_false, hev, ne_eq,
         not_true_eq_false]
-      exact ⟨σ.objs[idx], List.getElem_mem hidx, haddr, fun h => absurd h hne1⟩
+      exact ⟨σ.objs[idx], List.getElem_mem hidx, haddr, hwf _ (List.getElem_mem hidx),
+        fun h => absurd h hne1⟩
     · simp only [HDec1Rel, hne, Bool.not_true, Bool.false_eq_true, ite_false, hev, ne_eq,
         not_true_eq_false] at hrel
       rcases hrel with ⟨o0, ho0, h0a, h0rc, _⟩ | ⟨j, hj, hja, _, rfl⟩ | hcold
@@ -354,9 +356,19 @@ private theorem HDecN_nonCold_run {bv : BitVec 64} {ty : LcTy} {chk : Bool}
           rw [list_map_addr_set_eq hidx
             (rfl : (σ.objs[idx].withRc (σ.objs[idx].rc - 1#32)).addr = σ.objs[idx].addr)]
           exact hnodup
+        have hwf' : ∀ o ∈ σ.objs.set idx (σ.objs[idx].withRc (σ.objs[idx].rc - 1#32)), o.Wf := by
+          intro o ho; rw [list_mem_set_iff hidx] at ho
+          rcases ho with rfl | ⟨j, hj, _, rfl⟩
+          · exact lcnfObj_wf_withRc (hwf _ (List.getElem_mem hidx)) (by
+              have hle1 : (1#32 : BitVec 32) ≤ σ.objs[idx].rc := by
+                rw [BitVec.le_def]; simp; omega
+              rw [BitVec.toInt_eq_toNat_cond, BitVec.toNat_sub_of_le hle1]
+              simp only [BitVec.toNat_ofNat, Nat.reducePow, Nat.reduceMod]
+              split <;> omega)
+          · exact hwf _ (List.getElem_mem hj)
         have hrc_sub := rc_sub_nat_eq hbd hgt1
         have hsub_step := bv32_sub_step hbd hlt
-        refine ih _ hnodup' hidx' (by simp [LcnfObj.withRc, haddr]) ?_ ?_ ?_
+        refine ih _ hnodup' hidx' (by simp [LcnfObj.withRc, haddr]) hwf' ?_ ?_ ?_
         · simp only [List.getElem_set_self, LcnfObj.withRc, hrc_sub]; omega
         · simp only [List.getElem_set_self, LcnfObj.withRc, hrc_sub]; omega
         · simpa [List.set_set, LcnfObj.withRc, hsub_step] using hK
@@ -1266,7 +1278,7 @@ public theorem dec_step_ctx {m : LcModule} {env : RcModEnv} {retTy : LcTy} {Δr 
       by_cases hskip_v : v.noRc = true ∨ v.persistent = true
       · obtain ⟨hce, hcond⟩ := hskip_ctx hskip_v
         subst hce
-        exact HDecN_skip hnodup_objs hcond n
+        exact HDecN_skip hnodup_objs hinv.1.1.2.1 hcond n
           (hk hwf_rest hpr_k hinv hclean hpo hnorc hpcb hsth hhih hepres hsbv hsbp
             hexcl hsm hshd hres ⟨rfl, rfl, rfl, hcons⟩)
       have hno : v.noRc = false := by cases h : v.noRc <;> simp_all
@@ -1295,7 +1307,7 @@ public theorem dec_step_ctx {m : LcModule} {env : RcModEnv} {retTy : LcTy} {Δr 
             · exact Or.inr ⟨hev, hzero hev⟩
             · have htb := tobject_of_ne_even_dec hinv hget hlive hnr henvh_x hev
               exact Or.inl ⟨hev, hchk (by rw [htb]; rfl), htb⟩
-          refine HDecN_skip hnodup_objs (Or.inr hcond) n ?_
+          refine HDecN_skip hnodup_objs hinv.1.1.2.1 (Or.inr hcond) n ?_
           exact hk hwf_rest hpr_k hinv1 hclean1 hpo1 hnorc1 hpcb1 hsth1 hhih hepres1
             hsbv1 hsbp1 hexcl1 hsm hshd1 hres ⟨rfl, rfl, rfl, hcons⟩
         by_cases hev : bv &&& 1#64 = 0#64
@@ -1380,7 +1392,7 @@ public theorem dec_step_ctx {m : LcModule} {env : RcModEnv} {retTy : LcTy} {Δr 
             obtain ⟨hnorc', hpcb', hsth', hhih', hepres', hsbv', hsbp', hexcl', hshd', hres'⟩ :=
               dec_aux_invs hinv hclean hpo hnorc hpcb hsth hhih hepres hsbp hexcl hshd hres
                 hn_pos hget hno hpers henvh_x hev hidx haddr hnlt hcons hmap hheap'.2
-            refine HDecN_nonCold_run hnr hev n σ hnodup_objs hidx haddr
+            refine HDecN_nonCold_run hnr hev n σ hnodup_objs hidx haddr hinv.1.1.2.1
               (hinv.1.1.2.2.2.2 _ (List.getElem_mem hidx)) hnlt ?_
             exact hk (rf' := { rf with ctx := ctx1 }) hwf_rest hpr_k
               ⟨hheap', hnd1, hsound', hvars', hsp'⟩ hclean1 hpo1

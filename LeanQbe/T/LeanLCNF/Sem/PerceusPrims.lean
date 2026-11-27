@@ -62,6 +62,15 @@ private theorem propagateMark_valRep {rf : RcFrame} {σ : HState}
       exact valRep_cast hrep (hns_z.trans hrt_ns.symm) (hw_z.trans hrt_w.symm)
         (fun _ => hvy) (fun h => absurd h hrt_nt)
 
+private theorem valRep_needsRc_word_ty {ty : LcTy} {pv : PVal} {w : Word}
+    {objs : List LcnfObj} (hrc : ty.needsRc = true) (hrep : ValRep ty pv w objs) :
+    w.1 = i64 := by
+  have hns : ty.isScalar = false := by revert hrc; cases ty <;> decide
+  unfold ValRep at hrep
+  simp only [hns, Bool.false_eq_true, ↓reduceIte] at hrep
+  rcases hrep with ⟨bv, rfl, _⟩
+  rfl
+
 private def tagNatSafe : PVal → Prop
   | .nat n => n < 2 ^ 63
   | .bits bw _ => bw < 64
@@ -80,7 +89,8 @@ private theorem getObjTagNat_step {σ : HState} {v : PVal} {w : Word} {tyv retTy
     match w.toBV64? with
     | some x =>
       if x &&& 1#64 ≠ 0#64 then K (Word.i64 x) σ
-      else ∃ o, o ∈ σ.objs ∧ o.addr = x ∧ K (Word.i64 (BitVec.ofNat 64 o.tag <<< 1 ||| 1#64)) σ
+      else ∃ o, o ∈ σ.objs ∧ o.addr = x ∧ o.Wf ∧
+        K (Word.i64 (BitVec.ofNat 64 o.tag <<< 1 ||| 1#64)) σ
     | none => False := by
   unfold ValRep at hrep
   simp only [Bool.eq_false_iff.mpr hns, Bool.false_eq_true, ↓reduceIte] at hrep
@@ -123,7 +133,7 @@ private theorem getObjTagNat_step {σ : HState} {v : PVal} {w : Word} {tyv retTy
       exact hk hrv.1 hrv.2
     · have hev : ¬(bv &&& 1#64 ≠ 0#64) := fun h => h (hoa ▸ obj_addr_and1_zero howf)
       simp only [hev, ↓reduceIte]
-      refine ⟨o, ho, hoa, ?_⟩
+      refine ⟨o, ho, hoa, howf, ?_⟩
       have htag_eq : BitVec.ofNat 64 o.tag <<< 1 ||| 1#64 = BitVec.ofNat 64 (2 * c + 1) := by
         rw [hotag, bv64_tagged_ofNat64]
         simp [BitVec.toNat_ofNat]
@@ -319,7 +329,7 @@ private theorem primByteArrayReadOnly_sim {rt : BitVec 64} {rf : RcFrame} {σ : 
     have hrep_r := propagateMark_valRep hvar (aLast := a1) rfl
       ((List.all_eq_true.mp has_all) a1 (by simp)) (hlive a1 (by simp)) h1p h1h hrt_rc
       (hpm (by simp [hname]))
-    exact hk hrep_r (by simp [hname])
+    exact ⟨valRep_needsRc_word_ty hrt_rc hrep_r, hk hrep_r (by simp [hname])⟩
 
 private theorem primStringReadOnly_sim {rt : BitVec 64} {rf : RcFrame} {σ : HState}
     (hvar : ∀ v ∈ rf.ctx.vars, VarInv v rf σ.objs)
@@ -464,10 +474,11 @@ private theorem primStringReadOnly_sim {rt : BitVec 64} {rf : RcFrame} {σ : HSt
     have hrep_r := propagateMark_valRep hvar (aLast := a1) rfl
       ((List.all_eq_true.mp has_all) a1 (by simp)) (hlive a1 (by simp)) h1p h1h hrt_rc
       (hpm (by simp [hname]))
-    exact hk hrep_r (by simp [hname])
+    exact ⟨valRep_needsRc_word_ty hrt_rc hrep_r, hk hrep_r (by simp [hname])⟩
 
 theorem primReadOnly_sim {rt : BitVec 64} {rf : RcFrame} {σ : HState}
     (hvar : ∀ v ∈ rf.ctx.vars, VarInv v rf σ.objs)
+    (hwf_objs : ∀ o ∈ σ.objs, o.Wf)
     {name : String} {as : List LcArg} {pvs : List PVal} {ws : List Word} {retTy : LcTy}
     (hwf : perceusPrimWf name as.length = true)
     (hretwf : perceusPrimRetWf name retTy = true)
@@ -664,7 +675,7 @@ theorem primReadOnly_sim {rt : BitVec 64} {rf : RcFrame} {σ : HState}
             simp only [Bool.eq_false_iff.mpr hns1, Bool.false_eq_true, ↓reduceIte] at hrep1
             rcases hrep1 with ⟨bvd, rfl, _⟩
             simp only [HPrim.wp, hsp, HArrayPrimWp, Word.toBV64?, Word.i64]
-            refine ⟨arrObj, harr, haddr, hcan, ?_⟩
+            refine ⟨arrObj, harr, haddr, hcan, hwf_objs, ?_⟩
             rw [ite_eq_left hodd, hrs, dite_eq_left hidx_f]
             have hrt : retTy = LcTy.tobject := by
               have := hretwf; simp only [perceusPrimRetWf, hsp, lcTy_beq_iff] at this; exact this
@@ -702,7 +713,7 @@ theorem primReadOnly_sim {rt : BitVec 64} {rf : RcFrame} {σ : HState}
       have hrep_r := propagateMark_valRep hvar (aLast := a3) rfl
         ((List.all_eq_true.mp has_all) a3 (by simp)) (hlive a3 (by simp)) h3p h3h hrt_rc
         (hpm (by simp [hname]))
-      exact hk hrep_r (by simp [hname])
+      exact ⟨valRep_needsRc_word_ty hrt_rc hrep_r, hk hrep_r (by simp [hname])⟩
   · exact primByteArrayReadOnly_sim hvar hsp hop hwf hretwf has_all hlive hpvs hws hsafe hprim hpm
       hk hk_plain
   · exact primStringReadOnly_sim hvar hsp hrest hwf hretwf has_all hlive hpvs hws hsafe hprim hpm
@@ -788,6 +799,7 @@ theorem outOfBounds_sim {rt : BitVec 64} {rf : RcFrame} {σ : HState}
 
 theorem primP_sim {rt : BitVec 64} {rf : RcFrame} {σ : HState}
     (hvar : ∀ v ∈ rf.ctx.vars, VarInv v rf σ.objs)
+    (hwf_objs : ∀ o ∈ σ.objs, o.Wf)
     {name : String} {as : List LcArg} {pvs : List PVal} {ws : List Word} {retTy : LcTy}
     (hwf : perceusPrimWf name as.length = true)
     (hretwf : perceusPrimRetWf name retTy = true)
@@ -825,7 +837,7 @@ theorem primP_sim {rt : BitVec 64} {rf : RcFrame} {σ : HState}
   | cons s0 rs0 =>
     cases rs0 with
     | nil =>
-      exact primReadOnly_sim hvar hwf hretwf hargswf hlive hpvs hws hsafe hprim hpm
+      exact primReadOnly_sim hvar hwf_objs hwf hretwf hargswf hlive hpvs hws hsafe hprim hpm
         ⟨(fun op heq => by rw [hsp] at heq; cases heq),
          (fun ty op heq => by rw [hsp] at heq; cases heq)⟩ hk
     | cons r1 rs1 =>
@@ -878,11 +890,11 @@ theorem primP_sim {rt : BitVec 64} {rf : RcFrame} {σ : HState}
                     simpa [splitDot, splitDot.go] using hsp
                   cases hh; exact hstr rfl)
           | none =>
-            exact primReadOnly_sim hvar hwf hretwf hargswf hlive hpvs hws hsafe hprim hpm
+            exact primReadOnly_sim hvar hwf_objs hwf hretwf hargswf hlive hpvs hws hsafe hprim hpm
               ⟨(fun op heq => by rw [hsp] at heq; cases heq; exact hnat rfl),
                (fun ty op heq => by rw [hsp] at heq; cases heq; exact hw)⟩ hk
       | cons r2 rs2 =>
-        exact primReadOnly_sim hvar hwf hretwf hargswf hlive hpvs hws hsafe hprim hpm
+        exact primReadOnly_sim hvar hwf_objs hwf hretwf hargswf hlive hpvs hws hsafe hprim hpm
           ⟨(fun op heq => by rw [hsp] at heq; cases heq),
            (fun ty op heq => by rw [hsp] at heq; cases heq)⟩ hk
 

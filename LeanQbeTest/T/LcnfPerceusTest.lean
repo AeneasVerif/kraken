@@ -158,10 +158,12 @@ public section
     scrLimbs := List.replicate 32 0#64 }
 
 theorem testInitState_inv : HInv testRtBase testInitState := by
-  refine ⟨?_, ?_, ?_, ?_, ?_⟩
-  · refine ⟨?_, by decide, by decide, by decide, by decide, by decide⟩
-    unfold RtC0State.Bounded48
-    decide
+  refine ⟨?_, by decide, by decide, by decide, by decide, by decide⟩
+  unfold RtC0State.Bounded48
+  decide
+
+theorem testInitState_heapClean : HeapClean testRtBase testInitState := by
+  refine ⟨⟨testInitState_inv, ?_, ?_, ?_, ?_⟩, List.nodup_nil⟩
   · intro _ ho; cases ho
   · intro _ ho; cases ho
   · decide
@@ -197,7 +199,7 @@ private theorem testInitState_rcInv_twoNat {d : LcDecl} {br : Bool} {a b : Nat}
   change RcInv testRtBase
     (entryRcFrame d0 [.nat a, .nat b] [Word.i64 (boxNat a), Word.i64 (boxNat b)] [] [])
     testInitState
-  have hclean : HeapClean testRtBase testInitState := ⟨testInitState_inv, List.nodup_nil⟩
+  have hclean : HeapClean testRtBase testInitState := testInitState_heapClean
   have hnd : (List.map RcVar.id
       (entryRcFrame d0 [.nat a, .nat b]
         [Word.i64 (boxNat a), Word.i64 (boxNat b)] [] []).ctx.vars).Nodup := by

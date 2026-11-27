@@ -364,8 +364,9 @@ public theorem casesTag_step {rt : BitVec 64} {rf : RcFrame} {σ : HState}
         have hnot_tag : ¬ (vx.ty = .tagged) := fun h => absurd hev (ht1 h)
         have hodd_f : ¬ (bv &&& 1#64 ≠ 0#64) := fun h => h hev
         by_cases hobj_ty : vx.ty = .object
-        · simp [hobj_ty]; exact ⟨o, ho, hoa, (ht.trans htag').symm⟩
-        · simp [hobj_ty, hnot_tag, hodd_f]; exact ⟨o, ho, hoa, (ht.trans htag').symm⟩
+        · simp [hobj_ty]; exact ⟨o, ho, hoa, hinv.1.1.2.1 o ho, (ht.trans htag').symm⟩
+        · simp [hobj_ty, hnot_tag, hodd_f]
+          exact ⟨o, ho, hoa, hinv.1.1.2.1 o ho, (ht.trans htag').symm⟩
     | str _ | arr _ | barr _ | int _ | clo _ _ _ => cases htag'
 
 private theorem cleanVar_markScalarBranch (v : RcVar) :
