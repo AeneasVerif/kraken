@@ -192,6 +192,8 @@ public import LeanQbe.T.PrintCpp
 public import LeanQbe.T.PrintQbe
 public import LeanQbe.T.PrintUtil
 public import LeanQbe.T.Rega
+public import LeanQbe.T.RegaCcmp
+public import LeanQbe.T.RegaCcmpLemmas
 public import LeanQbe.T.RegaCmpReuse
 public import LeanQbe.T.RegaDefs
 public import LeanQbe.T.RegaFlat
@@ -205,6 +207,8 @@ public import LeanQbe.T.RegaLemmas3
 public import LeanQbe.T.RegaLemmas3a
 public import LeanQbe.T.RegaLemmas3b
 public import LeanQbe.T.RegaLemmas4
+public import LeanQbe.T.RegaLemmas4Base
+public import LeanQbe.T.RegaLemmas4Ccmp
 public import LeanQbe.T.RegaLemmasCmpReuse
 public import LeanQbe.T.RegaLemmasRemat
 public import LeanQbe.T.RegaLemmasZero

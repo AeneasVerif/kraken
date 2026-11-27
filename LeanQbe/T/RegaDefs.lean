@@ -64,6 +64,7 @@ inductive DefFact where
   | shlVarImm (w x sh : Nat)
   /-- `x` shifted right (`sk ∈ {lsr, asr}`) by an immediate `k < w` at width `w`. -/
   | shiftVarImm (w : Nat) (sk : AluShift) (x k : Nat)
+  | negVar (w x : Nat)
   deriving DecidableEq, Repr
 
 /-- `recordDef` fact of `lshr`/`ashr (.bits n) (.var x) (.imm k)`. -/

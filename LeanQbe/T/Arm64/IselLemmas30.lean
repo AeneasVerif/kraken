@@ -897,7 +897,7 @@ private theorem armImm12_toNat_lt {n : Nat} {c : BitVec n} {ei : ExtOrImmReg}
     · rename_i hand; simp only [Bool.and_eq_true, Nat.blt_eq] at hand; exact hand.1
     · cases h
 
-private theorem adds_eq_subs_neg {w : Nat} (hw : 32 ≤ w) (x k : BitVec w)
+theorem adds_eq_subs_neg {w : Nat} (hw : 32 ≤ w) (x k : BitVec w)
     (hk0 : k ≠ 0#w) (hklt : k.toNat < 16777216) :
     StatusFlags.adds (x + k) x k = StatusFlags.subs (x - (-k)) x (-k) := by
   have hpow : 16777216 < 2 ^ (w - 1) := by
