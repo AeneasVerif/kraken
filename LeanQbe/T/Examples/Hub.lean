@@ -2,6 +2,22 @@ module
 
 public import LeanQbe.T.Examples.Bignum
 public import LeanQbe.T.Examples.BignumProg
+public import LeanQbe.T.Examples.Bitblast.Proof.Aig
+public import LeanQbe.T.Examples.Bitblast.Proof.Arena
+public import LeanQbe.T.Examples.Bitblast.Proof.Bvp1
+public import LeanQbe.T.Examples.Bitblast.Proof.Driver
+public import LeanQbe.T.Examples.Bitblast.Proof.Driver0
+public import LeanQbe.T.Examples.Bitblast.Proof.Driver1
+public import LeanQbe.T.Examples.Bitblast.Proof.DriverHelpers
+public import LeanQbe.T.Examples.Bitblast.Proof.DriverInit
+public import LeanQbe.T.Examples.Bitblast.Proof.Full
+public import LeanQbe.T.Examples.Bitblast.Proof.Specs
+public import LeanQbe.T.Examples.Bitblast.Proof.Tseitin
+public import LeanQbe.T.Examples.Bitblast.Proof.Tseitin0
+public import LeanQbe.T.Examples.Bitblast.Proof.Tseitin1
+public import LeanQbe.T.Examples.Bitblast.Proof.Validate
+public import LeanQbe.T.Examples.Bitblast.Proof.Validate0
+public import LeanQbe.T.Examples.Bitblast.Proof.ValidateNode
 public import LeanQbe.T.Examples.Bitblast.Ref.Aig
 public import LeanQbe.T.Examples.Bitblast.Ref.BVProg
 public import LeanQbe.T.Examples.Bitblast.Ref.Tseitin
