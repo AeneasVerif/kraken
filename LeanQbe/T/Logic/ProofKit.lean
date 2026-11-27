@@ -319,25 +319,10 @@ theorem bv_c0_toNat_sub_of_eq {w : Nat} (x y : BitVec w) {nx ny : Nat}
     (x.truncate w).toNat = x.toNat % 2 ^ w :=
   BitVec.toNat_setWidth (i := w) (x := x)
 
-@[bv_c0 high] theorem bv_c0_zext8_32 (x : BitVec 8) :
-    (x.setWidth 32).toNat = x.toNat :=
-  bv_c0_toNat_setWidth_of_le x (by decide)
-
-@[bv_c0 high] theorem bv_c0_zext8_64 (x : BitVec 8) :
-    (x.setWidth 64).toNat = x.toNat :=
-  bv_c0_toNat_setWidth_of_le x (by decide)
-
-@[bv_c0 high] theorem bv_c0_zext16_32 (x : BitVec 16) :
-    (x.setWidth 32).toNat = x.toNat :=
-  bv_c0_toNat_setWidth_of_le x (by decide)
-
-@[bv_c0 high] theorem bv_c0_zext16_64 (x : BitVec 16) :
-    (x.setWidth 64).toNat = x.toNat :=
-  bv_c0_toNat_setWidth_of_le x (by decide)
-
-@[bv_c0 high] theorem bv_c0_zext32_64 (x : BitVec 32) :
-    (x.setWidth 64).toNat = x.toNat :=
-  bv_c0_toNat_setWidth_of_le x (by decide)
+/- The `8/16/32 → 32/64` zero-extension rules live in `C0Step`; raise them to `high` here
+instead of re-proving duplicates. -/
+attribute [bv_c0 high] LeanQbe.T.bv_c0_zext8_32 LeanQbe.T.bv_c0_zext8_64
+  LeanQbe.T.bv_c0_zext16_32 LeanQbe.T.bv_c0_zext16_64 LeanQbe.T.bv_c0_zext32_64
 
 theorem bv_c0_toNat_signExtend_of_lt {n w : Nat} (x : BitVec n)
     (hx : x.toNat < 2 ^ (n - 1)) :
@@ -976,6 +961,21 @@ private meta def collectRelevantHyps (mvar : MVarId) (seedFVars : Std.HashSet FV
         out := out.push decl.fvarId
     return out
 
+/-- Types of the visible local hypotheses that are (reducibly) strict `<` facts: the only ones
+an injected `t < 2 ^ w` bound can coincide with. `injectBoundsFor` compares each bound only
+against these, and only up to reducible defeq, instead of running a default-transparency
+`isDefEq` against every hypothesis (which unfolds `BitVec.sub`/`Nat.mod` and dominated
+`c0_bv_omega` time). A missed match merely re-asserts a true `x.toNat < 2 ^ w` fact. -/
+private meta def collectLtCandidates : MetaM (Array Lean.Expr) := do
+  let mut out : Array Lean.Expr := #[]
+  for d in ← getLCtx do
+    if !d.isImplementationDetail then
+      let ty := (← instantiateMVars d.type).consumeMData
+      if ty.isAppOfArity ``LT.lt 4 || ty.isAppOfArity ``GT.gt 4 ||
+          (← whnfR ty).isAppOfArity ``LT.lt 4 then
+        out := out.push d.type
+  return out
+
 private meta def injectBoundsFor (mvar : MVarId) (hypFVars : Array FVarId)
     (includeUInt : Bool) : MetaM MVarId :=
   mvar.withContext do
@@ -1007,20 +1007,20 @@ private meta def injectBoundsFor (mvar : MVarId) (hypFVars : Array FVarId)
                 uItems := uItems.insert (nm, decl.toExpr)
     let mut cur := mvar
     let mut idx : Nat := 0
+    let mut ltCands ← collectLtCandidates
     for term in toNatTerms do
       if term.isAppOfArity ``BitVec.toNat 2 then
         let wE := term.appFn!.appArg!
         let xE := term.appArg!
         let boundTy ← mkAppM ``LT.lt #[term, ← mkAppM ``HPow.hPow #[mkNatLit 2, wE]]
         let already ← cur.withContext do
-          (← getLCtx).anyM fun d => do
-            if d.isImplementationDetail then return false
-            withoutModifyingState (isDefEq d.type boundTy)
+          ltCands.anyM fun ty => withoutModifyingState (withReducible (isDefEq ty boundTy))
         if !already then
           let prf := mkApp2 (mkConst ``BitVec.isLt) wE xE
           cur ← cur.assert (Lean.Name.mkSimple s!"_bv_lt_{idx}") boundTy prf
           let (_, cur') ← cur.intro1P
           cur := cur'
+          ltCands := ltCands.push boundTy
           idx := idx + 1
     if includeUInt then
       for (tyNm, xE) in uItems do
@@ -1031,14 +1031,13 @@ private meta def injectBoundsFor (mvar : MVarId) (hypFVars : Array FVarId)
         let term := mkApp (mkConst toNatNm) xE
         let boundTy ← mkAppM ``LT.lt #[term, ← mkAppM ``HPow.hPow #[mkNatLit 2, mkNatLit w]]
         let already ← cur.withContext do
-          (← getLCtx).anyM fun d => do
-            if d.isImplementationDetail then return false
-            withoutModifyingState (isDefEq d.type boundTy)
+          ltCands.anyM fun ty => withoutModifyingState (withReducible (isDefEq ty boundTy))
         if !already then
           let prf := mkApp (mkConst ltThmNm) xE
           cur ← cur.assert (Lean.Name.mkSimple s!"_u_lt_{idx}") boundTy prf
           let (_, cur') ← cur.intro1P
           cur := cur'
+          ltCands := ltCands.push boundTy
           idx := idx + 1
     return cur
 
@@ -1051,76 +1050,100 @@ private meta def addLocalNumEqs (thms : SimpTheorems) : MetaM SimpTheorems := do
   let mut res := thms
   for decl in ← getLCtx do
     if !decl.isImplementationDetail then
-      if !isHeavyContextProp heavyFVars decl.type then
-        if let some (_, lhs, rhs) := decl.type.eq? then
-          if (← Meta.getNatValue? rhs).isSome && !lhs.hasLooseBVars then
+      if let some (_, lhs, rhs) := decl.type.eq? then
+        if (← Meta.getNatValue? rhs).isSome && !lhs.hasLooseBVars then
+          if !isHeavyContextProp heavyFVars decl.type then
             res ← res.add (.fvar decl.fvarId) #[] decl.toExpr
   return res
 
-private meta def runBvOmegaSimpPass (includeSub includeSubMod includeUInt : Bool)
+/-- The local-context-independent simp sets of `c0_bv*_omega`: the `@[bv_c0]` theorems plus
+the fixed comparison / `UInt*` rules (with and without `BitVec.toNat_sub`), and the simprocs
+(with the subtraction simprocs registered as pre- or post-procedures). Built once per
+`runBvOmegaPasses` call instead of once per simp pass. -/
+private meta structure BvOmegaSets where
+  thmsNoSub : SimpTheorems
+  thmsSub : SimpTheorems
+  procsPre : Simp.Simprocs
+  procsPost : Simp.Simprocs
+
+private meta def mkBvOmegaThms (includeUInt : Bool) : MetaM SimpTheorems := do
+  let mut thms ← match (← getSimpExtension? `bv_c0) with
+    | some ext => ext.getTheorems
+    | none => pure {}
+  for c in [``bv_c0_eq_iff, ``bv_c0_ne_iff, ``bv_c0_lt_iff, ``bv_c0_le_iff,
+      ``bv_c0_ult_iff_toNat, ``bv_c0_ule_iff_toNat, ``bv_c0_toNat_truncate,
+      ``bv_c0_toNat_xor_one_64, ``bv_c0_toNat_xor_one_32, ``bv_c0_toNat_xor_one_8,
+      ``Bool.not_eq_true, ``Bool.decide_eq_true, ``Bool.decide_eq_false,
+      ``Nat.mul_one, ``Nat.one_mul, ``Nat.add_zero, ``Nat.zero_add, ``Nat.mod_mod] do
+    thms ← thms.addConst c
+  if includeUInt then
+    for c in [
+        ``U32Kit.u8_eq_iff, ``U32Kit.u32_eq_iff, ``U32Kit.u64_eq_iff,
+        ``U32Kit.u8_ne_iff, ``U32Kit.u32_ne_iff, ``U32Kit.u64_ne_iff,
+        ``UInt8.le_iff_toNat_le, ``UInt32.le_iff_toNat_le, ``UInt64.le_iff_toNat_le,
+        ``UInt8.lt_iff_toNat_lt, ``UInt32.lt_iff_toNat_lt, ``UInt64.lt_iff_toNat_lt,
+        ``U32Kit.u8_ofNat_toNat, ``U32Kit.u32_ofNat_toNat, ``U32Kit.u64_ofNat_toNat,
+        ``U32Kit.u8_ofNat_lit_toNat, ``U32Kit.u32_ofNat_lit_toNat,
+        ``U32Kit.u64_ofNat_lit_toNat,
+        ``U32Kit.u32_toNat_toBitVec, ``U32Kit.u32_ofNat_toBitVec,
+        ``UInt8.toNat_zero, ``UInt32.toNat_zero, ``UInt64.toNat_zero,
+        ``UInt8.toNat_add, ``UInt32.toNat_add, ``UInt64.toNat_add,
+        ``UInt8.toNat_mul, ``UInt32.toNat_mul, ``UInt64.toNat_mul,
+        ``UInt8.toNat_div, ``UInt32.toNat_div, ``UInt64.toNat_div,
+        ``UInt8.toNat_mod, ``UInt32.toNat_mod, ``UInt64.toNat_mod,
+        ``UInt8.toNat_shiftLeft, ``UInt32.toNat_shiftLeft, ``UInt64.toNat_shiftLeft,
+        ``UInt8.toNat_shiftRight, ``UInt32.toNat_shiftRight, ``UInt64.toNat_shiftRight,
+        ``UInt8.toNat_toUInt32, ``UInt8.toNat_toUInt64,
+        ``UInt32.toNat_toUInt64, ``UInt64.toNat_toUInt32,
+        ``Nat.shiftLeft_eq, ``Nat.shiftRight_eq_div_pow] do
+      thms ← thms.addConst c
+  return thms
+
+private meta def mkBvOmegaSimprocs (includeSubMod includeUInt : Bool) :
+    MetaM Simp.Simprocs := do
+  let mut simprocs : Simp.Simprocs := {}
+  if let some bvSimpExt ← Simp.getSimprocExtension? `bv_c0 then
+    simprocs ← bvSimpExt.getSimprocs
+  simprocs ← simprocs.add ``bv_c0_setWidth_toNat false
+  simprocs ← simprocs.add ``bv_c0_truncate_toNat false
+  simprocs ← simprocs.add ``bv_c0_signExtend_toNat false
+  simprocs ← simprocs.add ``bv_c0_ofNat_toNat false
+  simprocs ← simprocs.add ``c0NatOfNatSimproc false
+  simprocs ← simprocs.add ``c0NatOfNatSimproc true
+  simprocs ← simprocs.add ``c0NatModSimproc false
+  simprocs ← simprocs.add ``c0NatModSimproc true
+  simprocs ← simprocs.add ``c0PowSimproc false
+  simprocs ← simprocs.add ``c0SignExtendSimproc true
+  simprocs ← simprocs.add ``c0SubModSimproc includeSubMod
+  if includeUInt then
+    for post in [false, true] do
+      simprocs ← simprocs.add ``c0PowSimproc post
+      simprocs ← simprocs.add ``c0U8OfNatSimproc post
+      simprocs ← simprocs.add ``c0U32OfNatSimproc post
+      simprocs ← simprocs.add ``c0U64OfNatSimproc post
+    simprocs ← simprocs.add ``c0SubU8Simproc includeSubMod
+    simprocs ← simprocs.add ``c0SubU32Simproc includeSubMod
+    simprocs ← simprocs.add ``c0SubU64Simproc includeSubMod
+  simprocs ← simprocs.add ``c0ModLtSimproc true
+  return simprocs
+
+private meta def mkBvOmegaSets (includeUInt : Bool) : MetaM BvOmegaSets := do
+  let thmsSub ← mkBvOmegaThms includeUInt
+  return {
+    thmsNoSub := thmsSub.eraseCore (.decl ``BitVec.toNat_sub)
+    thmsSub
+    procsPre := ← mkBvOmegaSimprocs false includeUInt
+    procsPost := ← mkBvOmegaSimprocs true includeUInt }
+
+private meta def runBvOmegaSimpPass (sets : BvOmegaSets) (includeSub includeSubMod : Bool)
     (hypFVars : Array FVarId) : TacticM (Array FVarId) := do
   if (← getGoals).isEmpty then return hypFVars
   let (g, tail) := match ← getGoals with
     | g :: gs => (g, gs)
     | [] => unreachable!
   let resGoal? ← g.withContext do
-    let mut thms ← match (← getSimpExtension? `bv_c0) with
-      | some ext => ext.getTheorems
-      | none => pure {}
-    if !includeSub then
-      thms := thms.eraseCore (.decl ``BitVec.toNat_sub)
-    for c in [``bv_c0_eq_iff, ``bv_c0_ne_iff, ``bv_c0_lt_iff, ``bv_c0_le_iff,
-        ``bv_c0_ult_iff_toNat, ``bv_c0_ule_iff_toNat, ``bv_c0_toNat_truncate,
-        ``bv_c0_toNat_xor_one_64, ``bv_c0_toNat_xor_one_32, ``bv_c0_toNat_xor_one_8,
-        ``Bool.not_eq_true, ``Bool.decide_eq_true, ``Bool.decide_eq_false,
-        ``Nat.mul_one, ``Nat.one_mul, ``Nat.add_zero, ``Nat.zero_add, ``Nat.mod_mod] do
-      thms ← thms.addConst c
-    if includeUInt then
-      for c in [
-          ``U32Kit.u8_eq_iff, ``U32Kit.u32_eq_iff, ``U32Kit.u64_eq_iff,
-          ``U32Kit.u8_ne_iff, ``U32Kit.u32_ne_iff, ``U32Kit.u64_ne_iff,
-          ``UInt8.le_iff_toNat_le, ``UInt32.le_iff_toNat_le, ``UInt64.le_iff_toNat_le,
-          ``UInt8.lt_iff_toNat_lt, ``UInt32.lt_iff_toNat_lt, ``UInt64.lt_iff_toNat_lt,
-          ``U32Kit.u8_ofNat_toNat, ``U32Kit.u32_ofNat_toNat, ``U32Kit.u64_ofNat_toNat,
-          ``U32Kit.u8_ofNat_lit_toNat, ``U32Kit.u32_ofNat_lit_toNat,
-          ``U32Kit.u64_ofNat_lit_toNat,
-          ``U32Kit.u32_toNat_toBitVec, ``U32Kit.u32_ofNat_toBitVec,
-          ``UInt8.toNat_zero, ``UInt32.toNat_zero, ``UInt64.toNat_zero,
-          ``UInt8.toNat_add, ``UInt32.toNat_add, ``UInt64.toNat_add,
-          ``UInt8.toNat_mul, ``UInt32.toNat_mul, ``UInt64.toNat_mul,
-          ``UInt8.toNat_div, ``UInt32.toNat_div, ``UInt64.toNat_div,
-          ``UInt8.toNat_mod, ``UInt32.toNat_mod, ``UInt64.toNat_mod,
-          ``UInt8.toNat_shiftLeft, ``UInt32.toNat_shiftLeft, ``UInt64.toNat_shiftLeft,
-          ``UInt8.toNat_shiftRight, ``UInt32.toNat_shiftRight, ``UInt64.toNat_shiftRight,
-          ``UInt8.toNat_toUInt32, ``UInt8.toNat_toUInt64,
-          ``UInt32.toNat_toUInt64, ``UInt64.toNat_toUInt32,
-          ``Nat.shiftLeft_eq, ``Nat.shiftRight_eq_div_pow] do
-        thms ← thms.addConst c
-    thms ← addLocalNumEqs thms
-    let mut simprocs : Simp.Simprocs := {}
-    if let some bvSimpExt ← Simp.getSimprocExtension? `bv_c0 then
-      simprocs ← bvSimpExt.getSimprocs
-    simprocs ← simprocs.add ``bv_c0_setWidth_toNat false
-    simprocs ← simprocs.add ``bv_c0_truncate_toNat false
-    simprocs ← simprocs.add ``bv_c0_signExtend_toNat false
-    simprocs ← simprocs.add ``bv_c0_ofNat_toNat false
-    simprocs ← simprocs.add ``c0NatOfNatSimproc false
-    simprocs ← simprocs.add ``c0NatOfNatSimproc true
-    simprocs ← simprocs.add ``c0NatModSimproc false
-    simprocs ← simprocs.add ``c0NatModSimproc true
-    simprocs ← simprocs.add ``c0PowSimproc false
-    simprocs ← simprocs.add ``c0SignExtendSimproc true
-    simprocs ← simprocs.add ``c0SubModSimproc includeSubMod
-    if includeUInt then
-      for post in [false, true] do
-        simprocs ← simprocs.add ``c0PowSimproc post
-        simprocs ← simprocs.add ``c0U8OfNatSimproc post
-        simprocs ← simprocs.add ``c0U32OfNatSimproc post
-        simprocs ← simprocs.add ``c0U64OfNatSimproc post
-      simprocs ← simprocs.add ``c0SubU8Simproc includeSubMod
-      simprocs ← simprocs.add ``c0SubU32Simproc includeSubMod
-      simprocs ← simprocs.add ``c0SubU64Simproc includeSubMod
-    simprocs ← simprocs.add ``c0ModLtSimproc true
+    let thms ← addLocalNumEqs (if includeSub then sets.thmsSub else sets.thmsNoSub)
+    let simprocs := if includeSubMod then sets.procsPost else sets.procsPre
     let ctx ← Simp.mkContext
       (config := { failIfUnchanged := false, maxSteps := 100000 })
       (simpTheorems := #[thms])
@@ -1132,28 +1155,38 @@ private meta def runBvOmegaSimpPass (includeSub includeSubMod includeUInt : Bool
   | none => setGoals tail; return #[]
   | some (fvs', g') => setGoals (g' :: tail); return fvs'
 
+/-- Run `closer` on the main goal, keeping its effect only when it closes every goal. -/
+private meta def tryCloseAll (closer : TacticM Unit) : TacticM Bool := do
+  let s ← saveState
+  try
+    closer
+    if (← getGoals).isEmpty then return true
+    s.restore
+    return false
+  catch _ =>
+    s.restore
+    return false
+
 private meta def runBvOmegaPasses (includeUInt : Bool) (hypFVars : Array FVarId) :
     TacticM Unit := do
   if (← getGoals).isEmpty then return
   let (g, tail) := match ← getGoals with | g :: gs => (g, gs) | [] => unreachable!
   let g ← injectBoundsFor g hypFVars includeUInt
   setGoals (g :: tail)
-  let mut hyps ← runBvOmegaSimpPass false false includeUInt hypFVars
+  let sets ← g.withContext (mkBvOmegaSets includeUInt)
+  let mut hyps ← runBvOmegaSimpPass sets false false hypFVars
   if (← getGoals).isEmpty then return
-  hyps ← runBvOmegaSimpPass false false includeUInt hyps
+  -- Cheap early exit: most goals are linear after one normalization pass.
+  if ← tryCloseAll (evalTactic (← `(tactic| first | rfl | assumption | omega))) then return
+  hyps ← runBvOmegaSimpPass sets false false hyps
   if (← getGoals).isEmpty then return
-  hyps ← runBvOmegaSimpPass false true includeUInt hyps
+  hyps ← runBvOmegaSimpPass sets false true hyps
   if (← getGoals).isEmpty then return
-  hyps ← runBvOmegaSimpPass false true includeUInt hyps
+  hyps ← runBvOmegaSimpPass sets false true hyps
   if (← getGoals).isEmpty then return
-  let s1 ← saveState
-  try
-    evalTactic (← `(tactic| first | rfl | assumption | omega | bv_omega))
-    if (← getGoals).isEmpty then return
-    s1.restore
-  catch _ =>
-    s1.restore
-  let _ ← runBvOmegaSimpPass true true includeUInt hyps
+  if ← tryCloseAll (evalTactic (← `(tactic| first | rfl | assumption | omega | bv_omega))) then
+    return
+  let _ ← runBvOmegaSimpPass sets true true hyps
   if (← getGoals).isEmpty then return
   evalTactic (← `(tactic| try (first | rfl | assumption | omega | bv_omega)))
 
