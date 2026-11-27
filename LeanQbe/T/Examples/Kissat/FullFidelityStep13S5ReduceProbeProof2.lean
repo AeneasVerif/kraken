@@ -81,10 +81,13 @@ private structure S5RedSt (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat))
     (st : FullState) (ml : Mem 64) : Prop where
   inv : FullM6HdrInvW c F0 F_cur ext st
   cl : st.core.cur_level ≤ s.core.cur_level
+  prb : st.core.probing = s.core.probing
+  mcl : st.core.min_clr_len = s.core.min_clr_len
   fu : st.core.fuel.toNat ≤ s.core.fuel.toNat
   cv : st.core.cur_vars = s.core.cur_vars
   tmp : st.core.tmp = s.core.tmp
   tl : st.core.tmp_len = s.core.tmp_len
+  ws1 : st.scratch.work_stk1 = s.scratch.work_stk1
   ws2 : st.scratch.work_stk2 = s.scratch.work_stk2
   pos : 0 < st.core.cur_level →
     st.core.cur_level = s.core.cur_level ∧ st.core.vals = s.core.vals ∧
@@ -96,20 +99,22 @@ private theorem s5RedSt_refl {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Na
     {ext : List (BitVec 64)} {s : FullState} {R : Mem 64 → Prop} {m : Mem 64}
     (hinv : FullM6HdrInvW c F0 F_cur ext s) (hm : (FullM6HdrMem c ext s ⋆ R) m) :
     S5RedSt c F0 F_cur s R ext s m :=
-  ⟨hinv, Nat.le_refl _, Nat.le_refl _, rfl, rfl, rfl, rfl,
+  ⟨hinv, Nat.le_refl _, rfl, rfl, Nat.le_refl _, rfl, rfl, rfl, rfl, rfl,
     fun _ => ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩, hm⟩
 
 private theorem s5RedSt_with_scratch {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
     {s st : FullState} {R : Mem 64 → Prop} {ext : List (BitVec 64)} {ml : Mem 64}
     (hst : S5RedSt c F0 F_cur s R ext st ml) {sc' : FullScratch}
     (hsc : sc'.LengthsOk c) (hll : sc'.last_learned = st.scratch.last_learned)
-    (hext : sc'.extend_len = st.scratch.extend_len) (hws2 : sc'.work_stk2 = st.scratch.work_stk2)
+    (hext : sc'.extend_len = st.scratch.extend_len)
+    (hws1 : sc'.work_stk1 = st.scratch.work_stk1) (hws2 : sc'.work_stk2 = st.scratch.work_stk2)
     {ml' : Mem 64} (hm' : (FullM6HdrMem c ext { st with scratch := sc' } ⋆ R) ml') :
     S5RedSt c F0 F_cur s R ext { st with scratch := sc' } ml' :=
   have hsp := hst.inv.sparseW
   ⟨FullM6HdrInvW.mk_inv hst.inv.cfgOk hst.inv.extOk ⟨⟨hsp.1.core_ok, hsc⟩, hsp.2.1, hsp.2.2.1,
       hsp.2.2.2.1, FullExtScratchOk.of_pres hsp.2.2.2.2.1 ⟨hll, hext⟩ (fun _ hr => hr),
-      hsp.2.2.2.2.2⟩, hst.cl, hst.fu, hst.cv, hst.tmp, hst.tl, hws2.trans hst.ws2, hst.pos, hm'⟩
+      hsp.2.2.2.2.2⟩, hst.cl, hst.prb, hst.mcl, hst.fu, hst.cv, hst.tmp, hst.tl,
+    hws1.trans hst.ws1, hws2.trans hst.ws2, hst.pos, hm'⟩
 
 private theorem s5RedSt_w2a {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
     {s st s' : FullState} {R : Mem 64 → Prop} {ext ext' : List (BitVec 64)} {ml ml' : Mem 64}
@@ -128,9 +133,9 @@ private theorem s5RedSt_w2a {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat
       FullExtScratchOk.of_pres hsp.2.2.2.2.1 hms.extPres
         fun _ hr => by unfold fullArenaClauseRefs at hr ⊢; rwa [hc],
       hc ▸ hsp.2.2.2.2.2⟩
-  exact ⟨FullM6HdrInvW.mk_inv hst.inv.cfgOk hext hsp', hc ▸ hst.cl, hc ▸ hst.fu, hc ▸ hst.cv,
-    hc ▸ hst.tmp, hc ▸ hst.tl, hms.ws2.trans hst.ws2,
-    fun hpos => by rw [hc] at hpos ⊢; exact hst.pos hpos, hm'⟩
+  exact ⟨FullM6HdrInvW.mk_inv hst.inv.cfgOk hext hsp', hc ▸ hst.cl, hc ▸ hst.prb, hc ▸ hst.mcl,
+    hc ▸ hst.fu, hc ▸ hst.cv, hc ▸ hst.tmp, hc ▸ hst.tl, hms.ws1.trans hst.ws1,
+    hms.ws2.trans hst.ws2, fun hpos => by rw [hc] at hpos ⊢; exact hst.pos hpos, hm'⟩
 
 private theorem s5RedSt_with_unflushed {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
     {s st : FullState} {R : Mem 64 → Prop} {ext : List (BitVec 64)} {ml ml' : Mem 64}
@@ -142,7 +147,7 @@ private theorem s5RedSt_with_unflushed {c : FullCfg} {F0 : CNF Nat} {F_cur : Lis
     ⟨⟨{ hsp.1.core_ok with vals_len := hsp.1.core_ok.vals_len }, hsp.1.scratch_ok⟩,
       Full.FullDenseWatchHelpers.fullWitnessInv_with_unflushed hsp.2.1 u', hsp.2.2.1,
       hsp.2.2.2.1, hsp.2.2.2.2.1, hsp.2.2.2.2.2⟩,
-    hst.cl, hst.fu, hst.cv, hst.tmp, hst.tl, hst.ws2, hst.pos, hm'⟩
+    hst.cl, hst.prb, hst.mcl, hst.fu, hst.cv, hst.tmp, hst.tl, hst.ws1, hst.ws2, hst.pos, hm'⟩
 
 private theorem s5RedSt_mark_reasons {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
     {s st : FullState} {R : Mem 64 → Prop} {ext : List (BitVec 64)} {ml ml' : Mem 64}
@@ -165,7 +170,8 @@ private theorem s5RedSt_mark_reasons {c : FullCfg} {F0 : CNF Nat} {F_cur : List 
       rw [hrefs] at hr; rw [(hper r hr).2.1] at hng; rw [(hper r hr).2.2]
       exact hsp.2.2.2.1 r hr hng,
       FullExtScratchOk.of_pres hsp.2.2.2.2.1 ⟨rfl, rfl⟩ (fun _ hr => by rwa [hrefs]),
-      hsp.2.2.2.2.2⟩, hst.cl, hst.fu, hst.cv, hst.tmp, hst.tl, hst.ws2, hst.pos, hm'⟩
+      hsp.2.2.2.2.2⟩,
+    hst.cl, hst.prb, hst.mcl, hst.fu, hst.cv, hst.tmp, hst.tl, hst.ws1, hst.ws2, hst.pos, hm'⟩
 
 private theorem s5RedSt_backtrack0 {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
     {s st : FullState} {R : Mem 64 → Prop} {ext : List (BitVec 64)} {ml : Mem 64}
@@ -179,13 +185,13 @@ private theorem s5RedSt_backtrack0 {c : FullCfg} {F0 : CNF Nat} {F_cur : List (L
         scratch := sc' }
     sB.LengthsOk c → FullWitnessInv c F0 F_cur sB.core →
     sc'.last_learned = st.scratch.last_learned → sc'.extend_len = st.scratch.extend_len →
-    sc'.work_stk2 = st.scratch.work_stk2 →
+    sc'.work_stk1 = st.scratch.work_stk1 → sc'.work_stk2 = st.scratch.work_stk2 →
     (FullM6HdrMem c ext sB ⋆ R) m' → S5RedSt c F0 F_cur s R ext sB m' :=
-  fun hlen' hw' hll' hext' hws2' hm' => have hsp := hst.inv.sparseW
+  fun hlen' hw' hll' hext' hws1' hws2' hm' => have hsp := hst.inv.sparseW
   ⟨FullM6HdrInvW.mk_inv hst.inv.cfgOk hst.inv.extOk ⟨hlen', hw', hsp.2.2.1, hsp.2.2.2.1,
       FullExtScratchOk.of_pres hsp.2.2.2.2.1 ⟨hll', hext'⟩ (fun _ hr => hr), hsp.2.2.2.2.2⟩,
-    Nat.zero_le _, hst.fu, hst.cv, hst.tmp, hst.tl, hws2'.trans hst.ws2,
-    (fun h => by cases h), hm'⟩
+    Nat.zero_le _, hst.prb, hst.mcl, hst.fu, hst.cv, hst.tmp, hst.tl, hws1'.trans hst.ws1,
+    hws2'.trans hst.ws2, (fun h => by cases h), hm'⟩
 
 private theorem s5_call_step13Bcp_red {Γ : Env} {f : Sym} {ret : List Ty}
     {args : Tup (Arg Val) [i64]} {k : Tup Val [i64] → Expr Val Cont ret}
@@ -213,8 +219,9 @@ private theorem s5_call_step13Bcp_red {Γ : Env} {f : Sym} {ret : List Ty}
         by unfold fullArenaClauseRefs at hr ⊢; rwa [hap.2.1],
       hsp.2.2.2.2.2⟩
   have hst' : S5RedSt c F0 F_cur s R ext' s' m' :=
-    ⟨FullM6HdrInvW.mk_inv hst.inv.cfgOk hext' hsp', hst.cl,
-      Nat.le_trans hfu hst.fu, hst.cv, hst.tmp, hst.tl, hps.2.2.1.trans hst.ws2,
+    ⟨FullM6HdrInvW.mk_inv hst.inv.cfgOk hext' hsp', hst.cl, hst.prb, hst.mcl,
+      Nat.le_trans hfu hst.fu, hst.cv, hst.tmp, hst.tl, hps.2.1.trans hst.ws1,
+      hps.2.2.1.trans hst.ws2,
       fun hpos => by change 0 < st.core.cur_level at hpos; omega, hm'⟩
   exact hk r ext' s' m' hst' hcl0 htr.1 hr (fun h0eq hso => (h0 h0eq).2.1 hso)
     (fun h1eq => s5_level0_unsat hw' hcl0 (h1 h1eq).2.2)
@@ -236,15 +243,16 @@ private theorem s5RedSt_arena_sweep {c : FullCfg} {F0 : CNF Nat} {F_cur : List (
         scratch := sc' }
     sA.LengthsOk c → FullWitnessInv c F0 F_cur sA.core → FullArenaVarsNodup sA →
     FullLastLearnedWf sA → sc'.extend_len = st.scratch.extend_len →
-    sc'.work_stk2 = st.scratch.work_stk2 →
+    sc'.work_stk1 = st.scratch.work_stk1 → sc'.work_stk2 = st.scratch.work_stk2 →
     (0 < st.core.cur_level → vals' = st.core.vals ∧ lvl' = st.core.lvl ∧ trl' = st.core.trl ∧
       tp' = st.core.trail_pos ∧ te' = st.core.trail_end) →
     (FullM6HdrMem c ext sA ⋆ R) m' → S5RedSt c F0 F_cur s R ext sA m' := by
-  intro sA hlenA hwA hndA hllA hextA hws2A hposA hm'
+  intro sA hlenA hwA hndA hllA hextA hws1A hws2A hposA hm'
   have hsp := hst.inv.sparseW
   refine ⟨FullM6HdrInvW.mk_inv hst.inv.cfgOk hst.inv.extOk
       ⟨hlenA, hwA, hsp.2.2.1, hndA, ⟨hllA, hextA ▸ hsp.2.2.2.2.1.2⟩, hsp.2.2.2.2.2⟩,
-    hst.cl, hst.fu, hst.cv, hst.tmp, hst.tl, hws2A.trans hst.ws2, fun hpos => ?_, hm'⟩
+    hst.cl, hst.prb, hst.mcl, hst.fu, hst.cv, hst.tmp, hst.tl, hws1A.trans hst.ws1,
+    hws2A.trans hst.ws2, fun hpos => ?_, hm'⟩
   obtain ⟨hv, hl, ht, htp, hte⟩ := hposA hpos
   obtain ⟨hcl, hv0, hl0, ht0, htp0, hte0⟩ := hst.pos hpos
   exact ⟨hcl, hv.trans hv0, hl.trans hl0, ht.trans ht0, htp.trans htp0, hte.trans hte0⟩
@@ -308,8 +316,8 @@ private theorem s5RedSt_update_used {c : FullCfg} {F0 : CNF Nat} {F_cur : List (
     rw [(hperU _ hrs.1).2.2.2]; exact hrmL idx hidx hlp hlg
   have hrrU : S5RedRefsOk sU rc := fun j hj => by
     obtain ⟨hjm, hjr⟩ := hrrL j hj; exact ⟨hrefsU ▸ hjm, (hperU _ hjm).2.2.2.trans hjr⟩
-  exact ⟨⟨FullM6HdrInvW.mk_inv hst.inv.cfgOk hst.inv.extOk hspU, hst.cl, hst.fu,
-    hst.cv, hst.tmp, hst.tl, hst.ws2, hst.pos, hm'⟩, hrmU, hrefsU, hrrU,
+  exact ⟨⟨FullM6HdrInvW.mk_inv hst.inv.cfgOk hst.inv.extOk hspU, hst.cl, hst.prb, hst.mcl,
+    hst.fu, hst.cv, hst.tmp, hst.tl, hst.ws1, hst.ws2, hst.pos, hm'⟩, hrmU, hrefsU, hrrU,
     by rw [(hperU p hp_in).2.2.2, ← hhdr_eq]⟩
 
 private theorem s5RedSt_mark_garb {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
@@ -351,8 +359,8 @@ private theorem s5RedSt_mark_garb {c : FullCfg} {F0 : CNF Nat} {F_cur : List (Li
     rw [hrsnN _ hrs.1]; exact hrmI idx hidx hlp hlg
   have hrrN : S5RedRefsOk sN rc := fun j hj => by
     obtain ⟨hjm, hjr⟩ := hrrI j hj; exact ⟨hrefsN ▸ hjm, (hrsnN _ hjm).trans hjr⟩
-  exact ⟨⟨FullM6HdrInvW.mk_inv hst.inv.cfgOk hst.inv.extOk hspN, hst.cl, hst.fu,
-    hst.cv, hst.tmp, hst.tl, hst.ws2, hst.pos, hm'⟩, hrmN, hrefsN, hrrN⟩
+  exact ⟨⟨FullM6HdrInvW.mk_inv hst.inv.cfgOk hst.inv.extOk hspN, hst.cl, hst.prb, hst.mcl,
+    hst.fu, hst.cv, hst.tmp, hst.tl, hst.ws1, hst.ws2, hst.pos, hm'⟩, hrmN, hrefsN, hrrN⟩
 
 /-! ## 2. Post-Compaction End State & Trailing Watermarks -/
 
@@ -367,9 +375,10 @@ private structure S5RedEndSt (force : Bool) (c : FullCfg) (F0 : CNF Nat) (F_cur 
   cv : st.core.cur_vars ≤ s.core.cur_vars
   unsat : ret = 20#64 → F0.Unsat
   force_ok : force = true → c' = c ∧ FullM6HdrInvW c F0 F_cur ext' st ∧
-    st.core.cur_level ≤ s.core.cur_level ∧
-    st.core.cur_vars = s.core.cur_vars ∧ st.core.tmp = s.core.tmp ∧
-    st.core.tmp_len = s.core.tmp_len ∧ st.scratch.work_stk2 = s.scratch.work_stk2 ∧
+    st.core.cur_level ≤ s.core.cur_level ∧ st.core.probing = s.core.probing ∧
+    st.core.min_clr_len = s.core.min_clr_len ∧ st.core.cur_vars = s.core.cur_vars ∧
+    st.core.tmp = s.core.tmp ∧ st.core.tmp_len = s.core.tmp_len ∧
+    st.scratch.work_stk1 = s.scratch.work_stk1 ∧ st.scratch.work_stk2 = s.scratch.work_stk2 ∧
     (ret = 1#64 → s.core.oom = 0#64 → st.core.oom = 0#64) ∧
     (ret = 1#64 → 0 < st.core.cur_level →
       st.core.cur_level = s.core.cur_level ∧ st.core.vals = s.core.vals ∧
@@ -384,9 +393,10 @@ private abbrev S5RedPost (force : Bool) (c : FullCfg) (F0 : CNF Nat) (F_cur : Li
     s'.core.fuel.toNat ≤ s.core.fuel.toNat → (r = 20#64 → F0.Unsat) →
     (r = 1#64 → s'.core.cur_level ≤ s.core.cur_level) →
     (force = true → c' = c ∧ FullM6HdrInvW c F0 F_cur ext' s' ∧
-      s'.core.cur_level ≤ s.core.cur_level ∧
-      s'.core.cur_vars = s.core.cur_vars ∧ s'.core.tmp = s.core.tmp ∧
-      s'.core.tmp_len = s.core.tmp_len ∧ s'.scratch.work_stk2 = s.scratch.work_stk2 ∧
+      s'.core.cur_level ≤ s.core.cur_level ∧ s'.core.probing = s.core.probing ∧
+      s'.core.min_clr_len = s.core.min_clr_len ∧ s'.core.cur_vars = s.core.cur_vars ∧
+      s'.core.tmp = s.core.tmp ∧ s'.core.tmp_len = s.core.tmp_len ∧
+      s'.scratch.work_stk1 = s.scratch.work_stk1 ∧ s'.scratch.work_stk2 = s.scratch.work_stk2 ∧
       (r = 1#64 → s.core.oom = 0#64 → s'.core.oom = 0#64) ∧
       (r = 1#64 → 0 < s'.core.cur_level →
         s'.core.cur_level = s.core.cur_level ∧ s'.core.vals = s.core.vals ∧
@@ -401,10 +411,9 @@ private theorem s5RedEndSt_of_redSt {force : Bool} {c : FullCfg} {F0 : CNF Nat}
     (hdom : ret = 0#64 ∨ ret = 1#64 ∨ ret = 20#64) (hu : ret = 20#64 → F0.Unsat)
     (ho : ret = 1#64 → s.core.oom = 0#64 → st.core.oom = 0#64) :
     S5RedEndSt force c F0 F_cur s R c ext st ml ret :=
-  ⟨FullCfgCompat.refl c, hst.inv.toInv, hdom, fun _ => hst.cl, hst.fu,
-    hst.cv ▸ Nat.le_refl _, hu,
-    fun _ => ⟨rfl, hst.inv, hst.cl, hst.cv, hst.tmp, hst.tl, hst.ws2, ho, fun _ => hst.pos⟩,
-    hst.mem⟩
+  ⟨FullCfgCompat.refl c, hst.inv.toInv, hdom, fun _ => hst.cl, hst.fu, hst.cv ▸ Nat.le_refl _,
+    hu, fun _ => ⟨rfl, hst.inv, hst.cl, hst.prb, hst.mcl, hst.cv, hst.tmp, hst.tl, hst.ws1,
+      hst.ws2, ho, fun _ => hst.pos⟩, hst.mem⟩
 
 private theorem s5RedEndSt_w2a {force : Bool} {c c' : FullCfg} {F0 : CNF Nat}
     {F_cur : List (List Nat)} {s st s' : FullState} {R : Mem 64 → Prop}
@@ -416,13 +425,13 @@ private theorem s5RedEndSt_w2a {force : Bool} {c c' : FullCfg} {F0 : CNF Nat}
   have hinv' := fullM6HdrInv_with_ext (fullM6HdrInv_of_m6Pres hend.inv hl hc hms) hext
   refine ⟨hend.compat, hinv', hend.ret_dom, fun h1 => hc ▸ hend.cl1 h1, hc ▸ hend.fu,
     hc ▸ hend.cv, hend.unsat, fun hf => ?_, hm'⟩
-  obtain ⟨hcc, hinvW, hcl, hcv, htmp, htl, hws2, ho, hpos⟩ := hend.force_ok hf
+  obtain ⟨hcc, hinvW, hcl, hprb, hmcl, hcv, htmp, htl, hws1, hws2, ho, hpos⟩ := hend.force_ok hf
   subst hcc
   have hsp := hinvW.sparseW
   have hsp' : FullSparseInvW c' F0 F_cur s' :=
     fullSparseInvW_of_core_eq hsp hl hc hms.extPres
-  exact ⟨rfl, FullM6HdrInvW.mk_inv hinvW.cfgOk hext hsp', hc ▸ hcl, hc ▸ hcv,
-    hc ▸ htmp, hc ▸ htl, hms.ws2.trans hws2,
+  exact ⟨rfl, FullM6HdrInvW.mk_inv hinvW.cfgOk hext hsp', hc ▸ hcl, hc ▸ hprb, hc ▸ hmcl,
+    hc ▸ hcv, hc ▸ htmp, hc ▸ htl, hms.ws1.trans hws1, hms.ws2.trans hws2,
     fun h1 hso => by rw [hc]; exact ho h1 hso,
     fun h1 hgt => by rw [hc] at hgt ⊢; exact hpos h1 hgt⟩
 
@@ -476,7 +485,8 @@ private theorem s5_reduce_jt_loop {Γ : Env} {ret : Val i64} {c : FullCfg} {F0 :
     {R : Mem 64 → Prop} {mT : Mem 64} {Q : Post [i64]} {X : XPost} {Jt : Cont [i64]}
     {e_else : Expr Val Cont [i64]} (hret : ret = 1#64)
     (hProp : ∀ a m Q X, step13BcpM6Spec a m Q X → Γ "full_propagate" [i64] [i64] a m Q X)
-    (hSweep : ∀ a m Q X, fullArenaSweepSpec a m Q X → Γ "full_arena_sweep" [i64] [i64] a m Q X)
+    (hSweep : ∀ a m Q X, step13ArenaSweepSpec a m Q X →
+      Γ "full_arena_sweep" [i64] [i64] a m Q X)
     (hJt : ∀ (xs : Tup Val [i64]) (m : Mem 64), (match xs with
       | (rret, ()) => ∃ extR st,
         S5RedSt c F0 F_cur s R extR st m ∧ (rret = 0#64 ∨ rret = 1#64 ∨ rret = 20#64) ∧
@@ -517,8 +527,8 @@ private theorem s5_reduce_jt_loop {Γ : Env} {ret : Val i64} {c : FullCfg} {F0 :
       hrm_st, hmf,
       fun sr vals' flags' lvl' rsns' trl' tp' te' unass' unfl' wvec'
         wstk' arena' alen' wlen' wu' fred' ni' nr' nb' oom' sc' mA
-        hlenA hsr_dom hextA hws2A hllA hwA hndA hoomA hposA hsr1 hsr2 _hsr3 hmA => ?_⟩
-    have hstA := s5RedSt_arena_sweep hst_st hlenA hwA hndA hllA hextA
+        hlenA hsr_dom hextA hws1A hws2A hllA hwA hndA hoomA hposA hsr1 hsr2 _hsr3 hmA => ?_⟩
+    have hstA := s5RedSt_arena_sweep hst_st hlenA hwA hndA hllA hextA hws1A
       hws2A (fun hpos => by
         obtain ⟨_, _, hv, hl, ht, htp, hte⟩ := hposA hpos
         exact ⟨hv, hl, ht, htp, hte⟩) (fullM6HdrMem_unfocus_full hmA)
@@ -563,7 +573,8 @@ private theorem s5_reduce_j4_post {Γ : Env} {ret : Val i64} {force do_compact :
     (hMarkRsn : ∀ a m Q X, fullMarkReasonsSpec a m Q X →
       Γ "full_mark_reasons" [i64, .bool] [] a m Q X)
     (hProp : ∀ a m Q X, step13BcpM6Spec a m Q X → Γ "full_propagate" [i64] [i64] a m Q X)
-    (hSweep : ∀ a m Q X, fullArenaSweepSpec a m Q X → Γ "full_arena_sweep" [i64] [i64] a m Q X)
+    (hSweep : ∀ a m Q X, step13ArenaSweepSpec a m Q X →
+      Γ "full_arena_sweep" [i64] [i64] a m Q X)
     (hJret : ∀ (xs : Tup Val [i64]) (m : Mem 64), (match xs with
       | (rret, ()) => ∃ extR sR,
         S5RedSt c F0 F_cur s R extR sR m ∧ (rret = 0#64 ∨ rret = 1#64 ∨ rret = 20#64) ∧
@@ -856,7 +867,7 @@ private theorem s5_reduce_unflushed {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
           exact hJB () _
             ⟨_, s5RedSt_backtrack0 hst0 hlen'
               (hw' F0 F_cur hst0.inv.sparseW.2.1 (Nat.zero_le _))
-              (by rw [hsc_eq]) (by rw [hsc_eq]) (by rw [hsc_eq])
+              (by rw [hsc_eq]) (by rw [hsc_eq]) (by rw [hsc_eq]) (by rw [hsc_eq])
               (fullM6HdrMem_unfocus_full hm'),
               rfl, fun h => by dsimp only; rwa [hs0_core]⟩
         · have hcl0 : s0.core.cur_level = 0 := by
@@ -941,7 +952,7 @@ private theorem s5_reduce_push_rc {Γ : Env} {rc p : Val i64} {keep : Val .bool}
     have hmU' : (FullMem c sU' ⋆ (m6ExtMem (m6ExtAddr c.hdr) ext2 ⋆ R)) m := hm
     have hstU' := s5RedSt_with_scratch hstU (sc' := scU')
       { hlenU.scratch_ok with red_refs_len := by simp [scU', hrrlU] }
-      rfl rfl rfl (fullM6HdrMem_unfocus hmU')
+      rfl rfl rfl rfl (fullM6HdrMem_unfocus hmU')
     have hp_sw : p.setWidth 32 = BitVec.ofNat 32 p.toNat := BitVec.eq_of_toNat_eq
       (by rw [hp_trunc, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hp_lt32])
     have hrrU' : S5RedRefsOk sU' (rc + 1#64).toNat := by
@@ -1021,14 +1032,10 @@ private theorem full_reduce_m6_s5_core (Γ : Env)
       Γ "full_update_classify_fid" [i64] [] a m Q X)
     (hMarkRsn : ∀ a m Q X, fullMarkReasonsSpec a m Q X →
       Γ "full_mark_reasons" [i64, .bool] [] a m Q X)
-    (hSortReds : ∀ a m Q X, step13SortRedsSpec a m Q X →
-      Γ "full_sort_reds" [i64, i64] [] a m Q X)
-    (hBacktrack : ∀ a m Q X, fullBacktrackSpec a m Q X →
-      Γ "full_backtrack" [i64, i64] [] a m Q X)
-    (hProp : ∀ a m Q X, step13BcpM6Spec a m Q X →
-      Γ "full_propagate" [i64] [i64] a m Q X)
-    (hSweep : ∀ a m Q X, fullArenaSweepSpec a m Q X →
-      Γ "full_arena_sweep" [i64] [i64] a m Q X)
+    (hSortReds : ∀ a m Q X, step13SortRedsSpec a m Q X → Γ "full_sort_reds" [i64, i64] [] a m Q X)
+    (hBacktrack : ∀ a m Q X, fullBacktrackSpec a m Q X → Γ "full_backtrack" [i64, i64] [] a m Q X)
+    (hProp : ∀ a m Q X, step13BcpM6Spec a m Q X → Γ "full_propagate" [i64] [i64] a m Q X)
+    (hSweep : ∀ a m Q X, step13ArenaSweepSpec a m Q X → Γ "full_arena_sweep" [i64] [i64] a m Q X)
     (hCompNeed : ∀ a m Q X, fullCompactNeededM6Spec a m Q X →
       Γ "full_compact_needed" [i64] [.bool] a m Q X)
     (hCompact : ∀ a m Q X, step13CompactM6Spec a m Q X →
@@ -1047,17 +1054,14 @@ private theorem full_reduce_m6_s5_core (Γ : Env)
   refine wp_m6Hdr_focus_frame hm0 fun hmf => ?_
   c0_hfast_nogrp; c0_call hIsqrt; intro r_isq hsq1 hsq2 hsq3; clear hsq1 hsq2 hsq3
   dsimp only; c0_hfast_nogrp
-  let s0 : FullState := { s with scratch :=
-    { s.scratch with
-      reductions := s.scratch.reductions + 1#64
-      reduce_limit := s.scratch.conflicts + r_isq } }
-  have hlen0 : s0.LengthsOk c :=
-    ⟨hinv.sparseW.1.core_ok, { hinv.sparseW.1.scratch_ok with
-      walk_vals_len := hinv.sparseW.1.scratch_ok.walk_vals_len }⟩
+  let s0 : FullState := { s with scratch := { s.scratch with
+    reductions := s.scratch.reductions + 1#64, reduce_limit := s.scratch.conflicts + r_isq } }
+  have hlen0 : s0.LengthsOk c := ⟨hinv.sparseW.1.core_ok,
+    { hinv.sparseW.1.scratch_ok with walk_vals_len := hinv.sparseW.1.scratch_ok.walk_vals_len }⟩
   have hmf0 : (FullMem c s0 ⋆ (m6ExtMem (m6ExtAddr c.hdr) ext ⋆ R)) m := by
     simpa only [s0, BitVec.ofNat_eq_ofNat] using hm
   have hst0 : S5RedSt c F0 F_cur s R ext s0 m :=
-    s5RedSt_with_scratch hst_init hlen0.scratch_ok rfl rfl rfl (fullM6HdrMem_unfocus hmf0)
+    s5RedSt_with_scratch hst_init hlen0.scratch_ok rfl rfl rfl rfl (fullM6HdrMem_unfocus hmf0)
   refine wp_join_group (fun ((ret : Val i64), ()) m1 => ∃ ext1 s1,
       S5RedSt c F0 F_cur s R ext1 s1 m1 ∧ (ret = 0#64 ∨ ret = 1#64 ∨ ret = 20#64) ∧
       (ret = 20#64 → F0.Unsat) ∧ (ret = 1#64 → s.core.oom = 0#64 → s1.core.oom = 0#64)) ?_ ?_
@@ -1259,7 +1263,7 @@ private theorem full_reduce_m6_s5_core (Γ : Env)
                       { sL.scratch with red_refs := rr', scratch_buf := sb' }
                     have hstS := s5RedSt_with_scratch hstL (sc' := scS)
                       { hlenL.scratch_ok with red_refs_len := hrr_len, scratch_buf_len := hsb_len }
-                      rfl rfl rfl (fullM6HdrMem_unfocus_full hmS)
+                      rfl rfl rfl rfl (fullM6HdrMem_unfocus_full hmS)
                     have hrrS : S5RedRefsOk { sL with scratch := scS } rc.toNat :=
                       fun k hk => by
                         obtain ⟨j, hj, heq⟩ := hpermS k hk
@@ -1277,20 +1281,17 @@ private theorem full_reduce_m6_s5_core (Γ : Env)
                           (fun (_ : Tup Val [i64]) mb => mb = mS)
                           (fun _ ⟨_qv, ⟨⟩⟩ mb hmb => by
                             subst mb
-                            c0_hfast_nogrp; c0_call hDiv; intro d1
-                            dsimp only; c0_hfast_nogrp; c0_call hSub; intro pct
-                            dsimp only; c0_hfast_nogrp; c0_call hDiv; intro frac
-                            dsimp only; c0_hfast_nogrp; c0_call hFromU64; intro frc
-                            dsimp only; c0_hfast_nogrp; c0_call hMul; intro fprod
-                            dsimp only; c0_hfast_nogrp; c0_call hToU64; intro target
-                            dsimp only; c0_hfast_nogrp
-                            exact s5_reduce_mark_garb_loop (sS := sS) hJ4 hstS hoomL hrmL hrc_le
-                              hrrS)
-                          (fun Jq hJq => by
-                            dsimp only; c0_hfast_nogrp
-                            · exact hJq (_, ()) mS rfl
-                            · exact hJq (_, ()) mS rfl))
-                      (fun Jarg hJarg => by
+                            c0_hfast_nogrp; c0_call hDiv; intro d1; dsimp only
+                            c0_hfast_nogrp; c0_call hSub; intro pct; dsimp only
+                            c0_hfast_nogrp; c0_call hDiv; intro frac; dsimp only
+                            c0_hfast_nogrp; c0_call hFromU64; intro frc; dsimp only
+                            c0_hfast_nogrp; c0_call hMul; intro fprod; dsimp only
+                            c0_hfast_nogrp; c0_call hToU64; intro target; dsimp only
+                            c0_hfast_nogrp; exact s5_reduce_mark_garb_loop (sS := sS)
+                              hJ4 hstS hoomL hrmL hrc_le hrrS)
+                          (fun _ hJq => by
+                            dsimp only; c0_hfast_nogrp <;> exact hJq (_, ()) mS rfl))
+                      (fun _ hJarg => by
                         dsimp only; c0_hfast_nogrp <;> exact hJarg (_, ()) mS rfl)
                   · exact hJ4 () mL ⟨sL, hstL, hoomL, hrmL⟩
         · intro Jdc hJdc
@@ -1331,14 +1332,10 @@ theorem full_reduce_m6_s5_wp (Γ : Env)
       Γ "full_update_classify_fid" [i64] [] a m Q X)
     (hMarkRsn : ∀ a m Q X, fullMarkReasonsSpec a m Q X →
       Γ "full_mark_reasons" [i64, .bool] [] a m Q X)
-    (hSortReds : ∀ a m Q X, step13SortRedsSpec a m Q X →
-      Γ "full_sort_reds" [i64, i64] [] a m Q X)
-    (hBacktrack : ∀ a m Q X, fullBacktrackSpec a m Q X →
-      Γ "full_backtrack" [i64, i64] [] a m Q X)
-    (hProp : ∀ a m Q X, step13BcpM6Spec a m Q X →
-      Γ "full_propagate" [i64] [i64] a m Q X)
-    (hSweep : ∀ a m Q X, fullArenaSweepSpec a m Q X →
-      Γ "full_arena_sweep" [i64] [i64] a m Q X)
+    (hSortReds : ∀ a m Q X, step13SortRedsSpec a m Q X → Γ "full_sort_reds" [i64, i64] [] a m Q X)
+    (hBacktrack : ∀ a m Q X, fullBacktrackSpec a m Q X → Γ "full_backtrack" [i64, i64] [] a m Q X)
+    (hProp : ∀ a m Q X, step13BcpM6Spec a m Q X → Γ "full_propagate" [i64] [i64] a m Q X)
+    (hSweep : ∀ a m Q X, step13ArenaSweepSpec a m Q X → Γ "full_arena_sweep" [i64] [i64] a m Q X)
     (hCompNeed : ∀ a m Q X, fullCompactNeededM6Spec a m Q X →
       Γ "full_compact_needed" [i64] [.bool] a m Q X)
     (hCompact : ∀ a m Q X, step13CompactM6Spec a m Q X →
@@ -1350,8 +1347,8 @@ theorem full_reduce_m6_s5_wp (Γ : Env)
     hRecomp hSetWm hUpdCls hMarkRsn hSortReds hBacktrack hProp hSweep hCompNeed hCompact hinv hm0
     fun r c' ext' s' m' hcmp hinv' hr hcv hfu hu hcl hf hm' =>
       hQ r c' ext' s' m' hcmp hinv' hr hcv hfu hu hcl
-        (fun hft => let ⟨hc, hinvW, _, hv, htmp, htl, hws2, ho, hp⟩ := hf hft
-          ⟨hc, hinvW, hv, htmp, htl, hws2, ho, hp⟩) hm'
+        (fun hft => let ⟨hc, hinvW, _, hprb, hmcl, hv, htmp, htl, hws1, hws2, ho, hp⟩ := hf hft
+          ⟨hc, hinvW, hprb, hmcl, hv, htmp, htl, hws1, hws2, ho, hp⟩) hm'
 
 theorem full_reduce_m6_force_s5_wp (Γ : Env)
     (hIsqrt : ∀ a m Q X, fullIsqrtSpec a m Q X → Γ "full_isqrt" [i64] [i64] a m Q X)
@@ -1371,14 +1368,10 @@ theorem full_reduce_m6_force_s5_wp (Γ : Env)
       Γ "full_update_classify_fid" [i64] [] a m Q X)
     (hMarkRsn : ∀ a m Q X, fullMarkReasonsSpec a m Q X →
       Γ "full_mark_reasons" [i64, .bool] [] a m Q X)
-    (hSortReds : ∀ a m Q X, step13SortRedsSpec a m Q X →
-      Γ "full_sort_reds" [i64, i64] [] a m Q X)
-    (hBacktrack : ∀ a m Q X, fullBacktrackSpec a m Q X →
-      Γ "full_backtrack" [i64, i64] [] a m Q X)
-    (hProp : ∀ a m Q X, step13BcpM6Spec a m Q X →
-      Γ "full_propagate" [i64] [i64] a m Q X)
-    (hSweep : ∀ a m Q X, fullArenaSweepSpec a m Q X →
-      Γ "full_arena_sweep" [i64] [i64] a m Q X)
+    (hSortReds : ∀ a m Q X, step13SortRedsSpec a m Q X → Γ "full_sort_reds" [i64, i64] [] a m Q X)
+    (hBacktrack : ∀ a m Q X, fullBacktrackSpec a m Q X → Γ "full_backtrack" [i64, i64] [] a m Q X)
+    (hProp : ∀ a m Q X, step13BcpM6Spec a m Q X → Γ "full_propagate" [i64] [i64] a m Q X)
+    (hSweep : ∀ a m Q X, step13ArenaSweepSpec a m Q X → Γ "full_arena_sweep" [i64] [i64] a m Q X)
     (hCompNeed : ∀ a m Q X, fullCompactNeededM6Spec a m Q X →
       Γ "full_compact_needed" [i64] [.bool] a m Q X)
     (hCompact : ∀ a m Q X, step13CompactM6Spec a m Q X →
@@ -1390,7 +1383,7 @@ theorem full_reduce_m6_force_s5_wp (Γ : Env)
   exact full_reduce_m6_s5_core Γ hIsqrt hLog10 hSub hDiv hFromU64 hMul hToU64 hArenaNext
     hRecomp hSetWm hUpdCls hMarkRsn hSortReds hBacktrack hProp hSweep hCompNeed hCompact hinv hm0
     fun r c' ext' s' m' _ _ hr _ hfu hu _ hf hm' =>
-      let ⟨rfl, hinvW, hcl, hv, htmp, htl, hws2, ho, hp⟩ := hf rfl
+      let ⟨rfl, hinvW, hcl, _, _, hv, htmp, htl, _, hws2, ho, hp⟩ := hf rfl
       hQ r ext' s' m' hinvW hr hcl hfu hv htmp htl hws2 hu ho hp hm'
 
 end LeanQbe.T.Examples.Kissat.FullFidelityStep13S5

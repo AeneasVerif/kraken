@@ -40,8 +40,8 @@ open scoped FullArenaTactics FullVivTopTactics FullM6Hdr.M6HdrTactics
 
 @[expose] public section
 
-/-- Read-only `FullState`-preserving spec for unchanged `m6_hdr_get_watermark(h, kind)`
-needed where `full_vivify_tier_m6_hdr` calls it inside the `red_refs` loop guard. -/
+/-- Read-only `FullState`-preserving spec for `m6_hdr_get_watermark(h, kind)`, used ONLY by
+`full_vivify_tier_m6_hdr_s5_wp` (`red_refs` preserved across loop guard; Option A `#3543`). -/
 def step13HdrGetWatermarkSpec : Spec [i64, i64] [i64] :=
   fun (h, _kind, ()) m Q _ =>
     ∃ (c : FullCfg) (ext : List (BitVec 64)) (s : FullState) (R : Mem 64 → Prop),
@@ -737,7 +737,7 @@ theorem full_vivify_m6_hdr_s5_wp (Γ : Env)
       Γ "m6_hdr_get_tier2" [i64, .bool] [i64] a m Q X)
     (hDelaying : ∀ a m Q X, m6HdrW2aSpec [i64] [.bool] a m Q X →
       Γ "m6_hdr_delaying" [i64, i64] [.bool] a m Q X)
-    (hGetWm : ∀ a m Q X, step13HdrGetWatermarkSpec a m Q X →
+    (hGetWm : ∀ a m Q X, m6HdrW2aSpec [i64] [i64] a m Q X →
       Γ "m6_hdr_get_watermark" [i64, i64] [i64] a m Q X)
     (hVivTier : ∀ a m Q X, step13VivifyTierSpec a m Q X →
       Γ "full_vivify_tier_m6_hdr" [i64, i64, i64, i64] [i64] a m Q X)
@@ -839,8 +839,12 @@ theorem full_vivify_m6_hdr_s5_wp (Γ : Env)
       have hten_nz : (10#64 : BitVec 64) ≠ 0#64 := by decide
       c0_hsteps_nogrp
       s13_call hGetWm
-      refine ⟨c, ext3, s3, R, rfl, hcfg, hext3, hsp3.1.lengths,
-        ((fullM6HdrMem_iff ..).mpr hm3), fun last_p ext4 m4 hext4 hw4 hm4 => ?_⟩
+      refine m6HdrW2aSpec_of rfl hcfg hext3 hsp3.1.lengths ((fullM6HdrMem_iff ..).mpr hm3)
+        fun ⟨last_p, ⟨⟩⟩ ext4 s4 m4 hcore4 hlen4 hsc4 hext4 hw4 hm4 => ?_
+      have hsp4 := s13_sparse_of_core_eq hsp3 hlen4 hcore4 hsc4
+      have hcl4 : s4.core.cur_level = 0 := by rw [hcore4]; exact hcl3
+      have hpr4 : s4.core.probing = s.core.probing := by rw [hcore4]; exact hpr3
+      have hfl4 : s4.core.fuel.toNat ≤ s.core.fuel.toNat := by rw [hcore4]; exact hfl3
       have hpres4 := s13_ext_pres_trans hpres3 hw4
       rw [fullM6HdrMem_iff] at hm4
       c0_hsteps_nogrp
@@ -854,8 +858,12 @@ theorem full_vivify_m6_hdr_s5_wp (Γ : Env)
         (fun _ hJw12 => by c0_hsteps <;> exact hJw12 _ m4 rfl)
       rintro _ ⟨w1', w2', ⟨⟩⟩ mw12 hmw12; rw [hmw12]; c0_hsteps_nogrp
       s13_call hGetWm
-      refine ⟨c, ext4, s3, R, rfl, hcfg, hext4, hsp3.1.lengths,
-        ((fullM6HdrMem_iff ..).mpr hm4), fun lim0 ext5 m5 hext5 hw5 hm5 => ?_⟩
+      refine m6HdrW2aSpec_of rfl hcfg hext4 hsp4.1.lengths ((fullM6HdrMem_iff ..).mpr hm4)
+        fun ⟨lim0, ⟨⟩⟩ ext5 s5 m5 hcore5 hlen5 hsc5 hext5 hw5 hm5 => ?_
+      have hsp5 := s13_sparse_of_core_eq hsp4 hlen5 hcore5 hsc5
+      have hcl5 : s5.core.cur_level = 0 := by rw [hcore5]; exact hcl4
+      have hpr5 : s5.core.probing = s.core.probing := by rw [hcore5]; exact hpr4
+      have hfl5 : s5.core.fuel.toNat ≤ s.core.fuel.toNat := by rw [hcore5]; exact hfl4
       have hpres5 := s13_ext_pres_trans hpres4 hw5
       have hbud : (0xFFFFFFFF#64 : BitVec 64) ≠ 0#64 := by decide
       let TierPost (res : Val i64) (ext_n : List (BitVec 64)) (sn : FullState) (mn : Mem 64) :
@@ -1016,12 +1024,12 @@ theorem full_vivify_m6_hdr_s5_wp (Γ : Env)
             (fun _ hJl => by c0_hsplit <;> (c0_hsteps; exact hJl _ m5 rfl))
           rintro _ ⟨_lim1, ⟨⟩⟩ ml hml; rw [hml]; c0_hsteps_nogrp
           s13_call hVivTier
-          refine ⟨c, F0, ext5, s3, R, rfl, hcfg, hext5, hsp3,
+          refine ⟨c, F0, ext5, s5, R, rfl, hcfg, hext5, hsp5,
             ((fullM6HdrMem_iff ..).mpr hm5),
             fun r1 ext1' s1' m1' ⟨hext1', hp1'⟩ hsp1' _ hpr1' hcl1' hfl1' hr1' h20_1' hm1' => ?_⟩
           exact hJ1 (r1, _, ()) m1' ⟨ext1', s1', hext1', s13_ext_pres_trans hpres5 hp1',
-            hsp1', hcl1' hbud, hpr1'.trans hpr3, Nat.le_trans hfl1' hfl3, hr1', h20_1', hm1'⟩
-        · exact hJ1 (1#64, lim0, ()) _ ⟨ext5, s3, hext5, hpres5, hsp3, hcl3, hpr3, hfl3,
+            hsp1', hcl1' hbud, hpr1'.trans hpr5, Nat.le_trans hfl1' hfl5, hr1', h20_1', hm1'⟩
+        · exact hJ1 (1#64, lim0, ()) _ ⟨ext5, s5, hext5, hpres5, hsp5, hcl5, hpr5, hfl5,
             Or.inl rfl, (fun h => by cases h), ((fullM6HdrMem_iff ..).mpr hm5)⟩
   · intro Jb hJb
     fvt_steps

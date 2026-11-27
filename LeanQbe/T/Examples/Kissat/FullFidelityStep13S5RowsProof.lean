@@ -433,7 +433,7 @@ theorem full_reduce_m6_s5_impl (Γ : Env)
     (hBacktrack : ∀ a m Q X, fullBacktrackSpec a m Q X →
       Γ "full_backtrack" [i64, i64] [] a m Q X)
     (hProp : ∀ a m Q X, step13BcpM6Spec a m Q X → Γ "full_propagate" [i64] [i64] a m Q X)
-    (hSweep : ∀ a m Q X, fullArenaSweepSpec a m Q X →
+    (hSweep : ∀ a m Q X, step13ArenaSweepSpec a m Q X →
       Γ "full_arena_sweep" [i64] [i64] a m Q X)
     (hCompNeed : ∀ a m Q X, fullCompactNeededM6Spec a m Q X →
       Γ "full_compact_needed" [i64] [.bool] a m Q X)
@@ -609,7 +609,7 @@ theorem full_vivify_m6_hdr_s5_impl (Γ : Env)
       Γ "m6_hdr_get_tier2" [i64, .bool] [i64] a m Q X)
     (hDelaying : ∀ a m Q X, m6HdrW2aSpec [i64] [.bool] a m Q X →
       Γ "m6_hdr_delaying" [i64, i64] [.bool] a m Q X)
-    (hGetWm : ∀ a m Q X, step13HdrGetWatermarkSpec a m Q X →
+    (hGetWm : ∀ a m Q X, m6HdrW2aSpec [i64] [i64] a m Q X →
       Γ "m6_hdr_get_watermark" [i64, i64] [i64] a m Q X)
     (hVivTier : ∀ a m Q X, step13VivifyTierSpec a m Q X →
       Γ "full_vivify_tier_m6_hdr" [i64, i64, i64, i64] [i64] a m Q X)

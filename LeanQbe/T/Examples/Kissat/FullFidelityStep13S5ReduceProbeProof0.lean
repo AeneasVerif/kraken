@@ -310,8 +310,39 @@ def step13SetInactiveSpec : Spec [i64, i32, i32] [] := fun (h, v, _flag, ()) m Q
         s'.LengthsOk c →
         (FullMem c s' ⋆ R) m' → Q () m'
 
+/-- Step-13 `full_arena_sweep` contract (`FullSpec2.fullArenaSweepSpec` + `sc'.work_stk1`
+preservation, needed so `force = true` `full_reduce_m6` preserves `work_stk1` for `S2`). -/
+def step13ArenaSweepSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
+  ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
+    h = c.hdr ∧ s.LengthsOk c ∧ FullWitnessInv c F0 F_cur s.core ∧ FullArenaVarsNodup s ∧
+    s.core.dense_mode = 0#64 ∧ (0 < s.core.cur_level → FullReasonsMarked s) ∧ (FullMem c s ⋆ R) m ∧
+    ∀ r vals' flags' lvl' rsns' trl' tp' te' unass' unfl' wvec' wstk' arena' alen' wlen' wu'
+      fred' ni' nr' nb' oom' sc' m',
+      let s' : FullState :=
+        { s with
+          core := { s.core with vals := vals', flags := flags', lvl := lvl', rsns := rsns',
+                                trl := trl', trail_pos := tp', trail_end := te',
+                                unassigned := unass', unflushed := unfl', wvec := wvec',
+                                wstk := wstk', arena := arena', arena_len := alen', wlen := wlen',
+                                wusable := wu', arena_garbage := 0#64, first_reducible := fred',
+                                num_irred := ni', num_redundant := nr', num_binary := nb',
+                                oom := oom' }
+          scratch := sc' }
+      s'.LengthsOk c → (r = 0#64 ∨ r = 1#64 ∨ r = 2#64 ∨ r = 3#64) →
+      sc'.extend_len = s.scratch.extend_len → sc'.work_stk1 = s.scratch.work_stk1 →
+      sc'.work_stk2 = s.scratch.work_stk2 → FullLastLearnedWf s' →
+      FullWitnessInv c F0 F_cur s'.core → FullArenaVarsNodup s' →
+      (r = 0#64 ∨ r = 1#64 → oom' = 0#64) →
+      (0 < s.core.cur_level → r ≠ 1#64 ∧ r ≠ 2#64 ∧
+        vals' = s.core.vals ∧ lvl' = s.core.lvl ∧ trl' = s.core.trl ∧
+        tp' = s.core.trail_pos ∧ te' = s.core.trail_end) →
+      (r = 1#64 → s.core.cur_level = 0 ∧ s.core.trail_end < te') →
+      (r = 2#64 → s.core.cur_level = 0 ∧ F0.Unsat) →
+      (r = 3#64 → oom' ≠ 0#64) → (FullMem c s' ⋆ R) m' → Q (r, ()) m'
+
 /-- Step-13 compaction-aware `full_reduce_m6` contract (`#3057` §7). When `force = true`,
-compaction is disabled (`do_compact = false`), so exact `FullM6Orch.m6ReduceSpec` holds. -/
+compaction is disabled (`do_compact = false`), so exact `FullM6Orch.m6ReduceSpec` +
+`probing`/`min_clr_len`/`work_stk1` preservation holds for `S2` and `S3`. -/
 def step13ReduceM6Spec : Spec [i64, .bool] [i64] := fun (h, force, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (ext : List (BitVec 64))
     (s : FullState) (R : Mem 64 → Prop),
@@ -322,8 +353,10 @@ def step13ReduceM6Spec : Spec [i64, .bool] [i64] := fun (h, force, ()) m Q _ =>
       s'.core.cur_vars ≤ s.core.cur_vars → s'.core.fuel.toNat ≤ s.core.fuel.toNat →
       (r = 20#64 → F0.Unsat) → (r = 1#64 → s'.core.cur_level ≤ s.core.cur_level) →
       (force = true → c' = c ∧ FullM6HdrInvW c F0 F_cur ext' s' ∧
+        s'.core.probing = s.core.probing ∧ s'.core.min_clr_len = s.core.min_clr_len ∧
         s'.core.cur_vars = s.core.cur_vars ∧ s'.core.tmp = s.core.tmp ∧
-        s'.core.tmp_len = s.core.tmp_len ∧ s'.scratch.work_stk2 = s.scratch.work_stk2 ∧
+        s'.core.tmp_len = s.core.tmp_len ∧ s'.scratch.work_stk1 = s.scratch.work_stk1 ∧
+        s'.scratch.work_stk2 = s.scratch.work_stk2 ∧
         (r = 1#64 → s.core.oom = 0#64 → s'.core.oom = 0#64) ∧
         (r = 1#64 → 0 < s'.core.cur_level →
           s'.core.cur_level = s.core.cur_level ∧ s'.core.vals = s.core.vals ∧
