@@ -1347,8 +1347,9 @@ theorem full_reduce_m6_s5_wp (Γ : Env)
     hRecomp hSetWm hUpdCls hMarkRsn hSortReds hBacktrack hProp hSweep hCompNeed hCompact hinv hm0
     fun r c' ext' s' m' hcmp hinv' hr hcv hfu hu hcl hf hm' =>
       hQ r c' ext' s' m' hcmp hinv' hr hcv hfu hu hcl
-        (fun hft => let ⟨hc, hinvW, _, hprb, hmcl, hv, htmp, htl, hws1, hws2, ho, hp⟩ := hf hft
-          ⟨hc, hinvW, hprb, hmcl, hv, htmp, htl, hws1, hws2, ho, hp⟩) hm'
+        (fun hft =>
+          let ⟨hc, hinvW, hcl', hprb, hmcl, hv, htmp, htl, hws1, hws2, ho, hp⟩ := hf hft
+          ⟨hc, hinvW, hcl', hprb, hmcl, hv, htmp, htl, hws1, hws2, ho, hp⟩) hm'
 
 theorem full_reduce_m6_force_s5_wp (Γ : Env)
     (hIsqrt : ∀ a m Q X, fullIsqrtSpec a m Q X → Γ "full_isqrt" [i64] [i64] a m Q X)

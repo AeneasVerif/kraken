@@ -353,6 +353,7 @@ def step13ReduceM6Spec : Spec [i64, .bool] [i64] := fun (h, force, ()) m Q _ =>
       s'.core.cur_vars ≤ s.core.cur_vars → s'.core.fuel.toNat ≤ s.core.fuel.toNat →
       (r = 20#64 → F0.Unsat) → (r = 1#64 → s'.core.cur_level ≤ s.core.cur_level) →
       (force = true → c' = c ∧ FullM6HdrInvW c F0 F_cur ext' s' ∧
+        s'.core.cur_level ≤ s.core.cur_level ∧
         s'.core.probing = s.core.probing ∧ s'.core.min_clr_len = s.core.min_clr_len ∧
         s'.core.cur_vars = s.core.cur_vars ∧ s'.core.tmp = s.core.tmp ∧
         s'.core.tmp_len = s.core.tmp_len ∧ s'.scratch.work_stk1 = s.scratch.work_stk1 ∧
