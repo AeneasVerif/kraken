@@ -6,14 +6,14 @@ public import LeanQbe.T.Opt
 public import LeanQbe.T.LeanLCNF.Lower1
 public import LeanQbe.T.LeanLCNF.Demo
 public import LeanQbe.T.Examples.LratBytesProg
-public import LeanQbe.T.Examples.Kissat.Full
+public import LeanQbe.T.Examples.Kissat.Plain
 meta import LeanQbe.T.SimplifyGroupPlan
 meta import LeanQbe.T.IfOpt
 meta import LeanQbe.T.Opt
 meta import LeanQbe.T.LeanLCNF.Lower1
 meta import LeanQbe.T.LeanLCNF.Demo
 meta import LeanQbe.T.Examples.LratBytesProg
-meta import LeanQbe.T.Examples.Kissat.Full
+meta import LeanQbe.T.Examples.Kissat.Plain
 
 /-!
 # Tests and Scaling Benchmarks for `LeanQbe.T.SimplifyGroupPlan`
@@ -43,7 +43,7 @@ namespace LeanQbeTest.T.SimplifyGroupPlanTest
 open LeanQbe.T
 open LeanQbe.T.SgpImpl
 open LeanQbe.T.Examples.LratBytes
-open LeanQbe.T.Examples.Kissat.Full
+open LeanQbe.T.Examples.Kissat.Plain
 
 /-! ## 1. Group depth and count metrics helpers -/
 
@@ -306,9 +306,9 @@ def cliffCheckFn (suffix : String) : Bool :=
 #guard cliffCheckFn "RBNode_balance"
 #guard cliffCheckFn "_run"
 
--- Kissat.Full: all 166 functions (`checkTFlat`)
-#guard fullFns.length == 166
-#guard fullFns.all fun fn => (Func.simplifyGroupPlan fn.body).checkTFlat
+-- Kissat.Plain: all 59 functions (`checkTFlat`)
+#guard plainFns.length == 59
+#guard plainFns.all fun fn => (Func.simplifyGroupPlan fn.body).checkTFlat
 
 /-! ## 5. Axiom audits -/
 
@@ -381,8 +381,8 @@ def runBench : IO Unit := do
   for r in lratOut do
     if r.tf.wfCheck (pushTypes r.as []) [] then lratOk := lratOk + 1
 
-  -- 3. Kissat.Full (all 166 fns: raw + post-earlyCore/ifOptBits)
-  let kissatRaw := fullFns.map reifyEntry
+  -- 3. Kissat.Plain (all 59 fns: raw + post-earlyCore/ifOptBits)
+  let kissatRaw := plainFns.map reifyEntry
   let tKis0 ← IO.monoMsNow
   let mut kissatOut : Array ReifiedEntry := #[]
   for r in kissatRaw do
@@ -397,7 +397,7 @@ def runBench : IO Unit := do
     kisGroupsAfter := kisGroupsAfter + tflatGroupCount r1.tf
     if r1.tf.wfCheck (pushTypes r1.as []) [] then kisOk := kisOk + 1
 
-  -- Post-ifOptBits Kissat.Full (exercises real join-group elimination across all 166 fns)
+  -- Post-ifOptBits Kissat.Plain (exercises real join-group elimination across all 59 fns)
   let kissatIfOpt := kissatRaw.map fun (r : ReifiedEntry) =>
     let f0 : Func r.as r.rs := denoteFunc r.tf
     (⟨r.name, r.as, r.rs, reifyFunc (Func.ifOptBits (Func.earlyCore f0))⟩ : ReifiedEntry)
@@ -423,9 +423,9 @@ def runBench : IO Unit := do
   IO.println (s!"LeanLCNF.Demo (102 fns): {lcnfMs} ms, ok={lcnfOk}/102, " ++
     s!"groups={lcnfGroupsBefore}->{lcnfGroupsAfter}")
   IO.println s!"LratBytes (6 fns):       {lratMs} ms, ok={lratOk}/6"
-  IO.println (s!"Kissat.Full raw (166):   {kisMs} ms, ok={kisOk}/166, " ++
+  IO.println (s!"Kissat.Plain raw (59):   {kisMs} ms, ok={kisOk}/59, " ++
     s!"groups={kisGroupsBefore}->{kisGroupsAfter}")
-  IO.println (s!"Kissat.Full opt (166):   {kisOptMs} ms, ok={kisOptOk}/166, " ++
+  IO.println (s!"Kissat.Plain opt (59):   {kisOptMs} ms, ok={kisOptOk}/59, " ++
     s!"groups={kisOptBefore}->{kisOptAfter}")
   IO.println s!"TOTAL simplifyGroupPlan (274 fns + cliff): {totalMs} ms"
   if lcnfMs ≥ 1000 || cliffMs ≥ 1000 || lratMs ≥ 1000 || kisMs ≥ 1000 || kisOptMs ≥ 1000 then

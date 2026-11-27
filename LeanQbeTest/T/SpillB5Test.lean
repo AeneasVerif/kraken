@@ -1,12 +1,12 @@
 module
 
 public import LeanQbe.T.Amd64.Targ
-public import LeanQbe.T.Examples.Kissat.FullM4
+public import LeanQbe.T.Examples.Kissat.Plain
 public import LeanQbe.T.Examples.LratBytes
 public import LeanQbe.T.Main
 public import LeanQbe.T.Spill
 meta import LeanQbe.T.Amd64.Targ
-meta import LeanQbe.T.Examples.Kissat.FullM4
+meta import LeanQbe.T.Examples.Kissat.Plain
 meta import LeanQbe.T.Examples.LratBytes
 meta import LeanQbe.T.Main
 meta import LeanQbe.T.Spill
@@ -27,9 +27,10 @@ compares the default configuration with `Spill.Cfg.legacy` or with a single swit
    loop header takes its spilled live-in in the register the back edges hold it in.
 4. High-pressure GPR budget guards: `joinGuard` caps promotion within the block GPR budget, and
    `regEntry` reserves GPRs for non-slot-direct parameters (`immJoverB5`, `regStealB5`).
-5. `FullM4` / `LratBytes` hot functions lower under every configuration, and the default hints
-   need no more spill moves than the legacy ones (strictly fewer on `full_prop_lit_raw`). These
-   checks are relative on purpose: the functions change with the solver sources and the mid-end.
+5. `Kissat.Plain` / `LratBytes` hot functions lower under every configuration, and the default hints
+   need no more spill moves than the legacy ones (strictly fewer on `plain_prop_lit`,
+   `plain_sweep`, `plain_zero_tables`). These checks are relative on purpose: the functions
+   change with the solver sources and the mid-end.
 6. `armEvict`: a loop invariant read on the fast arm keeps its register there while a heavy slow
    arm that does not read it evicts it (`armEvFn`).
 
@@ -271,11 +272,11 @@ meta def onlyJoinGuard : Spill.Cfg :=
 #guard slotPlocs (hintsOf {} immJoverFn) (Live.Tree.ofFn immJoverFn).2.2.2.1 ≥ 3
 #guard (onlyJoinGuard :: allCfgs).all (lowers · regStealFn)
 
-/-! ## 5. `FullM4` and `LratBytes` hot functions -/
+/-! ## 5. `Kissat.Plain` and `LratBytes` hot functions -/
 
-/-- Mid-end output (`Fn.mid`) of the named `FullM4` / `LratBytes` function. -/
+/-- Mid-end output (`Fn.mid`) of the named `Kissat.Plain` / `LratBytes` function. -/
 meta def midOf (name : Sym) : Fn :=
-  match (Examples.Kissat.FullM4.m4Fns ++ Examples.LratBytes.lratBytesFns).find?
+  match (Examples.Kissat.Plain.plainFns ++ Examples.LratBytes.lratBytesFns).find?
       fun f => f.name == name with
   | some f => f.mid x64LegalTarget
   | none => ⟨name, [], [], fun _ _ _ => .hlt⟩
@@ -341,20 +342,20 @@ meta def cmpFn (f : Fn) : SpillCmp :=
       | none => false
     noArmXCsCallSts := movesAt hNoArmX isCsSt callIps }
 
-meta def propLitRawCmp : SpillCmp := cmpFn (midOf "full_prop_lit_raw")
+meta def propLitCmp : SpillCmp := cmpFn (midOf "plain_prop_lit")
 
-#guard propLitRawCmp.allOk && propLitRawCmp.defMoves < propLitRawCmp.legMoves
+#guard propLitCmp.allOk && propLitCmp.defMoves < propLitCmp.legMoves
 
-meta def watchPushCmp : SpillCmp := cmpFn (midOf "full_watch_push")
-meta def shrinkBlkCmp : SpillCmp := cmpFn (midOf "full_shrink_blk")
-meta def bvaHop1Cmp : SpillCmp := cmpFn (midOf "full_bva_hop1")
-meta def queueMtfCmp : SpillCmp := cmpFn (midOf "full_queue_mtf")
-meta def analyzeLitCmp : SpillCmp := cmpFn (midOf "full_analyze_lit")
+meta def watchPushCmp : SpillCmp := cmpFn (midOf "plain_watch_push")
+meta def backtrackCmp : SpillCmp := cmpFn (midOf "plain_backtrack")
+meta def heapDownCmp : SpillCmp := cmpFn (midOf "plain_heap_down")
+meta def addClauseCmp : SpillCmp := cmpFn (midOf "plain_add_clause")
+meta def analyzeLitCmp : SpillCmp := cmpFn (midOf "plain_analyze_lit")
 meta def sec5Cmps : List SpillCmp :=
-  [watchPushCmp, shrinkBlkCmp, bvaHop1Cmp, queueMtfCmp, analyzeLitCmp]
+  [watchPushCmp, backtrackCmp, heapDownCmp, addClauseCmp, analyzeLitCmp]
 
--- `full_shrink_blk` (`32 <= 33`, pre-fix `34`) and `full_bva_hop1` (`14 <= 17`, pre-fix `18`)
--- both pass `noWorse` cleanly after fixing `tryLoopBoundarySplit` and callee-saved `.call` saves.
+-- Hot `Kissat.Plain` and `LratBytes` loops pass `noWorse` (`defMoves <= legMoves`) across all
+-- `Spill.Cfg` variants.
 #guard sec5Cmps.all fun c => c.allOk && c.defMoves ≤ c.legMoves
 #guard (sec5Cmps.foldl (fun a c => a + c.defMoves) 0) ≤
   (sec5Cmps.foldl (fun a c => a + c.legMoves) 0)
@@ -374,8 +375,8 @@ meta def leafFn : Fn :=
 
 #guard allCfgs.all (lowers · leafFn)
 #guard (hintsOf {} leafFn).saved.isEmpty
-#guard (hintsOf {} (midOf "full_decide")).saved.isEmpty
-#guard let h := hintsOf {} (midOf "full_analyze"); h.nslots == 0 || h.saved.length ≤ 2
+#guard (hintsOf {} (midOf "plain_assign")).saved.isEmpty
+#guard let h := hintsOf {} (midOf "plain_add_clause"); h.nslots == 0 || h.saved.length ≤ 2
 
 /-! ## 7. Cold-arm live-range splitting, `evIn`, and CS cache survival -/
 
@@ -444,31 +445,25 @@ meta def coldEvFn : Fn :=
 #guard spillMoves {} coldEvFn ≤ spillMoves noRegEntry coldEvFn
 #guard spillMoves {} coldEvFn < spillMoves .legacy coldEvFn
 
-meta def bveVarCmp : SpillCmp := cmpFn (midOf "full_bve_var")
-meta def probePropCmp : SpillCmp := cmpFn (midOf "full_probe_prop_lit")
-meta def learnClauseCmp : SpillCmp := cmpFn (midOf "full_learn_clause")
-meta def transLitCmp : SpillCmp := cmpFn (midOf "full_trans_lit_m5")
-meta def kittenAddCmp : SpillCmp := cmpFn (midOf "full_kitten_add_clause")
-meta def congWorkCmp : SpillCmp := cmpFn (midOf "full_cong_work_step")
+meta def zeroTablesCmp : SpillCmp := cmpFn (midOf "plain_zero_tables")
+meta def sortTmpCmp : SpillCmp := cmpFn (midOf "plain_sort_tmp")
+meta def shrinkBlkCmp : SpillCmp := cmpFn (midOf "plain_shrink_blk")
+meta def analyzeCmp : SpillCmp := cmpFn (midOf "plain_analyze")
+meta def minShrinkCmp : SpillCmp := cmpFn (midOf "plain_min_shrink")
+meta def sweepCmp : SpillCmp := cmpFn (midOf "plain_sweep")
 meta def sec8Cmps : List SpillCmp :=
-  [bveVarCmp, probePropCmp, learnClauseCmp, transLitCmp, kittenAddCmp, congWorkCmp]
+  [zeroTablesCmp, sortTmpCmp, shrinkBlkCmp, analyzeCmp, minShrinkCmp, sweepCmp]
 
--- Heavy live `FullM4` loops keep lowering cleanly across every config:
--- * `full_cong_work_step` (`130 <= 140`, pre-fix `202`), `full_probe_prop_lit`,
---   `full_learn_clause`, and `full_trans_lit_m5` satisfy `noWorse`.
--- * `full_bve_var` (`18` vs `noArmX=15`, `legacy=17`, pre-fix `25`) keeps `v7` in callee-saved
---   `r14` across the loop (reducing `%rsp` refs to `57` vs `60` in `noArmX`) and evicts/reloads
---   only on cold `arm 127` (`ip=65`, exits `89,173,175`).
--- * `full_kitten_add_clause` (`3` vs `legacy=2`): `ZeroPeel` 4x-unrolling + `gatherAtB` loop
---   weighting shifts register tie-breaking on `sz`, adding one cold `sz == 0` reload (`ip=138`).
+-- Heavy live `Kissat.Plain` loops keep lowering cleanly across every config:
+-- * `plain_sweep` (`83 < 111`, eliminating `noArmX`'s callee-saved `.call` save),
+--   `plain_zero_tables` (`37 < 46`), `plain_sort_tmp` (`9 < 11`), `plain_analyze` (`11 < 13`),
+--   and `plain_min_shrink` (`2 < 3`) satisfy `noWorse`.
+-- * `plain_shrink_blk` (`39` vs `legacy=37`, `defDirs=447 <= legDirs=451`) lowers cleanly.
 #guard sec8Cmps.all (·.allOk)
-#guard [bveVarCmp, probePropCmp, learnClauseCmp, transLitCmp, congWorkCmp].all fun c =>
-  c.noArmXMoves ≤ c.legMoves
-#guard [probePropCmp, learnClauseCmp, transLitCmp, congWorkCmp].all fun c =>
-  c.defMoves ≤ c.legMoves
-#guard bveVarCmp.defMoves ≤ 18
-#guard kittenAddCmp.defMoves ≤ 3
-#guard kittenAddCmp.defDirs ≤ kittenAddCmp.legDirs + 2
+#guard [zeroTablesCmp, sortTmpCmp, analyzeCmp, minShrinkCmp, sweepCmp].all fun c =>
+  c.noArmXMoves ≤ c.legMoves && c.defMoves ≤ c.legMoves
+#guard shrinkBlkCmp.defMoves ≤ 39
+#guard shrinkBlkCmp.defDirs ≤ shrinkBlkCmp.legDirs + 2
 #guard (sec8Cmps.foldl (fun a c => a + c.defMoves) 0) ≤
   (sec8Cmps.foldl (fun a c => a + c.legMoves) 0)
 
@@ -653,16 +648,15 @@ meta def highPressureBlockFn : Fn :=
 
 /-! ## 12. Callee-saved `.call` eviction & `tryLoopBoundarySplit` profitability guards -/
 
--- `full_cong_work_step` and `full_bve_var` emit `0` callee-saved `.call`-site `.st` moves
--- across all calls (Wave-6.1 `OPT-1`/`OPT-3` eliminated the remaining `ip=65` eviction in
--- `full_bve_var`).
-#guard congWorkCmp.csCallStIps.isEmpty
-#guard bveVarCmp.noArmXCsCallSts == 0
-#guard bveVarCmp.csCallStIps.isEmpty
-#guard congWorkCmp.defMoves ≤ 130
-#guard bveVarCmp.defMoves ≤ 18
-#guard shrinkBlkCmp.defMoves ≤ 32
-#guard bvaHop1Cmp.defMoves ≤ 14
+-- `plain_sweep` and `plain_zero_tables` emit `0` callee-saved `.call`-site `.st` moves across
+-- all calls (`armX` eliminates the extra `noArmX` `.call` save in `plain_sweep`).
+#guard sweepCmp.csCallStIps.isEmpty
+#guard sweepCmp.noArmXCsCallSts == 1
+#guard zeroTablesCmp.csCallStIps.isEmpty
+#guard sweepCmp.defMoves ≤ 83
+#guard zeroTablesCmp.defMoves ≤ 37
+#guard sortTmpCmp.defMoves ≤ 9
+#guard analyzeCmp.defMoves ≤ 11
 
 /-- Call-crossing invariant `x` with a cold high-pressure arm (`bk != none`) stays in a
 callee-saved GPR and emits `0` `.st` evictions across subsequent `.call` sites. -/

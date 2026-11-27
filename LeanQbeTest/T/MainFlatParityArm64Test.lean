@@ -68,34 +68,34 @@ theorem compileModuleFlat_ok_implies_compileModule_lrat_arm
       .ok (code, bounds) :=
   compileModule_of_compileModuleFlat _ _ _ [] [] 0 lratBytesTFlatMod hints code bounds hok
 
-theorem compileModuleFlat_ok_implies_compileModule_fidSched_arm
+theorem compileModuleFlat_ok_implies_compileModule_plain1_arm
     (hints : List Arm64.armTarget.toIsa.Hints)
     {code : List Arm64.armTarget.toIsa.Directive} {bounds : List (Sym × Nat)}
     (hok : compileModuleFlat Arm64.armTarget.toIsa Arm64.armLegalTarget
-      Arm64.armTarget.frame.raBytes (fidSchedExtCallees Arm64.armLegalTarget) [] 0
-      fidSchedTFlatMod hints = .ok (code, bounds)) :
+      Arm64.armTarget.frame.raBytes [] [] 0
+      plain1TFlatMod hints = .ok (code, bounds)) :
     compileModule Arm64.armTarget.toIsa Arm64.armLegalTarget
-        Arm64.armTarget.frame.raBytes (fidSchedExtCallees Arm64.armLegalTarget) [] 0
-        (fidSchedTFlatMod.map TFlatFn.toFn) hints =
+        Arm64.armTarget.frame.raBytes [] [] 0
+        (plain1TFlatMod.map TFlatFn.toFn) hints =
       .ok (code, bounds) :=
-  compileModule_of_compileModuleFlat _ _ _ (fidSchedExtCallees Arm64.armLegalTarget) [] 0
-    fidSchedTFlatMod hints code bounds hok
+  compileModule_of_compileModuleFlat _ _ _ [] [] 0
+    plain1TFlatMod hints code bounds hok
 
-theorem fidPreprocessFlat_compileFlatFn_eq_arm (h : Arm64.armTarget.toIsa.Hints) :
+theorem plainFindReplFlat_compileFlatFn_eq_arm (h : Arm64.armTarget.toIsa.Hints) :
     compileFlatFn Arm64.armTarget.toIsa Arm64.armLegalTarget h
-        (fnToTFlat Examples.Kissat.FullM7FidelitySched.fidPreprocessFn) =
+        (fnToTFlat Examples.Kissat.Plain.plain_find_repl) =
       compileFn Arm64.armTarget.toIsa Arm64.armLegalTarget h
-        (fnToTFlat Examples.Kissat.FullM7FidelitySched.fidPreprocessFn).toFn :=
+        (fnToTFlat Examples.Kissat.Plain.plain_find_repl).toFn :=
   compileFlatFn_eq_compileFn _ _ _ _
-    (PassFlatKit.reifyFunc_wfCheck Examples.Kissat.FullM7FidelitySched.full_preprocess_fid_wf)
+    (PassFlatKit.reifyFunc_wfCheck Examples.Kissat.Plain.plain_find_repl_wf)
 
-theorem fidReduceFlat_compileFlatFn_eq_arm (h : Arm64.armTarget.toIsa.Hints) :
+theorem plainPropagateFlat_compileFlatFn_eq_arm (h : Arm64.armTarget.toIsa.Hints) :
     compileFlatFn Arm64.armTarget.toIsa Arm64.armLegalTarget h
-        (fnToTFlat Examples.Kissat.FullM7FidelitySched.fidReduceFn) =
+        (fnToTFlat Examples.Kissat.Plain.plain_propagate) =
       compileFn Arm64.armTarget.toIsa Arm64.armLegalTarget h
-        (fnToTFlat Examples.Kissat.FullM7FidelitySched.fidReduceFn).toFn :=
+        (fnToTFlat Examples.Kissat.Plain.plain_propagate).toFn :=
   compileFlatFn_eq_compileFn _ _ _ _
-    (PassFlatKit.reifyFunc_wfCheck Examples.Kissat.FullM7FidelitySched.full_reduce_fid_wf)
+    (PassFlatKit.reifyFunc_wfCheck Examples.Kissat.Plain.plain_propagate_wf)
 
 #eval show IO Unit from
   checkTargetParity "arm64" Arm64.armTarget.toIsa Arm64.armLegalTarget
@@ -106,8 +106,8 @@ theorem fidReduceFlat_compileFlatFn_eq_arm (h : Arm64.armTarget.toIsa.Hints) :
 #print axioms assumeLoopFlat_compileFlatFn_eq_arm
 #print axioms compileModuleFlat_ok_implies_compileModule_litmusAll_arm
 #print axioms compileModuleFlat_ok_implies_compileModule_lrat_arm
-#print axioms compileModuleFlat_ok_implies_compileModule_fidSched_arm
-#print axioms fidPreprocessFlat_compileFlatFn_eq_arm
-#print axioms fidReduceFlat_compileFlatFn_eq_arm
+#print axioms compileModuleFlat_ok_implies_compileModule_plain1_arm
+#print axioms plainFindReplFlat_compileFlatFn_eq_arm
+#print axioms plainPropagateFlat_compileFlatFn_eq_arm
 
 end LeanQbeTest.T.MainFlatParityArm64Test

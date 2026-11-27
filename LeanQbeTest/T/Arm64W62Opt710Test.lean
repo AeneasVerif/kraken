@@ -4,16 +4,14 @@ public import LeanQbe.T.Arm64.TargLemmas
 public import LeanQbe.T.MainLemmas
 public import LeanQbe.T.Driver
 public import LeanQbe.T.MainInline
-public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12
-public import LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy
+public import LeanQbe.T.Examples.Kissat.Plain
 public import LeanQbeTest.T.Arm64DirPreds
 public import LeanQbeTest.T.RegaTestKit
 meta import LeanQbe.T.Arm64.TargLemmas
 meta import LeanQbe.T.MainLemmas
 meta import LeanQbe.T.Driver
 meta import LeanQbe.T.MainInline
-meta import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12
-meta import LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy
+meta import LeanQbe.T.Examples.Kissat.Plain
 meta import LeanQbeTest.T.Arm64DirPreds
 meta import LeanQbeTest.T.RegaTestKit
 public meta import Kraken.AArch64.Print
@@ -34,7 +32,7 @@ Wave 6.2-A `GprIsa` hooks switched off (`armIsaNoOpt710`):
   propagation elide redundant `UBFM #0, #7`/`#15`/`#31` and `ORR w, wzr, w`.
 * **`OPT-10b`**: `load i64` -> `trunc 64 32` narrows to single `LDR w` without narrow copy/mask.
 * **`OPT-10c`**: dead-low `umulw`/`smulw` emits single `UMULH`/`SMULH`.
-* Real Step-12 Kissat hot functions emit strictly fewer instructions with Wave 6.2-A on.
+* Real `Kissat.Plain` hot functions emit strictly fewer instructions with Wave 6.2-A on.
 -/
 
 set_option autoImplicit false
@@ -262,18 +260,17 @@ def mulHiSignedFn : Fn :=
 #guard insnCount (armCode [mulHiUnsignedFn]) < insnCount (armCodeOff [mulHiUnsignedFn])
 #guard insnCount (armCode [mulHiSignedFn]) < insnCount (armCodeOff [mulHiSignedFn])
 
-/-! ## 8. Real Step-12 Kissat Hot-Function Activation -/
+/-! ## 8. Real `Kissat.Plain` Hot-Function Activation -/
 
-meta def step12Fns : List Fn :=
-  (LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12.fidStep12Module.optInlinePolicy
-    LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy.fidInlPolicy).fns
+meta def plainPolFns : List Fn :=
+  (LeanQbe.T.Examples.Kissat.Plain.plainModule.optInlinePolicy {}).fns
 
 meta def okInsns : Except String (List Directive) → Nat
   | .ok ds => insnCount ds
   | .error _ => 0
 
 meta def hotPair (nm : Sym) : Nat × Nat :=
-  match step12Fns.find? (·.name == nm) with
+  match plainPolFns.find? (·.name == nm) with
   | some f =>
     (okInsns (Driver.compileFnFlat armTarget.toIsa armLegalTarget f),
       okInsns (Driver.compileFnFlat armIsaNoOpt710 armLegalTarget f))
@@ -283,15 +280,15 @@ meta def hotWins (nm : Sym) : Bool :=
   let (on, off) := hotPair nm
   0 < on && on < off
 
-#guard hotWins "full_propagate_ignore_hot"
-#guard hotWins "full_rewatch_range_m6"
-#guard hotWins "full_bva_scan_cands"
-#guard hotWins "full_shrink_blk_bool_m8"
-#guard hotWins "full_k6_init"
-#guard hotWins "full_elim_bve_m7"
-#guard hotWins "full_cong_eval_gate"
-#guard hotWins "full_bve_var_m7"
-#guard (hotPair "full_deduce_1uip_m6_hdr").1 <= 1085
+#guard hotWins "plain_watch_push"
+#guard hotWins "plain_prop_lit"
+#guard hotWins "plain_sweep"
+#guard hotWins "plain_shrink_blk"
+#guard hotWins "plain_rephase"
+#guard hotWins "plain_ema_update"
+#guard hotWins "plain_init_state"
+#guard hotWins "plain_reduce"
+#guard (hotPair "plain_sweep").1 <= 585
 
 /-! ## 9. Axiom Audit (`std3` only) -/
 

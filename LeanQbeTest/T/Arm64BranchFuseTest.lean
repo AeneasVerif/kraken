@@ -4,7 +4,7 @@ public import LeanQbe.T.Arm64.TargLemmas
 public import LeanQbe.T.Arm64.IselLemmas4
 public import LeanQbe.T.Arm64.LratBytes
 public import LeanQbe.T.Examples.LratBytes
-public import LeanQbe.T.Examples.Kissat.FullM4Bcp
+public import LeanQbe.T.Examples.Kissat.Plain1
 public import LeanQbe.T.Spill
 public import LeanQbeTest.T.RegaTestKit
 public import LeanQbeTest.T.Arm64DirPreds
@@ -12,7 +12,7 @@ meta import LeanQbe.T.Arm64.Isel
 meta import LeanQbe.T.Arm64.TargLemmas
 meta import LeanQbe.T.Arm64.LratBytes
 meta import LeanQbe.T.Examples.LratBytes
-meta import LeanQbe.T.Examples.Kissat.FullM4Bcp
+meta import LeanQbe.T.Examples.Kissat.Plain1
 meta import LeanQbe.T.Spill
 meta import LeanQbeTest.T.RegaTestKit
 meta import LeanQbeTest.T.Arm64DirPreds
@@ -21,7 +21,7 @@ meta import LeanQbeTest.T.Arm64DirPreds
 # AArch64 `CBZ`/`CBNZ` & `TBZ`/`TBNZ` Branch Fusion Tests
 
 Verifies compare-against-zero and single-bit test branch fusion through
-`armGpr`, `armTarget`, `Rega.lowerFn`, `FullM4Bcp`, and `Arm64.LratBytes`.
+`armGpr`, `armTarget`, `Rega.lowerFn`, `Kissat.Plain1`, and `Arm64.LratBytes`.
 -/
 
 set_option autoImplicit false
@@ -240,16 +240,13 @@ meta def cmpZeroReuseFn : Fn :=
 
 #guard chk [cmpZeroReuseFn]
 
-/-! ## 3. `FullM4Bcp` & `LratBytes` fusion counts -/
+/-! ## 3. `Kissat.Plain1` & `LratBytes` fusion counts -/
 
-meta def m4BcpEx : List (SigEntry × Nat) :=
-  Examples.Kissat.FullM4Bcp.m4BcpExterns.map fun e => (⟨e.name, e.as, e.rs⟩, 0)
-
-#guard chk Examples.Kissat.FullM4Bcp.m4Bcp_fns m4BcpEx
+#guard chk Examples.Kissat.Plain.plain1Module.fns
 #guard countDirs (fun d => isCbzDir d || isCbnzDir d)
-  (codeOf Examples.Kissat.FullM4Bcp.m4Bcp_fns m4BcpEx) ≥ 1
+  (codeOf Examples.Kissat.Plain.plain1Module.fns) ≥ 1
 #guard countDirs (fun d => isTbzDir d || isTbnzDir d)
-  (codeOf Examples.Kissat.FullM4Bcp.m4Bcp_fns m4BcpEx) ≥ 1
+  (codeOf Examples.Kissat.Plain.plain1Module.fns) ≥ 1
 
 #guard chk Examples.LratBytes.lratBytesFns
 #guard countDirs (fun d => isCbzDir d || isCbnzDir d)

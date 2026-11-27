@@ -8,7 +8,7 @@ import all Kraken.Separation
 public import LeanQbe.T.Notation
 public import LeanQbe.T.NotationSugar
 public import LeanQbe.T.Examples.Kissat.Dimacs
-public import LeanQbe.T.Examples.Kissat.FullM7HotTernary
+public import LeanQbe.T.Examples.Kissat.Plain1
 import LeanQbe.T.FlatLemmas
 public meta import Lean
 public meta import LeanQbe.T.OptPolicy
@@ -25,7 +25,7 @@ public meta import LeanQbe.T.MainLinkSplice
 public meta import LeanQbe.T.Notation
 public meta import LeanQbe.T.NotationSugar
 public meta import LeanQbe.T.Examples.Kissat.Dimacs
-public meta import LeanQbe.T.Examples.Kissat.FullM7HotTernary
+public meta import LeanQbe.T.Examples.Kissat.Plain1
 
 /-!
 # Phase 1 AAPCS64 Arm64 Predictable Codegen, `AsmIso`, & Certified Late-Inline Tests
@@ -39,7 +39,7 @@ Tests end-to-end on `armTarget` (`armLegalTarget`, `armLayout`, `armInit`):
    PASS on all 17 call-free snippets).
 2. Fail-loud negative `@predictable` checks (`callinc` rejected with `snippet_contains_call` and
    `call_in_snippet`).
-3. Standalone Kissat `m7HasTernaryFn` (`full_has_ternary`) lowering under `Fn.midPolicy`.
+3. Standalone Kissat `plain_red_less` lowering under `Fn.midPolicy`.
 4. Certified 3-function `certModArm64` (`cold_helper`, `k_ws_check`, 28-live-through `caller28`)
    compiled via `compileLateInlined` + `splice_snippet_hints`, verifying `inSp = 0`,
    `compileLateInlined_sound` `armTarget.FnSpec`, closed `arm64_of_returns` `Eventually`, and
@@ -375,8 +375,8 @@ def liftIsoVerdictKind (s : Fn) : Option String :=
         | .fail k _ => some k
         | _ => some "pass"
 
--- All 17 call-free V1 + Kissat Arm64 snippets achieve `inSp = 0` inside both marked AND unmarked
--- 28-live-through + cold-call outer functions via real post-`mid` `lateInline` + `splice_snippet_hints`!
+-- All 17 call-free V1 + Kissat Arm64 snippets achieve `inSp = 0` inside both marked and unmarked
+-- 28-live-through + cold-call outer fns via post-`mid` `lateInline` + `splice_snippet_hints`!
 #guard v1SuiteArm64.all (fun (s, fIf) => runStressEntry s fIf true && runStressEntry s fIf false)
 
 -- All 7 Tier-1/Tier-2 Arm64 V1 snippets pass `liftSnippet` (`AsmIso`) round-trip check!
@@ -420,13 +420,15 @@ def liftIsoVerdictKind (s : Fn) : Option String :=
     | .ok _ => false
   spliceRejected && auditRejected
 
--- Standalone Kissat `full_has_ternary_m7` (`m7HasTernaryFn`) lowers cleanly under `Fn.midPolicy`
+-- Standalone Kissat `plain_red_less` lowers cleanly under `Fn.midPolicy`
 -- with zero calls on Arm64 under `SnippetOptPolicy.predictable`.
 #guard
-  let m7 := LeanQbe.T.Examples.Kissat.FullM7HotTernary.m7HasTernaryFn
-  let m7Mid := m7.midPolicy armLegalTarget .predictable
-  let h := Spill.hints armIsa m7Mid
-  match Rega.lowerFn armIsa h m7Mid.ext m7Mid with
+  let fn : Fn :=
+    ⟨"plain_red_less", [i64, i32, i32], [.bool],
+      LeanQbe.T.Examples.Kissat.Plain.plain_red_less_body⟩
+  let fnMid := fn.midPolicy armLegalTarget .predictable
+  let h := Spill.hints armIsa fnMid
+  match Rega.lowerFn armIsa h fnMid.ext fnMid with
   | .ok ds => (profileDirs ds true).calls == 0 && (profileDirs ds true).bodyInsns > 0
   | .error _ => false
 

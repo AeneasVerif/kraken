@@ -9,8 +9,7 @@ public import LeanQbe.T.OptFlatCfgLemmas
 public import LeanQbe.T.WPLemmas
 public import LeanQbe.T.FlatLemmas
 import LeanQbe.T.OpsLemmas
-public meta import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12
-public meta import LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy
+public meta import LeanQbe.T.Examples.Kissat.Plain
 public meta import LeanQbe.T.Inline
 public meta import LeanQbe.T.Driver
 public meta import LeanQbe.T.Arm64.Isa
@@ -31,8 +30,8 @@ Covers:
    - Adjacent `.cmp` + `.select` with no intervening flag-clobber (`adjCmpNotMoved`) is untouched.
 4. Soundness (`Wf`, `Func.cmpSink_spec`, `Func.ifOptBits_spec`, `callsOk`, `OptFlatCfg.ifOptFlat`)
    and clean `#print axioms` (`std3`).
-5. Arm64 codegen activation + Kissat Step-12 `#eval` guards (`full_analyze_rsn_m6_hdr`,
-   `full_deduce_1uip_m6_hdr`, `full_propagate_ignore_hot`, and `full_sort_ana_qs_m6` `4× csel`).
+5. Arm64 codegen activation + `Kissat.Plain` `#eval` guards (`plain_analyze_rsn`,
+   `plain_prop_lit`, `plain_sweep`, and `plain_sort_reds` `4× csel`).
 -/
 
 set_option autoImplicit false
@@ -209,28 +208,28 @@ private meta def compileArmReport (f : LeanQbe.T.Fn) :
     throw (IO.userError s!"clobberCmpSelect arm64: expected 0 csinc, got {csincLit}")
   if cselLit != 2 then
     throw (IO.userError s!"clobberCmpSelect arm64: expected 2 csel, got {cselLit}")
-  -- 2. Kissat Step-12 Arm64 activation & non-regression guards.
-  let m := LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12.fidStep12Module
-  let mInl := m.inlinePolicy LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy.fidInlPolicy
+  -- 2. `Kissat.Plain` Arm64 activation & non-regression guards.
+  let m := LeanQbe.T.Examples.Kissat.Plain.plainModule
+  let mInl := m.inlinePolicy {}
   let checkTarget := fun (name : String) => do
     let some fn := (mInl.fns.map LeanQbe.T.Fn.renorm).find? (·.name == name)
       | throw (IO.userError s!"missing fn {name}")
     match compileArmReport fn with
     | .ok r => pure r
     | .error e => throw (IO.userError e)
-  let (nRsn, lRsn) ← checkTarget "full_analyze_rsn_m6_hdr"
-  let (nDed, _) ← checkTarget "full_deduce_1uip_m6_hdr"
-  let (nProp, _) ← checkTarget "full_propagate_ignore_hot"
-  let (nQs, lQs) ← checkTarget "full_sort_ana_qs_m6"
-  let cselQs := countInsnsArm lQs "csel"
+  let (nRsn, lRsn) ← checkTarget "plain_analyze_rsn"
+  let (nPropLit, _) ← checkTarget "plain_prop_lit"
+  let (nSweep, _) ← checkTarget "plain_sweep"
+  let (nSrt, lSrt) ← checkTarget "plain_sort_reds"
+  let cselSrt := countInsnsArm lSrt "csel"
   let csincRsn := countInsnsArm lRsn "csinc"
-  if nRsn > 284 then
-    throw (IO.userError s!"full_analyze_rsn_m6_hdr insns {nRsn} > 284")
-  if csincRsn > 2 then
-    throw (IO.userError s!"full_analyze_rsn_m6_hdr csinc {csincRsn} > 2")
-  if nDed > 1131 then
-    throw (IO.userError s!"full_deduce_1uip_m6_hdr insns {nDed} > 1131")
-  if nProp > 734 then
-    throw (IO.userError s!"full_propagate_ignore_hot insns {nProp} > 734")
-  if nQs != 109 || cselQs != 4 then
-    throw (IO.userError s!"full_sort_ana_qs_m6 regression: insns={nQs} csel={cselQs}")
+  if nRsn > 85 then
+    throw (IO.userError s!"plain_analyze_rsn insns {nRsn} > 85")
+  if csincRsn > 1 then
+    throw (IO.userError s!"plain_analyze_rsn csinc {csincRsn} > 1")
+  if nPropLit > 326 then
+    throw (IO.userError s!"plain_prop_lit insns {nPropLit} > 326")
+  if nSweep > 582 then
+    throw (IO.userError s!"plain_sweep insns {nSweep} > 582")
+  if nSrt != 120 || cselSrt != 4 then
+    throw (IO.userError s!"plain_sort_reds regression: insns={nSrt} csel={cselSrt}")

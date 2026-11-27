@@ -4,7 +4,7 @@ public import LeanQbe.T.Arm64.TargLemmas
 public import LeanQbe.T.Arm64.IselLemmas4
 public import LeanQbe.T.Arm64.LratBytes
 public import LeanQbe.T.Examples.LratBytes
-public import LeanQbe.T.Examples.Kissat.FullM4Bcp
+public import LeanQbe.T.Examples.Kissat.Plain1
 public import LeanQbe.T.Spill
 public import LeanQbeTest.T.RegaTestKit
 public import LeanQbeTest.T.Arm64DirPreds
@@ -12,7 +12,7 @@ meta import LeanQbe.T.Arm64.Isel
 meta import LeanQbe.T.Arm64.TargLemmas
 meta import LeanQbe.T.Arm64.LratBytes
 meta import LeanQbe.T.Examples.LratBytes
-meta import LeanQbe.T.Examples.Kissat.FullM4Bcp
+meta import LeanQbe.T.Examples.Kissat.Plain1
 meta import LeanQbe.T.Spill
 meta import LeanQbeTest.T.RegaTestKit
 meta import LeanQbeTest.T.Arm64DirPreds
@@ -29,8 +29,8 @@ Verifies AArch64 constant materialization and narrow-compare lowering through `a
    - `armCmpOpIns` `.imm` handling at `n ∈ {8, 16}` without `mov x17` or dual `sxtb`/`uxtb`;
    - `armGpr.zeroExtLoad = true` eliminating `ubfm #0, #7` / `#15` after `ldrb` / `ldrh`;
    - `0 - x` emitting `sub w/x, wzr/xzr, w/x` without `mov #0`.
-3. End-to-end checks on `FullM4Bcp` (`m4Bcp_fns`), `Arm64.LratBytes.lratCert.code`, and standard
-   `#print axioms`.
+3. End-to-end checks on `Kissat.Plain1` (`plainBcpFns`), `Arm64.LratBytes.lratCert.code`, and
+   standard `#print axioms`.
 -/
 
 set_option autoImplicit false
@@ -214,14 +214,16 @@ meta def storeConstsFn : Fn :=
 #guard countDirs isMovkDir (codeOf [storeConstsFn]) == 0
 #guard countDirs isLdrPoolDir (codeOf [storeConstsFn]) == 0
 
-/-! ## 4. `FullM4Bcp` (`m4Bcp_fns`) and `Arm64.LratBytes` codegen -/
+/-! ## 4. `Kissat.Plain1` (`plainBcpFns`) and `Arm64.LratBytes` codegen -/
 
-meta def m4BcpEx : List (SigEntry × Nat) :=
-  Examples.Kissat.FullM4Bcp.m4BcpExterns.map fun e => (⟨e.name, e.as, e.rs⟩, 0)
+meta def plainBcpFns : List Fn :=
+  Examples.Kissat.Plain.plain1Module.fns.filter fun f =>
+    !["plain_bump_decay", "plain_ema_update", "plain_init_state", "plain_recompute_tiers"].contains
+      f.name
 
-#guard chk Examples.Kissat.FullM4Bcp.m4Bcp_fns m4BcpEx
-#guard countDirs isOrrImmDir (codeOf Examples.Kissat.FullM4Bcp.m4Bcp_fns m4BcpEx) ≥ 1
-#guard countDirs isLdrPoolDir (codeOf Examples.Kissat.FullM4Bcp.m4Bcp_fns m4BcpEx) == 0
+#guard chk plainBcpFns
+#guard countDirs isOrrImmDir (codeOf plainBcpFns) ≥ 1
+#guard countDirs isLdrPoolDir (codeOf plainBcpFns) == 0
 
 #guard chk Examples.LratBytes.lratBytesFns
 #guard countDirs isOrrImmDir (codeOf Examples.LratBytes.lratBytesFns) ≥ 1

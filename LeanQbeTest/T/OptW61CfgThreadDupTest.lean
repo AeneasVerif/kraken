@@ -13,8 +13,7 @@ public meta import LeanQbe.T.MainInline
 public meta import LeanQbe.T.Driver
 public meta import LeanQbe.T.Amd64.Targ
 public meta import LeanQbe.T.Amd64.PrintATTAlign
-public meta import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12
-public meta import LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy
+public meta import LeanQbe.T.Examples.Kissat.Plain
 
 /-!
 # Wave 6.1-A Activation & Soundness Tests (`OPT-1` `CondThreadOpt` + `OPT-4` `TailDup` Latch)
@@ -23,15 +22,15 @@ Verifies:
 1. `OPT-1` `jumpImmBools 64` window + `.group`/`.let_`-headed `.splitBool` + 2-iter cleanup on:
    - `wideBoolSplit10`: `10`-parameter block testing boolean param `8` (`≥ 8` old limit).
    - `chainedWide11`: chained `11`-parameter (`p10`) → `10`-parameter (`p8`) threading.
-   - `groupHeadBoolSplit`: `.group`-headed block (`.group [L10] (.jnz flag ...)) modeling
-     `full_propagate_ignore_hot`'s `L_9` / `L_10` `ovf` exit join.
+   - `groupHeadBoolSplit`: `.group`-headed block (`.group [L10] (.jnz flag ...)) modeling a
+     nested exit join.
    - `letHeadBoolSplit`: `.let_`-headed block `.splitBool`.
 2. `OPT-4` `TailDup` tiny `.jnz` loop-latch duplication (`allowJnzLatch := true` vs `false` default)
    and negative bounds (`requireLoopHdr`, `maxLatchInstrs := 3`, `maxLatchPreds := 3`).
 3. Formal `Wf`, `Func.spec`, and `callsOk` soundness + `#print axioms` (`≤ std3`).
-4. Step-12 Kissat activation `#guard`s on `full_propagate_ignore_hot` (`LegalTarget.x64`,
-   `LegalTarget.aarch64`, and `x64Target` instruction/spill-store reduction) and
-   `full_analyze_rsn_m6_hdr`.
+4. `Kissat.Plain` activation `#guard`s on `plain_prop_lit` (`LegalTarget.x64`,
+   `LegalTarget.aarch64`, and `x64Target` instruction/spill-store bounds) and
+   `plain_analyze_rsn`.
 -/
 
 set_option autoImplicit false
@@ -364,16 +363,15 @@ theorem tinyJnzLatchLoop_td_wf :
     (Func.tailDup tinyJnzLatchLoop { allowJnzLatch := true }).Wf :=
   Func.tailDup_wf tinyJnzLatchLoop_wf { allowJnzLatch := true }
 
-/-! ## 4. Step-12 Kissat Activation `#guard`s
-(`full_propagate_ignore_hot`, `full_analyze_rsn_m6_hdr`) -/
+/-! ## 4. `Kissat.Plain` Activation `#guard`s (`plain_prop_lit`, `plain_analyze_rsn`) -/
 
-meta def step12TargetFns : List Fn :=
-  let m := LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12.fidStep12Module
-  (m.optInlinePolicy LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy.fidInlPolicy).fns.filter
-    fun f => ["full_propagate_ignore_hot", "full_analyze_rsn_m6_hdr"].contains f.name
+meta def plainTargetFns : List Fn :=
+  let m := LeanQbe.T.Examples.Kissat.Plain.plainModule
+  (m.optInlinePolicy {}).fns.filter
+    fun f => ["plain_prop_lit", "plain_analyze_rsn"].contains f.name
 
-meta def findStep12Fn? (nm : String) : Option Fn :=
-  step12TargetFns.find? (·.name == nm)
+meta def findPlainFn? (nm : String) : Option Fn :=
+  plainTargetFns.find? (·.name == nm)
 
 meta def flatCompileX64Lines (f : Fn) : Except String (List String) := do
   let dirs ← Driver.compileFnFlat x64Target.toIsa x64LegalTarget f
@@ -395,29 +393,29 @@ meta def midCheckIr (lt : LegalTarget) (f : Fn) : Bool × Nat × Nat :=
   let mf := midStageFlat lt ef
   (mf.wfCheck, tflatSize mf.body, countJnz mf.body)
 
-#guard match findStep12Fn? "full_propagate_ignore_hot" with
+#guard match findPlainFn? "plain_prop_lit" with
   | some f =>
     let (okX, nodesX, jnzX) := midCheckIr LegalTarget.x64 f
     let (okA, nodesA, jnzA) := midCheckIr LegalTarget.aarch64 f
     match flatCompileX64Lines f with
     | .ok lines =>
-      okX && okA && nodesX ≤ 682 && jnzX ≤ 63 && nodesA ≤ 685 && jnzA ≤ 63 &&
-        countX64Insns lines ≤ 690 && countX64SpSt lines ≤ 80
+      okX && okA && nodesX ≤ 321 && jnzX ≤ 36 && nodesA ≤ 321 && jnzA ≤ 36 &&
+        countX64Insns lines ≤ 319 && countX64SpSt lines ≤ 23
     | .error _ => false
   | none => false
 
-#guard match findStep12Fn? "full_analyze_rsn_m6_hdr" with
+#guard match findPlainFn? "plain_analyze_rsn" with
   | some f =>
     let (okX, _, _) := midCheckIr LegalTarget.x64 f
     let (okA, _, _) := midCheckIr LegalTarget.aarch64 f
     match flatCompileX64Lines f with
-    | .ok lines => okX && okA && countX64Insns lines ≤ 256
+    | .ok lines => okX && okA && countX64Insns lines ≤ 90
     | .error _ => false
   | none => false
 
 #eval show IO Unit from do
-  for nm in ["full_propagate_ignore_hot", "full_analyze_rsn_m6_hdr"] do
-    if let some f := findStep12Fn? nm then
+  for nm in ["plain_prop_lit", "plain_analyze_rsn"] do
+    if let some f := findPlainFn? nm then
       let (_, nX, jX) := midCheckIr LegalTarget.x64 f
       let (_, nA, jA) := midCheckIr LegalTarget.aarch64 f
       let lines ← IO.ofExcept (flatCompileX64Lines f)

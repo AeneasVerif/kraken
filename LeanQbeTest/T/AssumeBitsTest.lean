@@ -5,11 +5,11 @@ public import LeanQbe.T.FlatLemmas
 public import LeanQbe.T.WPLemmas
 public import LeanQbe.T.Main
 public import LeanQbe.T.Examples.LratBytes
-public import LeanQbe.T.Examples.Kissat.FullM4
+public import LeanQbe.T.Examples.Kissat.Plain
 meta import LeanQbe.T.AssumeBits
 meta import LeanQbe.T.Main
 meta import LeanQbe.T.Examples.LratBytes
-meta import LeanQbe.T.Examples.Kissat.FullM4
+meta import LeanQbe.T.Examples.Kissat.Plain
 
 /-!
 # Tests of `LeanQbe.T.AssumeBits`
@@ -22,8 +22,8 @@ Covers:
 2. Negative cases: the mask is kept on the arm where the tested bit is set and on `var &&& var`.
 3. `Func.assumeBits_{wf,spec,callsOk}` instantiations and an end-to-end contract transported
    from a source proof.
-4. Corpus checks after `Fn.mid`: the pass fires on the hot `FullM4` BCP functions (including
-   `full_prop_lit_raw`), and every rewritten `FullM4` / `LratBytes` body passes `checkTFlat`.
+4. Corpus checks after `Fn.mid`: the pass fires on the hot `Kissat.Plain` BCP functions (including
+   `plain_prop_lit`), and every rewritten `Kissat.Plain` / `LratBytes` body passes `checkTFlat`.
 5. `#print axioms` audit (`⊆ [propext, Classical.choice, Quot.sound]`).
 -/
 
@@ -35,7 +35,7 @@ namespace LeanQbeTest.T.AssumeBitsTest
 
 open LeanQbe.T
 
-/-! ## 1. `full_prop_lit_raw` watch scan: `(w0 & 0x80000000) != 0` dominates `w0 & 0x7fffffff` -/
+/-! ## 1. `plain_prop_lit`-style watch scan: `(w0 & 0x80000000) != 0` dominates `w0 & 0x7fffffff` -/
 
 /-- Watch-scan step: binary watches keep the mask; clause watches have bit `31` clear. -/
 def propLitL5 : Func [i32, i64] [i64] := fun _ _ (w0, nlits, ()) =>
@@ -218,7 +218,7 @@ theorem propLitL5_ab_callsOk :
 theorem maskInLoop_ab_wf : (Func.assumeBits maskInLoop).Wf :=
   Func.assumeBits_wf (by t_wf_reify)
 
-/-! ## 5. Real-corpus checks (`FullM4` hot BCP loops and `LratBytes`) -/
+/-! ## 5. Real-corpus checks (`Kissat.Plain` hot BCP loops and `LratBytes`) -/
 
 /-- Eliminated op count at the `lateCore` `assumeBits` point and `Fn.mid` `checkTFlat`. -/
 def abDelta (f : Fn) : Nat × Bool :=
@@ -232,21 +232,18 @@ def abDelta (f : Fn) : Nat × Bool :=
     Func.checkTFlat a && Func.checkTFlat mf.body &&
       tflatSize (reifyFunc mf.body) == tflatSize (reifyFunc (as := mf.as) postMid))
 
-/-- Five `FullM4` BCP functions with a branch-implied redundant `and $0x7fffffff` (including
-`full_prop_lit_raw`). The guards below only require well-formed output and at least one surviving
-elimination, so source-level edits of these functions (e.g. reordering the blocking-literal test)
-do not break this file. -/
-def m4Hot : List String :=
-  ["full_prop_lit_raw", "full_probe_prop_lit", "full_promote_clause", "full_reduce",
-    "full_analyze_rsn"]
+/-- Five `Kissat.Plain` functions with branch-implied redundant bitmasks (including
+`plain_prop_lit`, `plain_reduce`, and `plain_analyze_rsn`). -/
+def plainHot : List String :=
+  ["plain_prop_lit", "plain_reduce", "plain_analyze_rsn", "plain_sweep", "plain_find_repl"]
 
-/-- `abDelta` of every present `m4Hot` function. -/
-def m4HotDeltas : List (Nat × Bool) :=
-  m4Hot.filterMap fun n =>
-    (LeanQbe.T.Examples.Kissat.FullM4.m4Fns.find? (·.name == n)).map abDelta
+/-- `abDelta` of every present `plainHot` function. -/
+def plainHotDeltas : List (Nat × Bool) :=
+  plainHot.filterMap fun n =>
+    (LeanQbe.T.Examples.Kissat.Plain.plainFns.find? (·.name == n)).map abDelta
 
-#guard m4HotDeltas.all (·.2)
-#guard m4HotDeltas.foldl (· + ·.1) 0 ≥ 1
+#guard plainHotDeltas.all (·.2)
+#guard plainHotDeltas.foldl (· + ·.1) 0 ≥ 1
 #guard LeanQbe.T.Examples.LratBytes.lratBytesModule.fns.all fun f => (abDelta f).2
 
 /-! ## 6. Axiom audit (`⊆ [propext, Classical.choice, Quot.sound]`) -/

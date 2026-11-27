@@ -12,8 +12,8 @@ public import LeanQbe.T.Amd64.Targ
 public import LeanQbe.T.Amd64.TargLemmas
 public import LeanQbe.T.Amd64.PrintAsm0
 public import LeanQbe.T.Logic.MemLemmas
-public import LeanQbe.T.Examples.Kissat.FullM6Sweep
-public import LeanQbe.T.Examples.Kissat.Full1
+public import LeanQbe.T.Examples.Kissat.Plain
+public import LeanQbe.T.Examples.Kissat.Plain1
 import LeanQbe.T.FlatLemmas
 import LeanQbe.T.WPLemmas
 public meta import Lean
@@ -23,8 +23,8 @@ public meta import LeanQbe.T.MainCertInline
 public meta import LeanQbe.T.Amd64.Targ
 public meta import LeanQbe.T.Amd64.PrintAsm0
 public meta import LeanQbe.T.MainFlat
-public meta import LeanQbe.T.Examples.Kissat.FullM6Sweep
-public meta import LeanQbe.T.Examples.Kissat.Full1
+public meta import LeanQbe.T.Examples.Kissat.Plain
+public meta import LeanQbe.T.Examples.Kissat.Plain1
 
 /-!
 # `u32` IV & Multi-Store `ZeroPeel` Widening / Unrolling Regression Tests (`ZeroPeelWidenTest`)
@@ -32,12 +32,11 @@ public meta import LeanQbe.T.Examples.Kissat.Full1
 Covers:
 1. Positive `u32`-IV single-store widening (`u32Zero8`, `u32Zero32`): `zpLoops == 2`, `checkTFlat`,
    `Wf`, `callsOk`, and `Func.zeroPeel_spec` over `array`.
-2. Positive `u32`-IV 2-store runtime-guarded widening (`u32MultiFill2`, matching `full_k6_init`
-   Loop 2): `zpLoops == 2`, disjoint widening + overlapping-base scalar fallback soundness proof
+2. Positive `u32`-IV 2-store runtime-guarded widening (`u32MultiFill2`):
+   `zpLoops == 2`, disjoint widening + overlapping-base scalar fallback soundness proof
    (`u32MultiFill2_zeroPeel_overlap_spec`).
-3. `full_k6_init`-shaped 6-store `u32` loop (`k6Loop1Shape`) 4x unrolling and real Kissat
-   `full_k6_init`, `full_zero_tables1`, and `full_m6_els_fold` IR / x86-64 asm reduction `#guard`
-   checks.
+3. 6-store `u32` loop (`k6Loop1Shape`) 4x unrolling and real `Kissat.Plain` (`plain_zero_tables`,
+   `plain_rephase`, `plain_sweep`) IR / x86-64 asm reduction `#guard` checks.
 4. Negative tests (`u32SubNeg`, `u32Step2Neg`, `u32SignedLtNeg`): wrapping/unsafe `u32` IVs stay
    untouched and sound.
 5. Certified SysV x64 compilation (`compile_linked_chunks! (flat := false)` vs `(flat := true)`
@@ -381,9 +380,9 @@ theorem u32Fill2_zp_ovlp (Γ : Env) (p0 : BitVec 64) (n : Nat) (hn0 : 0 < n)
   Func.zeroPeel_spec u32MultiFill2_wf {}
     (u32MultiFill2_overlap_raw_spec Γ p0 n hn0 hn32 xs hxs R m hm X)
 
-/-! ## 3. `full_k6_init` 6-Store `u32` Unrolling, Kissat IR & x86-64 Reduction `#guard`s -/
+/-! ## 3. 6-Store `u32` Unrolling (`k6Loop1Shape`), `Kissat.Plain` IR & x64 Reduction `#guard`s -/
 
-/-- Synthetic `full_k6_init` Loop 1 shape (`u32` IV storing 6 `u32` arrays including `i+1`). -/
+/-- Synthetic 6-store `u32` loop (`u32` IV storing 6 `u32` arrays including `i+1`). -/
 @[expose] def k6Loop1Shape : Func [i64, i64, i64, i64, i64, i64, i32] [i32] :=
   fun _ _ (a0, a1, a2, a3, a4, a5, n, ()) =>
     loop1 (ts := [i32])
@@ -420,32 +419,35 @@ theorem k6Loop1Shape_zeroPeel_wf : (Func.zeroPeel k6Loop1Shape).Wf :=
   (reifyFunc k6Loop1Shape)) == 6
 
 #guard ZeroPeel.zpLoops
-  (reifyFunc (Func.zeroPeel Examples.Kissat.FullM6Sweep.full_k6_init_body)) == 6
+  (reifyFunc (Func.zeroPeel Examples.Kissat.Plain.plain_zero_tables_body)) == 7
 #guard ZeroPeel.zpLoops (TFlat.zeroPeelWith { unrollN := 0, peelBudget := 0 }
-  (reifyFunc Examples.Kissat.FullM6Sweep.full_k6_init_body)) == 3
-#guard countStoresTFlat (reifyFunc (Func.zeroPeel Examples.Kissat.FullM6Sweep.full_k6_init_body)) >
+  (reifyFunc Examples.Kissat.Plain.plain_zero_tables_body)) == 4
+#guard countStoresTFlat (reifyFunc (Func.zeroPeel Examples.Kissat.Plain.plain_zero_tables_body)) >
   countStoresTFlat (TFlat.zeroPeelWith { unrollN := 0, peelBudget := 0 }
-    (reifyFunc Examples.Kissat.FullM6Sweep.full_k6_init_body))
+    (reifyFunc Examples.Kissat.Plain.plain_zero_tables_body))
 
-#guard match compileX64Asm "full_k6_init" [i64, i32] []
-    Examples.Kissat.FullM6Sweep.full_k6_init_body with
-  | .ok optAsm =>
-    countAsmLines optAsm "movq $0," == 12 &&
-    countAsmLines optAsm "movq $-1," == 4 &&
-    hasSubstring optAsm "addl $4,"
+#guard match compileX64Asm "plain_zero_tables" [i64] []
+    Examples.Kissat.Plain.plain_zero_tables_body with
+  | .ok optAsm => countAsmLines optAsm "movq $0," >= 19
   | .error _ => false
 
-#guard match compileX64Asm "full_zero_tables1" [i64] []
-    Examples.Kissat.Full.full_zero_tables1_body with
-  | .ok optAsm => countAsmLines optAsm "movq $0," >= 4
+#guard match compileX64Asm "plain_rephase" [i64] []
+    Examples.Kissat.Plain.plain_rephase_body with
+  | .ok optAsm =>
+    countAsmLines optAsm "movq $0," >= 4 &&
+    countAsmLines optAsm "movq $-1," >= 8
   | .error _ => false
 
 #guard countStoresTFlat
-    (reifyFunc (Func.zeroPeel Examples.Kissat.FullM6Sweep.full_m6_els_fold_body)) >
+    (reifyFunc (Func.zeroPeel Examples.Kissat.Plain.plain_sweep_body)) >
   countStoresTFlat (TFlat.zeroPeelWith { unrollN := 0, peelBudget := 0 }
-    (reifyFunc Examples.Kissat.FullM6Sweep.full_m6_els_fold_body))
-#guard (compileX64Asm "full_m6_els_fold" [i64, i32] [.bool]
-  Examples.Kissat.FullM6Sweep.full_m6_els_fold_body).isOk
+    (reifyFunc Examples.Kissat.Plain.plain_sweep_body))
+#guard match compileX64Asm "plain_sweep" [i64] [i64]
+    Examples.Kissat.Plain.plain_sweep_body with
+  | .ok optAsm =>
+    countAsmLines optAsm "movq $-1," >= 16 &&
+    hasSubstring optAsm "addl $4,"
+  | .error _ => false
 
 #guard match compileX64Asm "u32_multi_fill2" [i64, i64, i32] [i64] u32MultiFill2 with
   | .ok optAsm =>
