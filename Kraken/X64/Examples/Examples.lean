@@ -139,20 +139,20 @@ theorem p3_correct [layout : WellFormedLayout p3] (s : MachineData) :
   change Eventually (step1 p3.toExecutable) _ ⟨s, p3.toExecutable.startAddr⟩
   rw [← Kraken.Executable.addrOf_zero]
   sym => kstep 1; tactic =>
-  refine tailrec_loop _ _ _
-    (fun i (_ : Unit) st =>
+  refine tailrec_loop
+    (onLoop := fun i st =>
       st.pc = p3.toExecutable.addrOf 2 ∧
       st.1.regs.rbx.toNat = i ∧
       i ≤ s.regs.rbx.toNat ∧
       st.1.regs.rdx.toNat = 2 ^ (2 ^ (s.regs.rbx.toNat - i)) ∧
       (i < s.regs.rbx.toNat → st.1.regs.rax = 0))
-    (fun _ _ st =>
+    (onExit := fun _ st =>
       st.pc = p3.toExecutable.addrOf p3.length ∧
       st.1.regs.rdx.toNat = 2 ^ 2 ^ s.regs.rbx.toNat ∧
       (0 < s.regs.rbx.toNat → st.1.regs.rax = 0))
-    (· < ·) Nat.lt_wfRel.wf s.regs.rbx.toNat () ?_ ?_ (fun _ h => h)
+    (· < ·) Nat.lt_wfRel.wf s.regs.rbx.toNat ?_ ?_ (fun _ h => h)
   · exact ⟨rfl, rfl, Nat.le_refl _, by rw [Nat.sub_self]; rfl, fun h => absurd h (Nat.lt_irrefl _)⟩
-  · rintro k _ ⟨d, pc⟩ ⟨hpc, h_rbx_k, h_k_le, h_rdx, h_rax⟩
+  · rintro k ⟨d, pc⟩ ⟨hpc, h_rbx_k, h_k_le, h_rdx, h_rax⟩
     dsimp only at hpc h_rbx_k h_rdx h_rax
     subst hpc
     by_cases hk : k = 0
@@ -162,7 +162,7 @@ theorem p3_correct [layout : WellFormedLayout p3] (s : MachineData) :
       have hv : v = 0 := by grind
       simp [hv]
       sym => kstep; tactic =>
-      exact .done _ ⟨rfl, by simpa using h_rdx, h_rax⟩
+      exact .done _ (.break ⟨rfl, by simpa using h_rdx, h_rax⟩)
     · sym => kstep 2; tactic =>
       rename_i v status
       have hzf : (v == BitVec.zero 64) = false := by grind
@@ -180,7 +180,7 @@ theorem p3_correct [layout : WellFormedLayout p3] (s : MachineData) :
         omega
       have hv_mul : v_mul = ↑(d.regs.rdx.toNat * d.regs.rdx.toNat) := by
         dsimp [v_mul, b_mul, BitVec.unsigned] <;> grind
-      refine .done _ (.inr ⟨k - 1, (), ⟨rfl, ?_, by omega, ?_, ?_⟩, by omega, fun _ h => h⟩)
+      refine .done _ (.loop (k - 1) ⟨rfl, ?_, by omega, ?_, ?_⟩ (by omega) (fun _ h => h))
       · grind
       · dsimp only
         rw [hv_mul, ← h_pow_eq]

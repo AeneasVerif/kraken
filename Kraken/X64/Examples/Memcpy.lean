@@ -185,43 +185,40 @@ theorem memcpy_correct [layout : WellFormedLayout memcpy]
       have hzf : (v == BitVec.zero 64) = false := by grind
       simp only [hzf, Bool.false_eq_true, ↓reduceIte]
       sym => kstep 0; tactic =>
-      refine tailrec_loop
-        (step1 memcpy.toExecutable)
-        (Q ⟨dst_ptr, src_ptr, dst, src, frame₀⟩)
-        _
-        (fun v (g : LoopGhost) st =>
+      refine tailrec_loop_measure
+        (onLoop := fun (g : LoopGhost) st =>
           st.pc = memcpy.toExecutable.addrOf 4 ∧
-          0 < v ∧
-          st.data.regs.rdx.toNat = v ∧
+          0 < g.dst.length ∧
+          st.data.regs.rdx.toNat = g.dst.length ∧
           st.data.regs.rdi.toBitVec = g.dstPtr ∧
           st.data.regs.rsi.toBitVec = g.srcPtr ∧
           st.data.regs.rax.toBitVec = dst_ptr ∧
           st.data.regs.rsp = t.regs.rsp ∧
           st.data.df = false ∧
           SysV.SavedRegs t st.data ∧
-          g.dst.length = v ∧
-          g.src.length = v ∧
+          g.src.length = g.dst.length ∧
           (st.data.dmem =⋆ Eq (g.dst.At g.dstPtr) ⋆ Eq (g.src.At g.srcPtr) ⋆ g.frame))
-        (fun _ => Q)
+        (onExit := Q)
+        (measure := (·.dst.length))
         (· < ·) Nat.lt_wfRel.wf
-        n ⟨dst_ptr, src_ptr, dst, src, frame₀⟩
-        ⟨rfl, Nat.pos_of_ne_zero hn,
+        ⟨dst_ptr, src_ptr, dst, src, frame₀⟩
+        ⟨rfl, by rw [h_dst_len]; exact Nat.pos_of_ne_zero hn,
           by grind, h_rdi, h_rsi, by grind, rfl, hdf, ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩,
-          h_dst_len, h_src_len, hmem₀⟩
+          h_src_len.trans h_dst_len.symm, hmem₀⟩
         ?_ (fun _ h => h)
       -- Loop body: one byte copied per iteration
-      rintro v ⟨dp, sp, dbs, sbs, frame⟩ ⟨s, pc⟩
-        ⟨hpc, hv_pos, h_rdx_v, h_rdi_v, h_rsi_v, h_rax_v, h_rsp_v, h_df_v, h_saved, h_dl, h_sl, h_m⟩
-      dsimp only at hpc h_rdx_v h_rdi_v h_rsi_v h_rax_v h_rsp_v h_df_v h_saved h_dl h_sl h_m
+      rintro ⟨dp, sp, dbs, sbs, frame⟩ ⟨s, pc⟩
+        ⟨hpc, hv_pos, h_rdx_v, h_rdi_v, h_rsi_v, h_rax_v, h_rsp_v, h_df_v, h_saved, h_sl, h_m⟩
+      dsimp only at hpc hv_pos h_rdx_v h_rdi_v h_rsi_v h_rax_v h_rsp_v h_df_v h_saved h_sl h_m
       subst hpc
       cases dbs with
-      | nil => simp at h_dl; omega
+      | nil => simp at hv_pos
       | cons d0 ds =>
         cases sbs with
-        | nil => simp at h_sl; omega
+        | nil => simp at h_sl
         | cons b0 bs =>
-          have h_lt64 : v < 2 ^ 64 := h_rdx_v ▸ s.regs.rdx.toNat_lt
-          simp only [List.length_cons] at h_dl h_sl
+          simp only [List.length_cons] at h_rdx_v h_sl
+          have h_lt64 : ds.length + 1 < 2 ^ 64 := h_rdx_v ▸ s.regs.rdx.toNat_lt
           rw [sep_cons d0 ds dp (by omega), sep_cons b0 bs sp (by omega)] at h_m
           have h_m_src : s.dmem =⋆ Eq ([b0].At s.regs.rsi.toBitVec) ⋆
               (Eq ([d0].At dp) ⋆ Eq (ds.At (dp + 1#64)) ⋆ Eq (bs.At (sp + 1#64)) ⋆ frame) := by
@@ -244,9 +241,8 @@ theorem memcpy_correct [layout : WellFormedLayout memcpy]
             ⟨hsaved'.1.trans h_saved.1, hsaved'.2.1.trans h_saved.2.1,
              hsaved'.2.2.1.trans h_saved.2.2.1, hsaved'.2.2.2.1.trans h_saved.2.2.2.1,
              hsaved'.2.2.2.2.1.trans h_saved.2.2.2.2.1, hsaved'.2.2.2.2.2.trans h_saved.2.2.2.2.2⟩
-          by_cases hv1 : v = 1
-          · subst hv1
-            have hds_nil : ds = [] := List.eq_nil_of_length_eq_zero (by omega)
+          by_cases hv1 : ds.length = 0
+          · have hds_nil : ds = [] := List.eq_nil_of_length_eq_zero hv1
             have hbs_nil : bs = [] := List.eq_nil_of_length_eq_zero (by omega)
             subst hds_nil; subst hbs_nil
             have hzero : (s.regs.rdx.toBitVec - 1#64 == 0#64) = true := by
@@ -255,7 +251,7 @@ theorem memcpy_correct [layout : WellFormedLayout memcpy]
               have : s.regs.rdx.toBitVec.toNat = 1 := h_rdx_v
               simp [BitVec.toNat_sub, this]
             simp only [hzero, ↓reduceIte] at hpc'
-            refine .inl ⟨hpc', by rw [hrax', h_rax_v], by rw [hrsp', h_rsp_v],
+            refine .break ⟨hpc', by rw [hrax', h_rax_v], by rw [hrsp', h_rsp_v],
               by rw [hdf', h_df_v], hsaved_t, ?_⟩
             dsimp only
             rw [sep_cons b0 [] dp (by decide), sep_cons b0 [] sp (by decide)]
@@ -263,19 +259,19 @@ theorem memcpy_correct [layout : WellFormedLayout memcpy]
           · have hnz : (s.regs.rdx.toBitVec - 1#64 == 0#64) = false := by
               simp only [beq_eq_false_iff_ne]
               intro heq
-              have h1 : s.regs.rdx.toBitVec.toNat = v := h_rdx_v
+              have h1 : s.regs.rdx.toBitVec.toNat = ds.length + 1 := h_rdx_v
               have h2 := congrArg BitVec.toNat heq
               simp [BitVec.toNat_sub, h1] at h2
               omega
             simp only [hnz, Bool.false_eq_true, ↓reduceIte] at hpc'
-            refine .inr ⟨v - 1,
-              ⟨dp + 1#64, sp + 1#64, ds, bs, Eq ([b0].At dp) ⋆ Eq ([b0].At sp) ⋆ frame⟩,
-              ⟨hpc', by omega, ?_, ?_, ?_, by rw [hrax', h_rax_v], by rw [hrsp', h_rsp_v],
-               by rw [hdf', h_df_v], hsaved_t, by dsimp; omega, by dsimp; omega, ?_⟩,
-              by omega, ?_⟩
+            refine .loop
+              ⟨dp + 1#64, sp + 1#64, ds, bs, Eq ([b0].At dp) ⋆ Eq ([b0].At sp) ⋆ frame⟩
+              ⟨hpc', by dsimp; omega, ?_, ?_, ?_, by rw [hrax', h_rax_v], by rw [hrsp', h_rsp_v],
+               by rw [hdf', h_df_v], hsaved_t, by dsimp; omega, ?_⟩
+              (by dsimp; omega) ?_
             · rw [hrdx']
-              change (s.regs.rdx.toBitVec - 1#64).toNat = v - 1
-              have h1 : s.regs.rdx.toBitVec.toNat = v := h_rdx_v
+              change (s.regs.rdx.toBitVec - 1#64).toNat = ds.length
+              have h1 : s.regs.rdx.toBitVec.toNat = ds.length + 1 := h_rdx_v
               simp [BitVec.toNat_sub, h1]; omega
             · change st.data.regs.rdi.toBitVec = dp + 1#64
               rw [hrdi', UInt64.toBitVec_add, h_rdi_v]; rfl

@@ -35,25 +35,46 @@ theorem eventually_weaken {State : Type} (trans : State → Post → Prop) (p q 
   := by
     exact fun hp => eventually_trans trans p q initial hp fun s hs => .done s (h s hs)
 
+-- Loop body postcondition for `tailrec_loop`: either exit the loop (`break`),
+-- or re-enter (`loop`) with a strictly smaller ghost state and an exit-postcondition update.
+inductive LoopPost {State : Type} {Ghost : Sort _}
+    (onLoop onExit : Ghost → Post)
+    (lt : Ghost → Ghost → Prop) (g : Ghost) (mid_s : State) : Prop where
+  | break (exit : onExit g mid_s)
+  | loop (g' : Ghost) (inv : onLoop g' mid_s)
+      (dec : lt g' g) (upd : ∀ t_s, onExit g' t_s → onExit g t_s)
+
 -- Tailrec-style loop rule
-theorem tailrec_loop {State : Type} {Measure : Type _} {Ghost : Sort _}
-  (trans : State → Post → Prop) (post : Post) (initial : State)
-  (P Q : Measure → Ghost → Post)
-  (lt : Measure → Measure → Prop)
-  (Hwf : WellFounded lt)
-  (v0 : Measure) (g0 : Ghost) :
-  P v0 g0 initial →
-  (∀ v g state, P v g state →
-    Eventually trans (fun mid_s =>
-      (Q v g mid_s) ∨
-      (∃ v' g', P v' g' mid_s ∧ lt v' v ∧ (∀ t_s, Q v' g' t_s → Q v g t_s))
-    ) state) →
-  (∀ state, Q v0 g0 state → post state) →
-  Eventually trans post initial := by
+theorem tailrec_loop {State : Type} {Ghost : Sort _}
+    {trans : State → Post → Prop} {post : Post} {initial : State}
+    (onLoop onExit : Ghost → Post)
+    (lt : Ghost → Ghost → Prop)
+    (Hwf : WellFounded lt)
+    (g0 : Ghost) :
+    onLoop g0 initial →
+    (∀ g state, onLoop g state →
+      Eventually trans (LoopPost onLoop onExit lt g) state) →
+    (∀ state, onExit g0 state → post state) →
+    Eventually trans post initial := by
   intro hP hbody hpost
-  induction v0 using Hwf.induction generalizing g0 initial with
-  | h v ih =>
-    refine eventually_trans trans _ post initial (hbody v g0 initial hP) ?_
-    rintro mid_s (hQ | ⟨v', g', hP', hlt, hQ'⟩)
+  induction g0 using Hwf.induction generalizing initial with
+  | h g ih =>
+    refine eventually_trans trans _ post initial (hbody g initial hP) ?_
+    rintro mid_s (⟨hQ⟩ | ⟨g', hP', hlt, hQ'⟩)
     · exact .done mid_s (hpost mid_s hQ)
-    · exact ih v' hlt mid_s g' hP' (fun t h => hpost t (hQ' t h))
+    · exact ih g' hlt hP' (fun t h => hpost t (hQ' t h))
+
+-- Tailrec-style loop rule with an explicit termination measure extracted from the ghost state
+theorem tailrec_loop_measure {State : Type} {Ghost : Sort _} {Measure : Sort _}
+    {trans : State → Post → Prop} {post : Post} {initial : State}
+    (onLoop onExit : Ghost → Post)
+    (measure : Ghost → Measure)
+    (lt : Measure → Measure → Prop)
+    (Hwf : WellFounded lt)
+    (g0 : Ghost) :
+    onLoop g0 initial →
+    (∀ g state, onLoop g state →
+      Eventually trans (LoopPost onLoop onExit (fun g' g => lt (measure g') (measure g)) g) state) →
+    (∀ state, onExit g0 state → post state) →
+    Eventually trans post initial :=
+  tailrec_loop onLoop onExit (fun g' g => lt (measure g') (measure g)) (InvImage.wf measure Hwf) g0
