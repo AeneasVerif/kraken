@@ -163,14 +163,14 @@ structure HState where
 
 /-- Separation-logic memory footprint of an `HState` rooted at runtime pointer `rt`. -/
 @[expose] def HState.mem (rt : BitVec 64) (σ : HState) : Mem 64 → Prop :=
-  fullRtInv rt σ.st σ.scr σ.scrLimbs ⋆ lcnfHeap σ.objs
+  bigNumRtInv rt σ.st σ.scr σ.scrLimbs ⋆ lcnfHeap σ.objs
 
 /-- Global well-formedness invariant of an `HState` rooted at `rt`:
-`BigNumRtWfR0` (48-bit arena bound, non-overflowing header and scratch array).
+`BigNumRtWf` (48-bit arena bound, non-overflowing header and scratch array).
 Object-level `LcnfObj.Wf` and `lcnfHeapClosed` invariants live on the individual
 `H*Wp` / `HDec1Pre` preconditions that actually require them. -/
 @[expose] def HInv (rt : BitVec 64) (σ : HState) : Prop :=
-  BigNumRtWfR0 rt σ.st σ.scr σ.scrLimbs
+  BigNumRtWf rt σ.st σ.scr σ.scrLimbs
 
 /-- Return postcondition at Tier H. -/
 abbrev HPost : Type := Word → HState → Prop

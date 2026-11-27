@@ -100,7 +100,7 @@ private theorem getObjTagNat_step {σ : HState} {v : PVal} {w : Word} {tyv retTy
   | nat n =>
     simp only [tagNatSafe] at hsafe
     simp only [PVal.tag?, Option.some.injEq] at htag; subst htag
-    rw [ObjRep.eq_3, natRepR0_small hsafe] at hobj; rw [hobj]
+    rw [ObjRep.eq_3, natRep_small hsafe] at hobj; rw [hobj]
     rw [ite_eq_left (boxNat_and1_ne_zero n)]
     have hrv := retValRep_small_nat hrt hsafe (objs := σ.objs)
     exact hk hrv.1 hrv.2

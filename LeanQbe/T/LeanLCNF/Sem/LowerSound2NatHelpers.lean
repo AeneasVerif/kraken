@@ -159,11 +159,11 @@ theorem natPrim_pow_wp {m : LcModule} {Δ : HEnv} {Γ : Env} {rs : List Ty}
     | some vb =>
       rw [hwa, hwb] at hwp
       rcases hwp with ⟨aVal, bVal, haRep, hbRep, hok, hkPow⟩
-      have hm' : (fullRtInv rt σ.st σ.scr σ.scrLimbs ⋆ lcnfHeap σ.objs ⋆ R) mem := by
+      have hm' : (bigNumRtInv rt σ.st σ.scr σ.scrLimbs ⋆ lcnfHeap σ.objs ⋆ R) mem := by
         rw [hstate_mem_unfold] at hm; exact hm
       let P : Post [i64] := fun (res, ()) m' =>
         ∃ σ' : HState, HInv rt σ' ∧ (σ'.mem rt ⋆ R) m' ∧ K (Word.i64 res) σ'
-      have hsp : lcnfNatSlowSpecR0 (rt, BitVec.ofNat 64 16, va, vb, ()) mem P
+      have hsp : lcnfNatSlowSpec (rt, BitVec.ofNat 64 16, va, vb, ()) mem P
           (fun _ _ _ _ => False) := by
         refine ⟨σ.st, σ.scr, σ.scrLimbs, σ.objs, R, hinv, hm', ?_⟩
         have htoNat : (BitVec.ofNat 64 16).toNat = 16 := by decide
@@ -222,11 +222,11 @@ theorem natPrim_gcd_wp {m : LcModule} {Δ : HEnv} {Γ : Env} {rs : List Ty}
     | some vb =>
       rw [hwa, hwb] at hwp
       rcases hwp with ⟨aVal, bVal, haRep, hbRep, hok, hkGcd⟩
-      have hm' : (fullRtInv rt σ.st σ.scr σ.scrLimbs ⋆ lcnfHeap σ.objs ⋆ R) mem := by
+      have hm' : (bigNumRtInv rt σ.st σ.scr σ.scrLimbs ⋆ lcnfHeap σ.objs ⋆ R) mem := by
         rw [hstate_mem_unfold] at hm; exact hm
       let P : Post [i64] := fun (res, ()) m' =>
         ∃ σ' : HState, HInv rt σ' ∧ (σ'.mem rt ⋆ R) m' ∧ K (Word.i64 res) σ'
-      have hsp : lcnfNatSlowSpecR0 (rt, BitVec.ofNat 64 18, va, vb, ()) mem P
+      have hsp : lcnfNatSlowSpec (rt, BitVec.ofNat 64 18, va, vb, ()) mem P
           (fun _ _ _ _ => False) := by
         refine ⟨σ.st, σ.scr, σ.scrLimbs, σ.objs, R, hinv, hm', ?_⟩
         have htoNat : (BitVec.ofNat 64 18).toNat = 18 := by decide

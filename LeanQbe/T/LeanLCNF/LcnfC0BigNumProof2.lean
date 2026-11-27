@@ -28,7 +28,6 @@ open LeanQbe.T
 open LeanQbe.T.C0Step
 open LeanQbe.T.ProofKit
 open LeanQbe.T.ProofUtil
-open LeanQbe.T.LeanLCNF.BigNumRt
 
 /-! ## 1. Separation-Logic, List/LimbsVal, and Control-Flow Helpers -/
 

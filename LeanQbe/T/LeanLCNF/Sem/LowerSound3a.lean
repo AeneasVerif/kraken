@@ -482,9 +482,9 @@ theorem mem_load_lcnfObj_field {rt addr : BitVec 64} {σ : HState} {mem_f : Mem 
   obtain ⟨idx, hidx, rfl⟩ := List.mem_iff_getElem.mp hmObj
   have hm' : (lcnfObjMem σ.objs[idx] ⋆
       (lcnfHeap (σ.objs.take idx) ⋆ lcnfHeap (σ.objs.drop (idx + 1)) ⋆
-        fullRtInv rt σ.st σ.scr σ.scrLimbs ⋆ mem_f)) mem := by
+        bigNumRtInv rt σ.st σ.scr σ.scrLimbs ⋆ mem_f)) mem := by
     rw [hstate_mem_unfold, lcnfHeap_focus σ.objs hidx] at hm
-    dsimp only [fullRtInv]
+    dsimp only [bigNumRtInv]
     exact sep_cast hm (by ac_rfl)
   subst haddr
   exact lcnfObjMem_load_field htag hi hm'
@@ -499,9 +499,9 @@ theorem mem_load_lcnfObj_scalar {rt addr : BitVec 64} {σ : HState} {mem_f : Mem
   obtain ⟨idx, hidx, rfl⟩ := List.mem_iff_getElem.mp hmObj
   have hm' : (lcnfObjMem σ.objs[idx] ⋆
       (lcnfHeap (σ.objs.take idx) ⋆ lcnfHeap (σ.objs.drop (idx + 1)) ⋆
-        fullRtInv rt σ.st σ.scr σ.scrLimbs ⋆ mem_f)) mem := by
+        bigNumRtInv rt σ.st σ.scr σ.scrLimbs ⋆ mem_f)) mem := by
     rw [hstate_mem_unfold, lcnfHeap_focus σ.objs hidx] at hm
-    dsimp only [fullRtInv]
+    dsimp only [bigNumRtInv]
     exact sep_cast hm (by ac_rfl)
   subst haddr
   exact lcnfObjMem_load_scalar hwf htag hoff hm'
@@ -962,7 +962,7 @@ private theorem hArrMkEmpty_retTy {wa : Word} {retTy : LcTy} (hw64 : retTy.width
       | some cap =>
         let c := if cap &&& 1#64 ≠ 0#64 then (cap >>> 1).toNat else 0
         if c ≤ arrMaxCap then
-          canAllocBytesR0 σ.st (arrAllocBytes c) ∧
+          canAllocBytes σ.st (arrAllocBytes c) ∧
           ∀ p st', p ≠ 0#64 → p.toNat % 8 = 0 → st'.PreservesMeta σ.st → st'.rem ≤ σ.st.rem →
             let arrObj := mkArrObj p (1#32) c []
             ArrCanon arrObj →
@@ -974,7 +974,7 @@ private theorem hArrMkEmpty_retTy {wa : Word} {retTy : LcTy} (hw64 : retTy.width
     | some cap =>
       let c := if cap &&& 1#64 ≠ 0#64 then (cap >>> 1).toNat else 0
       if c ≤ arrMaxCap then
-        canAllocBytesR0 σ.st (arrAllocBytes c) ∧
+        canAllocBytes σ.st (arrAllocBytes c) ∧
         ∀ p st', p ≠ 0#64 → p.toNat % 8 = 0 → st'.PreservesMeta σ.st → st'.rem ≤ σ.st.rem →
           let arrObj := mkArrObj p (1#32) c []
           ArrCanon arrObj →

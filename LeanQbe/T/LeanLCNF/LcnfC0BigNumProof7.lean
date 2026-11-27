@@ -18,7 +18,6 @@ open Std Std.ExtHashMap
 open LeanQbe.T
 open LeanQbe.T.C0Step
 open LeanQbe.T.ProofUtil
-open BigNumRt
 
 private theorem bn_int_len_call_wp {Q : Post [i64]} {X : XPost}
     {rt scr a : BitVec 64} {st : RtC0State} {scrLimbs : List (BitVec 64)}
@@ -52,7 +51,7 @@ private theorem bn_require_scratch_call_wp {Q : Post [i64]} {X : XPost}
   · refine rtR1Env_bn_require_scratch ?_
     dsimp only [bnRequireScratchSpec, vals, Arg.val]
     refine ⟨scr, BitVec.ofNat 64 scrLimbs.length,
-      BigNumRt.rtC0Inv rt st ⋆ array64 scr scrLimbs ⋆ lcnfHeap objs ⋆ R,
+      rtC0Inv rt st ⋆ array64 scr scrLimbs ⋆ lcnfHeap objs ⋆ R,
       hwf.2.2.1, ?_, ?_, rfl, rfl⟩
     · rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hwf.2.2.2.2.1]; exact hneed
     · dsimp only [bigNumRtInv] at hm; exact sep_cast_ac hm (by ac_rfl)
@@ -99,12 +98,12 @@ private theorem bn_int_from_limbs_call_wp {Q : Post [i64]} {X : XPost}
       else if negW = 0#64 then (limbsVal (xs.take n) : Int)
       else -(limbsVal (xs.take n) : Int)) = z)
     (halloc : (z < -(2 ^ 62 : Int) ∨ (2 ^ 62 : Int) ≤ z) → canAllocBytes st (16 + 8 * n))
-    (hm : (BigNumRt.rtC0Inv rt st ⋆ array64 buf xs ⋆ lcnfHeap objs ⋆ F) m)
+    (hm : (rtC0Inv rt st ⋆ array64 buf xs ⋆ lcnfHeap objs ⋆ F) m)
     {k : Tup Val [i64] → Expr Val Cont [i64]}
     (hk : ∀ res st' objs' m',
       st'.PreservesMeta st → st'.rem ≤ st.rem → st'.Bounded48 →
       intRep res z objs' → (∀ o ∈ objs, o ∈ objs') →
-      (BigNumRt.rtC0Inv rt st' ⋆ array64 buf xs ⋆ lcnfHeap objs' ⋆ F) m' →
+      (rtC0Inv rt st' ⋆ array64 buf xs ⋆ lcnfHeap objs' ⋆ F) m' →
       wp rtR1Env Q X (k (res, ())) m') :
     wp rtR1Env Q X (.call (as := [i64, i64, i64, i64]) (bs := [i64]) "bn_int_from_limbs"
       (Arg.var rt, Arg.var negW, Arg.var buf, Arg.var (BitVec.ofNat 64 n), ()) k) m := by
@@ -113,7 +112,7 @@ private theorem bn_int_from_limbs_call_wp {Q : Post [i64]} {X : XPost}
     ∃ st' objs',
       st'.PreservesMeta st ∧ st'.rem ≤ st.rem ∧ st'.Bounded48 ∧
       intRep res z objs' ∧ (∀ o ∈ objs, o ∈ objs') ∧
-      (BigNumRt.rtC0Inv rt st' ⋆ array64 buf xs ⋆ lcnfHeap objs' ⋆ F) m') ?_ ?_
+      (rtC0Inv rt st' ⋆ array64 buf xs ⋆ lcnfHeap objs' ⋆ F) m') ?_ ?_
   · refine rtR1Env_bn_int_from_limbs ?_
     dsimp only [bnIntFromLimbsSpec, vals, Arg.val]
     have hnbv : (BitVec.ofNat 64 n).toNat = n := by
@@ -239,20 +238,20 @@ private theorem lcnf_int_addsub_same_wp
     bv64_mul8_add (by omega : na + nb < 2 ^ 60)]
   let bufB := scr + BitVec.ofNat 64 (8 * na)
   let bufOut := scr + BitVec.ofNat 64 (8 * (na + nb))
-  have hm_spl : (BigNumRt.rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
+  have hm_spl : (rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
       cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆
       array64 scr xsA ⋆ array64 bufB xsB ⋆ array64 bufOut xsOut ⋆ lcnfHeap objs ⋆ R) m := by
     have hs3 := array64_split3 scr scrLimbs na nb (by omega)
     dsimp only [bigNumRtInv] at hm; rw [hs3] at hm
     exact sep_cast_ac hm (by dsimp only [bufB, bufOut]; ac_rfl)
   refine bn_load_int_call_wp
-    (BigNumRt.rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
+    (rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
       cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆
       array64 bufB xsB ⋆ array64 bufOut xsOut ⋆ R)
     hrepA hna_len (sep_cast_ac hm_spl (by (try dsimp only [bufB, bufOut]); ac_rfl)) ?_
   intro xsA' m4 hlenA' hvalA' hm4
   refine bn_load_int_call_wp
-    (BigNumRt.rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
+    (rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
       cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆
       array64 scr xsA' ⋆ array64 bufOut xsOut ⋆ R)
     hrepB hnb_len (sep_cast_ac hm4 (by (try dsimp only [bufB, bufOut]); ac_rfl)) ?_
@@ -300,7 +299,7 @@ private theorem lcnf_int_addsub_same_wp
       have hPost_z : ∀ res st' xsOut' objs' m',
           st'.PreservesMeta st → st'.rem ≤ st.rem → st'.Bounded48 →
           xsOut'.length = xsOut.length → intRep res z objs' → (∀ o ∈ objs, o ∈ objs') →
-          (BigNumRt.rtC0Inv rt st' ⋆ cell64 (rt + 33672#64) scr ⋆
+          (rtC0Inv rt st' ⋆ cell64 (rt + 33672#64) scr ⋆
             cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆
             array64 scr xsA' ⋆ array64 bufB xsB' ⋆ array64 bufOut xsOut' ⋆
             lcnfHeap objs' ⋆ R) m' → Q (res, ()) m' := by
@@ -409,14 +408,14 @@ private theorem lcnf_int_addsub_same_wp
               rnW = BitVec.ofNat 64 (limbLenNat z.natAbs) ∧
               xsOut'.length = xsOut.length ∧
               limbsVal (List.take (limbLenNat z.natAbs) xsOut') = z.natAbs ∧
-              (BigNumRt.rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
+              (rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
                 cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆
                 array64 scr xsA' ⋆ array64 bufB xsB' ⋆ array64 bufOut xsOut' ⋆
                 lcnfHeap objs ⋆ R) m6) ?_ ?_
           · refine rtR1Env_bn_add ?_
             dsimp only [bnAddSpec, vals, Arg.val]
             refine ⟨xsA', xsB', xsOut,
-              BigNumRt.rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
+              rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
                 cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆
                 lcnfHeap objs ⋆ R,
               by rw [hna_bv, hlenA']; exact Nat.le_refl _,
@@ -565,20 +564,20 @@ private theorem lcnf_int_addsub_opp_wp
     bv64_mul8_add (by omega : na + nb < 2 ^ 60)]
   let bufB := scr + BitVec.ofNat 64 (8 * na)
   let bufOut := scr + BitVec.ofNat 64 (8 * (na + nb))
-  have hm_spl : (BigNumRt.rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
+  have hm_spl : (rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
       cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆
       array64 scr xsA ⋆ array64 bufB xsB ⋆ array64 bufOut xsOut ⋆ lcnfHeap objs ⋆ R) m := by
     have hs3 := array64_split3 scr scrLimbs na nb (by omega)
     dsimp only [bigNumRtInv] at hm; rw [hs3] at hm
     exact sep_cast_ac hm (by dsimp only [bufB, bufOut]; ac_rfl)
   refine bn_load_int_call_wp
-    (BigNumRt.rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
+    (rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
       cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆
       array64 bufB xsB ⋆ array64 bufOut xsOut ⋆ R)
     hrepA hna_len (sep_cast_ac hm_spl (by (try dsimp only [bufB, bufOut]); ac_rfl)) ?_
   intro xsA' m4 hlenA' hvalA' hm4
   refine bn_load_int_call_wp
-    (BigNumRt.rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
+    (rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
       cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆
       array64 scr xsA' ⋆ array64 bufOut xsOut ⋆ R)
     hrepB hnb_len (sep_cast_ac hm4 (by (try dsimp only [bufB, bufOut]); ac_rfl)) ?_
@@ -633,7 +632,7 @@ private theorem lcnf_int_addsub_opp_wp
       have hPost_z : ∀ res st' xsOut' objs' m',
           st'.PreservesMeta st → st'.rem ≤ st.rem → st'.Bounded48 →
           xsOut'.length = xsOut.length → intRep res z objs' → (∀ o ∈ objs, o ∈ objs') →
-          (BigNumRt.rtC0Inv rt st' ⋆ cell64 (rt + 33672#64) scr ⋆
+          (rtC0Inv rt st' ⋆ cell64 (rt + 33672#64) scr ⋆
             cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆
             array64 scr xsA' ⋆ array64 bufB xsB' ⋆ array64 bufOut xsOut' ⋆
             lcnfHeap objs' ⋆ R) m' → Q (res, ()) m' := by
@@ -676,7 +675,7 @@ private theorem lcnf_int_addsub_opp_wp
       · refine rtR1Env_bn_cmp ?_
         dsimp only [bnCmpSpec, vals, Arg.val]
         refine ⟨xsA', xsB',
-          BigNumRt.rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
+          rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
             cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆
             array64 bufOut xsOut ⋆ lcnfHeap objs ⋆ R,
           by rw [hna_bv, hlenA']; exact Nat.le_refl _,
@@ -713,14 +712,14 @@ private theorem lcnf_int_addsub_opp_wp
                 rnW = BitVec.ofNat 64 (limbLenNat z.natAbs) ∧
                 xsOut'.length = xsOut.length ∧
                 limbsVal (List.take (limbLenNat z.natAbs) xsOut') = z.natAbs ∧
-                (BigNumRt.rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
+                (rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
                   cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆
                   array64 scr xsA' ⋆ array64 bufB xsB' ⋆ array64 bufOut xsOut' ⋆
                   lcnfHeap objs ⋆ R) m6) ?_ ?_
             · refine rtR1Env_bn_sub ?_
               dsimp only [bnSubSpec, vals, Arg.val]
               refine ⟨xsA', xsB', xsOut,
-                BigNumRt.rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
+                rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
                   cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆
                   lcnfHeap objs ⋆ R,
                 by rw [hna_bv, hlenA']; exact Nat.le_refl _,
@@ -776,14 +775,14 @@ private theorem lcnf_int_addsub_opp_wp
                 rnW = BitVec.ofNat 64 (limbLenNat z.natAbs) ∧
                 xsOut'.length = xsOut.length ∧
                 limbsVal (List.take (limbLenNat z.natAbs) xsOut') = z.natAbs ∧
-                (BigNumRt.rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
+                (rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
                   cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆
                   array64 scr xsA' ⋆ array64 bufB xsB' ⋆ array64 bufOut xsOut' ⋆
                   lcnfHeap objs ⋆ R) m6) ?_ ?_
             · refine rtR1Env_bn_sub ?_
               dsimp only [bnSubSpec, vals, Arg.val]
               refine ⟨xsB', xsA', xsOut,
-                BigNumRt.rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
+                rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
                   cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆
                   lcnfHeap objs ⋆ R,
                 by rw [hnb_bv, hlenB']; exact Nat.le_refl _,
@@ -914,20 +913,20 @@ private theorem lcnf_int_cmp_wp
     bv64_mul8_add (by omega : na + nb < 2 ^ 60)]
   let bufB := scr + BitVec.ofNat 64 (8 * na)
   let bufOut := scr + BitVec.ofNat 64 (8 * (na + nb))
-  have hm_spl : (BigNumRt.rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
+  have hm_spl : (rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
       cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆
       array64 scr xsA ⋆ array64 bufB xsB ⋆ array64 bufOut xsOut ⋆ lcnfHeap objs ⋆ R) m := by
     have hs3 := array64_split3 scr scrLimbs na nb (by omega)
     dsimp only [bigNumRtInv] at hm; rw [hs3] at hm
     exact sep_cast_ac hm (by dsimp only [bufB, bufOut]; ac_rfl)
   refine bn_load_int_call_wp
-    (BigNumRt.rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
+    (rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
       cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆
       array64 bufB xsB ⋆ array64 bufOut xsOut ⋆ R)
     hrepA hna_len (sep_cast_ac hm_spl (by (try dsimp only [bufB, bufOut]); ac_rfl)) ?_
   intro xsA' m4 hlenA' hvalA' hm4
   refine bn_load_int_call_wp
-    (BigNumRt.rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
+    (rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
       cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆
       array64 scr xsA' ⋆ array64 bufOut xsOut ⋆ R)
     hrepB hnb_len (sep_cast_ac hm4 (by (try dsimp only [bufB, bufOut]); ac_rfl)) ?_
@@ -1093,7 +1092,7 @@ private theorem lcnf_int_cmp_wp
       · refine rtR1Env_bn_cmp ?_
         dsimp only [bnCmpSpec, vals, Arg.val]
         refine ⟨xsA', xsB',
-          BigNumRt.rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
+          rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
             cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆
             array64 bufOut xsOut ⋆ lcnfHeap objs ⋆ R,
           by rw [hna_bv, hlenA']; exact Nat.le_refl _,

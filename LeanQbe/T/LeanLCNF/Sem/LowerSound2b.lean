@@ -242,7 +242,7 @@ theorem uintToNat_wp {m : LcModule} {Δ : HEnv} {Γ : Env} {rs : List Ty}
           refine call1_wp hslowE (evalArgs_cons hrt3 (evalArgs_cons (LArg.eval_imm_self ρ3 i64 _)
             (evalArgs_cons hx3 (evalArgs_cons (LArg.eval_imm_self ρ3 i64 0#64)
               (evalArgs_nil ρ3)))))
-            (hΓ.rt hsig (lcnfNatSlowSpecR0_le_rtC0CoreEnv hsp))
+            (hΓ.rt hsig (lcnfNatSlowSpec_le_rtC0CoreEnv hsp))
             (fun _ _ _ _ hf => False.elim hf) ?_
           intro rArg ekS hekS _ res m' ⟨σ', hinv', hm', hK⟩ _ hrEv
           rw [lm_pure_run] at hekS; injection hekS with hps

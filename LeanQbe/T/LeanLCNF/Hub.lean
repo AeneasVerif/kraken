@@ -127,7 +127,6 @@ public import LeanQbe.T.LeanLCNF.Sem.PerceusPrims1
 public import LeanQbe.T.LeanLCNF.Sem.PerceusSim
 public import LeanQbe.T.LeanLCNF.Sem.RcCheck
 public import LeanQbe.T.LeanLCNF.Sem.SpecNorm
-public import LeanQbe.T.LeanLCNF.Sem.SpecNormProof
 public import LeanQbe.T.LeanLCNF.Sem.Tactic
 public import LeanQbe.T.LeanLCNF.Sem.ValRep
 

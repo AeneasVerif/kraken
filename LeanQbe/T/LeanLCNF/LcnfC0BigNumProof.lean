@@ -25,7 +25,6 @@ open Std Std.ExtHashMap
 open LeanQbe.T
 open LeanQbe.T.C0Step
 open LeanQbe.T.ProofUtil
-open BigNumRt
 
 local macro "sep_ac" : tactic =>
   `(tactic| exact sep_cast_ac (by assumption) (by ac_rfl))
@@ -241,7 +240,7 @@ theorem lcnf_int_op_sound :
 @[expose] def nvBnAddrIntNegA : BitVec 64 := nvBnHeapBase + 64#64
 @[expose] def nvBnAddrIntPosB : BitVec 64 := nvBnHeapBase + 96#64
 
-/-- Concrete initial `BigNumRt.RtC0State` with `workBuf` placed after `LcnfC0BigNumRt`
+/-- Concrete initial `RtC0State` with `workBuf` placed after `LcnfC0BigNumRt`
 (`+33688`), followed by a `256B` bump arena (`[+33752, +34008)`). -/
 @[expose] def nvBnRtState : RtC0State where
   extraArgs := List.replicate rtExtraSlots 0#64
@@ -306,7 +305,7 @@ theorem lcnf_int_op_sound :
 
 @[expose] def nvBnObjs : List LcnfObj := [nvBnNatA, nvBnNatB, nvBnIntNegA, nvBnIntPosB]
 
-@[expose] def nvBnHdrWords (h : LcnfC0BaseRt) : List (BitVec 64) :=
+@[expose] def nvBnHdrWords (h : LcnfC0Rt) : List (BitVec 64) :=
   [ h.s_large_free, h.s_ba_empty, h.s_cur, h.s_end, h.s_work, h.s_work_cap,
     h.s_chunks, h.s_nchunks, h.s_chunks_cap, h.s_st_allocs, h.s_st_frees,
     h.s_st_live, h.s_st_peak_live, h.s_st_persistent, h.s_st_reused,
@@ -339,11 +338,11 @@ private theorem nvBn_sep_append {P Q : Mem 64 → Prop} {a : BitVec 64}
   refine ⟨bs1.At a, bs2.At (a + BitVec.ofNat 64 bs1.length), hu, hd, hp, ?_⟩
   rwa [h1]
 
-private theorem array64_baseHdrWords_to_At (rt : BitVec 64) (h : LcnfC0BaseRt) {m : Mem 64}
-    (hm : array64 (rt + 33536#64) (nvBnHdrWords h) m) : LcnfC0BaseRt.At rt h m := by
+private theorem array64_baseHdrWords_to_At (rt : BitVec 64) (h : LcnfC0Rt) {m : Mem 64}
+    (hm : array64 (rt + 33536#64) (nvBnHdrWords h) m) : LcnfC0Rt.At rt h m := by
   unfold nvBnHdrWords at hm
   simp only [array64, cell64_eq_cell, sep_emp, BitVec.add_assoc] at hm
-  unfold LcnfC0BaseRt.At
+  unfold LcnfC0Rt.At
   exact sep_cast hm (by ac_rfl)
 
 private theorem nvBnSmallPools_emp (n : Nat) :
@@ -409,7 +408,7 @@ private theorem nvBnRtBytes_ok :
       (b2.At (nvBnRtBase + BitVec.ofNat 64 33024)) :=
     array64_bytes (nvBnRtBase + 33024#64) nvBnRtState.freeList
       (by rw [nvBnRtState.freeListLen]; decide)
-  have h3 : LcnfC0BaseRt.At nvBnRtBase nvBnRtState.hdr
+  have h3 : LcnfC0Rt.At nvBnRtBase nvBnRtState.hdr
       (b3.At (nvBnRtBase + BitVec.ofNat 64 33536)) :=
     array64_baseHdrWords_to_At nvBnRtBase nvBnRtState.hdr
       (array64_bytes (nvBnRtBase + 33536#64) (nvBnHdrWords nvBnRtState.hdr) (by decide))

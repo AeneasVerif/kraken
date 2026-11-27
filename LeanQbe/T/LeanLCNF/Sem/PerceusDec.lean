@@ -100,7 +100,7 @@ public theorem isTaggedPVal_odd {ty : LcTy} {pv : PVal} {bv : BitVec 64} {objs :
   | nat n =>
     have hnlt : n < 2 ^ 63 := by simpa [isTaggedPVal] using htag
     dsimp only [ObjRep] at hobj
-    rw [(natRepR0_small hnlt).mp hobj]
+    rw [(natRep_small hnlt).mp hobj]
     intro h0
     have := boxNat_and1_eq_one n
     rw [h0] at this; cases this

@@ -2,7 +2,7 @@ module
 
 public import LeanQbe.T.LeanLCNF.LExprSem
 public import LeanQbe.T.LeanLCNF.Sem.H
-public import LeanQbe.T.LeanLCNF.Sem.SpecNormProof
+public import LeanQbe.T.LeanLCNF.Sem.SpecNorm
 public import LeanQbe.T.LeanLCNF.LcnfC0LinkKit
 
 /-!

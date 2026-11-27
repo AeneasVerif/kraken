@@ -58,7 +58,7 @@ theorem factStr_wp (xs : Tup Val [i64, i64]) (m : Mem 64) (Q : Post [i64]) (X : 
     .call "lcnf_nat_to_str" (as := [i64, i64]) (bs := [i64]) (.var rt, .var v0.1, ()) fun v1 =>
     .ret (.var v1.1, ())) m
   refine wp_call_pred (fun (res, ()) m1 =>
-    ∃ (st' : BigNumRt.RtC0State) (scrLimbs' : List (BitVec 64)) (objs' : List BigNumRt.LcnfObj),
+    ∃ (st' : RtC0State) (scrLimbs' : List (BitVec 64)) (objs' : List LcnfObj),
       st'.PreservesMeta st ∧ st'.rem ≤ st.rem ∧
       mpzAllocBytes 2 + sarrayAllocBytes 40 + strAllocBytes 41 ≤ st'.rem ∧
       BigNumRtWf rt st' scr scrLimbs' ∧ natRep res resVal objs' ∧
@@ -66,16 +66,16 @@ theorem factStr_wp (xs : Tup Val [i64, i64]) (m : Mem 64) (Q : Post [i64]) (X : 
       (2 ^ 63 ≤ resVal →
         ∃ resObj, resObj ∈ objs' ∧ resObj.addr = res ∧ resObj.rc = 1#32 ∧
           mpzNatCanon resObj resVal ∧ objs'.length ≤ st.workCap ∧
-          BigNumRt.lcnfHeapClosed objs' ∧ BigNumRt.RcSound res objs') ∧
+          lcnfHeapClosed objs' ∧ RcSound res objs') ∧
       (∀ o ∈ objs', o.Wf) ∧
-      (bigNumRtInv rt st' scr scrLimbs' ⋆ BigNumRt.lcnfHeap objs' ⋆ R) m1) ?_ ?_
+      (bigNumRtInv rt st' scr scrLimbs' ⋆ lcnfHeap objs' ⋆ R) m1) ?_ ?_
   · dsimp only [vals, Arg.val, factLoopEnv]; rw [ite_eq_right (by decide)]
     refine Or.inl ⟨⟨rfl, rfl⟩, rfl, st, scr, scrLimbs, [], k, 1, resVal,
       mpzAllocBytes 2 + sarrayAllocBytes 40 + strAllocBytes 41, R, ?_, ?_⟩
     · refine ⟨hkLt, rfl, rfl, hwf, (by simp [natRep]), (fun _ => rfl),
         (fun h => absurd h (by decide)), (fun _ ho => by cases ho),
         (by simp; omega), (by omega), hscrCap, hmaxLimb, (by dsimp only [resVal]; omega),
-        sep_cast hm (by simp [BigNumRt.lcnfHeap, sep_emp])⟩
+        sep_cast hm (by simp [lcnfHeap, sep_emp])⟩
     · intro res st' scrLimbs' objs' m1 hpr1 hrem1 hexRem1 hwf1 hrep1 hsm1 hbig1 hobjsWf1 hm1
       exact ⟨st', scrLimbs', objs', hpr1, hrem1, hexRem1, hwf1, hrep1, hsm1, hbig1, hobjsWf1, hm1⟩
   · rintro ⟨res, ⟨⟩⟩ m1 ⟨st', scrLimbs', objs', hpr1, hrem1, hexRem1, hwf1, hrep1, hsm1, hbig1,
@@ -83,7 +83,7 @@ theorem factStr_wp (xs : Tup Val [i64, i64]) (m : Mem 64) (Q : Post [i64]) (X : 
     refine wp_call_pred Q ?_ fun ⟨s, ⟨⟩⟩ m2 hq => by rw [wp_ret]; exact hq
     dsimp only [vals, Arg.val]
     have hm1_sep :
-        (BigNumRt.rtC0Inv rt st' ⋆ BigNumRt.lcnfHeap objs' ⋆
+        (rtC0Inv rt st' ⋆ lcnfHeap objs' ⋆
           (cell64 (rt + 33672#64) scr ⋆
             cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs'.length) ⋆
             array64 scr scrLimbs' ⋆ R)) m1 := by
@@ -102,14 +102,14 @@ theorem factStr_wp (xs : Tup Val [i64, i64]) (m : Mem 64) (Q : Post [i64]) (X : 
         have hu : res >>> (1 : Nat) = BitVec.ofNat 64 resVal :=
           hresEq ▸ boxNat_ushr1 hlt63
         rw [hu, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]
-      have hnil : lcnfHeap ([] : List LcnfObj) = BigNumRt.lcnfHeap [] := by
-        rw [b2r_lcnfHeap_eq]; rfl
+      have hnil : lcnfHeap ([] : List LcnfObj) = lcnfHeap [] := by
+        rfl
       have hm1_rt :
-          (rtC0Inv rt (b2rState st') ⋆ lcnfHeap ([] : List LcnfObj) ⋆
+          (rtC0Inv rt st' ⋆ lcnfHeap ([] : List LcnfObj) ⋆
             (cell64 (rt + 33672#64) scr ⋆
               cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs'.length) ⋆
               array64 scr scrLimbs' ⋆ R)) m1 := by
-        rw [← b2r_rtC0Inv_eq, hnil]
+        rw [hnil]
         exact hm1_sep
       have hdecLe : (natToDecimalBytes resVal).length ≤ 19 := by
         by_cases hz : resVal = 0
@@ -119,20 +119,18 @@ theorem factStr_wp (xs : Tup Val [i64, i64]) (m : Mem 64) (Q : Post [i64]) (X : 
           have hpow19 : resVal < 10 ^ 19 := Nat.lt_trans hlt63 (by decide)
           exact natDigitsRev_len_le_of_lt_pow10 19 resVal hpow19
       have hstrRem :
-          strAllocBytes ((natToDecimalBytes resVal).length + 1) ≤ (b2rState st').rem := by
+          strAllocBytes ((natToDecimalBytes resVal).length + 1) ≤ st'.rem := by
         have hle41 :=
           strAllocBytes_mono
             (Nat.le_trans (show (natToDecimalBytes resVal).length + 1 ≤ 20 by omega)
               (by decide : 20 ≤ 41))
-        rw [b2rState_rem]
         omega
-      have hpr1b : (b2rState st').PreservesMeta (b2rState st) := by
-        simpa [BigNumRt.RtC0State.PreservesMeta, RtC0State.PreservesMeta,
-          b2rState, b2rHdr] using hpr1
+      have hpr1b : st'.PreservesMeta st := by
+        simpa [RtC0State.PreservesMeta, RtC0State.PreservesMeta] using hpr1
       refine loopRtEnv_le_factLoopEnv_of_mem (by decide) _ _ _ _ _ _
         (rtC0CoreEnv_le_loopRtEnv _ _ _ _ _ _ _
         (rtR2bEnv_le_rtC0CoreEnv _ _ _ _ _ _ _ (rtR2bEnv_lcnf_nat_to_str
-          ⟨b2rState st', resVal, [], _,
+          ⟨st', resVal, [], _,
             (by rw [NatInHeap, ite_eq_left hresAnd]; exact hushr),
             (fun _ ho => by cases ho), hm1_rt, ?_⟩)))
       split
@@ -158,9 +156,8 @@ theorem factStr_wp (xs : Tup Val [i64, i64]) (m : Mem 64) (Q : Post [i64]) (X : 
       have hlen2 : resObj.limbs.length = 2 := by
         rw [← mpzNatCanon_limbLen hresCan]; exact htwo
       have hwc' : st'.workCap = st.workCap := preservesMeta_bn_workCap hpr1
-      have hpr1b : (b2rState st').PreservesMeta (b2rState st) := by
-        simpa [BigNumRt.RtC0State.PreservesMeta, RtC0State.PreservesMeta,
-          b2rState, b2rHdr] using hpr1
+      have hpr1b : st'.PreservesMeta st := by
+        simpa [RtC0State.PreservesMeta, RtC0State.PreservesMeta] using hpr1
       refine loopRtEnv_le_factLoopEnv_of_mem (by decide) _ _ _ _ _ _
         (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr
         ⟨⟨rfl, rfl⟩, rfl, st', resObj, objs', resVal, _, hresTag, hresMem, hresAddr, hresCan, hlen2,
@@ -245,10 +242,10 @@ theorem factLoopEnv_noex (fn : Fn) (hfn : fn ∈ (lcnfProgMod factLoopTfs).fns)
 @[expose] def loopScr : BitVec 64 := loopRtBase + 35800#64
 @[expose] def loopScrLimbs : List (BitVec 64) := List.replicate loopScrCap 0#64
 
-@[expose] def loopRtState : BigNumRt.RtC0State :=
+@[expose] def loopRtState : RtC0State :=
   { extraArgs := List.replicate rtExtraSlots 0#64,
     globals := List.replicate rtGlobalSlots 0#64,
-    freeList := List.replicate BigNumRt.rtNumClasses 0#64,
+    freeList := List.replicate rtNumClasses 0#64,
     hdr :=
       { s_large_free := 0#64, s_ba_empty := 0#64,
         s_cur := loopRtBase + 33752#64, s_end := loopRtBase + 35800#64,
@@ -284,13 +281,13 @@ private theorem sep_of_bytes_append {a : BitVec 64} {bs1 bs2 : List UInt8}
   rw [bytes_append _ _ _ hfit] at hm
   exact sep_mono2 (by rintro _ rfl; exact h1) (by rintro _ rfl; exact h2) m hm
 
-private theorem lcnfC0BaseRt_At_of_bytes64 (p : BitVec 64) (h : LcnfC0BaseRt) :
-    LcnfC0BaseRt.At p h ((bytes64 (nvBnHdrWords h)).At (p + 33536#64)) := by
+private theorem lcnfC0Rt_At_of_bytes64 (p : BitVec 64) (h : LcnfC0Rt) :
+    LcnfC0Rt.At p h ((bytes64 (nvBnHdrWords h)).At (p + 33536#64)) := by
   have ha := array64_bytes (p + 33536#64) (nvBnHdrWords h)
     (by dsimp [nvBnHdrWords]; decide)
   dsimp only [nvBnHdrWords] at ha
   simp only [array64, cell64_eq_cell] at ha
-  unfold LcnfC0BaseRt.At
+  unfold LcnfC0Rt.At
   refine sep_cast ha ?_
   rw [show (8 : BitVec 64) = 8#64 from rfl,
     BitVec.add_assoc p 33536#64 8#64, show (33536#64 + 8#64 : BitVec 64) = 33544#64 from rfl,
@@ -312,21 +309,21 @@ private theorem lcnfC0BaseRt_At_of_bytes64 (p : BitVec 64) (h : LcnfC0BaseRt) :
     sep_emp]
   ac_rfl
 
-private theorem smallPools_empty_emp (k : Nat) (hk : k ≤ BigNumRt.rtNumClasses) :
-    BigNumRt.smallPoolsAt (List.replicate BigNumRt.rtNumClasses 0#64) (fun _ => []) k = emp := by
+private theorem smallPools_empty_emp (k : Nat) (hk : k ≤ rtNumClasses) :
+    smallPoolsAt (List.replicate rtNumClasses 0#64) (fun _ => []) k = emp := by
   induction k with
-  | zero => exact BigNumRt.smallPoolsAt.eq_1 _ _
+  | zero => exact smallPoolsAt.eq_1 _ _
   | succ k ih =>
-    rw [BigNumRt.smallPoolsAt.eq_2, ih (Nat.le_of_succ_le hk), emp_sep]
-    have hget : (List.replicate BigNumRt.rtNumClasses 0#64).getD k 0#64 = 0#64 := by
+    rw [smallPoolsAt.eq_2, ih (Nat.le_of_succ_le hk), emp_sep]
+    have hget : (List.replicate rtNumClasses 0#64).getD k 0#64 = 0#64 := by
       simp [List.getD, Nat.lt_of_succ_le hk]
     rw [hget]
-    unfold BigNumRt.smallPoolSlot
-    split <;> (ext m; simp [BigNumRt.smallFreeList.eq_1])
+    unfold smallPoolSlot
+    split <;> (ext m; simp [smallFreeList.eq_1])
 
-private theorem largeFreeList_empty_emp : BigNumRt.largeFreeList 0#64 [] = emp := by
+private theorem largeFreeList_empty_emp : largeFreeList 0#64 [] = emp := by
   ext m
-  simp [BigNumRt.largeFreeList, BigNumRt.largeSeg.eq_1]
+  simp [largeFreeList, largeSeg.eq_1]
 
 theorem loopRtMem_ok :
     bigNumRtInv loopRtBase loopRtState loopScr loopScrLimbs loopRtMem := by
@@ -405,20 +402,20 @@ theorem loopRtMem_ok :
       show (loopRtBase + 33672#64) + 8 = loopRtBase + 33680#64 from rfl] at hs
     exact sep_cast hs (by ac_rfl)
   have h4 :
-      (LcnfC0BaseRt.At loopRtBase loopRtState.hdr ⋆
+      (LcnfC0Rt.At loopRtBase loopRtState.hdr ⋆
         (cell64 (loopRtBase + 33672#64) loopScr ⋆
           cell64 (loopRtBase + 33680#64) (BitVec.ofNat 64 loopScrCap) ⋆
           array64 (loopRtBase + 33688#64) loopRtState.workBuf ⋆
           region (loopRtBase + 33752#64) loopRem ⋆ array64 loopScr loopScrLimbs))
         (bs4.At (loopRtBase + 33536#64)) := by
-    refine sep_of_bytes_append (lcnfC0BaseRt_At_of_bytes64 loopRtBase loopRtState.hdr) ?_
+    refine sep_of_bytes_append (lcnfC0Rt_At_of_bytes64 loopRtBase loopRtState.hdr) ?_
       (by rw [hl3, hbs5]; decide) rfl
     rw [hl3, show (loopRtBase + 33536#64) + BitVec.ofNat 64 136 =
       loopRtBase + 33672#64 from rfl]
     exact h5
   have h3 :
       (array64 (loopRtBase + 33024#64) loopRtState.freeList ⋆
-        (LcnfC0BaseRt.At loopRtBase loopRtState.hdr ⋆
+        (LcnfC0Rt.At loopRtBase loopRtState.hdr ⋆
           (cell64 (loopRtBase + 33672#64) loopScr ⋆
             cell64 (loopRtBase + 33680#64) (BitVec.ofNat 64 loopScrCap) ⋆
             array64 (loopRtBase + 33688#64) loopRtState.workBuf ⋆
@@ -431,7 +428,7 @@ theorem loopRtMem_ok :
   have h2 :
       (array64 (loopRtBase + 256#64) loopRtState.globals ⋆
         (array64 (loopRtBase + 33024#64) loopRtState.freeList ⋆
-          (LcnfC0BaseRt.At loopRtBase loopRtState.hdr ⋆
+          (LcnfC0Rt.At loopRtBase loopRtState.hdr ⋆
             (cell64 (loopRtBase + 33672#64) loopScr ⋆
               cell64 (loopRtBase + 33680#64) (BitVec.ofNat 64 loopScrCap) ⋆
               array64 (loopRtBase + 33688#64) loopRtState.workBuf ⋆
@@ -445,7 +442,7 @@ theorem loopRtMem_ok :
       (array64 loopRtBase loopRtState.extraArgs ⋆
         (array64 (loopRtBase + 256#64) loopRtState.globals ⋆
           (array64 (loopRtBase + 33024#64) loopRtState.freeList ⋆
-            (LcnfC0BaseRt.At loopRtBase loopRtState.hdr ⋆
+            (LcnfC0Rt.At loopRtBase loopRtState.hdr ⋆
               (cell64 (loopRtBase + 33672#64) loopScr ⋆
                 cell64 (loopRtBase + 33680#64) (BitVec.ofNat 64 loopScrCap) ⋆
                 array64 (loopRtBase + 33688#64) loopRtState.workBuf ⋆
@@ -453,18 +450,18 @@ theorem loopRtMem_ok :
         loopRtMem :=
     sep_of_bytes_append (array64_bytes loopRtBase loopRtState.extraArgs ha0)
       (by rw [hl0]; exact h2) (by rw [hl0, hbs2]; decide) hm0
-  unfold bigNumRtInv BigNumRt.rtC0Inv
+  unfold bigNumRtInv rtC0Inv
   have hsp :
-      BigNumRt.smallPoolsAt loopRtState.freeList loopRtState.smallPools BigNumRt.rtNumClasses =
+      smallPoolsAt loopRtState.freeList loopRtState.smallPools rtNumClasses =
         emp :=
     smallPools_empty_emp _ (Nat.le_refl _)
-  have hlf : BigNumRt.largeFreeList loopRtState.hdr.s_large_free loopRtState.largeNodes = emp :=
+  have hlf : largeFreeList loopRtState.hdr.s_large_free loopRtState.largeNodes = emp :=
     largeFreeList_empty_emp
   rw [hsp, hlf]
   change (array64 loopRtBase loopRtState.extraArgs ⋆
     array64 (loopRtBase + 256#64) loopRtState.globals ⋆
     array64 (loopRtBase + 33024#64) loopRtState.freeList ⋆
-    LcnfC0BaseRt.At loopRtBase loopRtState.hdr ⋆
+    LcnfC0Rt.At loopRtBase loopRtState.hdr ⋆
     array64 (loopRtBase + 33688#64) loopRtState.workBuf ⋆ emp ⋆ emp ⋆
     region (loopRtBase + 33752#64) loopRem ⋆
     cell64 (loopRtBase + 33672#64) loopScr ⋆
@@ -476,7 +473,7 @@ theorem fact25_str_spec (Q : Post [i64]) (X : XPost)
     (hk : ∀ (s : BitVec 64) (st' : RtC0State) (objs' : List LcnfObj)
       (scrLimbs' : List (BitVec 64)) (m' : Mem 64),
       s ≠ 0#64 → s.toNat % 8 = 0 →
-      st'.PreservesMeta (b2rState loopRtState) → st'.rem ≤ loopRtState.rem →
+      st'.PreservesMeta loopRtState → st'.rem ≤ loopRtState.rem →
       have sObj := mkStrObj s 1#32 27 fact25Bytes 26
       StrCanon sObj →
       (rtC0Inv loopRtBase st' ⋆ lcnfObjMem sObj ⋆ lcnfHeap objs' ⋆
@@ -497,7 +494,7 @@ theorem fact25_str_spec (Q : Post [i64]) (X : XPost)
     have hhi : Nat.log2 15511210043330985984000000 < 128 :=
       (Nat.log2_lt (by decide)).mpr (by decide)
     omega
-  have hwf1 : loopRtState.Bounded48 := by unfold BigNumRt.RtC0State.Bounded48; decide
+  have hwf1 : loopRtState.Bounded48 := by unfold RtC0State.Bounded48; decide
   have hwf2 : loopRtBase.toNat + LcnfC0BigNumRt.sizeof < 2 ^ 64 := by decide
   have hwf3 : loopScr ≠ 0#64 := by decide
   have hwf4 : loopScr.toNat % 8 = 0 := by decide
@@ -509,11 +506,11 @@ theorem fact25_str_spec (Q : Post [i64]) (X : XPost)
     ⟨hwf1, hwf2, hwf3, hwf4, hwf5, hwf6⟩
   refine Or.inr ⟨⟨rfl, rfl⟩, rfl, loopRtState, loopScr, loopScrLimbs, 25, emp,
     by decide, rfl, hwf,
-    by dsimp [BigNumRt.RtC0State.workCap, loopRtState, loopWorkCap]; decide,
+    by dsimp [RtC0State.workCap, loopRtState, loopWorkCap]; decide,
     by simp [hlog, loopScrLimbs, loopScrCap],
     by rw [hlog]; decide, Or.inr hlog,
     by simp [hlog, mpzAllocBytes, sarrayAllocBytes, strAllocBytes, align8,
-      loopRtState, BigNumRt.RtC0State.rem]; decide,
+      loopRtState, RtC0State.rem]; decide,
     by rw [sep_emp]; exact loopRtMem_ok, ?_⟩
   intro s st' objs' scrLimbs' m' hs0 hs8 hpr hrem dec sObj hcan hm'
   dsimp only [dec, sObj] at hcan hm'

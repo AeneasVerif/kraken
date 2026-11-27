@@ -455,7 +455,7 @@ private theorem loadVal_extraArgs_bits {rt : BitVec 64} {σ : HState} {R : Mem 6
        cell64 (rt + 33680#64) (BitVec.ofNat 64 σ.scrLimbs.length) ⋆
        array64 σ.scr σ.scrLimbs ⋆
        lcnfHeap σ.objs ⋆ R)) m := by
-    unfold HState.mem fullRtInv rtC0Inv at hm
+    unfold HState.mem bigNumRtInv rtC0Inv at hm
     exact sep_cast hm (by ac_rfl)
   rw [array64_focus rt σ.st.extraArgs hi, sep_assoc] at hm'
   simpa [rtExtraOff] using loadVal_bits_of_cell64 hw hm'

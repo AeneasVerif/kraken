@@ -2,6 +2,7 @@ module
 
 public import LeanQbe.T.LeanLCNF.LcnfC0BigNum
 public import LeanQbe.T.LeanLCNF.LcnfC0BigNumMath
+public import LeanQbe.T.LeanLCNF.LcnfC0RtSpec
 public import LeanQbe.T.LeanLCNF.Lower
 public import LeanQbe.T.Logic.C0Step
 public import LeanQbe.T.Logic.SlabChain
@@ -12,11 +13,9 @@ import all Kraken.Separation
 
 Formal specification layer for `LeanQbe.T.LeanLCNF.LcnfC0BigNum`:
 
-1. **`BigNumRt` R0-aligned runtime mirror**:
-   Byte-for-byte mirror of R0's slab invariants (`RtC0State`, `rtC0Inv`, `LcnfObj`, `lcnfObjMem`,
-   `lcnfHeap`, `lcnfHeapClosed`, `RcSound`, `DecColdRel`, `lcnfAllocSpec`, `lcnfDecRefColdSpec`)
-   scoped in `LeanQbe.T.LeanLCNF.BigNumRt` so importing both R0 and R1 modules together incurs
-   zero name collisions while maintaining identical `Spec` definitions.
+1. **Shared R0 runtime state**: R1 contracts are stated directly over `LcnfC0RtSpec`'s
+   `RtC0State`, `rtC0Inv`, `LcnfObj`, `lcnfHeap`, `RcSound`, `DecColdRel`, `lcnfAllocSpec`, and
+   `lcnfDecRefColdSpec` (the R1 header `LcnfC0BaseRt` is layout-identical but never unfolded).
 2. **Canonical `Nat` & `Int` (`MPZ`) representations**:
    - `mpzNatCanon obj n`: trimmed `limbs`, `other = 0`, `limbsVal obj.limbs = n`, `2 ^ 63 ≤ n`.
    - `mpzIntCanon obj z`: trimmed `limbs`, `other ∈ {0, 1}`, `other = 1 ↔ z < 0`,
@@ -38,112 +37,7 @@ open LeanQbe.T
 open LeanQbe.T.C0Step
 open LeanQbe.T.ProofUtil
 
-/-! ## 1. Standalone R0-Aligned Runtime Mirror (`BigNumRt`) -/
-
-namespace BigNumRt
-
-def rtMinObjBytes : Nat := 16
-def rtMaxObjBytes : Nat := 268435456
-def rtNumClasses : Nat := 64
-
-def arrayTag : Nat := 246
-def sarrayTag : Nat := 248
-def stringTag : Nat := 249
-def mpzTag : Nat := 250
-
-abbrev LcnfC0Rt := LeanQbe.T.LeanLCNF.LcnfC0BaseRt
-
-def listHeadPtr : List (BitVec 64) → BitVec 64
-  | [] => 0#64
-  | p :: _ => p
-
-def smallFreeNode (bytes : Nat) (p nxt : BitVec 64) : Mem 64 → Prop :=
-  (region p 8 ⋆ cell64 (p + 8#64) nxt) ⋆ region (p + 16#64) (bytes - 16)
-
-def smallFreeList (bytes : Nat) : BitVec 64 → List (BitVec 64) → Mem 64 → Prop
-  | hd, [], m => hd = 0#64 ∧ emp m
-  | hd, p :: rest, m =>
-    hd = p ∧ p ≠ 0#64 ∧ p.toNat % 8 = 0 ∧
-    (smallFreeNode bytes p (listHeadPtr rest) ⋆
-      smallFreeList bytes (listHeadPtr rest) rest) m
-
-def smallPoolSlot (n : Nat) (hd : BitVec 64) (nodes : List (BitVec 64)) : Mem 64 → Prop :=
-  if 2 ≤ n then smallFreeList (8 * n) hd nodes
-  else fun m => hd = 0#64 ∧ nodes = [] ∧ emp m
-
-def smallPoolsAt (freeList : List (BitVec 64)) (pools : Nat → List (BitVec 64)) :
-    Nat → Mem 64 → Prop
-  | 0 => emp
-  | n + 1 =>
-    smallPoolsAt freeList pools n ⋆ smallPoolSlot n (freeList.getD n 0#64) (pools n)
-
-def largeSegNext (endPtr : BitVec 64) : List (BitVec 64 × Nat) → BitVec 64
-  | [] => endPtr
-  | (p, _) :: _ => p
-
-def largeFreeNode (bytes : Nat) (p nxt : BitVec 64) : Mem 64 → Prop :=
-  ((region p 8 ⋆ cell64 (p + 8#64) nxt) ⋆ cell64 (p + 16#64) (BitVec.ofNat 64 bytes)) ⋆
-  region (p + 24#64) (bytes - 24)
-
-def largeSeg (hd endPtr : BitVec 64) : List (BitVec 64 × Nat) → Mem 64 → Prop
-  | [], m => hd = endPtr ∧ emp m
-  | (p, b) :: rest, m =>
-    hd = p ∧ p ≠ 0#64 ∧ p.toNat % 8 = 0 ∧ 512 ≤ b ∧ b < rtMaxObjBytes ∧ b % 8 = 0 ∧
-    (largeFreeNode b p (largeSegNext endPtr rest) ⋆
-      largeSeg (largeSegNext endPtr rest) endPtr rest) m
-
-abbrev largeFreeList (hd : BitVec 64) (nodes : List (BitVec 64 × Nat)) : Mem 64 → Prop :=
-  largeSeg hd 0#64 nodes
-
-structure RtC0State where
-  extraArgs : List (BitVec 64)
-  globals : List (BitVec 64)
-  freeList : List (BitVec 64)
-  hdr : LcnfC0Rt
-  workBuf : List (BitVec 64)
-  smallPools : Nat → List (BitVec 64)
-  largeNodes : List (BitVec 64 × Nat)
-  extraLen : extraArgs.length = rtExtraSlots
-  globalsLen : globals.length = rtGlobalSlots
-  freeListLen : freeList.length = rtNumClasses
-  workLen : workBuf.length = hdr.s_work_cap.toNat
-  curLeEnd : hdr.s_cur.toNat ≤ hdr.s_end.toNat
-  arenaAlign : hdr.s_cur.toNat % 8 = 0
-  curNz : hdr.s_cur ≠ 0#64
-
-def RtC0State.rem (st : RtC0State) : Nat :=
-  st.hdr.s_end.toNat - st.hdr.s_cur.toNat
-
-def RtC0State.workCap (st : RtC0State) : Nat :=
-  st.hdr.s_work_cap.toNat
-
-def RtC0State.Bounded48 (st : RtC0State) : Prop :=
-  st.hdr.s_end.toNat < 2 ^ 48
-
-def RtC0State.hasFree (st : RtC0State) (bytes : Nat) : Prop :=
-  (bytes < 512 ∧ st.smallPools (bytes / 8) ≠ []) ∨
-  (512 ≤ bytes ∧ ∃ x ∈ st.largeNodes, x.2 = bytes)
-
-def rtC0Inv (rt : BitVec 64) (st : RtC0State) : Mem 64 → Prop :=
-  array64 rt st.extraArgs ⋆
-  array64 (rt + BitVec.ofNat 64 rtGlobalsOff) st.globals ⋆
-  array64 (rt + 33024#64) st.freeList ⋆
-  LcnfC0BaseRt.At rt st.hdr ⋆
-  array64 st.hdr.s_work st.workBuf ⋆
-  smallPoolsAt st.freeList st.smallPools rtNumClasses ⋆
-  largeFreeList st.hdr.s_large_free st.largeNodes ⋆
-  region st.hdr.s_cur st.rem
-
-def RtC0State.PreservesMeta (st st' : RtC0State) : Prop :=
-  st'.extraArgs = st.extraArgs ∧
-  st'.globals = st.globals ∧
-  st'.hdr.s_ba_empty = st.hdr.s_ba_empty ∧
-  st'.hdr.s_end = st.hdr.s_end ∧
-  st'.hdr.s_work = st.hdr.s_work ∧
-  st'.hdr.s_work_cap = st.hdr.s_work_cap ∧
-  st'.hdr.s_chunks = st.hdr.s_chunks ∧
-  st'.hdr.s_nchunks = st.hdr.s_nchunks ∧
-  st'.hdr.s_chunks_cap = st.hdr.s_chunks_cap
+/-! ## 1. Shared R0 Runtime State (`LcnfC0RtSpec`) -/
 
 theorem RtC0State.bounded48_of_preserves {st st' : RtC0State}
     (hb : st.Bounded48) (hp : st'.PreservesMeta st) : st'.Bounded48 := by
@@ -151,222 +45,6 @@ theorem RtC0State.bounded48_of_preserves {st st' : RtC0State}
   show st'.hdr.s_end.toNat < 2 ^ 48
   rw [← hs]
   exact hb
-
-structure LcnfObj where
-  addr : BitVec 64
-  rc : BitVec 32
-  csSz : Nat
-  other : Nat
-  tag : Nat
-  funId : BitVec 64 := 0#64
-  arity : Nat := 0
-  cap : Nat := 0
-  arrSize : Nat := 0
-  strLen : Nat := 0
-  fields : List (BitVec 64) := []
-  scalarData : List UInt8 := []
-  limbs : List (BitVec 64) := []
-  deriving Repr, BEq
-
-def LcnfObj.header (o : LcnfObj) : BitVec 64 :=
-  BitVec.ofNat 64 o.rc.toNat |||
-  (BitVec.ofNat 64 o.csSz <<< 32) |||
-  (BitVec.ofNat 64 o.other <<< 48) |||
-  (BitVec.ofNat 64 o.tag <<< 56)
-
-def cloMetaWord (arity numFixed : Nat) : BitVec 64 :=
-  BitVec.ofNat 64 arity ||| (BitVec.ofNat 64 numFixed <<< 16)
-
-def LcnfObj.cloMeta (o : LcnfObj) : BitVec 64 :=
-  cloMetaWord o.arity o.fields.length
-
-def LcnfObj.mpzMeta (o : LcnfObj) : BitVec 64 :=
-  BitVec.ofNat 64 o.cap ||| (BitVec.ofNat 64 o.arrSize <<< 32)
-
-def LcnfObj.totalBytes (o : LcnfObj) : Nat :=
-  if o.tag = arrayTag then 24 + 8 * o.cap
-  else if o.tag = sarrayTag then align8 (24 + (o.other % 128) * o.cap)
-  else if o.tag = stringTag then align8 (32 + o.cap)
-  else if o.tag = mpzTag then 16 + 8 * o.cap
-  else o.csSz
-
-def LcnfObj.Wf (o : LcnfObj) : Prop :=
-  o.addr ≠ 0#64 ∧ o.addr.toNat % 8 = 0 ∧ 0 ≤ o.rc.toInt ∧
-  o.csSz < 65536 ∧ o.other < 256 ∧ o.tag < 256 ∧
-  rtMinObjBytes ≤ o.totalBytes ∧ o.totalBytes < rtMaxObjBytes ∧ o.totalBytes % 8 = 0 ∧
-  if o.tag = closureTag then
-    o.arity < 65536 ∧ o.fields.length < 65536 ∧ 24 + 8 * o.fields.length ≤ o.csSz ∧ o.csSz % 8 = 0
-  else if o.tag = arrayTag then
-    o.fields.length ≤ o.cap ∧ o.cap ≤ 33554428
-  else if o.tag = sarrayTag then
-    o.cap ≤ 268435455 ∧ o.arrSize < 2 ^ 64 ∧
-    o.scalarData.length ≤ (o.other % 128) * o.cap
-  else if o.tag = stringTag then
-    o.cap ≤ 268435415 ∧ o.arrSize < 2 ^ 64 ∧ o.strLen < 2 ^ 64 ∧
-    o.scalarData.length ≤ o.cap
-  else if o.tag = mpzTag then
-    o.limbs.length = o.cap ∧ o.cap ≤ 33554429 ∧ o.arrSize < 2 ^ 32
-  else
-    o.tag ≤ 244 ∧ o.fields.length = o.other ∧
-    8 + 8 * o.fields.length + o.scalarData.length ≤ o.csSz ∧ o.csSz % 8 = 0
-
-def LcnfObj.childFields (o : LcnfObj) : List (BitVec 64) :=
-  if o.tag ≤ 244 ∨ o.tag = closureTag ∨ o.tag = arrayTag then o.fields else []
-
-def lcnfObjMem (o : LcnfObj) : Mem 64 → Prop :=
-  if o.tag = closureTag then
-    cell64 o.addr o.header ⋆
-    cell64 (o.addr + 8#64) o.funId ⋆
-    cell64 (o.addr + 16#64) o.cloMeta ⋆
-    array64 (o.addr + 24#64) o.fields ⋆
-    region (o.addr + BitVec.ofNat 64 (24 + 8 * o.fields.length))
-      (o.csSz - (24 + 8 * o.fields.length))
-  else if o.tag = arrayTag then
-    cell64 o.addr o.header ⋆
-    cell64 (o.addr + 8#64) (BitVec.ofNat 64 o.fields.length) ⋆
-    cell64 (o.addr + 16#64) (BitVec.ofNat 64 o.cap) ⋆
-    array64 (o.addr + 24#64) o.fields ⋆
-    region (o.addr + BitVec.ofNat 64 (24 + 8 * o.fields.length))
-      (8 * (o.cap - o.fields.length))
-  else if o.tag = sarrayTag then
-    cell64 o.addr o.header ⋆
-    cell64 (o.addr + 8#64) (BitVec.ofNat 64 o.arrSize) ⋆
-    cell64 (o.addr + 16#64) (BitVec.ofNat 64 o.cap) ⋆
-    bytes (o.addr + 24#64) o.scalarData ⋆
-    region (o.addr + BitVec.ofNat 64 (24 + o.scalarData.length))
-      (o.totalBytes - (24 + o.scalarData.length))
-  else if o.tag = stringTag then
-    cell64 o.addr o.header ⋆
-    cell64 (o.addr + 8#64) (BitVec.ofNat 64 o.arrSize) ⋆
-    cell64 (o.addr + 16#64) (BitVec.ofNat 64 o.cap) ⋆
-    cell64 (o.addr + 24#64) (BitVec.ofNat 64 o.strLen) ⋆
-    bytes (o.addr + 32#64) o.scalarData ⋆
-    region (o.addr + BitVec.ofNat 64 (32 + o.scalarData.length))
-      (o.totalBytes - (32 + o.scalarData.length))
-  else if o.tag = mpzTag then
-    cell64 o.addr o.header ⋆
-    cell64 (o.addr + 8#64) o.mpzMeta ⋆
-    array64 (o.addr + 16#64) o.limbs
-  else
-    let soff := 8 + 8 * o.fields.length
-    cell64 o.addr o.header ⋆
-    array64 (o.addr + 8#64) o.fields ⋆
-    bytes (o.addr + BitVec.ofNat 64 soff) o.scalarData ⋆
-    region (o.addr + BitVec.ofNat 64 (soff + o.scalarData.length))
-      (o.csSz - (soff + o.scalarData.length))
-
-def lcnfHeap : List LcnfObj → Mem 64 → Prop
-  | [] => emp
-  | o :: os => lcnfObjMem o ⋆ lcnfHeap os
-
-theorem lcnfHeap_append (xs ys : List LcnfObj) :
-    lcnfHeap (xs ++ ys) = (lcnfHeap xs ⋆ lcnfHeap ys) := by
-  induction xs with
-  | nil => simp [lcnfHeap, emp_sep]
-  | cons x xs ih => simp [lcnfHeap, ih, sep_assoc]
-
-theorem lcnfHeap_focus : ∀ (objs : List LcnfObj) {i : Nat} (_hi : i < objs.length),
-    lcnfHeap objs =
-      (lcnfObjMem objs[i] ⋆ (lcnfHeap (objs.take i) ⋆ lcnfHeap (objs.drop (i + 1))))
-  | [], _, hi => by simp at hi
-  | x :: _, 0, _ => by simp [lcnfHeap, emp_sep]
-  | x :: xs, i + 1, hi => by
-    have hi' : i < xs.length := by simp at hi; omega
-    have ih := lcnfHeap_focus xs hi'
-    simp only [List.getElem_cons_succ, lcnfHeap, List.take_succ_cons, List.drop_succ_cons]
-    rw [ih, ← sep_assoc (lcnfObjMem x), sep_comm (lcnfObjMem x) (lcnfObjMem xs[i]),
-      sep_assoc (lcnfObjMem xs[i]), ← sep_assoc (lcnfObjMem x)]
-
-theorem lcnfHeap_set : ∀ (objs : List LcnfObj) {i : Nat} (_hi : i < objs.length) (obj' : LcnfObj),
-    lcnfHeap (objs.set i obj') =
-      (lcnfObjMem obj' ⋆ (lcnfHeap (objs.take i) ⋆ lcnfHeap (objs.drop (i + 1))))
-  | [], _, hi, _ => by simp at hi
-  | _ :: xs, 0, _, obj' => by simp [lcnfHeap, emp_sep]
-  | x :: xs, i + 1, hi, obj' => by
-    have ih := lcnfHeap_set xs (by simp at hi; omega) obj'
-    simp only [List.set_cons_succ, lcnfHeap, ih, List.take_succ_cons, List.drop_succ_cons]
-    rw [← sep_assoc (lcnfObjMem x), sep_comm (lcnfObjMem x) (lcnfObjMem obj'),
-      sep_assoc (lcnfObjMem obj'), ← sep_assoc (lcnfObjMem x)]
-
-theorem lcnfHeap_cons_eq (o : LcnfObj) (os : List LcnfObj) :
-    lcnfHeap (o :: os) = (lcnfObjMem o ⋆ lcnfHeap os) := rfl
-
-def lcnfHeapClosed (objs : List LcnfObj) : Prop :=
-  ∀ o ∈ objs, ∀ f ∈ o.childFields, (f &&& 1#64) = 0#64 → ∃ o' ∈ objs, o'.addr = f
-
-def nonPersistRefs (objs : List LcnfObj) (addr : BitVec 64) : Nat :=
-  objs.foldl (fun acc p => if p.rc = 0#32 then acc else acc + p.childFields.count addr) 0
-
-def RcSound (root : BitVec 64) (objs : List LcnfObj) : Prop :=
-  (∀ p ∈ objs, p.rc = 0#32 → ∀ f ∈ p.childFields, (f &&& 1#64) = 0#64 →
-    ∃ q ∈ objs, q.addr = f ∧ q.rc = 0#32) ∧
-  (∀ y ∈ objs, 0 < y.rc.toInt →
-    nonPersistRefs objs y.addr + (if y.addr = root then 1 else 0) ≤ y.rc.toNat)
-
-def LcnfObj.withRc (o : LcnfObj) (rc' : BitVec 32) : LcnfObj :=
-  { o with rc := rc' }
-
-/-- Reachability from `root` in `objs` through initially non-persistent (`m_rc ≠ 0`) objects. -/
-inductive NonPersistReach (objs : List LcnfObj) (root : BitVec 64) : BitVec 64 → Prop where
-  | refl : (∃ o ∈ objs, o.addr = root ∧ o.rc ≠ 0#32) → NonPersistReach objs root root
-  | step {u v : BitVec 64} :
-      NonPersistReach objs root u →
-      (∃ o ∈ objs, o.addr = u ∧ v ∈ o.childFields) →
-      (v &&& 1#64) = 0#64 →
-      (∃ o' ∈ objs, o'.addr = v ∧ o'.rc ≠ 0#32) →
-      NonPersistReach objs root v
-
-/-- Objects from `objs` freed (absent by address from `objs'`). -/
-def freedObjs (objs objs' : List LcnfObj) : List LcnfObj :=
-  objs.filter (fun o => !(objs'.map LcnfObj.addr).contains o.addr)
-
-/-- Relational post-state for `lcnf_dec_ref_cold(rt,
-  o)`, aligned with R0's `LcnfC0RtSpec.DecColdRel`. -/
-def DecColdRel (root : BitVec 64) (objs objs' : List LcnfObj) : Prop :=
-  (∃ obj ∈ objs, obj.addr = root ∧ obj.rc = 1#32) ∧
-  (∀ o ∈ objs, o.Wf) ∧ lcnfHeapClosed objs ∧ lcnfHeapClosed objs' ∧
-  (∀ o' ∈ objs', o'.Wf ∧ o'.addr ≠ root ∧
-    ∃ o ∈ objs, o.addr = o'.addr ∧ o'.csSz = o.csSz ∧ o'.other = o.other ∧
-      o'.tag = o.tag ∧ o'.funId = o.funId ∧ o'.arity = o.arity ∧
-      o'.cap = o.cap ∧ o'.arrSize = o.arrSize ∧ o'.strLen = o.strLen ∧
-      o'.fields = o.fields ∧ o'.scalarData = o.scalarData ∧ o'.limbs = o.limbs ∧
-      ((o.rc = 0#32 ∧ o'.rc = 0#32) ∨
-       (0 < o.rc.toInt ∧ 0 < o'.rc.toInt ∧ o'.rc.toInt ≤ o.rc.toInt))) ∧
-  (∀ p ∈ objs', p.rc = 0#32 → ∀ f ∈ p.childFields, (f &&& 1#64) = 0#64 →
-    ∃ q ∈ objs', q.addr = f ∧ q.rc = 0#32) ∧
-  (∀ y ∈ objs', 0 < y.rc.toInt → nonPersistRefs objs' y.addr ≤ y.rc.toNat) ∧
-  (∀ o ∈ objs, o.rc = 0#32 → ∃ o' ∈ objs', o'.addr = o.addr ∧ o'.rc = 0#32) ∧
-  (∀ o ∈ objs, 0 < o.rc.toInt →
-    let dropped := (if o.addr = root then 1 else 0) + nonPersistRefs (freedObjs objs objs') o.addr
-    (∀ o' ∈ objs', o'.addr = o.addr → o'.rc.toNat + dropped = o.rc.toNat) ∧
-    (o ∈ freedObjs objs objs' → o.rc.toNat = dropped ∧ NonPersistReach objs root o.addr))
-
-def lcnfAllocSpec : Spec [i64, i64] [i64] := fun (rt, sz, ()) m Q _ =>
-  let bytes := align8 sz.toNat
-  ∃ (st : RtC0State) (R : Mem 64 → Prop),
-    sz.toNat ≤ 268435448 ∧ rtMinObjBytes ≤ bytes ∧ bytes < rtMaxObjBytes ∧
-    (st.hasFree bytes ∨ bytes ≤ st.rem) ∧
-    (rtC0Inv rt st ⋆ R) m ∧
-    ∀ p st' m',
-      p ≠ 0#64 → p.toNat % 8 = 0 →
-      st'.PreservesMeta st → st'.rem ≤ st.rem →
-      (rtC0Inv rt st' ⋆ region p bytes ⋆ R) m' → Q (p, ()) m'
-
-def lcnfDecRefColdSpec : Spec [i64, i64] [] := fun (rt, o, ()) m Q _ =>
-  (o &&& 1#64) = 0#64 ∧
-  ∃ (st : RtC0State) (objs : List LcnfObj) (R : Mem 64 → Prop),
-    objs.length ≤ st.workCap ∧
-    (rtC0Inv rt st ⋆ lcnfHeap objs ⋆ R) m ∧
-    (∃ obj ∈ objs, obj.addr = o ∧ obj.rc = 1#32) ∧
-    (∀ obj ∈ objs, obj.Wf) ∧ lcnfHeapClosed objs ∧ RcSound o objs ∧
-    ∀ st' objs' m',
-      st'.PreservesMeta st → st'.rem = st.rem →
-      DecColdRel o objs objs' →
-      (rtC0Inv rt st' ⋆ lcnfHeap objs' ⋆ R) m' → Q () m'
-
-end BigNumRt
-
-open BigNumRt
 
 /-! ## 2. Canonical `MPZ` / `Nat` / `Int` Representation & Bitpacking Lemmas -/
 
@@ -1252,8 +930,8 @@ def rtR1SpecEntries : List SpecEntry :=
   , SpecEntry.ofFn lcnf_int_addsub_cmp lcnfIntAddSubCmpSpec false
   , SpecEntry.ofFn lcnf_int_muldiv lcnfIntMulDivSpec false
   , SpecEntry.ofFn lcnf_int_op lcnfIntOpSpec false
-  , ⟨"lcnf_alloc", [i64, i64], [i64], BigNumRt.lcnfAllocSpec, false⟩
-  , ⟨"lcnf_dec_ref_cold", [i64, i64], [], BigNumRt.lcnfDecRefColdSpec, false⟩ ]
+  , ⟨"lcnf_alloc", [i64, i64], [i64], lcnfAllocSpec, false⟩
+  , ⟨"lcnf_dec_ref_cold", [i64, i64], [], lcnfDecRefColdSpec, false⟩ ]
 
 def rtR1Env : Env :=
   Env.ofTable rtR1SpecEntries
@@ -1431,11 +1109,11 @@ theorem rtR1Env_lcnf_int_op {xs : Tup Val [i64, i64, i64, i64]} {m : Mem 64} {Q 
   env_lookup_at 33 (by decide) rfl h
 
 theorem rtR1Env_lcnf_alloc {xs : Tup Val [i64, i64]} {m : Mem 64} {Q : Post [i64]} {X : XPost}
-    (h : BigNumRt.lcnfAllocSpec xs m Q X) : rtR1Env "lcnf_alloc" [i64, i64] [i64] xs m Q X :=
+    (h : lcnfAllocSpec xs m Q X) : rtR1Env "lcnf_alloc" [i64, i64] [i64] xs m Q X :=
   env_lookup_at 34 (by decide) rfl h
 
 theorem rtR1Env_lcnf_dec_ref_cold {xs : Tup Val [i64, i64]} {m : Mem 64} {Q : Post []} {X : XPost}
-    (h : BigNumRt.lcnfDecRefColdSpec xs m Q X) :
+    (h : lcnfDecRefColdSpec xs m Q X) :
     rtR1Env "lcnf_dec_ref_cold" [i64, i64] [] xs m Q X :=
   env_lookup_at 35 (by decide) rfl h
 

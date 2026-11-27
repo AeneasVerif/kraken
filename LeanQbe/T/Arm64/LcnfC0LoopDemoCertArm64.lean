@@ -87,7 +87,7 @@ theorem factLoopArm64_factStr_fnSpec :
 private theorem loopRtBytes_len : loopRtBytes.length = 36056 := by
   simp only [loopRtBytes, List.length_append, bytes64_length, List.length_replicate,
     loopRtState.extraLen, loopRtState.globalsLen, loopRtState.freeListLen, loopRtState.workLen,
-    rtExtraSlots, rtGlobalSlots, BigNumRt.rtNumClasses, loopRem,
+    rtExtraSlots, rtGlobalSlots, rtNumClasses, loopRem,
     loopScrLimbs, loopScrCap]
   dsimp [nvBnHdrWords]
   decide
@@ -138,7 +138,7 @@ theorem factLoopArm64_fact25_run :
           (scrLimbs' : List (BitVec 64)) (m' : Mem 64),
           st.data.regs.X0.toBitVec = s ∧
           s ≠ 0#64 ∧ s.toNat % 8 = 0 ∧
-          st'.PreservesMeta (b2rState loopRtState) ∧ st'.rem ≤ loopRtState.rem ∧
+          st'.PreservesMeta loopRtState ∧ st'.rem ≤ loopRtState.rem ∧
           StrCanon (mkStrObj s 1#32 27 fact25Bytes 26) ∧
           (rtC0Inv loopRtBase st' ⋆
             lcnfObjMem (mkStrObj s 1#32 27 fact25Bytes 26) ⋆
@@ -158,7 +158,7 @@ theorem factLoopArm64_fact25_run :
   let Q : Post [i64] := fun (s, ()) m' =>
     s ≠ 0#64 ∧ s.toNat % 8 = 0 ∧
     ∃ (st' : RtC0State) (objs' : List LcnfObj) (scrLimbs' : List (BitVec 64)),
-      st'.PreservesMeta (b2rState loopRtState) ∧ st'.rem ≤ loopRtState.rem ∧
+      st'.PreservesMeta loopRtState ∧ st'.rem ≤ loopRtState.rem ∧
       StrCanon (mkStrObj s 1#32 27 fact25Bytes 26) ∧
       (rtC0Inv loopRtBase st' ⋆
         lcnfObjMem (mkStrObj s 1#32 27 fact25Bytes 26) ⋆
