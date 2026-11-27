@@ -7,16 +7,16 @@ public import LeanQbe.T.Legal
 public import LeanQbe.T.Main
 public import LeanQbe.T.MainLemmas
 public import LeanQbe.T.Spill
-public import LeanQbe.T.Examples.Kissat.FullM7FidelityAssembly
+public import LeanQbe.T.Examples.Kissat.Plain
 public import LeanQbeTest.T.RegaLitmusTarget
 meta import LeanQbe.T.TailDup
 meta import LeanQbe.T.Main
 meta import LeanQbe.T.Spill
-meta import LeanQbe.T.Examples.Kissat.FullM7FidelityAssembly
+meta import LeanQbe.T.Examples.Kissat.Plain
 meta import LeanQbeTest.T.RegaLitmusTarget
 
 /-!
-# Targeted Unit, Soundness, `RegaLitmus`, Kissat `FullM7Fidelity`, & Axiom Tests for `TailDup`
+# Targeted Unit, Soundness, `RegaLitmus`, `Kissat.Plain`, & Axiom Tests for `TailDup`
 
 Covers:
 1. Multi-predecessor join-trampoline elimination (`loopLatchTrampoline`, `retJoinTrampoline`,
@@ -27,7 +27,7 @@ Covers:
    and `Func.tailDup_callsOk` / `Fn.tailDup_callsOk`.
 4. `LegalTarget.{x64, aarch64}` legality and `Rega.lowerFn` + `checkCompile` on
    `RegaLitmus.litmusTarget`, verifying fewer emitted `jmp`s after `Fn.tailDup`.
-5. Kissat `FullM7Fidelity` (`413` functions) corpus check (`Func.checkTFlat` and static
+5. `Kissat.Plain` (`59` functions) corpus check (`Func.checkTFlat` and static
    jump/block elimination counts).
 6. `#print axioms` audit (`⊆ [propext, Classical.choice, Quot.sound]`).
 -/
@@ -41,7 +41,7 @@ namespace LeanQbeTest.T.TailDupTest
 open LeanQbe.T
 open LeanQbe.T.TailDup
 open LeanQbe.T.RegaLitmus
-open LeanQbe.T.Examples.Kissat.FullM7Fidelity
+open LeanQbe.T.Examples.Kissat.Plain
 
 /-! ## 1. Structural & Kernel-Checked Tail-Duplication Tests -/
 
@@ -402,7 +402,7 @@ def chainLitmusFn : Fn := ⟨"chain_litmus", [i64, i64], [i64], fun _ _ (a, n, (
   | some c0, some c1 => countLitmusJmps c1 ≤ countLitmusJmps c0
   | _, _ => false
 
-/-! ## 5. Kissat `FullM7Fidelity` (`413` Fns) Static Jump/Block Elimination -/
+/-! ## 5. Kissat `Plain` (`59` Fns) Static Jump/Block Elimination -/
 
 mutual
 meta def countTFlatJumps {rs : List Ty} : TFlat rs → Nat
@@ -429,9 +429,9 @@ meta def countTFlatBlocksB {rs : List Ty} : {sig : List (List Ty)} → TBlocks r
   | _, .cons b bs => countTFlatBlocks b + countTFlatBlocksB bs
 end
 
-/-- `(name, checkTFlat, jumpsBefore, jumpsAfter, blocksBefore, blocksAfter)` on `FullM7Fidelity`. -/
-meta def m7FidTailDupReport : List (String × Bool × Nat × Nat × Nat × Nat) :=
-  m7FidelityFns.map fun f =>
+/-- `(name, checkTFlat, jumpsBefore, jumpsAfter, blocksBefore, blocksAfter)` on `Kissat.Plain`. -/
+meta def plainTailDupReport : List (String × Bool × Nat × Nat × Nat × Nat) :=
+  plainFns.map fun f =>
     let mf := f.mid LegalTarget.x64
     let td := Fn.tailDup mf
     let tf0 := reifyFunc mf.body
@@ -440,22 +440,22 @@ meta def m7FidTailDupReport : List (String × Bool × Nat × Nat × Nat × Nat) 
       countTFlatBlocks tf0, countTFlatBlocks tf1)
 
 #eval show IO Unit from do
-  let totJ0 := m7FidTailDupReport.foldl (fun a r => a + r.2.2.1) 0
-  let totJ1 := m7FidTailDupReport.foldl (fun a r => a + r.2.2.2.1) 0
-  let totB0 := m7FidTailDupReport.foldl (fun a r => a + r.2.2.2.2.1) 0
-  let totB1 := m7FidTailDupReport.foldl (fun a r => a + r.2.2.2.2.2) 0
-  let touched := m7FidTailDupReport.filter fun r =>
+  let totJ0 := plainTailDupReport.foldl (fun a r => a + r.2.2.1) 0
+  let totJ1 := plainTailDupReport.foldl (fun a r => a + r.2.2.2.1) 0
+  let totB0 := plainTailDupReport.foldl (fun a r => a + r.2.2.2.2.1) 0
+  let totB1 := plainTailDupReport.foldl (fun a r => a + r.2.2.2.2.2) 0
+  let touched := plainTailDupReport.filter fun r =>
     r.2.2.1 != r.2.2.2.1 || r.2.2.2.2.1 != r.2.2.2.2.2
   IO.println
-    s!"[FullM7Fidelity x64 mid] fns={m7FidTailDupReport.length} touched={touched.length}"
+    s!"[Kissat.Plain x64 mid] fns={plainTailDupReport.length} touched={touched.length}"
   IO.println s!"  jumps={totJ0}->{totJ1} (drop={totJ0 - totJ1})"
   IO.println s!"  blocks={totB0}->{totB1} (drop={totB0 - totB1})"
 
-#guard m7FidTailDupReport.all (·.2.1)
-#guard m7FidTailDupReport.foldl (fun a r => a + r.2.2.1) 0 >
-  m7FidTailDupReport.foldl (fun a r => a + r.2.2.2.1) 0
-#guard m7FidTailDupReport.foldl (fun a r => a + r.2.2.2.2.1) 0 >
-  m7FidTailDupReport.foldl (fun a r => a + r.2.2.2.2.2) 0
+#guard plainTailDupReport.all (·.2.1)
+#guard plainTailDupReport.foldl (fun a r => a + r.2.2.1) 0 >
+  plainTailDupReport.foldl (fun a r => a + r.2.2.2.1) 0
+#guard plainTailDupReport.foldl (fun a r => a + r.2.2.2.2.1) 0 >
+  plainTailDupReport.foldl (fun a r => a + r.2.2.2.2.2) 0
 
 /-! ## 6. Axiom Audit (`⊆ [propext, Classical.choice, Quot.sound]`) -/
 

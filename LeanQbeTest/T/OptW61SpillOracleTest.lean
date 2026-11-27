@@ -3,16 +3,14 @@ module
 public import LeanQbe.T.Amd64.Targ
 public import LeanQbe.T.Amd64.PrintATTAlign
 public import LeanQbe.T.Driver
-public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12
-public import LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy
+public import LeanQbe.T.Examples.Kissat.Plain
 public import LeanQbe.T.MainInline
 public import LeanQbe.T.Spill
 public import LeanQbe.T.SpillCoalesce
 meta import LeanQbe.T.Amd64.Targ
 meta import LeanQbe.T.Amd64.PrintATTAlign
 meta import LeanQbe.T.Driver
-meta import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12
-meta import LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy
+meta import LeanQbe.T.Examples.Kissat.Plain
 meta import LeanQbe.T.MainInline
 meta import LeanQbe.T.Spill
 meta import LeanQbe.T.SpillCoalesce
@@ -22,8 +20,8 @@ meta import LeanQbe.T.SpillCoalesce
 
 Tests the untrusted `Spill.Cfg` extensions and `SpillCoalesce` passes on x86-64 (`0` proof LOC):
 - `D1` (`loopRegIn := true`): promotes slot-homed loop invariants into free loop GPRs
-  (`addLoopRegIn`), eliminating `cmp (%rsp)` in Kissat's `full_propagate_ignore_hot` replacement
-  scan loops and in synthetic high-preheader-pressure loops (`loopRegInFn`).
+  (`addLoopRegIn`), eliminating `cmp (%rsp)` in compact byte-scan replacement loops
+  (`replScanLoopFn`, `loopRegInFn`).
 - `D2` (`coldNest := false` default; unit-tested with `true`): scales nested cold loops cleanly
   without throttling hot inner loops under default config (`coldNestFn`).
 - `D3` (`costPrio := false` default; unit-tested with `true`): boosts in-loop definition spill
@@ -31,8 +29,8 @@ Tests the untrusted `Spill.Cfg` extensions and `SpillCoalesce` passes on x86-64 
 - `D4` (`dfKeep := false` default; unit-tested with `true`): avoids clobbering deferred-store
   cache registers in `allocDefs` under opt-in (`dfKeepFn`).
 - `D5` (`joinCoal := true`): unit-tests `addJumpAffAnti` (both non-latch and latch paths),
-  `swapColorsArr` pairwise recoloring (respecting `armEv`/`zext` invariants), and Kissat Step-12
-  non-regression / `full_propagate_ignore_hot` replacement-scan elimination.
+  `swapColorsArr` pairwise recoloring (respecting `armEv`/`zext` invariants), and `Kissat.Plain`
+  non-regression / byte-scan replacement elimination.
 -/
 
 set_option autoImplicit false
@@ -250,10 +248,35 @@ meta def dfKeepFn : Fn :=
   gprOf (hSwapped.getD 0 .none) == some 1 && gprOf (hSwapped.getD 1 .none) == some 0 &&
   gprOf (hPinned.getD 0 .none) == some 0 && gprOf (hPinned.getD 1 .none) == some 1
 
-/-! ## Step-12 Kissat Real-Benchmark Guards (`full_propagate_ignore_hot` & Hot Top-15) -/
+/-! ## Replacement-Scan & `Kissat.Plain` Real-Benchmark Guards -/
 
-/-- Check replacement-scan inner loop blocks (`cmpb $0 ... jb`, `≤ 10` insns) in
-`full_propagate_ignore_hot` for folded `cmp (%rsp)` instructions. -/
+/-- Self-contained byte replacement-scan loop (`cmpb $0, ...; jb`) whose limit is spilled before
+the loop under `baseOracleCfg`, exercising `replLoopCmpRspCount` (`1 -> 0` under `loopRegIn`). -/
+meta def replScanLoopFn : Fn :=
+  ⟨"replScanLoopW61", [i64, i64], [i64], fun _ _ (vals, nptr, ()) =>
+    .load i64 (.var nptr) fun lim =>
+    adds vals 14 fun hs =>
+    heavyMix hs nptr 5 fun dead =>
+    .let_ (op2 (.add i64) (.var dead) (.var nptr)) fun (s0, ()) =>
+    .group (sig := [[i64]])
+      (fun _ => .cons (fun (r, ()) => .ret (.var r, ())) .nil)
+      (fun (doneL, ()) =>
+        loop1 (ts := [i64, i64])
+          (fun L (i, acc, ()) =>
+            .let_ (op2 (.add i64) (.var vals) (.var i)) fun (addr, ()) =>
+            .load (.bits 8) (.var addr) fun b =>
+            .let_ (op2 (.cmp .slt (.bits 8)) (.var b) (.imm 0#8)) fun (neg, ()) =>
+            .jnz (.var neg)
+              (.let_ (op2 (.add i64) (.var i) (.imm 1)) fun (i', ()) =>
+               .let_ (op2 (.cmp .ult i64) (.var i') (.var lim)) fun (c0, ()) =>
+               .jnz (.var c0)
+                 (.jump L (.var i', .var acc, ()))
+                 (.jump doneL (.var acc, ())))
+              (.jump doneL (.var i, ())))
+          (fun L => .jump L (.imm 0, .var s0, ())))⟩
+
+/-- Check replacement-scan inner loop blocks (`cmpb $0 ... jb`, `≤ 10` insns)
+for folded `cmp (%rsp)` instructions. -/
 meta def replLoopCmpRspCount (asm : String) : Nat :=
   let lines := asm.splitOn "\n"
   let step (acc : List (String × List String) × Option (String × List String)) (raw : String) :=
@@ -276,29 +299,27 @@ meta def replLoopCmpRspCount (asm : String) : Nat :=
       n + (ins.filter fun s => s.startsWith "cmp" && s.contains "(%rsp)").length
     else n) 0
 
-meta def step12MidFn? (nm : String) : Option Fn :=
-  let raw? := ((Examples.Kissat.FullFidelityAssemblyStep12.fidStep12Module).optInlinePolicy
-    Examples.Kissat.FullFidelityInlPolicy.fidInlPolicy).fns.find? (·.name == nm)
+meta def plainPolMidFn? (nm : String) : Option Fn :=
+  let raw? := ((Examples.Kissat.Plain.plainModule).optInlinePolicy {}).fns.find? (·.name == nm)
   raw?.map fun raw => Fn.midFromEarly x64LegalTarget (Driver.matFn raw.earlyOpt)
 
 #guard
-  match step12MidFn? "full_propagate_ignore_hot" with
-  | none => false
-  | some fm =>
-    match lowerAsm? baseOracleCfg fm, lowerAsm? {} fm with
-    | some asmBase, some asmDef =>
-      replLoopCmpRspCount asmBase == 2 &&
-      replLoopCmpRspCount asmDef == 0
-    | _, _ => false
+  match lowerAsm? baseOracleCfg replScanLoopFn, lowerAsm? {} replScanLoopFn with
+  | some asmBase, some asmDef =>
+    replLoopCmpRspCount asmBase == 1 &&
+    replLoopCmpRspCount asmDef == 0
+  | _, _ => false
 
 #guard
-  ["full_backtrack_raw_m5", "full_prop_flush_del_fid", "full_m6_sweep_flip_round",
-   "full_rewatch_range_m6", "full_k6_solve"].all fun nm =>
-    match step12MidFn? nm with
+  ["plain_backtrack", "plain_zero_tables", "plain_prop_lit", "plain_sweep",
+   "plain_reduce"].all fun nm =>
+    match plainPolMidFn? nm with
     | none => false
     | some fm =>
       match lowerAsm? baseOracleCfg fm, lowerAsm? {} fm with
-      | some asmBase, some asmDef => stRspCount asmDef ≤ stRspCount asmBase
+      | some asmBase, some asmDef =>
+        stRspCount asmDef ≤ stRspCount asmBase &&
+        foldRspCmps asmDef ≤ foldRspCmps asmBase
       | _, _ => false
 
 end LeanQbeTest.T.OptW61SpillOracleTest

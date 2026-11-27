@@ -7,8 +7,7 @@ public import LeanQbe.T.RegaFlatLemmas
 public import LeanQbe.T.MainLemmas
 public import LeanQbe.T.Driver
 public import LeanQbe.T.MainInline
-public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12
-public import LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy
+public import LeanQbe.T.Examples.Kissat.Plain
 public import LeanQbeTest.T.Arm64DirPreds
 public import LeanQbeTest.T.RegaTestKit
 meta import LeanQbe.T.Arm64.TargLemmas
@@ -18,8 +17,7 @@ meta import LeanQbe.T.RegaFlatLemmas
 meta import LeanQbe.T.MainLemmas
 meta import LeanQbe.T.Driver
 meta import LeanQbe.T.MainInline
-meta import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12
-meta import LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy
+meta import LeanQbe.T.Examples.Kissat.Plain
 meta import LeanQbeTest.T.Arm64DirPreds
 meta import LeanQbeTest.T.RegaTestKit
 public meta import Kraken.AArch64.Print
@@ -36,7 +34,7 @@ Arm64 Wave 6.2-B bundle (`OPT-8` conditional compare `CCMP`/`CCMN` and condition
   `&&` short-circuit patterns) without intermediate branches or `cset`.
 * **`CSNEG`**: conditional negation for `select c x (-x)` / `select c (-x) x` at 32-bit and
   64-bit widths (both flag-condition and GPR-bool inputs).
-* Real Step-12 Kissat hot functions emit strictly fewer instructions with `OPT-8` on, and `#print
+* Real `Kissat.Plain` hot functions emit strictly fewer instructions with `OPT-8` on, and `#print
   axioms` confirms `std3`-only soundness.
 -/
 
@@ -175,11 +173,10 @@ def csnegGprBoolFn : Fn :=
 #guard insnCount (armCode [csneg32NegPosFn]) < insnCount (armCodeOff [csneg32NegPosFn])
 #guard insnCount (armCode [csnegGprBoolFn]) < insnCount (armCodeOff [csnegGprBoolFn])
 
-/-! ## 4. Real Step-12 Kissat Activation -/
+/-! ## 4. Real `Kissat.Plain` Activation -/
 
-meta def step12Fns : List Fn :=
-  (LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12.fidStep12Module.optInlinePolicy
-    LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy.fidInlPolicy).fns
+meta def plainPolFns : List Fn :=
+  (LeanQbe.T.Examples.Kissat.Plain.plainModule.optInlinePolicy {}).fns
 
 meta def okInsns : Except String (List Directive) → Nat
   | .ok ds => insnCount ds
@@ -194,7 +191,7 @@ meta def okCsnegCount : Except String (List Directive) → Nat
   | .error _ => 0
 
 meta def hotStats (nm : Sym) : Nat × Nat × Nat × Nat :=
-  match step12Fns.find? (·.name == nm) with
+  match plainPolFns.find? (·.name == nm) with
   | some f =>
     let onRes := Driver.compileFnFlat armTarget.toIsa armLegalTarget f
     let offRes := Driver.compileFnFlat armIsaNoOpt8 armLegalTarget f
@@ -205,18 +202,18 @@ meta def hotWins (nm : Sym) : Bool :=
   let (on, off, ccmp, csneg) := hotStats nm
   0 < on && on < off && 0 < ccmp + csneg
 
-#guard hotWins "full_propagate_ignore_hot"
-#guard hotWins "full_bva_scan_cands"
-#guard hotWins "full_cong_extract_binaries"
-#guard hotWins "full_m6_sweep_classes"
-#guard hotWins "full_k6_analyze_fid"
-#guard hotWins "full_m6_sweep_rearm"
-#guard hotWins "full_deduce_1uip_m6_hdr"
-#guard (hotStats "full_analyze_rsn_m6_hdr").2.2.1 >= 1
+#guard hotWins "plain_watch_push"
+#guard hotWins "plain_heap_up"
+#guard hotWins "plain_heap_down"
+#guard hotWins "plain_queue_mtf"
+#guard hotWins "plain_reduce"
+#guard hotWins "plain_min_shrink"
+#guard hotWins "plain_rephase"
+#guard (hotStats "plain_reduce").2.2.1 >= 2
 
 #eval
-  let hots := ["full_propagate_ignore_hot", "full_bva_scan_cands",
-    "full_cong_extract_binaries", "full_m6_sweep_classes", "full_k6_analyze_fid"]
+  let hots := ["plain_watch_push", "plain_heap_up",
+    "plain_heap_down", "plain_queue_mtf", "plain_reduce"]
   hots.map fun nm => (nm, hotStats nm)
 
 /-! ## 5. Axiom Audit (`std3` only) -/

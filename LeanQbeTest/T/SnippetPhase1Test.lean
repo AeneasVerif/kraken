@@ -5,7 +5,7 @@ public import LeanQbe.T.MainLateInline
 public import LeanQbe.T.SpillSnippet
 public import LeanQbe.T.SnippetCheck
 public import LeanQbe.T.Examples.Kissat.Dimacs
-public import LeanQbe.T.Examples.Kissat.FullM7HotTernary
+public import LeanQbe.T.Examples.Kissat.Plain1
 import LeanQbe.T.FlatLemmas
 import LeanQbe.T.MainLemmas
 
@@ -19,7 +19,7 @@ Arch-free tests covering:
 2. `MainLateInline` (`makeLateInlinePolicy`, `Module.midThenLateInline`): optimizing outer caller
    while preserving late-inlined snippet branches inside `.group` and keeping cold callees
    out-of-line.
-3. Kissat inner loop structural audits (`kissat_is_ws`, `kissat_is_digit`, `m7HasTernaryFn`) and
+3. Kissat inner loop structural audits (`kissat_is_ws`, `kissat_is_digit`, `plain_red_less`) and
    generic IP-attributed `@predictable` diagnostic theorems (`call_in_snippet`, `if_conv`,
    `interior_spill`) proved universally over arbitrary `(I : Isa)`.
 4. Standard-axiom (`std3`) `#print axioms` audit.
@@ -191,13 +191,17 @@ def treeWs : Live.Tree :=
 def treeDigit : Live.Tree :=
   (Live.Tree.ofFn LeanQbe.T.Examples.Kissat.kissat_is_digit).1
 
-def treeTernary : Live.Tree :=
-  (Live.Tree.ofFn LeanQbe.T.Examples.Kissat.FullM7HotTernary.m7HasTernaryFn).1
+def plainRedLessFn : Fn :=
+  ⟨"plain_red_less", [i64, i32, i32], [.bool],
+    LeanQbe.T.Examples.Kissat.Plain.plain_red_less_body⟩
+
+def treeRedLess : Live.Tree :=
+  (Live.Tree.ofFn plainRedLessFn).1
 
 theorem kissat_ws_call_free : treeHasCall treeWs = false := by t_kernel_rfl
 theorem kissat_digit_call_free : treeHasCall treeDigit = false := by t_kernel_rfl
-theorem kissat_ternary_call_free : treeHasCall treeTernary = false := by t_kernel_rfl
-theorem kissat_ternary_ops_gt_10 : Nat.blt 10 (countTreeIrOps treeTernary) = true := by
+theorem kissat_red_less_call_free : treeHasCall treeRedLess = false := by t_kernel_rfl
+theorem kissat_red_less_ops_gt_10 : Nat.blt 10 (countTreeIrOps treeRedLess) = true := by
   t_kernel_rfl
 
 def callSnipTree : Live.Tree :=

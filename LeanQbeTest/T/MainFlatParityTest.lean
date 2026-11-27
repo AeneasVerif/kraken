@@ -71,34 +71,34 @@ theorem compileModuleFlat_ok_implies_compileModule_lrat_x64
       .ok (code, bounds) :=
   compileModule_of_compileModuleFlat _ _ _ [] [] 0 lratBytesTFlatMod hints code bounds hok
 
-theorem compileModuleFlat_ok_implies_compileModule_fidSched_x64
+theorem compileModuleFlat_ok_implies_compileModule_plain1_x64
     (hints : List Amd64.x64Target.toIsa.Hints)
     {code : List Amd64.x64Target.toIsa.Directive} {bounds : List (Sym × Nat)}
     (hok : compileModuleFlat Amd64.x64Target.toIsa Amd64.x64LegalTarget
-      Amd64.x64Target.frame.raBytes (fidSchedExtCallees Amd64.x64LegalTarget) [] 0
-      fidSchedTFlatMod hints = .ok (code, bounds)) :
+      Amd64.x64Target.frame.raBytes [] [] 0
+      plain1TFlatMod hints = .ok (code, bounds)) :
     compileModule Amd64.x64Target.toIsa Amd64.x64LegalTarget
-        Amd64.x64Target.frame.raBytes (fidSchedExtCallees Amd64.x64LegalTarget) [] 0
-        (fidSchedTFlatMod.map TFlatFn.toFn) hints =
+        Amd64.x64Target.frame.raBytes [] [] 0
+        (plain1TFlatMod.map TFlatFn.toFn) hints =
       .ok (code, bounds) :=
-  compileModule_of_compileModuleFlat _ _ _ (fidSchedExtCallees Amd64.x64LegalTarget) [] 0
-    fidSchedTFlatMod hints code bounds hok
+  compileModule_of_compileModuleFlat _ _ _ [] [] 0
+    plain1TFlatMod hints code bounds hok
 
-theorem fidPreprocessFlat_compileFlatFn_eq_x64 (h : Amd64.x64Target.toIsa.Hints) :
+theorem plainFindReplFlat_compileFlatFn_eq_x64 (h : Amd64.x64Target.toIsa.Hints) :
     compileFlatFn Amd64.x64Target.toIsa Amd64.x64LegalTarget h
-        (fnToTFlat Examples.Kissat.FullM7FidelitySched.fidPreprocessFn) =
+        (fnToTFlat Examples.Kissat.Plain.plain_find_repl) =
       compileFn Amd64.x64Target.toIsa Amd64.x64LegalTarget h
-        (fnToTFlat Examples.Kissat.FullM7FidelitySched.fidPreprocessFn).toFn :=
+        (fnToTFlat Examples.Kissat.Plain.plain_find_repl).toFn :=
   compileFlatFn_eq_compileFn _ _ _ _
-    (PassFlatKit.reifyFunc_wfCheck Examples.Kissat.FullM7FidelitySched.full_preprocess_fid_wf)
+    (PassFlatKit.reifyFunc_wfCheck Examples.Kissat.Plain.plain_find_repl_wf)
 
-theorem fidReduceFlat_compileFlatFn_eq_x64 (h : Amd64.x64Target.toIsa.Hints) :
+theorem plainPropagateFlat_compileFlatFn_eq_x64 (h : Amd64.x64Target.toIsa.Hints) :
     compileFlatFn Amd64.x64Target.toIsa Amd64.x64LegalTarget h
-        (fnToTFlat Examples.Kissat.FullM7FidelitySched.fidReduceFn) =
+        (fnToTFlat Examples.Kissat.Plain.plain_propagate) =
       compileFn Amd64.x64Target.toIsa Amd64.x64LegalTarget h
-        (fnToTFlat Examples.Kissat.FullM7FidelitySched.fidReduceFn).toFn :=
+        (fnToTFlat Examples.Kissat.Plain.plain_propagate).toFn :=
   compileFlatFn_eq_compileFn _ _ _ _
-    (PassFlatKit.reifyFunc_wfCheck Examples.Kissat.FullM7FidelitySched.full_reduce_fid_wf)
+    (PassFlatKit.reifyFunc_wfCheck Examples.Kissat.Plain.plain_propagate_wf)
 
 @[expose] def foldCasesFlat : TFlatFn :=
   { name := "fold_cases_flat"
@@ -250,7 +250,7 @@ theorem optFlatValue_valueCases_compile_eq_x64
   checkTargetParity "x64" Amd64.x64Target.toIsa Amd64.x64LegalTarget
     Amd64.x64Target.frame.raBytes Amd64.printAsm0
   let kissatFns : List TFlatFn :=
-    (Examples.Kissat.FullM7FidelitySched.fidSchedFns.take 2).map fnToTFlat
+    (Examples.Kissat.Plain.plain1Module.fns.take 2).map fnToTFlat
   let testFns : List TFlatFn :=
     [foldCasesFlat, canonCasesFlat, gvnCasesFlat] ++ litmusTFlatMod ++ kissatFns
   let I := Amd64.x64Target.toIsa
@@ -321,8 +321,8 @@ theorem optFlatValue_valueCases_compile_eq_x64
 #print axioms assumeLoopFlat_compileFlatFn_eq_x64
 #print axioms compileModuleFlat_ok_implies_compileModule_litmusAll_x64
 #print axioms compileModuleFlat_ok_implies_compileModule_lrat_x64
-#print axioms compileModuleFlat_ok_implies_compileModule_fidSched_x64
-#print axioms fidPreprocessFlat_compileFlatFn_eq_x64
-#print axioms fidReduceFlat_compileFlatFn_eq_x64
+#print axioms compileModuleFlat_ok_implies_compileModule_plain1_x64
+#print axioms plainFindReplFlat_compileFlatFn_eq_x64
+#print axioms plainPropagateFlat_compileFlatFn_eq_x64
 
 end LeanQbeTest.T.MainFlatParityTest

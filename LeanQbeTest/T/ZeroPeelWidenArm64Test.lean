@@ -12,8 +12,8 @@ public import LeanQbe.T.Arm64.Targ
 public import LeanQbe.T.Arm64.TargLemmas
 public import Kraken.AArch64.Print
 public import LeanQbe.T.Logic.MemLemmas
-public import LeanQbe.T.Examples.Kissat.FullM6Sweep
-public import LeanQbe.T.Examples.Kissat.Full1
+public import LeanQbe.T.Examples.Kissat.Plain
+public import LeanQbe.T.Examples.Kissat.Plain1
 import LeanQbe.T.FlatLemmas
 import LeanQbe.T.WPLemmas
 public meta import Lean
@@ -23,8 +23,8 @@ public meta import LeanQbe.T.MainCertInline
 public meta import LeanQbe.T.Arm64.Targ
 public meta import Kraken.AArch64.Print
 public meta import LeanQbe.T.MainFlat
-public meta import LeanQbe.T.Examples.Kissat.FullM6Sweep
-public meta import LeanQbe.T.Examples.Kissat.Full1
+public meta import LeanQbe.T.Examples.Kissat.Plain
+public meta import LeanQbe.T.Examples.Kissat.Plain1
 
 /-!
 # AAPCS64 Arm64 `ZeroPeel` Widening / Unrolling Parity & Execution (`ZeroPeelWidenArm64Test`)
@@ -32,8 +32,8 @@ public meta import LeanQbe.T.Examples.Kissat.Full1
 Arm64 companion to `ZeroPeelWidenTest` (zero X64 / Amd64 imports):
 1. Arch-isolation audit verifying zero `Kraken.X64` / `LeanQbe.T.Amd64` imports.
 2. Arm64 wide-store (`str xzr` / `str x...`) and 4x unrolled (`add w..., #4`) codegen `#guard`
-   checks across `u32Zero8`, `u32MultiFill2`, `k6Loop1Shape`, `full_k6_init`, `full_zero_tables1`,
-   and `full_m6_els_fold`.
+   checks across `u32Zero8`, `u32MultiFill2`, `k6Loop1Shape`, `plain_zero_tables`,
+   `plain_rephase`, and `plain_sweep`.
 3. Certified `armTarget` parity (`compile_linked_chunks! (flat := false)` vs `(flat := true)`
    `code = rfl`, `bounds = rfl`), Arm64 `compileFlatFn = compileFn`, and `#print axioms`.
 -/
@@ -122,25 +122,26 @@ open Lean in
           (.ret (.var n, ())))
       (fun loop => .jump loop (.imm 0#32, ()))
 
-#guard match compileArm64Asm "full_k6_init" [i64, i32] []
-    Examples.Kissat.FullM6Sweep.full_k6_init_body with
+#guard match compileArm64Asm "plain_zero_tables" [i64] []
+    Examples.Kissat.Plain.plain_zero_tables_body with
   | .ok optAsm =>
-    countAsmLines optAsm "str xzr," == 12 &&
-    countAsmLines optAsm "str x" >= 16 &&
-    hasSubstring optAsm "#4\n"
+    countAsmLines optAsm "str xzr," >= 19 &&
+    countAsmLines optAsm "str x" >= 21
   | .error _ => false
 
 #guard match compileArm64Asm "u32_multi_fill2" [i64, i64, i32] [i64] u32MultiFill2 with
   | .ok optAsm => countAsmLines optAsm "str xzr," == 4 && countAsmLines optAsm "str x" >= 8
   | .error _ => false
 
-#guard match compileArm64Asm "full_zero_tables1" [i64] []
-    Examples.Kissat.Full.full_zero_tables1_body with
-  | .ok optAsm => countAsmLines optAsm "str xzr," >= 4
+#guard match compileArm64Asm "plain_rephase" [i64] []
+    Examples.Kissat.Plain.plain_rephase_body with
+  | .ok optAsm =>
+    countAsmLines optAsm "str xzr," >= 4 &&
+    countAsmLines optAsm "str x" >= 24
   | .error _ => false
 
-#guard match compileArm64Asm "full_m6_els_fold" [i64, i32] [.bool]
-    Examples.Kissat.FullM6Sweep.full_m6_els_fold_body with
+#guard match compileArm64Asm "plain_sweep" [i64] [i64]
+    Examples.Kissat.Plain.plain_sweep_body with
   | .ok optAsm => hasSubstring optAsm "#4\n" || hasSubstring optAsm "#2\n"
   | .error _ => false
 

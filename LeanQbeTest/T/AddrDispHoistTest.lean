@@ -12,13 +12,12 @@ public import LeanQbe.T.Arm64.TargLemmas
 import LeanQbe.T.Driver
 import LeanQbe.T.Arm64.Targ
 import LeanQbe.T.MainInline
-import LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy
+import LeanQbe.T.Examples.Kissat.Plain
 import Kraken.AArch64.Syntax
 meta import LeanQbe.T.Driver
 meta import LeanQbe.T.Arm64.Targ
 meta import LeanQbe.T.MainInline
-meta import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12
-meta import LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy
+meta import LeanQbe.T.Examples.Kissat.Plain
 meta import Kraken.AArch64.Syntax
 
 /-!
@@ -31,11 +30,10 @@ Verifies `LegalTarget.foldAddrDisp` (`true` on `armLegalTarget`, `false` on `x64
    `ldr w, [xH, wI, uxtw #2]` on AArch64 (`0` `add x16` + `[x16, #12]` pairs).
 2. Negative unique-disp guard: functions accessing the same hoisted `(base, inv, sh)` with
    multiple distinct displacements (`+8` and `+12`) keep displacements unhoisted.
-3. Kissat Step-12 AArch64 activation `#guard`s:
-   * AArch64 `full_deduce_1uip_m6_hdr`, `full_rewatch_range_m6`, and `full_bva_scan_cands`
-     emit `0` `add x16, ..., uxtw #2; ldr/str [x16, #12]` pairs (`x16#` drops `8 -> 4` in
-     `deduce`, `36 -> 30` in `rewatch`, `36 -> 33` in `full_propagate_ignore_hot`, `12 -> 5` in
-     `bva_scan_cands`).
+3. Kissat `Plain` AArch64 activation `#guard`s:
+   * AArch64 `plain_shrink_blk`, `plain_watch_push`, `plain_prop_lit`, and `plain_analyze_rsn`
+     emit `<= 1` (and `0` on `plain_shrink_blk`, `plain_watch_push`, `plain_prop_lit`)
+     `add x16, ..., uxtw #2; ldr/str [x16, #12]` pairs and bounded scaled-`x16` disp pairs.
    * x86-64 `LegalTarget.x64` keeps `foldAddrDisp = false` (`0`-diff SIB addressing).
 4. Standard-axiom audit (`<= std3`, `0` sorry).
 -/
@@ -228,7 +226,7 @@ private def armNoDispFoldOnMulti (f : Fn) : Bool :=
   | .error _ => false
 #guard armNoDispFoldOnMulti multiDispArmFn
 
-/-! ## 4. Kissat Step-12 Arm64 Activation `#guard`s -/
+/-! ## 4. Kissat `Plain` Arm64 Activation `#guard`s -/
 
 private meta abbrev ArmDirM := Arm64.armTarget.toIsa.Directive
 
@@ -277,13 +275,13 @@ private meta def countX16AnyDispPairsM : List ArmDirM → Nat
     (if isAddX16ScaledM d1 && isX16AnyImmMemAccessM d2 then 1 else 0) +
       countX16AnyDispPairsM (d2 :: rest)
 
-private meta def findFidInlFn (nm : Sym) : Option Fn :=
-  let m := LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12.fidStep12Module
-  let fns := (m.optInlinePolicy LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy.fidInlPolicy).fns
+private meta def findPlainInlFn (nm : Sym) : Option Fn :=
+  let m := LeanQbe.T.Examples.Kissat.Plain.plainModule
+  let fns := (m.optInlinePolicy {}).fns
   fns.find? (·.name == nm)
 
 private meta def checkKissatArm64 (nm : Sym) (maxUxtw2Disp12 maxTotalPairs : Nat) : Bool :=
-  match findFidInlFn nm with
+  match findPlainInlFn nm with
   | none => false
   | some f =>
     match Driver.compileFnFlat Arm64.armTarget.toIsa Arm64.armLegalTarget f with
@@ -291,10 +289,10 @@ private meta def checkKissatArm64 (nm : Sym) (maxUxtw2Disp12 maxTotalPairs : Nat
     | .ok ds =>
       countX16Uxtw2Disp12M ds <= maxUxtw2Disp12 && countX16AnyDispPairsM ds <= maxTotalPairs
 
-#guard checkKissatArm64 "full_deduce_1uip_m6_hdr" 0 4
-#guard checkKissatArm64 "full_rewatch_range_m6" 0 30
-#guard checkKissatArm64 "full_propagate_ignore_hot" 1 33
-#guard checkKissatArm64 "full_bva_scan_cands" 0 5
+#guard checkKissatArm64 "plain_shrink_blk" 0 4
+#guard checkKissatArm64 "plain_watch_push" 0 11
+#guard checkKissatArm64 "plain_analyze_rsn" 1 2
+#guard checkKissatArm64 "plain_prop_lit" 0 14
 
 /-! ## 5. Axiom Audit -/
 

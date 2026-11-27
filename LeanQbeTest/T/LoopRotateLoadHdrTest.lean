@@ -5,13 +5,11 @@ public import LeanQbe.T.OptFlatLoopLemmas
 public import LeanQbe.T.MainFlatLemmas
 public import LeanQbe.T.Logic.Rules
 public import LeanQbe.T.Amd64.Targ
-public import LeanQbe.T.Examples.Kissat.FullM4
 public import LeanQbe.T.Examples.Kissat.Plain
 meta import LeanQbe.T.LoopRotate
 meta import LeanQbe.T.OptFlatLoop
 meta import LeanQbe.T.MainFlat
 meta import LeanQbe.T.Amd64.Targ
-meta import LeanQbe.T.Examples.Kissat.FullM4
 meta import LeanQbe.T.Examples.Kissat.Plain
 
 /-!
@@ -33,8 +31,8 @@ Covers:
 3. Negative guards (must NOT rotate under `defaultRotConfig`):
    - Header `.store`, header `.call`, header trapping ops (`.udiv`, `.sdiv`, `.fptoui`),
      adversarial `Func.loopRotateWithPlan` trapping-op rejection, and `allowLoadHdr := false`.
-4. Native `TFlat` parity & measured rotation counts across `FullM4` (`231` fns + `optInline 40`)
-   and `Kissat.Plain` (`59` fns), plus `#print axioms` audit (`⊆ std3`).
+4. Native `TFlat` parity & measured rotation counts on `Kissat.Plain` (`59` fns + `optInline 40`),
+   plus `#print axioms` audit (`⊆ std3`).
 -/
 
 set_option autoImplicit false
@@ -45,7 +43,6 @@ namespace LeanQbeTest.T.LoopRotateLoadHdrTest
 
 open LeanQbe.T
 open LeanQbe.T.LoopRotate
-open LeanQbe.T.Examples.Kissat.FullM4
 open LeanQbe.T.Examples.Kissat.Plain
 
 /-! ## 1. Safe header-load rotation (`while (a[i] != 0) i++;` & BCP watch-header) -/
@@ -502,7 +499,7 @@ theorem hdrFptouiLoop_noRot :
       (reifyFunc hdrFptouiLoop)).hasRot = false := by
   t_kernel_rfl
 
-/-! ## 4. Measured Kissat `FullM4` & `Kissat.Plain` rotation counts + native `TFlat` parity -/
+/-! ## 4. Measured `Kissat.Plain` rotation counts + native `TFlat` parity -/
 
 private def fnToPreRot (lt : LegalTarget) (fn : Fn) :
     String × List Ty × TFlat (lt.legalSig fn.rs) :=
@@ -549,9 +546,8 @@ private def rotMonotoneGain (lt : LegalTarget) (fns : List Fn) : Bool :=
      ok && nc ≥ oc)) (0, 0, 0, 0, true)
   allMono && oldF > 0 && newF > oldF && newL > oldL && newF ≤ fns.length
 
-#guard rotMonotoneGain Amd64.x64LegalTarget m4Fns
-#guard rotMonotoneGain Amd64.x64LegalTarget (m4Module.optInline 40).fns
 #guard rotMonotoneGain Amd64.x64LegalTarget plainFns
+#guard rotMonotoneGain Amd64.x64LegalTarget (plainModule.optInline 40).fns
 
 private def tupArgEq : {ts : List Ty} → Tup (Arg K) ts → Tup (Arg K) ts → Bool
   | [], (), () => true
@@ -609,15 +605,6 @@ private def tblocksEq {rs : List Ty} : {sig : List (List Ty)} →
   | _, .cons b1 bs1, .cons b2 bs2 =>
     tflatEq b1 b2 && tblocksEq bs1 bs2
 end
-
-#guard
-  let lt := Amd64.x64LegalTarget
-  m4Fns.all fun fn =>
-    let (_, as', tf) := fnToPreRot lt fn
-    let tfRot := OptFlatLoop.loopRotateFlat as' tf defaultRotConfig
-    tf.wfCheck (pushTypes as' []) [] &&
-      tfRot.wfCheck (pushTypes as' []) [] &&
-      tflatEq tfRot (reifyFunc (Func.loopRotate (denoteFunc (as := as') tf) defaultRotConfig))
 
 #guard
   let lt := Amd64.x64LegalTarget

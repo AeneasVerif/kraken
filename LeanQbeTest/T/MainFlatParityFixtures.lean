@@ -3,11 +3,11 @@ module
 public import LeanQbe.T.MainFlatLemmas
 public import LeanQbe.T.Examples.LitmusProgsProg
 public import LeanQbe.T.Examples.LratBytesProg
-public import LeanQbe.T.Examples.Kissat.FullM7FidelitySched
+public import LeanQbe.T.Examples.Kissat.Plain1
 meta import LeanQbe.T.MainFlat
 meta import LeanQbe.T.Examples.LitmusProgsProg
 meta import LeanQbe.T.Examples.LratBytesProg
-meta import LeanQbe.T.Examples.Kissat.FullM7FidelitySched
+meta import LeanQbe.T.Examples.Kissat.Plain1
 
 /-!
 # Shared Arch-Neutral Differential Parity Fixtures (`MainFlatParityFixtures`)
@@ -84,12 +84,8 @@ theorem litmusTFlatMod_wf : litmusTFlatMod.all TFlatFn.wfCheck = true := by deci
 @[expose] def lratBytesTFlatMod : List TFlatFn :=
   Examples.LratBytes.lratBytesFns.map fnToTFlat
 
-@[expose] def fidSchedTFlatMod : List TFlatFn :=
-  Examples.Kissat.FullM7FidelitySched.fidSchedFns.map fnToTFlat
-
-@[expose] def fidSchedExtCallees (lt : LegalTarget) : List (SigEntry × Nat) :=
-  Examples.Kissat.FullM7FidelitySched.fidSchedExterns.map fun e =>
-    ((e.name, lt.legalSig e.as, lt.legalSig e.rs), 0)
+@[expose] def plain1TFlatMod : List TFlatFn :=
+  Examples.Kissat.Plain.plain1Module.fns.map fnToTFlat
 
 @[expose] def firstByteDiff (a b : ByteArray) :
     Option (Nat × Option UInt8 × Option UInt8) := Id.run do
@@ -165,18 +161,19 @@ theorem litmusTFlatMod_wf : litmusTFlatMod.all TFlatFn.wfCheck = true := by deci
 
 @[expose] def checkTargetParity (tag : String) (I : Isa) (lt : LegalTarget) (raBytes : Nat)
     (render : List I.Directive → String) : IO Unit := do
-  let coreFns : List TFlatFn := litmusTFlatMod ++ (fidSchedTFlatMod.take 2)
+  let coreFns : List TFlatFn := litmusTFlatMod ++ (plain1TFlatMod.take 2)
   let _ ← checkSuiteParity tag "core" I lt raBytes [] [] render coreFns 10
   let (f1, p1) ← checkSuiteParity tag "litmus_all" I lt raBytes [] ["fail"] render
     litmusAllTFlatMod 10
   let (f2, p2) ← checkSuiteParity tag "lrat_bytes" I lt raBytes [] [] render
     lratBytesTFlatMod 5
-  let (f3, p3) ← checkSuiteParity tag "fid_sched" I lt raBytes (fidSchedExtCallees lt) [] render
-    fidSchedTFlatMod 5
+  let (f3, p3) ← checkSuiteParity tag "plain1" I lt raBytes [] [] render
+    plain1TFlatMod 5
   let totFlatMs := (f1 + f2 + f3) / 1000000
   let totPhoMs := (p1 + p2 + p3) / 1000000
   let spd := formatSpeedup (f1 + f2 + f3) (p1 + p2 + p3)
-  IO.println (s!"OK ({tag} total): 25 fns across 3 suites, 0 diff | " ++
+  let totFns := litmusAllTFlatMod.length + lratBytesTFlatMod.length + plain1TFlatMod.length
+  IO.println (s!"OK ({tag} total): {totFns} fns across 3 suites, 0 diff | " ++
     s!"flat={totFlatMs}ms vs pho={totPhoMs}ms ({spd})")
 
 end LeanQbeTest.T.MainFlatParityFixtures

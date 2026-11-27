@@ -5,7 +5,7 @@ public import LeanQbe.T.Arm64.IselNarrowLemmas
 public import LeanQbe.T.Arm64.IselLemmas4
 public import LeanQbe.T.Arm64.TargLemmas
 public import LeanQbe.T.Driver
-public import LeanQbe.T.Examples.Kissat.FullM4
+public import LeanQbe.T.Examples.Kissat.Plain
 public import LeanQbeTest.T.RegaTestKit
 public import LeanQbeTest.T.Arm64DirPreds
 import Kraken.AArch64.Parser
@@ -13,7 +13,7 @@ meta import LeanQbe.T.Arm64.IselShift
 meta import LeanQbe.T.Arm64.IselNarrow
 meta import LeanQbe.T.Arm64.TargLemmas
 meta import LeanQbe.T.Driver
-meta import LeanQbe.T.Examples.Kissat.FullM4
+meta import LeanQbe.T.Examples.Kissat.Plain
 meta import LeanQbeTest.T.RegaTestKit
 meta import LeanQbeTest.T.Arm64DirPreds
 meta import LeanQbe.T.Logic.ProofKit
@@ -26,7 +26,7 @@ Verifies all Wave-5 (`W5-1c`) shifted/extended ISel helpers and Rank-9 load/sign
    `armExtCmp?`, `armCmpZextOp`, `armCmpZeroZextJcc`, `armCmpMem`, widened `armGpr.loadSext 32 64`,
    and widened `armGpr.leaArith`.
 2. End-to-end `RegaTestKit.chk`/`codeOf` regressions for `LDRSW`, displaced `leaArith`, and
-   `FullM4` compilation (`Driver.compileFns`).
+   `Kissat.Plain` compilation (`Driver.compileFns`).
 3. Concrete `Host.ofLayout` execution witnesses via `armShiftedCmp_spec`, `armExtAlu_zero32`,
    `armExtCmp_spec`, `armCmpZextOp_spec`, `armCmpZeroZextJcc_spec`, and `armCmpMem_flags_spec`.
 4. Standard-axiom verification (`ProofKit.check_std_axioms!`) across all new theorems.
@@ -156,7 +156,7 @@ example :
     (armGpr.leaArith 64 (some (.reg .X1)) (.reg .X2) .s4 5000 (.reg .X0)) = none := by
   refine ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩
 
-/-! ## 2. End-to-End Lowering Regressions & `FullM4` Check -/
+/-! ## 2. End-to-End Lowering Regressions & `Kissat.Plain` Check -/
 
 meta def isLdrswDir : armTarget.toIsa.Directive → Bool
   | .instr { operation := .LDRSW .., .. } => true
@@ -196,8 +196,8 @@ meta def leaNoBaseScaledDispFn : Fn :=
 
 #guard chk armTarget armLayout armLegalTarget [leaNoBaseScaledDispFn]
 
-#guard match Driver.compileFns armIsa armLegalTarget Examples.Kissat.FullM4.m4Module.fns with
-  | .ok code => code.length > 20000
+#guard match Driver.compileFns armIsa armLegalTarget Examples.Kissat.Plain.plainModule.fns with
+  | .ok code => code.length > 5000
   | .error _ => false
 
 /-! ## 3. Concrete `Host.ofLayout` Execution Witnesses -/

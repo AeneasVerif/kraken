@@ -4,14 +4,14 @@ public import LeanQbe.T.MainCertCore
 public import LeanQbe.T.MainCertFlat
 public import LeanQbe.T.MainCertInline
 public import LeanQbe.T.Amd64.TargLemmas
-public import LeanQbe.T.Examples.Kissat.FullM4
+public import LeanQbe.T.Examples.Kissat.Plain
 public import LeanQbe.T.Spill
 public meta import Lean
 public meta import LeanQbe.T.MainCertElab
 public meta import LeanQbe.T.MainCertFlatElab
 public meta import LeanQbe.T.MainCertInline
 public meta import LeanQbe.T.Amd64.Targ
-public meta import LeanQbe.T.Examples.Kissat.FullM4
+public meta import LeanQbe.T.Examples.Kissat.Plain
 public meta import LeanQbe.T.MainFlat
 public meta import LeanQbe.T.Spill
 
@@ -24,8 +24,9 @@ Covers `W5-1b` on SysV x64 (`LeanQbe.T.Amd64.x64Target`):
 2. Rematerialized uses across `cmp eq/ne`, `add64`, and `.jump` arguments.
 3. Negative guards: redefined loop-carried base and out-of-range 64-bit displacement (`> 32`-bit
    `lea` disp).
-4. `FullM4` x64 hot functions (`full_prop_lit_raw`, `full_otfs_large`, `full_viv_simplify`,
-   `full_viv_commit`, `full_fwd_check_cl`) lower cleanly with structural remat firing.
+4. `Kissat.Plain` x64 hot functions (`plain_prop_lit`, `plain_analyze`, `plain_analyze_lit`,
+   `plain_assign`, `plain_queue_mtf`) lower cleanly with structural remat firing and
+   reduced spill moves.
 5. Exact `(flat := false)` vs `(flat := true)` kernel `code = rfl` and `bounds = rfl` parity.
 -/
 
@@ -189,20 +190,20 @@ theorem remat_x64_bounds_eq : rematX64Leg.bounds = rematX64Flat.bounds := rfl
 #guard (Rega.lowerFn x64Target.toIsa (Spill.hints x64Target.toIsa fnNegBigDispX64)
   fnNegBigDispX64.ext fnNegBigDispX64).isOk
 
--- Real Kissat `FullM4` x64 hot functions: remat structurally fires on `full_otfs_large`,
--- `full_viv_simplify`, `full_viv_commit`, `full_fwd_check_cl`, `full_prop_lit_raw` beats legacy
--- spill moves, and all lower cleanly.
+-- Real Kissat `Plain` x64 hot functions: remat structurally fires on `plain_analyze`,
+-- `plain_analyze_lit`, `plain_assign`, `plain_queue_mtf`, `plain_prop_lit` beats legacy spill
+-- moves, and all lower cleanly.
 #guard
-  ["full_prop_lit_raw", "full_otfs_large", "full_viv_simplify", "full_viv_commit",
-    "full_fwd_check_cl"].all fun nm =>
-    match Examples.Kissat.FullM4.m4Fns.find? (·.name == nm) with
+  ["plain_prop_lit", "plain_analyze", "plain_analyze_lit", "plain_assign",
+    "plain_queue_mtf"].all fun nm =>
+    match Examples.Kissat.Plain.plainFns.find? (·.name == nm) with
     | none => false
     | some f =>
       let fm := f.mid x64LegalTarget
       let nip := (Live.Tree.ofFn fm).2.2.2.2.1
       let h := Spill.hints x64Target.toIsa fm
       let okSpec :=
-        if nm == "full_prop_lit_raw" then
+        if nm == "plain_prop_lit" then
           let hLeg := Spill.hints x64Target.toIsa fm (cfg := .legacy)
           spillMoveCount h nip < spillMoveCount hLeg nip
         else

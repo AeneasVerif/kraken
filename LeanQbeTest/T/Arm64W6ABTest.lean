@@ -4,16 +4,14 @@ public import LeanQbe.T.Arm64.TargLemmas
 public import LeanQbe.T.MainLemmas
 public import LeanQbe.T.Driver
 public import LeanQbe.T.MainInline
-public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12
-public import LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy
+public import LeanQbe.T.Examples.Kissat.Plain
 public import LeanQbeTest.T.Arm64DirPreds
 public import LeanQbeTest.T.RegaTestKit
 meta import LeanQbe.T.Arm64.TargLemmas
 meta import LeanQbe.T.MainLemmas
 meta import LeanQbe.T.Driver
 meta import LeanQbe.T.MainInline
-meta import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12
-meta import LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy
+meta import LeanQbe.T.Examples.Kissat.Plain
 meta import LeanQbeTest.T.Arm64DirPreds
 meta import LeanQbeTest.T.RegaTestKit
 public meta import Kraken.AArch64.Print
@@ -33,7 +31,7 @@ Arm64 `w6ab` bundle, each checked against the same compiler with the bundle swit
   signed compares fuse into `LDRSB`/`LDRSH` + `CMP` (no `SBFM`).
 * **W6-A** shifted-register ALU & CMP (`GprIsa.shiftAlu`, `GprIsa.shiftCmp`): `lsl`/`lsr`/`asr`
   feeding `add`/`sub`/`and`/`or`/`xor` or `cmp` fuse into shifted-operand instructions.
-* Real Step-12 Kissat hot functions (`full_propagate_ignore_hot`, `full_deduce_1uip_m6_hdr`, ...)
+* Real `Kissat.Plain` hot functions (`plain_watch_push`, `plain_prop_lit`, ...)
   emit strictly fewer instructions with the bundle on.
 -/
 
@@ -294,12 +292,11 @@ meta def shiftCmpLhsAsrFn : Fn :=
   countDirs isShiftedSubsDir (armCode [shiftCmpLhsAsrFn]) == 1
 #guard insnCount (armCode [shiftCmpLhsAsrFn]) + 1 == insnCount (armCodeOff [shiftCmpLhsAsrFn])
 
-/-! ## 6. Real Step-12 Kissat hot-function activation (not dead code) -/
+/-! ## 6. Real `Kissat.Plain` hot-function activation (not dead code) -/
 
-/-- Step-12 Kissat functions after the production inline policy. -/
-meta def step12Fns : List Fn :=
-  (LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12.fidStep12Module.optInlinePolicy
-    LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy.fidInlPolicy).fns
+/-- `Kissat.Plain` functions after the default inline policy. -/
+meta def plainPolFns : List Fn :=
+  (LeanQbe.T.Examples.Kissat.Plain.plainModule.optInlinePolicy {}).fns
 
 meta def isInstrDir : Directive → Bool
   | .instr _ => true
@@ -309,12 +306,12 @@ meta def okInsns : Except String (List Directive) → Nat
   | .ok ds => countDirs isInstrDir ds
   | .error _ => 0
 
-meta def step12Fn? (nm : Sym) : Option Fn :=
-  step12Fns.find? (·.name == nm)
+meta def plainPolFn? (nm : Sym) : Option Fn :=
+  plainPolFns.find? (·.name == nm)
 
-/-- `(on, off)` production (`Driver.compileFnFlat`) instruction counts of Step-12 function `nm`. -/
+/-- `(on, off)` production (`Driver.compileFnFlat`) instruction counts of `Plain` function `nm`. -/
 meta def hotPair (nm : Sym) : Nat × Nat :=
-  match step12Fn? nm with
+  match plainPolFn? nm with
   | some f =>
     (okInsns (Driver.compileFnFlat armTarget.toIsa armLegalTarget f),
       okInsns (Driver.compileFnFlat armIsaNoW6ab armLegalTarget f))
@@ -324,15 +321,15 @@ meta def hotWins (nm : Sym) : Bool :=
   let (on, off) := hotPair nm
   0 < on && on < off
 
-#guard hotWins "full_propagate_ignore_hot"
-#guard hotWins "full_deduce_1uip_m6_hdr"
-#guard hotWins "full_propagate_ignore"
-#guard hotWins "full_bva_scan_cands"
-#guard hotWins "full_shrink_blk_bool_m8"
-#guard hotWins "full_k6_propagate"
-#guard hotWins "full_rewatch_range_m6"
-#guard hotWins "full_m6_sweep_flip_round"
-#guard hotWins "full_k6_init"
+#guard hotWins "plain_watch_push"
+#guard hotWins "plain_prop_lit"
+#guard hotWins "plain_zero_tables"
+#guard hotWins "plain_sweep"
+#guard hotWins "plain_shrink_blk"
+#guard hotWins "plain_decide"
+#guard hotWins "plain_ema_update"
+#guard hotWins "plain_rephase"
+#guard hotWins "plain_analyze"
 
 /-! ## 7. Axiom audit (`std3` only) -/
 

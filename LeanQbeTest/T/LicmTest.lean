@@ -8,13 +8,13 @@ public import LeanQbe.T.Logic.Rules
 public import LeanQbe.T.Examples.UnionFind
 public import LeanQbe.T.Examples.LratBytes
 public import LeanQbe.T.Examples.LratTrimProg
-public import LeanQbe.T.Examples.Kissat.Full1
+public import LeanQbe.T.Examples.Kissat.Plain1
 meta import LeanQbe.T.Licm
 meta import LeanQbe.T.Opt
 meta import LeanQbe.T.Flat
 meta import LeanQbe.T.Examples.LratBytesProg
 meta import LeanQbe.T.Examples.LratTrimProg
-meta import LeanQbe.T.Examples.Kissat.Full1
+meta import LeanQbe.T.Examples.Kissat.Plain1
 
 /-!
 # Tests of `LeanQbe.T.Licm` (`Func.licm`)
@@ -610,7 +610,7 @@ def acyclicJoin : Func [.bool, i64, i64] [i64] := fun _ _ (c, a, b, ()) =>
 
 theorem acyclicJoin_licm_untouched : Func.licm acyclicJoin = acyclicJoin := by t_kernel_rfl
 
-/-! ## 7. Real codebase functions (`UnionFind`, `LratBytes`, `LratTrim`, `Kissat.Full`) -/
+/-! ## 7. Real codebase functions (`UnionFind`, `LratBytes`, `LratTrim`, `Kissat.Plain`) -/
 
 /-- `UnionFind.find` and `UnionFind.unionInline`: fast-path zero-regression + `Wf`. -/
 theorem uf_find_licm_untouched :
@@ -655,26 +655,30 @@ meta def funcLoopLetsM {as rs : List Ty} (f : Func as rs) : Nat :=
   let f1 := Func.licm f0
   Func.checkTFlat f1 && funcLoopLetsM f1 < funcLoopLetsM f0
 
-/-- `Kissat.Full.full_prop_lit`: verified `Wf`, `checkTFlat`, and `5` loop-invariant ops hoisted
-out of the hot watch-list propagation loop (including the 4-op `lvls + ((lit >> 1) << 2)`
-address chain). -/
-theorem full_prop_lit_licm_wf :
-    (Func.licm Examples.Kissat.Full.full_prop_lit_body).Wf :=
-  Func.licm_wf Examples.Kissat.Full.full_prop_lit_wf
+/-- `Kissat.Plain`: `plain_propagate` (`≥ 4`), `plain_add_clause` (`≥ 5`), and hot `plain1_fns`
+all verify `Wf`, `checkTFlat`, and strictly reduce loop `.let_` counts under `Func.licm`. -/
+theorem plain_propagate_licm_wf :
+    (Func.licm Examples.Kissat.Plain.plain_propagate_body).Wf :=
+  Func.licm_wf Examples.Kissat.Plain.plain_propagate_wf
 
-theorem full1_fns_licm_wf :
-    ∀ f ∈ Examples.Kissat.Full.full1_fns, (Fn.licm f).Wf := fun f hf =>
-  Fn.licm_wf (Examples.Kissat.Full.full1_fns_wf f hf)
+theorem plain1_fns_licm_wf :
+    ∀ f ∈ Examples.Kissat.Plain.plain1_fns, (Fn.licm f).Wf := fun f hf =>
+  Fn.licm_wf (Examples.Kissat.Plain.plain1_fns_wf f hf)
 
 #guard
-  let f0 := Func.earlyOpt Examples.Kissat.Full.full_prop_lit_body
+  let f0 := Func.earlyOpt Examples.Kissat.Plain.plain_propagate_body
+  let f1 := Func.licm f0
+  Func.checkTFlat f1 && funcLoopLetsM f1 + 4 ≤ funcLoopLetsM f0
+
+#guard
+  let f0 := Func.earlyOpt Examples.Kissat.Plain.plain_add_clause_body
   let f1 := Func.licm f0
   Func.checkTFlat f1 && funcLoopLetsM f1 + 5 ≤ funcLoopLetsM f0
 
 #guard
-  let targets := ["full_prop_lit", "full_propagate_ignore", "full_find_repl",
-    "full_assign_level", "full_sweep_bins"]
-  Examples.Kissat.Full.full1_fns.all fun fn =>
+  let targets := ["plain_prop_lit", "plain_propagate", "plain_find_repl",
+    "plain_add_clause", "plain_backtrack"]
+  Examples.Kissat.Plain.plain1_fns.all fun fn =>
     if targets.contains fn.name then
       let f0 := Func.earlyOpt fn.body
       let f1 := Func.licm f0

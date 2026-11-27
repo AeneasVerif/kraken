@@ -2,8 +2,8 @@ module
 
 public import LeanQbe.T.Frontend.C0
 public import LeanQbe.T.Logic.C0HeadStep
-public import LeanQbe.T.Examples.Kissat.FullPropDecLemmas1
-public import LeanQbe.T.Examples.Kissat.FullCongLemmas1
+public import LeanQbe.T.Examples.Kissat.PlainPropLemmas1
+public import LeanQbe.T.Examples.Kissat.PlainReduceLemmas1
 public import LeanQbe.T.Examples.LratBytesDimacsLemmas
 meta import LeanQbe.T.Frontend.C0
 meta import LeanQbe.T.Logic.C0StepAttr
@@ -16,7 +16,7 @@ Tests:
 1. Two-level `(footprintHead, AddrKey)` indexing in `C0StepAttr`:
    - `extractAddrKey` classification across constant header offsets, dynamic array offsets,
      nested sub-buffer offsets, and variable-base addresses.
-   - `O(1)` bucket narrowing on `FullMem` (`1–2` candidates vs `200+` total lemmas) while
+   - `O(1)` bucket narrowing on `PlainMem` (`1–2` candidates vs `200+` total lemmas) while
      preserving 100% backward-compatible `c0MemLemmas`.
 2. Direct `Op.mk`, `op1`, `op2`, and `op3` stepping (zero `MVarId.change` on straight-line `let_`):
    - Arithmetic, bitwise, Bool, `select`, `ofBool`, `zext`/`sext`/`trunc` literal folding,
@@ -25,8 +25,8 @@ Tests:
      `c0_hsteps_nogrp`, and `c0_hsplit`.
 3. End-to-end `c0_decl_and_layout!` struct/array loop + strict unmatched-memory diagnostics.
 4. Synthetic asymptotic scaling chains (`N = 20, 40, 80` on `Op.mk` and `op2`, up to `240` ops).
-5. Real `LratBytes` (`isWsByte`) and real Kissat `D-Full` C0 functions (`full_find_repl_body`,
-   `full_cong_find_body`) with no shard-local stepper macros.
+5. Real `LratBytes` (`isWsByte`) and real Kissat `D-Plain` C0 functions (`plain_find_repl_body`,
+   `plain_red_less_body`, `plain_lit_rank_body`) with no shard-local stepper macros.
 6. `#print axioms` strictly `⊆ [propext, Classical.choice, Quot.sound]`.
 -/
 
@@ -38,27 +38,27 @@ namespace LeanQbeTest.T.C0HeadStepTest
 
 open Std Std.Sat Std.ExtHashMap
 open LeanQbe.T LeanQbe.T.Frontend.C0 LeanQbe.T.C0Step LeanQbe.T.C0HeadStep LeanQbe.T.ProofUtil
-open LeanQbe.T.Examples.LratBytes LeanQbe.T.Examples.Kissat LeanQbe.T.Examples.Kissat.Full
+open LeanQbe.T.Examples.LratBytes LeanQbe.T.Examples.Kissat LeanQbe.T.Examples.Kissat.Plain
 open Kraken.Bedrock2.Test
 
 /-! ## 1. Two-Level `(footprintHead, AddrKey)` Indexing Verification -/
 
 section AddrKeyTests
-open scoped FullArenaTactics
+open scoped PlainPropTactics PlainReduceTactics
 
-/-- Programmatic MetaM check that `C0StepAttr` classifies `FullMem` addresses into `O(1)` buckets
+/-- Programmatic MetaM check that `C0StepAttr` classifies `PlainMem` addresses into `O(1)` buckets
 while preserving the complete backward-compatible `c0MemLemmas` list. -/
-theorem addrKey_fullMem_dispatch_check : True := by
+theorem addrKey_plainMem_dispatch_check : True := by
   run_tac do
     let env ← Lean.getEnv
-    let totalLoads := C0Step.c0MemLemmas env true ``FullMem
-    let totalStores := C0Step.c0MemLemmas env false ``FullMem
-    unless totalLoads.size ≥ 150 do
-      throwError "expected ≥ 150 FullMem load lemmas in c0MemLemmas, got {totalLoads.size}"
-    unless totalStores.size ≥ 50 do
-      throwError "expected ≥ 50 FullMem store lemmas in c0MemLemmas, got {totalStores.size}"
+    let totalLoads := C0Step.c0MemLemmas env true ``PlainMem
+    let totalStores := C0Step.c0MemLemmas env false ``PlainMem
+    unless totalLoads.size ≥ 140 do
+      throwError "expected ≥ 140 PlainMem load lemmas in c0MemLemmas, got {totalLoads.size}"
+    unless totalStores.size ≥ 120 do
+      throwError "expected ≥ 120 PlainMem store lemmas in c0MemLemmas, got {totalStores.size}"
     let bv64 := Lean.mkApp (Lean.mkConst ``BitVec) (Lean.mkNatLit 64)
-    Lean.Meta.withLocalDeclD `c (Lean.mkConst ``FullCfg) fun cE =>
+    Lean.Meta.withLocalDeclD `c (Lean.mkConst ``PlainCfg) fun cE =>
     Lean.Meta.withLocalDeclD `i bv64 fun iE =>
     Lean.Meta.withLocalDeclD `p bv64 fun pE => do
       let addInst := Lean.mkApp2 (Lean.mkConst ``instHAdd [Lean.Level.zero]) bv64
@@ -68,37 +68,37 @@ theorem addrKey_fullMem_dispatch_check : True := by
           bv64 bv64 bv64 addInst a b
       let mkBv (n : Nat) := Lean.mkApp2 (Lean.mkConst ``BitVec.ofNat) (Lean.mkNatLit 64)
         (Lean.mkNatLit n)
-      -- 1. `c.hdr` -> `constOff FullCfg.hdr 0`
-      let hdrE := Lean.mkApp (Lean.mkConst ``FullCfg.hdr) cE
+      -- 1. `c.hdr` -> `constOff PlainCfg.hdr 0`
+      let hdrE := Lean.mkApp (Lean.mkConst ``PlainCfg.hdr) cE
       let kHdr0 := C0Step.extractAddrKey hdrE (some env)
-      unless kHdr0 == .constOff ``FullCfg.hdr 0 do
+      unless kHdr0 == .constOff ``PlainCfg.hdr 0 do
         throwError "unexpected AddrKey for c.hdr: {repr kHdr0}"
-      let bHdr0 := C0Step.c0MemLemmasForAddr env true ``FullMem hdrE
-      unless bHdr0.contains ``FullArenaTactics.load_full_mv && bHdr0.size ≤ 4 do
+      let bHdr0 := C0Step.c0MemLemmasForAddr env true ``PlainMem hdrE
+      unless bHdr0.contains ``Plain.load_arena_mv && bHdr0.size ≤ 4 do
         throwError "unexpected bucket for c.hdr: {bHdr0}"
-      -- 2. `c.hdr + 48#64` -> `constOff FullCfg.hdr 48` (hits `load_full_arena_len` in O(1))
+      -- 2. `c.hdr + 48#64` -> `constOff PlainCfg.hdr 48` (hits `load_arena_len` in O(1))
       let hdr48 := mkAdd hdrE (mkBv 48)
       let kHdr48 := C0Step.extractAddrKey hdr48 (some env)
-      unless kHdr48 == .constOff ``FullCfg.hdr 48 do
+      unless kHdr48 == .constOff ``PlainCfg.hdr 48 do
         throwError "unexpected AddrKey for c.hdr + 48: {repr kHdr48}"
-      let bHdr48 := C0Step.c0MemLemmasForAddr env true ``FullMem hdr48
-      unless bHdr48.contains ``FullArenaTactics.load_full_arena_len && bHdr48.size ≤ 4 do
+      let bHdr48 := C0Step.c0MemLemmasForAddr env true ``PlainMem hdr48
+      unless bHdr48.contains ``Plain.load_arena_len && bHdr48.size ≤ 4 do
         throwError "unexpected bucket for c.hdr + 48: {bHdr48}"
-      -- 3. `c.pArena + i` -> `baseOnly FullCfg.pArena` (only pArena lemmas, not all 200+)
-      let pArenaE := Lean.mkApp (Lean.mkConst ``FullCfg.pArena) cE
+      -- 3. `c.pArena + i` -> `baseOnly PlainCfg.pArena` (only pArena lemmas, not all 140+)
+      let pArenaE := Lean.mkApp (Lean.mkConst ``PlainCfg.pArena) cE
       let arenaDyn := mkAdd pArenaE iE
       let kArena := C0Step.extractAddrKey arenaDyn (some env)
-      unless kArena == .baseOnly ``FullCfg.pArena do
+      unless kArena == .baseOnly ``PlainCfg.pArena do
         throwError "unexpected AddrKey for c.pArena + i: {repr kArena}"
-      let bArena := C0Step.c0MemLemmasForAddr env true ``FullMem arenaDyn
-      unless bArena.contains ``FullArenaTactics.c0_load_full_arena && bArena.size ≤ 8 do
+      let bArena := C0Step.c0MemLemmasForAddr env true ``PlainMem arenaDyn
+      unless bArena.contains ``Plain.c0_load_arena_arena && bArena.size ≤ 8 do
         throwError "unexpected bucket for c.pArena + i: {bArena}"
-      -- 4. Nested sub-buffer `(c.pScratchBuf + 4096#64) + i` -> `baseOnly FullCfg.pScratchBuf`
-      let pScrE := Lean.mkApp (Lean.mkConst ``FullCfg.pScratchBuf) cE
-      let scrNested := mkAdd (mkAdd pScrE (mkBv 4096)) iE
-      let kScr := C0Step.extractAddrKey scrNested (some env)
-      unless kScr == .baseOnly ``FullCfg.pScratchBuf do
-        throwError "unexpected AddrKey for nested scratch addr: {repr kScr}"
+      -- 4. Nested sub-buffer `(c.pWstk + 4096#64) + i` -> `baseOnly PlainCfg.pWstk`
+      let pWstkE := Lean.mkApp (Lean.mkConst ``PlainCfg.pWstk) cE
+      let wstkNested := mkAdd (mkAdd pWstkE (mkBv 4096)) iE
+      let kWstk := C0Step.extractAddrKey wstkNested (some env)
+      unless kWstk == .baseOnly ``PlainCfg.pWstk do
+        throwError "unexpected AddrKey for nested wstk addr: {repr kWstk}"
       -- 5. Variable base `p` and `p + 8#64` -> `.any`
       unless C0Step.extractAddrKey pE (some env) == .any do
         throwError "expected .any for variable base p"
@@ -306,120 +306,122 @@ theorem lrat_isWsByte_hsteps {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
   c0_hsteps
   exact hk
 
-/-! ## 5. Real Kissat `D-Full` C0 Functions (`full_find_repl_body`, `full_cong_find_body`) -/
+/-! ## 5. Real Kissat `D-Plain` (`plain_find_repl_body`, `plain_red_less_body`, `plain_lit_rank_body`) -/
 
 section KissatRealBench
-open scoped FullArenaTactics
-open FullPropDecSpecs FullCongSpecs FullCongHelpers
+open scoped PlainPropTactics PlainReduceTactics
 
-private theorem find_repl_ok_aux {s : FullState} {cref r idx : Nat}
-    {hi_lt : idx < s.core.arena.length}
-    {hj_lt : (s.core.arena[idx]'hi_lt).toNat < s.core.vals.length}
-    (hidx : idx = cref + 3 + r) (hcv : (s.core.arena[idx]'hi_lt).toNat < 2 * s.core.cur_vars)
-    (hsle :
-      (0#32).sle ((s.core.vals[(s.core.arena[idx]'hi_lt).toNat]'hj_lt).signExtend 32) = true) :
-    let cand := (s.core.arena[cref + 3 + r]?.getD 0#32).toNat
-    cand < 2 * s.core.cur_vars ∧
-    ((s.core.vals[cand]?.getD 0#8).signExtend 32).slt 0#32 = false := by
+private theorem bv32_sle0_to_slt_false (y : BitVec 32) (h : (0#32).sle y = true) :
+    y.slt 0#32 = false := by
+  simp only [BitVec.sle, BitVec.slt, BitVec.toInt_zero, decide_eq_true_eq,
+    decide_eq_false_iff_not] at h ⊢
+  omega
+
+private theorem bv32_sle0_false_to_slt (y : BitVec 32) (h : (0#32).sle y = false) :
+    y.slt 0#32 = true := by
+  simp only [BitVec.sle, BitVec.slt, BitVec.toInt_zero, decide_eq_false_iff_not,
+    decide_eq_true_eq] at h ⊢
+  omega
+
+private theorem find_repl_ok_aux {c : PlainCfg} {s : PlainState} {cref r idx : Nat}
+    {hi_lt : idx < s.arena.length}
+    {hj_lt : (s.arena[idx]'hi_lt).toNat < s.vals.length}
+    (hidx : idx = cref + 3 + r) (hcv : (s.arena[idx]'hi_lt).toNat < 2 * c.mv)
+    (hsle : (0#32).sle ((s.vals[(s.arena[idx]'hi_lt).toNat]'hj_lt).signExtend 32) = true) :
+    let cand := (s.arena[cref + 3 + r]?.getD 0#32).toNat
+    cand < 2 * c.mv ∧ ((s.vals[cand]?.getD 0#8).signExtend 32).slt 0#32 = false := by
   subst hidx; dsimp only
   rw [List.getElem?_eq_getElem hi_lt, Option.getD_some,
     List.getElem?_eq_getElem hj_lt, Option.getD_some]
-  refine ⟨hcv, ?_⟩; rw [bv32_sle0_eq_not_slt0, Bool.not_eq_true'] at hsle; exact hsle
+  exact ⟨hcv, bv32_sle0_to_slt_false _ hsle⟩
 
-private theorem find_repl_bad_slt_aux {s : FullState} {cref r idx : Nat}
-    {hi_lt : idx < s.core.arena.length}
-    {hj_lt : (s.core.arena[idx]'hi_lt).toNat < s.core.vals.length} (hidx : idx = cref + 3 + r)
-    (h : (0#32).sle ((s.core.vals[(s.core.arena[idx]'hi_lt).toNat]'hj_lt).signExtend 32) = false) :
-    fullFindReplBad s cref r := by
-  subst hidx; unfold fullFindReplBad; refine Or.inr ?_
+private theorem find_repl_bad_slt_aux {c : PlainCfg} {s : PlainState} {cref r idx : Nat}
+    {hi_lt : idx < s.arena.length}
+    {hj_lt : (s.arena[idx]'hi_lt).toNat < s.vals.length} (hidx : idx = cref + 3 + r)
+    (h : (0#32).sle ((s.vals[(s.arena[idx]'hi_lt).toNat]'hj_lt).signExtend 32) = false) :
+    plainFindReplBad c s cref r := by
+  subst hidx; unfold plainFindReplBad; refine Or.inr ?_
   rw [List.getElem?_eq_getElem hi_lt, Option.getD_some,
     List.getElem?_eq_getElem hj_lt, Option.getD_some]
-  rw [bv32_sle0_eq_not_slt0, Bool.not_eq_false'] at h; exact h
+  exact bv32_sle0_false_to_slt _ h
 
-private theorem find_repl_bad_oob_aux {s : FullState} {cref r idx nlits : Nat}
-    {hi_lt : idx < s.core.arena.length} (hidx : idx = cref + 3 + r)
-    (hnl : nlits = 2 * s.core.cur_vars) (h : ¬ (s.core.arena[idx]'hi_lt).toNat < nlits) :
-    fullFindReplBad s cref r := by
-  subst hidx; unfold fullFindReplBad; refine Or.inl ?_
+private theorem find_repl_bad_oob_aux {c : PlainCfg} {s : PlainState} {cref r idx nlits : Nat}
+    {hi_lt : idx < s.arena.length} (hidx : idx = cref + 3 + r)
+    (hnl : nlits = 2 * c.mv) (h : ¬ (s.arena[idx]'hi_lt).toNat < nlits) :
+    plainFindReplBad c s cref r := by
+  subst hidx; unfold plainFindReplBad; refine Or.inl ?_
   rw [List.getElem?_eq_getElem hi_lt, Option.getD_some]; omega
 
-/-- Kissat `D-Full` `full_find_repl_body` proved using only `c0_hsteps_nogrp` / `c0_hsteps`
-(no `FullPropDecTactics` macros, `O(1)` head stepping + two-level `AddrKey` dispatch). -/
-theorem full_find_repl_hsteps (Γ : Env) :
-    ∀ args m Q X, fullFindReplSpec args m Q X → Func.wp Γ full_find_repl_body args m Q X := by
+/-- Kissat `D-Plain` `plain_find_repl_body` proved using only `c0_hsteps_nogrp` / `c0_hsteps`
+(`O(1)` head stepping + two-level `AddrKey` dispatch). -/
+theorem plain_find_repl_hsteps (Γ : Env) :
+    ∀ args m Q X, plainFindReplSpec args m Q X → Func.wp Γ plain_find_repl_body args m Q X := by
   rintro ⟨h, cref, ⟨⟩⟩ m Q X ⟨c, s, R, rfl, hlen, hc3, hsz3, hfit, hm, hNone, hSome⟩
-  have hmaxv := c.hmaxv; have har := c.harena; unfold dimacsBound at hmaxv har
-  have hcl := hlen.core_ok
-  have hcv_le := hcl.cur_vars_le; have hal := hcl.arena_len_arr
-  have hale := hcl.arena_len_le; have hvl := hcl.vals_len
+  have hmv := c.hmv; have har := c.harena; unfold dimacsBound at hmv har
+  have hal := hlen.arena_len_arr; have hale := hlen.arena_len_le; have hvl := hlen.vals_len
   have hc1 : (cref + 1).toNat = cref.toNat + 1 := by bv_omega
   have hc2 : (cref + 2).toNat = cref.toNat + 2 := by bv_omega
-  have hc2_lt : (cref + 2).toNat < s.core.arena.length := by omega
-  have hc1_lt : (cref + 1).toNat < s.core.arena.length := by omega
-  have hsz_eq : (s.core.arena[(cref + 2).toNat]'hc2_lt).toNat =
-      fullArenaClauseSize s cref.toNat := by
-    unfold fullArenaClauseSize fullArenaClauseSizeCore
-    rw [List.getElem?_eq_getElem (show cref.toNat + 2 < s.core.arena.length by omega),
-      Option.getD_some]
+  have hc2_lt : (cref + 2).toNat < s.arena.length := by omega
+  have hc1_lt : (cref + 1).toNat < s.arena.length := by omega
+  have hsz_eq : (s.arena[(cref + 2).toNat]'hc2_lt).toNat = arenaClauseSize s cref.toNat := by
+    unfold arenaClauseSize
+    rw [List.getElem?_eq_getElem (show cref.toNat + 2 < s.arena.length by omega), Option.getD_some]
     exact congrArg BitVec.toNat (by congr 1)
   c0_hsteps_nogrp
-  generalize hsz_v : s.core.arena[(cref + 2).toNat]'hc2_lt = sz
-  generalize hsr0_v : s.core.arena[(cref + 1).toNat]'hc1_lt = sr0
-  have hsz_nat : sz.toNat = fullArenaClauseSize s cref.toNat := by rw [← hsz_v]; exact hsz_eq
+  generalize hsz_v : s.arena[(cref + 2).toNat]'hc2_lt = sz
+  generalize hsr0_v : s.arena[(cref + 1).toNat]'hc1_lt = sr0
+  have hsz_nat : sz.toNat = arenaClauseSize s cref.toNat := by rw [← hsz_v]; exact hsz_eq
   refine wp_join_group
     (fun (srch, ()) mj => 2 ≤ srch.toNat ∧ srch.toNat < sz.toNat ∧ mj = m) ?_ ?_
   · rintro _ ⟨srch, ⟨⟩⟩ mj ⟨hsrch2, hsrch_lt, rfl⟩
     c0_hsteps
     refine wp_loop_inv
       (fun (r, ()) ml => srch.toNat ≤ r.toNat ∧ r.toNat ≤ sz.toNat ∧ ml = mj ∧
-        ∀ k, srch.toNat ≤ k → k < r.toNat → fullFindReplBad s cref.toNat k)
+        ∀ k, srch.toNat ≤ k → k < r.toNat → plainFindReplBad c s cref.toNat k)
       (fun (r, ()) _ => sz.toNat - r.toNat)
       (fun J hJ => by
         c0_hsteps; exact hJ _ _ ⟨Nat.le_refl _, by omega, rfl, fun _ _ _ => by omega⟩)
       (fun J (r, ()) ml ⟨hr_ge, hr_le, rfl, hseen1⟩ ih => ?_)
     c0_hsteps
-    · have hok := find_repl_ok_aux (cref := cref.toNat) (r := r.toNat)
+    · have hok := find_repl_ok_aux (c := c) (cref := cref.toNat) (r := r.toNat)
         (by c0_bound) (by c0_bound) hc
-      have hset : { s with core := { s.core with
-            arena := s.core.arena.set (cref + 1).toNat r } } =
-          { s with core := { s.core with
-            arena := s.core.arena.set (cref.toNat + 1) (BitVec.ofNat 32 r.toNat) } } := by
+      have hset : { s with arena := s.arena.set (cref + 1).toNat r } =
+          { s with arena := s.arena.set (cref.toNat + 1) (BitVec.ofNat 32 r.toNat) } := by
         rw [hc1, bv_ofNat_toNat_eq]
       rw [hset] at hm; rw [bv32_zext64_eq]
       exact hSome r.toNat _ (by omega) (by omega) hok hm
     · refine ih _ _ (by c0_bound) ⟨by c0_bound, by c0_bound, rfl, fun k hk1 hk2 =>
         if hkr : k = r.toNat then
-          hkr ▸ find_repl_bad_slt_aux (cref := cref.toNat) (r := r.toNat) (by c0_bound) hc
+          hkr ▸ find_repl_bad_slt_aux (c := c) (cref := cref.toNat) (r := r.toNat) (by c0_bound) hc
         else hseen1 k hk1 (by c0_bound)⟩
     · refine ih _ _ (by c0_bound) ⟨by c0_bound, by c0_bound, rfl, fun k hk1 hk2 =>
         if hkr : k = r.toNat then
-          hkr ▸ find_repl_bad_oob_aux (cref := cref.toNat) (r := r.toNat)
+          hkr ▸ find_repl_bad_oob_aux (c := c) (cref := cref.toNat) (r := r.toNat)
             (by c0_bound) (by c0_bound) hc
         else hseen1 k hk1 (by c0_bound)⟩
     · refine wp_loop_inv
         (fun (r2, ()) ml2 => 2 ≤ r2.toNat ∧ r2.toNat ≤ srch.toNat ∧ ml2 = ml ∧
-          ∀ k, 2 ≤ k → k < r2.toNat → fullFindReplBad s cref.toNat k)
+          ∀ k, 2 ≤ k → k < r2.toNat → plainFindReplBad c s cref.toNat k)
         (fun (r2, ()) _ => srch.toNat - r2.toNat)
         (fun J2 hJ2 => by
           c0_hsteps; exact hJ2 _ _ ⟨by decide, by c0_bound, rfl, fun _ _ _ => by c0_bound⟩)
         (fun J2 (r2, ()) ml2 ⟨hr2_ge, hr2_le, rfl, hseen2⟩ ih2 => ?_)
       c0_hsteps
-      · have hok := find_repl_ok_aux (cref := cref.toNat) (r := r2.toNat)
+      · have hok := find_repl_ok_aux (c := c) (cref := cref.toNat) (r := r2.toNat)
           (by c0_bound) (by c0_bound) hc
-        have hset : { s with core := { s.core with
-              arena := s.core.arena.set (cref + 1).toNat r2 } } =
-            { s with core := { s.core with
-              arena := s.core.arena.set (cref.toNat + 1) (BitVec.ofNat 32 r2.toNat) } } := by
+        have hset : { s with arena := s.arena.set (cref + 1).toNat r2 } =
+            { s with arena := s.arena.set (cref.toNat + 1) (BitVec.ofNat 32 r2.toNat) } := by
           rw [hc1, bv_ofNat_toNat_eq]
         rw [hset] at hm; rw [bv32_zext64_eq]
         exact hSome r2.toNat _ hr2_ge (by omega) hok hm
       · refine ih2 _ _ (by c0_bound) ⟨by c0_bound, by c0_bound, rfl, fun k hk1 hk2 =>
           if hkr : k = r2.toNat then
-            hkr ▸ find_repl_bad_slt_aux (cref := cref.toNat) (r := r2.toNat) (by c0_bound) hc
+            hkr ▸ find_repl_bad_slt_aux (c := c) (cref := cref.toNat) (r := r2.toNat)
+              (by c0_bound) hc
           else hseen2 k hk1 (by c0_bound)⟩
       · refine ih2 _ _ (by c0_bound) ⟨by c0_bound, by c0_bound, rfl, fun k hk1 hk2 =>
           if hkr : k = r2.toNat then
-            hkr ▸ find_repl_bad_oob_aux (cref := cref.toNat) (r := r2.toNat)
+            hkr ▸ find_repl_bad_oob_aux (c := c) (cref := cref.toNat) (r := r2.toNat)
               (by c0_bound) (by c0_bound) hc
           else hseen2 k hk1 (by c0_bound)⟩
       · refine hNone fun k hk2 hksz =>
@@ -429,100 +431,17 @@ theorem full_find_repl_hsteps (Γ : Env) :
     · exact hJ (2#32, ()) m ⟨by decide, by c0_bound, rfl⟩
     · exact hJ (sr0, ()) m ⟨by c0_bound, by c0_bound, rfl⟩
 
-/-- Kissat `D-Full` `full_cong_find_body` proved using only `c0_hsteps`
-(no `FullCongTactics` macros). -/
-theorem full_cong_find_hsteps (Γ : Env) :
-    ∀ args m Q X, fullCongFindSpec args m Q X → Func.wp Γ full_cong_find_body args m Q X := by
-  rintro ⟨repr_ptr, l, ⟨⟩⟩ m0 Q X ⟨F_cur, nlits, repr, R, hinv, hl_lt, hm0, hQ⟩
-  have hwf := hinv.1; have hlen := hwf.1
-  have hl_len : l.toNat < repr.length := by omega
-  have hi32 : i32.bytes = 4 := rfl; c0_hsteps
-  refine wp_loop_inv
-    (fun (r, ()) ml =>
-      r.toNat < nlits ∧ r.toNat ≤ l.toNat ∧ ml = m0 ∧
-      congRoot repr (nlits + 1) r.toNat = congRoot repr (nlits + 1) l.toNat)
-    (fun (r, ()) _ => r.toNat)
-    (fun J hJ => by
-      c0_hsteps; exact hJ (l, ()) m0 ⟨hl_lt, Nat.le_refl _, rfl, rfl⟩)
-    (fun J (r, ()) ml ⟨hr_lt, hr_le, hml, hroot_eq⟩ ih => ?_)
-  subst hml; have hr_arr : r.toNat < repr.length := by omega
-  have hstep_le : (repr[r.toNat]'hr_arr).toNat ≤ r.toNat := by
-    have := hwf.2 r.toNat hr_lt
-    rwa [List.getElem?_eq_getElem hr_arr, Option.getD_some] at this
-  c0_hsteps
-  · have hne_nat : (repr[r.toNat]'hr_arr).toNat ≠ r.toNat := fun heq =>
-      hc (BitVec.eq_of_toNat_eq heq)
-    have hlt_r : (repr[r.toNat]'hr_arr).toNat < r.toNat := by omega
-    have hnext_root : congRoot repr (nlits + 1) (repr[r.toNat]'hr_arr).toNat =
-        congRoot repr (nlits + 1) l.toNat := by
-      rw [← hroot_eq, congRoot_fuel_ge hwf hr_lt (by omega : r.toNat < nlits + 1)
-        (by omega : r.toNat < nlits + 2)]
-      simp only [congRoot, List.getElem?_eq_getElem hr_arr, Option.getD_some, hne_nat, ↓reduceIte]
-    exact ih (repr[r.toNat]'hr_arr, ()) ml hlt_r ⟨by omega, by omega, rfl, hnext_root⟩
-  · have hfix_bv : repr[r.toNat]'hr_arr = r := by grind
-    have hfix : (repr[r.toNat]?.getD 0#32).toNat = r.toNat := by
-      rw [List.getElem?_eq_getElem hr_arr, Option.getD_some, hfix_bv]
-    have hreq : r.toNat = congRoot repr (nlits + 1) l.toNat := by
-      rw [← hroot_eq, congRoot_eq_of_fixed hfix]
-    have hle_eq : LitEquiv (cnfOfClauses F_cur) l.toNat r.toNat := by
-      rw [hreq]; exact congRoot_litEquiv hinv hl_lt
-    refine wp_loop_inv
-      (fun (cur, ()) mc => ∃ reprc : List (BitVec 32),
-        reprc.length = repr.length ∧ cur.toNat < nlits ∧ r.toNat ≤ cur.toNat ∧
-        CongReprInv F_cur nlits reprc ∧
-        congRoot repr (nlits + 1) cur.toNat = r.toNat ∧
-        (∀ x ≤ cur.toNat, reprc[x]? = repr[x]?) ∧
-        (array (t := i32) repr_ptr reprc ⋆ R) mc)
-      (fun (cur, ()) _ => cur.toNat)
-      (fun J2 hJ2 => by
-        c0_hsteps
-        exact hJ2 (l, ()) ml ⟨repr, rfl, hl_lt, hr_le, hinv, hreq.symm, fun _ _ => rfl, hm0⟩)
-      (fun J2 (cur, ()) mc ⟨reprc, hlen_c, hcur_lt, hr_cur, hinvc, hcur_root, hpref, hmc⟩ ih2 => ?_)
-    have hcur_arr : cur.toNat < reprc.length := by omega
-    have hcur_arr0 : cur.toNat < repr.length := by omega
-    have hget_eq : reprc[cur.toNat]'hcur_arr = repr[cur.toNat]'hcur_arr0 := by
-      have h := hpref cur.toNat (Nat.le_refl _)
-      rw [List.getElem?_eq_getElem hcur_arr, List.getElem?_eq_getElem hcur_arr0] at h
-      exact Option.some.inj h
-    c0_hsteps
-    · have hne_r : (repr[cur.toNat]'hcur_arr0).toNat ≠ r.toNat := fun heq =>
-        hc (BitVec.eq_of_toNat_eq (by rw [hget_eq]; exact heq))
-      have hne_cur : (repr[cur.toNat]'hcur_arr0).toNat ≠ cur.toNat := by
-        intro hself
-        have hfix_c : (repr[cur.toNat]?.getD 0#32).toNat = cur.toNat := by
-          rw [List.getElem?_eq_getElem hcur_arr0, Option.getD_some, hself]
-        rw [congRoot_eq_of_fixed hfix_c] at hcur_root; exact hne_r (hself.trans hcur_root)
-      have hle_cur : (repr[cur.toNat]'hcur_arr0).toNat ≤ cur.toNat := by
-        have := hwf.2 cur.toNat hcur_lt
-        rwa [List.getElem?_eq_getElem hcur_arr0, Option.getD_some] at this
-      have hn_lt : (repr[cur.toNat]'hcur_arr0).toNat < cur.toNat := by omega
-      have hn_root : congRoot repr (nlits + 1) (repr[cur.toNat]'hcur_arr0).toNat = r.toNat := by
-        rw [← hcur_root, congRoot_fuel_ge hwf hcur_lt (by omega : cur.toNat < nlits + 1)
-          (by omega : cur.toNat < nlits + 2)]
-        simp only [congRoot, List.getElem?_eq_getElem hcur_arr0, Option.getD_some,
-          hne_cur, ↓reduceIte]
-      have hr_le_n : r.toNat ≤ (repr[cur.toNat]'hcur_arr0).toNat := by
-        rw [← hn_root]; exact congRoot_le hwf (by omega)
-      have hcur_eqv : LitEquiv (cnfOfClauses F_cur) cur.toNat r.toNat := by
-        rw [← hcur_root]; exact congRoot_litEquiv hinv hcur_lt
-      have hinvc' : CongReprInv F_cur nlits (reprc.set cur.toNat r) := by
-        refine ⟨⟨by simp [hlen_c, hlen], fun x hx => ?_⟩, fun x hx => ?_⟩
-        · by_cases hxc : x = cur.toNat
-          · subst hxc; rw [List.getElem?_set_self hcur_arr, Option.getD_some]; exact hr_cur
-          · rw [List.getElem?_set_ne (Ne.symm hxc)]; exact hinvc.1.2 x hx
-        · by_cases hxc : x = cur.toNat
-          · subst hxc; rw [List.getElem?_set_self hcur_arr, Option.getD_some]; exact hcur_eqv
-          · rw [List.getElem?_set_ne (Ne.symm hxc)]; exact hinvc.2 x hx
-      have hpref' : ∀ x ≤ (reprc[cur.toNat]'hcur_arr).toNat,
-          (reprc.set cur.toNat r)[x]? = repr[x]? := fun x hx => by
-        rw [hget_eq] at hx; rw [List.getElem?_set_ne (by omega)]
-        exact hpref x (by omega)
-      have hm_set : (array (t := i32) repr_ptr (reprc.set cur.toNat r) ⋆ R) m := by
-        rw [bv_zext32_toNat] at hm; exact hm
-      exact ih2 (reprc[cur.toNat]'hcur_arr, ()) m (by rw [hget_eq]; exact hn_lt)
-        ⟨reprc.set cur.toNat r, by simp [hlen_c], by rw [hget_eq]; omega,
-         by rw [hget_eq]; exact hr_le_n, hinvc', by rw [hget_eq]; exact hn_root, hpref', hm_set⟩
-    · exact hQ r reprc mc hlen_c hinvc hr_le hr_lt hle_eq hmc
+/-- Kissat `D-Plain` `plain_red_less_body` proved using `c0_hsteps`. -/
+theorem plain_red_less_hsteps (Γ : Env) :
+    ∀ args m Q X, plainRedLessSpec args m Q X → Func.wp Γ plain_red_less_body args m Q X := by
+  rintro ⟨ar_ptr, a, b, ⟨⟩⟩ m Q X ⟨ar, R, ha, hb, hm, hQ⟩
+  c0_hsteps; all_goals exact hQ _
+
+/-- Kissat `D-Plain` `plain_lit_rank_body` proved using `c0_hsteps`. -/
+theorem plain_lit_rank_hsteps (Γ : Env) :
+    ∀ args m Q X, plainLitRankSpec args m Q X → Func.wp Γ plain_lit_rank_body args m Q X := by
+  rintro ⟨vals_ptr, lvl_ptr, l, ⟨⟩⟩ m Q X ⟨vals, lvl, R, hvl, hll, hm, hQ⟩
+  c0_hsteps; all_goals exact hQ _
 
 end KissatRealBench
 
@@ -595,7 +514,7 @@ end C0HeadStepHelpers
 
 /-! ## 6. Axiom Cleanliness Checks -/
 
-#print axioms addrKey_fullMem_dispatch_check
+#print axioms addrKey_plainMem_dispatch_check
 #print axioms directOpProg_wp
 #print axioms hstep_and_strip_le_test
 #print axioms splitProg_wp
@@ -607,8 +526,9 @@ end C0HeadStepHelpers
 #print axioms chain80_hsteps
 #print axioms chain40_op2_hsteps
 #print axioms lrat_isWsByte_hsteps
-#print axioms full_find_repl_hsteps
-#print axioms full_cong_find_hsteps
+#print axioms plain_find_repl_hsteps
+#print axioms plain_red_less_hsteps
+#print axioms plain_lit_rank_hsteps
 #print axioms c0_hfast_jnz_wp
 #print axioms c0_split_jnz_wp
 #print axioms c0_split_mdata_wp

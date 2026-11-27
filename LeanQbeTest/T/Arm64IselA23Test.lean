@@ -4,7 +4,7 @@ public import LeanQbe.T.Arm64.TargLemmas
 public import LeanQbe.T.Arm64.IselLemmas4
 public import LeanQbe.T.Arm64.LratBytes
 public import LeanQbe.T.Examples.LratBytes
-public import LeanQbe.T.Examples.Kissat.FullM4Bcp
+public import LeanQbe.T.Examples.Kissat.Plain1
 public import LeanQbe.T.Spill
 public import LeanQbeTest.T.RegaTestKit
 public import LeanQbeTest.T.Arm64DirPreds
@@ -12,7 +12,7 @@ meta import LeanQbe.T.Arm64.Isel
 meta import LeanQbe.T.Arm64.TargLemmas
 meta import LeanQbe.T.Arm64.LratBytes
 meta import LeanQbe.T.Examples.LratBytes
-meta import LeanQbe.T.Examples.Kissat.FullM4Bcp
+meta import LeanQbe.T.Examples.Kissat.Plain1
 meta import LeanQbe.T.Spill
 meta import LeanQbeTest.T.RegaTestKit
 meta import LeanQbeTest.T.Arm64DirPreds
@@ -30,7 +30,7 @@ Verifies test-fusion and base-index-displacement addressing through `armTarget` 
    with `disp != 0`):
    - `ADD_s x16, rb, ri, lsl #s` + `[x16, #disp]` for scaled offsets (`4`, `4100`, unaligned `sc`);
    - `ADD_e`/`SUB_e x16, rb, #imm` + `[x16, ri, lsl #amt]` for negative/unaligned 12-bit disps.
-3. End-to-end checks on `FullM4Bcp`, `LratBytes`, and standard `#print axioms`.
+3. End-to-end checks on `Kissat.Plain1`, `LratBytes`, and standard `#print axioms`.
 -/
 
 set_option autoImplicit false
@@ -221,14 +221,11 @@ meta def bitTestMultiImm32Fn : Fn :=
 #guard countDirs isSubImmX16Dir (codeOf [baseIdxNegDispFn]) == 1
 #guard countDirs isLslDir (codeOf [baseIdxNegDispFn]) == 0
 
-/-! ## 3. `FullM4Bcp` & `LratBytes` codegen -/
+/-! ## 3. `Kissat.Plain1` & `LratBytes` codegen -/
 
-meta def m4BcpEx : List (SigEntry × Nat) :=
-  Examples.Kissat.FullM4Bcp.m4BcpExterns.map fun e => (⟨e.name, e.as, e.rs⟩, 0)
-
-#guard chk Examples.Kissat.FullM4Bcp.m4Bcp_fns m4BcpEx
-#guard countDirs isAndsDir (codeOf Examples.Kissat.FullM4Bcp.m4Bcp_fns m4BcpEx) ≥ 1
-#guard countDirs isAddScaledDir (codeOf Examples.Kissat.FullM4Bcp.m4Bcp_fns m4BcpEx) ≥ 1
+#guard chk Examples.Kissat.Plain.plain1Module.fns
+#guard countDirs isAndsDir (codeOf Examples.Kissat.Plain.plain1Module.fns) ≥ 1
+#guard countDirs isAddScaledDir (codeOf Examples.Kissat.Plain.plain1Module.fns) ≥ 1
 
 #guard chk Examples.LratBytes.lratBytesFns
 #guard countDirs isTbzOrTbnzDir (codeOf Examples.LratBytes.lratBytesFns) ≥ 14

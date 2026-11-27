@@ -180,7 +180,7 @@ theorem optFlatCfg_cfgCases_compile_eq_x64
 
 #eval show IO Unit from do
   let kissatFns : List TFlatFn :=
-    (Examples.Kissat.FullM7FidelitySched.fidSchedFns.take 2).map fnToTFlat
+    (Examples.Kissat.Plain.plain1Module.fns.take 2).map fnToTFlat
   let testFns : List TFlatFn :=
     [dcePCasesFlat, deadLoadCasesFlat, ifOptJoinCasesFlat, ifOptBitsRetCasesFlat] ++
       litmusTFlatMod ++ kissatFns

@@ -4,14 +4,14 @@ public import LeanQbe.T.MainCertCore
 public import LeanQbe.T.MainCertFlat
 public import LeanQbe.T.MainCertInline
 public import LeanQbe.T.Arm64.TargLemmas
-public import LeanQbe.T.Examples.Kissat.FullM4
+public import LeanQbe.T.Examples.Kissat.Plain
 public import LeanQbe.T.Spill
 public meta import Lean
 public meta import LeanQbe.T.MainCertElab
 public meta import LeanQbe.T.MainCertFlatElab
 public meta import LeanQbe.T.MainCertInline
 public meta import LeanQbe.T.Arm64.Targ
-public meta import LeanQbe.T.Examples.Kissat.FullM4
+public meta import LeanQbe.T.Examples.Kissat.Plain
 public meta import LeanQbe.T.MainFlat
 public meta import LeanQbe.T.Spill
 
@@ -24,8 +24,8 @@ Covers `W5-1b` on AArch64 (`LeanQbe.T.Arm64.armTarget`):
 2. Rematerialized uses across `cmp eq`, `add64`, and `.jump` arguments.
 3. Negative guards: redefined loop-carried base and out-of-range 12-bit immediate (`0x12345`,
    which does not fit in a single AArch64 `add`/`sub` immediate instruction).
-4. `FullM4` AArch64 hot functions (`full_prop_lit_raw`, `full_viv_simplify`, `full_viv_commit`,
-   `full_fwd_check_cl`) lower cleanly and rematerialize `cl + 3` / `ticks + 1`.
+4. `Kissat.Plain` AArch64 hot functions (`plain_prop_lit`, `plain_analyze`, `plain_assign`,
+   `plain_queue_mtf`, `plain_analyze_lit`) lower cleanly and rematerialize structurally.
 5. Exact `(flat := false)` vs `(flat := true)` kernel `code = rfl` and `bounds = rfl` parity.
 -/
 
@@ -181,16 +181,18 @@ theorem remat_arm64_bounds_eq : rematArmLeg.bounds = rematArmFlat.bounds := rfl
 #guard (Rega.lowerFn armTarget.toIsa (Spill.hints armTarget.toIsa fnNegBigDispArm64)
   fnNegBigDispArm64.ext fnNegBigDispArm64).isOk
 
--- Real Kissat `FullM4` AArch64 hot functions: remat fires on `full_viv_simplify`,
--- `full_viv_commit`, `full_fwd_check_cl`, and all lower cleanly.
+-- Real Kissat `Plain` AArch64 hot functions: remat fires structurally (`plain_analyze`,
+-- `plain_assign`, `plain_queue_mtf`, `plain_analyze_lit`) and all lower cleanly (`plain_prop_lit`
+-- reduces spill moves).
 #guard
-  ["full_prop_lit_raw", "full_viv_simplify", "full_viv_commit", "full_fwd_check_cl"].all fun nm =>
-    match Examples.Kissat.FullM4.m4Fns.find? (·.name == nm) with
+  ["plain_prop_lit", "plain_analyze", "plain_assign", "plain_queue_mtf",
+    "plain_analyze_lit"].all fun nm =>
+    match Examples.Kissat.Plain.plainFns.find? (·.name == nm) with
     | none => false
     | some f =>
       let fm := f.mid armLegalTarget
       let h := Spill.hints armTarget.toIsa fm
-      let fired := if nm == "full_prop_lit_raw" then true else !(rematElidedIps fm).isEmpty
+      let fired := if nm == "plain_prop_lit" then true else !(rematElidedIps fm).isEmpty
       fired && (Rega.lowerFn armTarget.toIsa h fm.ext fm).isOk
 
 #print axioms remat_arm64_code_eq

@@ -9,13 +9,13 @@ public import LeanQbe.T.Opt
 public import LeanQbe.T.OptLemmas
 public import LeanQbe.T.Main
 public import LeanQbe.T.Examples.LratBytes
-public import LeanQbe.T.Examples.Kissat.FullM4
+public import LeanQbe.T.Examples.Kissat.Plain
 meta import LeanQbe.T.IfOpt
 meta import LeanQbe.T.LoopRotate
 meta import LeanQbe.T.Opt
 meta import LeanQbe.T.Main
 meta import LeanQbe.T.Examples.LratBytes
-meta import LeanQbe.T.Examples.Kissat.FullM4
+meta import LeanQbe.T.Examples.Kissat.Plain
 
 /-!
 # Regression, Soundness & Axiom Tests: Nested `IfOpt` + Partial `LoopRotate`
@@ -29,8 +29,8 @@ Covers:
    `Keep` + `Expand` 2-block rotation) for `dir = true`, `dir = false`, `.inline` & `.wrap`,
    exact `t_kernel_rfl` plan/output & `.checkTFlat`, `Func.loopRotate_{wf,spec,callsOk}`,
    `allowLoadHdr = false` & all-cond-back rejection, and adversarial `keepJumpPlan` rejection.
-3. Real-corpus validation on `LratBytes` (`6` fns) and targeted `Kissat.FullM4` (`full_bva_hop1`,
-   `full_prop_lit_raw`, `full_prop_lit`, `full_arena_sweep`, `full_probe_prop_lit`).
+3. Real-corpus validation on `LratBytes` (`6` fns) and targeted `Kissat.Plain` (`plain_prop_lit`,
+   `plain_min_lit`, `kissat_check_model`, `plain_parse_body`, `plain_clear_marks`).
 4. `#print axioms` audit (`⊆ [propext, Classical.choice, Quot.sound]`).
 -/
 
@@ -43,7 +43,7 @@ namespace LeanQbeTest.T.IfOptLoopRotB5Test
 open LeanQbe.T
 open LeanQbe.T.LoopRotate
 open LeanQbe.T.Examples.LratBytes
-open LeanQbe.T.Examples.Kissat.FullM4
+open LeanQbe.T.Examples.Kissat.Plain
 
 def ifSimpBits {as rs : List Ty} (f : Func as rs) : Func as rs :=
   Func.simplifyGroupPlan (Func.ifOptBits f)
@@ -478,36 +478,40 @@ theorem advKeepOutsideCont_noop :
     Func.loopRotateWithPlan keepJumpPlan topJnzFn = topJnzFn := by
   t_kernel_rfl
 
-/-! ## 3. Real-corpus validation (`LratBytes` + `Kissat.FullM4` partial & nested) -/
+/-! ## 3. Real-corpus validation (`LratBytes` + `Kissat.Plain` partial & nested) -/
 
 #guard lratBytesFns.length == 6
 #guard lratBytesFns.all fun fn =>
   (Func.loopRotate (Func.ifOptBits (Func.earlyCore fn.body))).checkTFlat
 
-def targetM4Names : List String :=
-  ["full_bva_hop1", "full_prop_lit_raw", "full_prop_lit", "full_arena_sweep", "full_probe_prop_lit"]
+def targetPlainNames : List String :=
+  ["plain_prop_lit", "plain_min_lit", "kissat_check_model", "plain_parse_body",
+    "plain_clear_marks"]
 
-def m4MidFns : List Fn :=
-  ((m4Module.optInline 40).fns.filter fun fn => targetM4Names.contains fn.name).map fun f =>
+def plainMidFns : List Fn :=
+  ((plainModule.optInline 40).fns.filter fun fn =>
+      targetPlainNames.contains fn.name).map fun f =>
     let lf := (f.earlyOpt).legal LegalTarget.x64AVX512
     let body := Func.lateCfg (Func.lateCore lf.body)
     ⟨lf.name, lf.as, lf.rs, let tf := reifyFunc body; denoteFunc tf⟩
 
-#guard m4MidFns.length == 5
-#guard m4MidFns.all fun fn =>
+#guard plainMidFns.length == 5
+#guard plainMidFns.all fun fn =>
   let rf := fn.loopRotate LoopRotate.defaultRotConfig
   rf.body.checkTFlat
-#guard (m4MidFns.filter fun fn =>
-    fn.name == "full_prop_lit" || fn.name == "full_probe_prop_lit").all fun fn =>
+#guard (plainMidFns.filter fun fn =>
+    fn.name == "plain_prop_lit" || fn.name == "plain_min_lit").all fun fn =>
   let plan := LoopRotate.buildRotPlan (as := fn.as) LoopRotate.defaultRotConfig
     (reifyFunc fn.body)
   isPartialPlan plan
-#guard (m4MidFns.filter fun fn => fn.name == "full_prop_lit_raw").all fun fn =>
+#guard (plainMidFns.filter fun fn =>
+    fn.name == "kissat_check_model" || fn.name == "plain_parse_body" ||
+      fn.name == "plain_clear_marks").all fun fn =>
   let oldPlan := LoopRotate.buildRotPlan (as := fn.as)
     { allowLoadHdr := false, maxContLiveVars := 4 } (reifyFunc fn.body)
   let newPlan := LoopRotate.buildRotPlan (as := fn.as) LoopRotate.defaultRotConfig
     (reifyFunc fn.body)
-  !isPartialPlan oldPlan && oldPlan.hasRot && isPartialPlan newPlan && newPlan.hasRot
+  !oldPlan.hasRot && newPlan.hasRot
 
 /-! ## 4. Axiom audit (`⊆ [propext, Classical.choice, Quot.sound]`) -/
 

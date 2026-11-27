@@ -6,7 +6,7 @@ public import LeanQbe.T.MemLoad
 public import LeanQbe.T.AssumeBits
 public import LeanQbe.T.DivConst
 public import LeanQbe.T.Examples.LitmusProgsProg
-public import LeanQbe.T.Examples.Kissat.FullM7FidelitySched
+public import LeanQbe.T.Examples.Kissat.Plain1
 meta import Lean
 meta import LeanQbe.T.OptFlatMem
 meta import LeanQbe.T.MemLoad
@@ -15,7 +15,7 @@ meta import LeanQbe.T.DivConst
 meta import LeanQbe.T.Flat
 meta import LeanQbe.T.FlatDirect
 meta import LeanQbe.T.Examples.LitmusProgsProg
-meta import LeanQbe.T.Examples.Kissat.FullM7FidelitySched
+meta import LeanQbe.T.Examples.Kissat.Plain1
 
 /-!
 # Differential Parity & Axiom Audit for `OptFlatMem` (`MainFlatMemParityTest`)
@@ -234,7 +234,7 @@ theorem divConstAllCasesFlat_parity :
 
 @[expose] def checkMemPassParity : IO Unit := do
   let kissatFns : List TFlatFn :=
-    (Examples.Kissat.FullM7FidelitySched.fidSchedFns.take 2).map fnToTFlat
+    (Examples.Kissat.Plain.plain1Module.fns.take 2).map fnToTFlat
   let allFns := parityFixtures ++ kissatFns
   for f in allFns do
     if !f.wfCheck then

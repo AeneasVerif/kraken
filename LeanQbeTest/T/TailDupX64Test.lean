@@ -4,13 +4,13 @@ public import LeanQbe.T.Amd64.TargLemmas
 public import LeanQbe.T.TailDupLemmas
 public import LeanQbe.T.Spill
 public import LeanQbe.T.Main
-public import LeanQbe.T.Examples.Kissat.FullM7FidelityAssembly
+public import LeanQbe.T.Examples.Kissat.Plain
 public import LeanQbeTest.T.RegaTestKit
 meta import LeanQbe.T.Amd64.TargLemmas
 meta import LeanQbe.T.TailDup
 meta import LeanQbe.T.Spill
 meta import LeanQbe.T.Main
-meta import LeanQbe.T.Examples.Kissat.FullM7FidelityAssembly
+meta import LeanQbe.T.Examples.Kissat.Plain
 meta import LeanQbeTest.T.RegaTestKit
 
 /-!
@@ -18,7 +18,7 @@ meta import LeanQbeTest.T.RegaTestKit
 
 Verifies end-to-end compilation (`Rega.lowerFn` + `checkCompile`) through `x64Target`
 for `Fn.tailDup` on loop-latch trampolines, multi-predecessor exit joins, 2-hop chains,
-and touched Kissat `FullM7Fidelity` functions, checking strict reduction in emitted x64
+and touched `Kissat.Plain` functions, checking strict reduction in emitted x64
 unconditional `jmp` and `.label` directives.
 -/
 
@@ -30,7 +30,7 @@ namespace LeanQbeTest.T.TailDupX64Test
 
 open LeanQbe.T LeanQbe.T.Amd64
 open LeanQbeTest.T.RegaTestKit
-open LeanQbe.T.Examples.Kissat.FullM7Fidelity
+open LeanQbe.T.Examples.Kissat.Plain
 
 /-! ## Helpers -/
 
@@ -140,13 +140,13 @@ def chainFn : Fn :=
 #guard countDirs isLabelDir (codeOfLeg (Fn.tailDup (chainFn.legal x64LegalTarget))) <
   countDirs isLabelDir (codeOfLeg (chainFn.legal x64LegalTarget))
 
-/-! ## Kissat `FullM7Fidelity` Sample `Rega.lowerFn` x64 Verification -/
+/-! ## Kissat `Plain` Sample `Rega.lowerFn` x64 Verification -/
 
 meta def fidSampleNames : List String :=
-  ["kissat_skip_ws1", "full_clear_ana", "full_sort_tmp"]
+  ["kissat_skip_ws1", "plain_clear_marks", "plain_sort_tmp"]
 
 meta def fidSampleFns : List Fn :=
-  m7FidelityFns.filter fun f => fidSampleNames.contains f.name
+  plainFns.filter fun f => fidSampleNames.contains f.name
 
 meta def lowersX64 (f : Fn) : Bool :=
   let h := Spill.hints x64Target.toIsa f

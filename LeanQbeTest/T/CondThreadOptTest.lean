@@ -5,11 +5,11 @@ public import LeanQbe.T.FlatLemmas
 public import LeanQbe.T.WPLemmas
 public import LeanQbe.T.Main
 public import LeanQbe.T.Examples.LratBytes
-public import LeanQbe.T.Examples.Kissat.FullM4
+public import LeanQbe.T.Examples.Kissat.Plain
 meta import LeanQbe.T.CondThreadOpt
 meta import LeanQbe.T.Main
 meta import LeanQbe.T.Examples.LratBytes
-meta import LeanQbe.T.Examples.Kissat.FullM4
+meta import LeanQbe.T.Examples.Kissat.Plain
 
 /-!
 # Targeted Unit, Soundness, Corpus & Axiom Tests for `LeanQbe.T.CondThreadOpt`
@@ -24,7 +24,7 @@ Covers:
    and constant-arg `cmp; jnz` head threading via `simCanThread`.
 3. Closed-function `Wf`, `condThread_ok` / `Func.condThreadLateOpt_spec`, and
    `Func.condThreadOpt_callsOk` / `Func.condThreadLateOpt_callsOk` instantiations.
-4. Corpus checks after `Fn.mid LegalTarget.x64` on `FullM4` (`231` functions) and `LratBytes`.
+4. Corpus checks after `Fn.mid LegalTarget.x64` on `Kissat.Plain` (`59` functions) and `LratBytes`.
 5. `#print axioms` audit (`⊆ [propext, Classical.choice, Quot.sound]`).
 -/
 
@@ -217,7 +217,7 @@ theorem constHeadThread_check :
 
 /-! ## 3. Formal soundness & `callsOk` instantiations -/
 
-/-- Source specification of `retestLt`: memory unchanged, result is `v + 1` if `v <u curVars` else `0`. -/
+/-- Source spec of `retestLt`: memory unchanged, returns `v + 1` if `v <u curVars` else `0`. -/
 theorem retestLt_spec (Γ : Env) (v curVars : BitVec 64) (m : Mem 64) (X : XPost) :
     Func.spec Γ retestLt (v, curVars, ()) m
       (fun (r, ()) m' => m' = m ∧ r = if v < curVars then v + 1 else 0) X := by
@@ -291,7 +291,7 @@ theorem constHeadThread_late_callsOk :
   Func.condThreadLateOpt_callsOk constHeadThread_wf (by
     simp [constHeadThread, Expr.callsOk, Blocks.callsOk])
 
-/-! ## 4. Corpus checks (`FullM4` 231 functions & `LratBytes`) -/
+/-! ## 4. Corpus checks (`Kissat.Plain` 59 functions & `LratBytes`) -/
 
 /-- Count conditional branches (`jnz`) and total nodes after `Fn.mid LegalTarget.x64` vs
 `Func.condThreadLateOpt`, plus `checkTFlat`. -/
@@ -311,18 +311,18 @@ def ctStats (f : Fn) : Bool × Nat × Nat × Nat :=
     | _ => 0
   (Func.checkTFlat ct, tflatSize tf0, tflatSize tf1, countJnz tf0 - countJnz tf1)
 
-def m4CtReport : List (String × Bool × Nat × Nat × Nat) :=
-  LeanQbe.T.Examples.Kissat.FullM4.m4Fns.map fun f => (f.name, ctStats f)
+def plainCtReport : List (String × Bool × Nat × Nat × Nat) :=
+  LeanQbe.T.Examples.Kissat.Plain.plainFns.map fun f => (f.name, ctStats f)
 
 #eval show IO Unit from do
-  let totalJnzDrop := m4CtReport.foldl (fun acc r => acc + r.2.2.2.2) 0
-  let touched := m4CtReport.filter fun r => r.2.2.1 != r.2.2.2.1 || r.2.2.2.2 > 0
-  IO.println s!"[FullM4] fns={m4CtReport.length} touched={touched.length} jnz_drop={totalJnzDrop}"
+  let totalJnzDrop := plainCtReport.foldl (fun acc r => acc + r.2.2.2.2) 0
+  let touched := plainCtReport.filter fun r => r.2.2.1 != r.2.2.2.1 || r.2.2.2.2 > 0
+  IO.println s!"[Plain] fns={plainCtReport.length} touched={touched.length} jnz_drop={totalJnzDrop}"
   for (name, ok, s0, s1, jd) in touched.take 15 do
     IO.println s!"  {name}: ok={ok} nodes={s0}->{s1} jnz_drop={jd}"
 
-#guard m4CtReport.all (·.2.1)
-#guard m4CtReport.foldl (fun acc r => acc + r.2.2.2.2) 0 ≥ 1
+#guard plainCtReport.all (·.2.1)
+#guard plainCtReport.foldl (fun acc r => acc + r.2.2.2.2) 0 ≥ 1
 #guard LeanQbe.T.Examples.LratBytes.lratBytesModule.fns.all fun f => (ctStats f).1
 
 /-! ## 5. Axiom audit (`⊆ [propext, Classical.choice, Quot.sound]`) -/

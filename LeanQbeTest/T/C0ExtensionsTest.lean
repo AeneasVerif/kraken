@@ -3,10 +3,10 @@ module
 public import LeanQbe.T.Frontend.C0
 public import LeanQbe.T.PrintCpp
 public import LeanQbe.T.FlatLemmas
-public import LeanQbe.T.Examples.Kissat.PatchModule
+public import LeanQbe.T.Flat
 meta import LeanQbe.T.Frontend.C0
 meta import LeanQbe.T.PrintCpp
-meta import LeanQbe.T.Examples.Kissat.PatchModule
+meta import LeanQbe.T.Flat
 
 /-!
 # Combined C0 Frontend Extensions Verification & Composition Suite
@@ -32,7 +32,44 @@ namespace LeanQbeTest.T.C0ExtensionsTest
 
 open LeanQbe.T
 open LeanQbe.T.Frontend.C0
-open LeanQbe.T.Examples.Kissat.PatchModule (tflatBeq)
+private def tupArgBeq : {ts : List Ty} → Tup (Arg K) ts → Tup (Arg K) ts → Bool
+  | [], (), () => true
+  | _ :: _, (a, as), (b, bs) => decide (a = b) && tupArgBeq as bs
+
+private def opKBeq {ts : List Ty} (o₁ o₂ : Op K ts) : Bool :=
+  match o₁, o₂ with
+  | @Op.mk _ _ s1 c1 a1, @Op.mk _ _ s2 c2 a2 =>
+    if h : s1 = s2 then decide ((h ▸ c1) = c2) && tupArgBeq (h ▸ a1) a2 else false
+
+mutual
+private def tflatBeq {rs : List Ty} : TFlat rs → TFlat rs → Bool
+  | @TFlat.let_ _ ts1 op1 k1, @TFlat.let_ _ ts2 op2 k2 =>
+    if h : ts1 = ts2 then opKBeq (h ▸ op1) op2 && tflatBeq k1 k2 else false
+  | .load t1 a1 k1, .load t2 a2 k2 =>
+    t1 == t2 && decide (a1 = a2) && tflatBeq k1 k2
+  | @TFlat.store _ t1 v1 a1 k1, @TFlat.store _ t2 v2 a2 k2 =>
+    if h : t1 = t2 then decide ((h ▸ v1) = v2) && decide (a1 = a2) && tflatBeq k1 k2 else false
+  | @TFlat.call _ f1 as1 bs1 args1 k1, @TFlat.call _ f2 as2 bs2 args2 k2 =>
+    if ha : as1 = as2 then
+      f1 == f2 && bs1 == bs2 && tupArgBeq (ha ▸ args1) args2 && tflatBeq k1 k2
+    else false
+  | .jnz c1 t1 e1, .jnz c2 t2 e2 =>
+    decide (c1 = c2) && tflatBeq t1 t2 && tflatBeq e1 e2
+  | @TFlat.jump _ ts1 j1 a1, @TFlat.jump _ ts2 j2 a2 =>
+    if h : ts1 = ts2 then j1 == j2 && tupArgBeq (h ▸ a1) a2 else false
+  | .ret v1, .ret v2 => tupArgBeq v1 v2
+  | @TFlat.exit _ f1 as1 a1, @TFlat.exit _ f2 as2 a2 =>
+    if h : as1 = as2 then f1 == f2 && tupArgBeq (h ▸ a1) a2 else false
+  | .hlt, .hlt => true
+  | @TFlat.group _ s1 b1 k1, @TFlat.group _ s2 b2 k2 =>
+    if h : s1 = s2 then tblocksBeq (h ▸ b1) b2 && tflatBeq k1 k2 else false
+  | _, _ => false
+
+private def tblocksBeq {rs : List Ty} :
+    {sig : List (List Ty)} → TBlocks rs sig → TBlocks rs sig → Bool
+  | _, .nil, .nil => true
+  | _, .cons b1 bs1, .cons b2 bs2 => tflatBeq b1 b2 && tblocksBeq bs1 bs2
+end
 
 instance {rs : List Ty} : BEq (TFlat rs) := ⟨tflatBeq⟩
 

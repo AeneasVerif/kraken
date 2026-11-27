@@ -7,7 +7,7 @@ public import LeanQbe.T.Logic.MemLemmas
 public import LeanQbe.T.Notation
 public import LeanQbe.T.NotationSugar
 public import LeanQbe.T.Examples.Kissat.Dimacs
-public import LeanQbe.T.Examples.Kissat.FullM7HotTernary
+public import LeanQbe.T.Examples.Kissat.Plain1
 import LeanQbe.T.FlatLemmas
 import all Kraken.Mem
 import all Kraken.Separation
@@ -26,7 +26,7 @@ public meta import LeanQbe.T.MainLinkSplice
 public meta import LeanQbe.T.Notation
 public meta import LeanQbe.T.NotationSugar
 public meta import LeanQbe.T.Examples.Kissat.Dimacs
-public meta import LeanQbe.T.Examples.Kissat.FullM7HotTernary
+public meta import LeanQbe.T.Examples.Kissat.Plain1
 
 /-!
 # Phase 1 SysV x86-64 Predictable Codegen, `AsmIso`, & Certified Late-Inline Tests
@@ -39,7 +39,7 @@ Tests end-to-end on `x64Target` (`x64LegalTarget`, `x64Layout`, `x64Init`):
    cold-call outer harness via real post-`mid` `lateInline` + `splice_snippet_hints`, confirming
    **`inSp = 0`** and `@predictable` `checkRegaAndBudget` PASS).
 2. Fail-loud negative `@predictable` checks (`callinc`, `trc` rejected with `call_in_snippet`).
-3. Standalone Kissat `m7HasTernaryFn` (`full_has_ternary`) lowering under `Fn.midPolicy`.
+3. Standalone Kissat `plain_red_less` lowering under `Fn.midPolicy`.
 4. Certified 3-function `certModX64` (`cold_helper`, `k_ws_check`, 14-live-through `caller14`)
    compiled via `compileLateInlined` + `splice_snippet_hints`, verifying `inSp = 0`,
    `compileLateInlined_sound` `x64Target.FnSpec`, closed `x64_of_returns` `Eventually`, and
@@ -326,7 +326,7 @@ def v1Suite : List (Fn × Bool) := [
   (LeanQbe.T.Examples.Kissat.kissat_is_digit, true)
 ]
 
-/-! ## 2. 14-Live-Through + Cold-Call Outer Stress Harness (Unmarked & Marked Post-`mid` `lateInline`) -/
+/-! ## 2. 14-Live-Through + Cold-Call Outer Stress Harness (Unmarked & Marked Post-`mid`) -/
 
 def makeColdHelper : Fn :=
   ⟨"cold_helper", [i64, i64, i64, i64, i64], [i64], fun _ _ (a, b, _, _, _, ()) =>
@@ -346,7 +346,8 @@ def loadChainExpr {V : Ty → Type} {L : List Ty → Type} (ptr : V i64) :
 def xorListExprGo {V : Ty → Type} {L : List Ty → Type}
     (cont : V i64 → Expr V L [i64]) (acc : V i64) : List (V i64) → Expr V L [i64]
   | [] => cont acc
-  | v :: vs' => Expr.let_ ⟨.xor i64, (.var acc, .var v, ())⟩ fun (acc', ()) => xorListExprGo cont acc' vs'
+  | v :: vs' =>
+    Expr.let_ ⟨.xor i64, (.var acc, .var v, ())⟩ fun (acc', ()) => xorListExprGo cont acc' vs'
 
 def xorListExpr {V : Ty → Type} {L : List Ty → Type} (fallback : V i64)
     (vs : List (V i64)) (cont : V i64 → Expr V L [i64]) : Expr V L [i64] :=
@@ -383,7 +384,8 @@ def makeStressHarness (snipName : Sym) (as rs : List Ty) (marked : Bool) : Fn :=
           (.var x0, .var x1, .var x2, .var x3, ()) fun (r0, ()) => wrapEnd r0
       | [.bits 64, .bits 64], [.bits 64, .bits 64] =>
         Expr.call snipName (as := [i64, i64]) (bs := [i64, i64]) (.var x0, .var x1, ())
-          fun (r0, r1, ()) => Expr.let_ ⟨.xor i64, (.var r0, .var r1, ())⟩ fun (rx, ()) => wrapEnd rx
+          fun (r0, r1, ()) =>
+          Expr.let_ ⟨.xor i64, (.var r0, .var r1, ())⟩ fun (rx, ()) => wrapEnd rx
       | [.bits 64, .bits 64, .bits 64, .bits 64], [.bits 64, .bits 64] =>
         Expr.call snipName (as := [i64, i64, i64, i64]) (bs := [i64, i64])
           (.var x0, .var x1, .var x2, .var x3, ()) fun (r0, r1, ()) =>
@@ -487,14 +489,14 @@ def liftIsoVerdictKind (s : Fn) : Option String :=
         | .fail k _ => some k
         | _ => some "pass"
 
--- All 29 call-free V1 + Kissat snippets achieve `inSp = 0` inside both marked AND unmarked
--- 14-live-through + cold-call outer functions via real post-`mid` `lateInline` + `splice_snippet_hints`!
+-- All 29 call-free V1 + Kissat snippets achieve `inSp = 0` inside both marked and unmarked
+-- 14-live-through + cold-call outer fns via post-`mid` `lateInline` + `splice_snippet_hints`!
 #guard v1Suite.all (fun (s, fIf) => runStressEntry s fIf true && runStressEntry s fIf false)
 
 -- All 15 Tier-1 call-free V1 snippets pass strict `liftSnippet` (`AsmIso`) round-trip check!
 #guard tier1IsoSnippets.all runLiftIsoCheck
 
--- Diagnostic `AsmIso` regression checks: known G1/G2 bool materialization & mov-copy diffs + unsupported ops.
+-- Diagnostic `AsmIso` regression checks: G1/G2 bool materialization, mov-copy diffs, errors.
 #guard liftIsoVerdictKind sn_setlt == some "extra_mov_copy"
 #guard liftIsoVerdictKind sn_add32 == some "extra_mov_copy"
 #guard liftIsoVerdictKind sn_tbit == some "extra_mov_copy"
@@ -514,11 +516,13 @@ def liftIsoVerdictKind (s : Fn) : Option String :=
     fns := [makeColdHelper, sn_callinc, caller]
     externs := [{ name := "ext1", as := [i64], rs := [i64] }]
   }
-  let polOf (nm : Sym) : SnippetOptPolicy := if nm == sn_callinc.name then .predictable else .default
+  let polOf (nm : Sym) : SnippetOptPolicy :=
+    if nm == sn_callinc.name then .predictable else .default
   let forcePol : InlinePolicy := {
     lateInlineSnippetsPolicy [sn_callinc.name] with
       leafMax := 1000, singleSiteMax := 1000, maxCallerSize := 10000, maxCalleeCalls := 10,
-      maxTotalDup := 10000, leafNoLoopMaxDup := 10000, maxCallerCalls := 10, exemptNoLoopMax := 10000
+      maxTotalDup := 10000, leafNoLoopMaxDup := 10000, maxCallerCalls := 10,
+      exemptNoLoopMax := 10000
   }
   let mForce := m.midThenLateInline x64LegalTarget polOf forcePol
   let outerForce := (mForce.fns.find? (·.name == "__caller")).getD caller
@@ -528,18 +532,21 @@ def liftIsoVerdictKind (s : Fn) : Option String :=
     | .error "snippet_contains_call" => true
     | _ => false
   let auditRejected :=
-    match auditSnippetInOuter x64Isa sMid outerForce hOuterForce (SnippetBudget.predictable "callinc") with
+    match auditSnippetInOuter x64Isa sMid outerForce hOuterForce
+        (SnippetBudget.predictable "callinc") with
     | .error ds => ds.any (·.kind == "call_in_snippet")
     | .ok _ => false
   spliceRejected && auditRejected
 
--- Standalone Kissat `full_has_ternary_m7` (`m7HasTernaryFn`) lowers cleanly under `Fn.midPolicy`
+-- Standalone Kissat `plain_red_less` lowers cleanly under `Fn.midPolicy`
 -- with zero calls under `SnippetOptPolicy.predictable`.
 #guard
-  let m7 := LeanQbe.T.Examples.Kissat.FullM7HotTernary.m7HasTernaryFn
-  let m7Mid := m7.midPolicy x64LegalTarget .predictable
-  let h := Spill.hints x64Isa m7Mid
-  match Rega.lowerFn x64Isa h m7Mid.ext m7Mid with
+  let fn : Fn :=
+    ⟨"plain_red_less", [i64, i32, i32], [.bool],
+      LeanQbe.T.Examples.Kissat.Plain.plain_red_less_body⟩
+  let fnMid := fn.midPolicy x64LegalTarget .predictable
+  let h := Spill.hints x64Isa fnMid
+  match Rega.lowerFn x64Isa h fnMid.ext fnMid with
   | .ok ds => (profileDirs ds true).calls == 0 && (profileDirs ds true).bodyInsns > 0
   | .error _ => false
 
@@ -848,7 +855,8 @@ theorem certX64_caller_fnSpec :
     x64LegalTarget certModX64 certPolicyX64 certInlPolX64 certΓX64 [] [] 0 certHintsX64
     certCodeX64 certBoundsX64 0 certX64_cm
     ⟨[], by
-      change certCodeX64 ++ [] = x64Target.mach.prog (x64Layout.layoutOf (certCodeX64 ++ []) certX64_small)
+      change certCodeX64 ++ [] =
+        x64Target.mach.prog (x64Layout.layoutOf (certCodeX64 ++ []) certX64_small)
       exact (x64Layout.prog_layoutOf (certCodeX64 ++ []) certX64_small).symm⟩
     certX64_labelsUnique certModX64_modOk (fun _ hx => nomatch hx)
     (And.intro (fun _ hx => nomatch hx) (fun _ hx => nomatch hx)) (fun _ hx => nomatch hx)

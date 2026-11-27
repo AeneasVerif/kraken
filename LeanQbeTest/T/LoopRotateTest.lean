@@ -7,11 +7,11 @@ public import LeanQbe.T.WPLemmas
 public import LeanQbe.T.FlatLemmas
 public import LeanQbe.T.Logic.Rules
 public import LeanQbe.T.Examples.LratBytes
-public import LeanQbe.T.Examples.Kissat.Full
+public import LeanQbe.T.Examples.Kissat.Plain
 meta import LeanQbe.T.LoopRotate
 meta import LeanQbe.T.Opt
 meta import LeanQbe.T.Examples.LratBytes
-meta import LeanQbe.T.Examples.Kissat.Full
+meta import LeanQbe.T.Examples.Kissat.Plain
 
 /-!
 # Tests of `LeanQbe.T.LoopRotate`
@@ -38,7 +38,7 @@ namespace LeanQbeTest.T.LoopRotateTest
 open LeanQbe.T
 open LeanQbe.T.LoopRotate
 open LeanQbe.T.Examples.LratBytes
-open LeanQbe.T.Examples.Kissat.Full
+open LeanQbe.T.Examples.Kissat.Plain
 
 /-! ## 1. Standard `while` loop (`dir = true`, `.inline` exit) -/
 
@@ -491,8 +491,8 @@ theorem exitTrue_lateOpt_out : Func.lateOpt exitTrueLoop = fun _ _ (n, ()) =>
 #guard lratBytesFns.any fun fn =>
   (buildRotPlan (as := fn.as) defaultRotConfig (reifyFunc (Func.earlyCore fn.body))).hasRot
 
-#guard fullFns.length == 166
-#guard fullFns.all fun fn =>
+#guard plainFns.length == 59
+#guard plainFns.all fun fn =>
   (Func.loopRotate (Func.earlyCore fn.body)).checkTFlat
 
 /-! ## 7. Axiom audit (`⊆ [propext, Classical.choice, Quot.sound]`) -/
