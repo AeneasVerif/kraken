@@ -85,7 +85,7 @@ elab_rules : tactic
 
       evalTactic (← `(tactic|
         (let ss := $s
-         change (Eventually ($step1Id:ident (Kraken.Layout.apply $p _)) _
+         change (Eventually (@$step1Id:ident _ (Kraken.Layout.apply $p _)) _
            ⟨ss, (Kraken.Layout.apply $p _).startAddr⟩)
          obtain $statePat:rcasesPat := $s
          rw [← Kraken.Executable.addrOf_zero])))
@@ -219,7 +219,7 @@ def kbeta: DSimproc := fun e => do
 def kdsimpProj : DSimproc := fun e => do
   let f := e.getAppFn
   let .const declName _ := f | return .rfl
-  if declName == `Labels.label? then return .rfl
+  if declName == `Labels.label then return .rfl
   let some _projInfo ← getProjectionFnInfo? declName | return .rfl
   let reduceProjCont? (e? : Option Expr) : DSimpM Result := do
     match e? with
@@ -358,8 +358,8 @@ partial def evalSymKStep : Grind.GrindTactic :=
     | .letE _ _ _ body _ => getEffectsState body
     | .mdata _ e => getEffectsState e
     | _ =>
-      if e.isApp && e.getAppFn.isConstOf `Effects.All && e.getAppArgs.size == 3 then
-        some e.getAppArgs[2]!
+      if e.isApp && e.getAppFn.isConstOf `Effects.All && e.getAppArgs.size == 2 then
+        some e.getAppArgs[1]!
       else
         none
 
@@ -367,14 +367,15 @@ partial def evalSymKStep : Grind.GrindTactic :=
     let goalT ← goal.withContext do instantiateMVars (← goal.mvarId.getType)
     let_expr gimmickId goalT' := goalT | return none
     let some labelApp := goalT'.find? (fun e =>
-      e.isAppOfArity `Labels.label? 2 &&
-      (e.getArg! 0).isAppOfArity `Executable.labels 1 &&
-      ((e.getArg! 0).getArg! 0).isAppOfArity ``Kraken.Layout.apply 4 &&
+      e.isAppOfArity `Labels.label 2 &&
+      (e.getArg! 0).isAppOfArity `Labels.update 2 &&
+      ((e.getArg! 0).getArg! 1).isAppOfArity ``Kraken.Layout.apply 4 &&
       !(e.getArg! 1).hasLooseBVars)
     | return none
     let labelsInst := labelApp.getArg! 0
     let lblExpr := labelApp.getArg! 1
-    let exe := labelsInst.getArg! 0
+    let fallback := labelsInst.getArg! 0
+    let exe := labelsInst.getArg! 1
     let_expr Kraken.Layout.apply instrType constType p l := exe | return none
     let some k ← goal.withContext (findLabelIdx? p lblExpr 0) | return none
     let goal ← goal.withContext do
@@ -383,8 +384,8 @@ partial def evalSymKStep : Grind.GrindTactic :=
       let someK ← mkAppM ``Option.some #[mkNatLit k]
       let hkType ← mkEq findIdxExpr someK
       let hkProof ← mkExpectedTypeHint (← mkEqRefl someK) hkType
-      let heq ← mkAppOptM `label?_eq_some_addrOf
-        #[some p, some l, some lblExpr, some (mkNatLit k), some hkProof]
+      let heq ← mkAppOptM `label_update_eq_addrOf
+        #[some p, some l, some fallback, some lblExpr, some (mkNatLit k), some hkProof]
       let r ← goal.mvarId.rewrite (← goal.mvarId.getType) heq false
       let eNew ← Grind.liftSymM <| Sym.preprocessExpr r.eNew
       let mvarId ← goal.mvarId.replaceTargetEq eNew r.eqProof
@@ -397,8 +398,9 @@ partial def evalSymKStep : Grind.GrindTactic :=
     let goalT ← goal.withContext do instantiateMVars (← goal.mvarId.getType)
     let_expr gimmickId goalT' := goalT | return none
     let_expr Eventually _ trans post state := goalT' | return none
-    unless trans.isAppOfArity `step1 1 do return none
-    let exe := trans.getArg! 0
+    unless trans.isAppOfArity `step1 2 do return none
+    let labelsInst := trans.getArg! 0
+    let exe := trans.getArg! 1
     let_expr Kraken.Layout.apply _ _ p l := exe | return none
     unless state.isAppOfArity `MachineState.mk 2 do return none
     let s := state.getArg! 0
@@ -418,7 +420,7 @@ partial def evalSymKStep : Grind.GrindTactic :=
       let hdType ← mkEq getElemExpr someD
       let hdProof ← mkExpectedTypeHint (← mkEqRefl someD) hdType
       let stepFn ← mkAppOptM `step_at
-        #[some p, some l, none, some (mkNatLit k), some d, some hdProof, some post, some s]
+        #[some labelsInst, some p, some l, none, some (mkNatLit k), some d, some hdProof, some post, some s]
       let .forallE _ hType _ _ ← inferType stepFn | throwError "kstep: unexpected step_at type"
       let hType' ← Grind.liftSymM <| Sym.preprocessExpr hType
       let mvarNew ← mkFreshExprMVar hType'

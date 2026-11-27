@@ -42,6 +42,8 @@ attribute [ksimp]
 
 --------------------------------------------------------------------------------
 
+variable [Labels]
+
 -- Register swap example using XOR
 def swap : Program := ⸨prog|
   eor x0, x0, x1

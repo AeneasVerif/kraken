@@ -27,6 +27,8 @@ open Kraken.X64.Parser
 
 --------------------------------------------------------------------------------
 
+variable [L : Labels]
+
 def p1 : Program := ⸨prog| start: mov $1, %rax ⸩
 
 -- Super-simple example to debug tactics
@@ -327,12 +329,12 @@ The hypothesis `h_mem` says the loader put that value in memory: nothing in this
 the program text to memory yet, so it is assumed.
 -/
 theorem p7_correct (layout : Layout) [p7.AssemblableWith layout] (s₀ : MachineData) (R : DataMem → Prop)
-    (h_mem : let := Executable.labels (layout.apply p7)
-      s₀.dmem =⋆ Eq ((Int.toBytes 4 (label! "end" - label! "start").toInt).At (label! "size").toBitVec) ⋆ R) :
+    (h_mem : let := L.update (layout.apply p7)
+      s₀.dmem =⋆ Eq ((Int.toBytes 4 (label "end" - label "start").toInt).At (label "size").toBitVec) ⋆ R) :
     Eventually (step1 (layout.apply p7))
-      (fun s' => let := Executable.labels (layout.apply p7)
+      (fun s' => let := L.update (layout.apply p7)
         s'.pc = (layout.apply p7).addrOf p7.length ∧
-        s'.1.regs.rax = UInt64.ofBitVec (((label! "end" - label! "start").toBitVec.setWidth 32).setWidth 64))
+        s'.1.regs.rax = UInt64.ofBitVec (((label "end" - label "start").toBitVec.setWidth 32).setWidth 64))
       ⟨s₀, layout.start⟩ := by
   have h_addr (X Y : Int64) :
       (BitVec.ofInt 64 X.toInt + BitVec.ofInt 64 (Y - X).toInt).setWidth 64
@@ -344,19 +346,19 @@ theorem p7_correct (layout : Layout) [p7.AssemblableWith layout] (s₀ : Machine
     rw [ofBytes_toBytes, Int.take, show 8 * 4 = 32 from rfl, Int64.toInt,
       ← BitVec.signExtend_eq_setWidth_of_le _ (by decide)]
     simp [BitVec.ofInt, BitVec.signExtend]
-  have h_size : @Labels.label? (Executable.labels (layout.apply p7)) "size" = some ((layout.apply p7).addrOf 6) :=
-    label?_eq_some_addrOf (p := p7) (l := layout) rfl
+  have h_size : (L.update (layout.apply p7)).label "size" = (layout.apply p7).addrOf 6 :=
+    label_update_eq_addrOf (p := p7) (l := layout) rfl
   kprologue p7 with s₀
   sym =>
   kstep
-  case h_mem => tactic => dsimp only; rw [h_addr, ← Labels.label!_of_label? h_size]; exact h_mem
+  case h_mem => tactic => dsimp only; rw [h_addr, ← h_size]; exact h_mem
   case h_len => exact Int.toBytes_length 4 _
   kstep
   tactic =>
   refine .done _ ⟨rfl, ?_⟩
   simp only [h_val, Int64.toBitVec_sub,
-    Labels.label!_of_label? (label?_eq_some_addrOf (p := p7) (l := layout) (lbl := "end") rfl),
-    Labels.label!_of_label? (label?_eq_some_addrOf (p := p7) (l := layout) (lbl := "start") rfl)]
+    label_update_eq_addrOf (p := p7) (l := layout) (lbl := "end") rfl,
+    label_update_eq_addrOf (p := p7) (l := layout) (lbl := "start") rfl]
 
 -- The same run under `fakeLayout`, where the nops take 5 + 3 bytes. The eval plays the loader: it
 -- stores the word's value at `size`.
@@ -364,10 +366,10 @@ theorem p7_correct (layout : Layout) [p7.AssemblableWith layout] (s₀ : Machine
 #guard_msgs in
 #eval
   let exe := p7.fakeLayout
-  let := exe.labels
-  let word : Int64 := label! "end" - label! "start"
-  let data : MachineData := { dmem := Mem.storeInt {} (label! "size").toBitVec 4 word.toInt }
-  (Executable.eval exe {data, pc := label! "start"} (fun st => st.pc = label! "done")).bind
+  let := Labels.ofExecutable exe
+  let word : Int64 := label "end" - label "start"
+  let data : MachineData := { dmem := Mem.storeInt {} (label "size").toBitVec 4 word.toInt }
+  (Executable.eval exe {data, pc := label "start"} (fun st => st.pc = label "done")).bind
     (fun s => .ok s.1.regs.rax)
 
 -- def bigp := parseFile("./ecc-secp521r1-modp.S")
