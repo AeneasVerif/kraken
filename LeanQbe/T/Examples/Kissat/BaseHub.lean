@@ -229,6 +229,9 @@ public import LeanQbe.T.Examples.Kissat.PlainSearchLemmas1
 public import LeanQbe.T.Examples.Kissat.PlainSpec
 public import LeanQbe.T.Examples.Kissat.PlainSpec1
 public import LeanQbe.T.Examples.Kissat.PlainSpec2
+public import LeanQbe.T.Examples.Kissat.Proof.Config.Cert
+public import LeanQbe.T.Examples.Kissat.Proof.Config.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Config.Wp
 public import LeanQbe.T.Examples.Kissat.Proof.Extend.Cert
 public import LeanQbe.T.Examples.Kissat.Proof.Extend.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Extend.WpExtend
