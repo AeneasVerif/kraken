@@ -76,6 +76,7 @@ private def testDiffBV (name : String) (bv : BVLogicalExpr) (expectUnsat : Bool)
     | .sat _ => throw (IO.userError s!"{name}: expected .unsat, got .sat")
     | .unknown => throw (IO.userError s!"{name}: expected .unsat, got .unknown")
     | .workTooSmall => throw (IO.userError s!"{name}: expected .unsat, got .workTooSmall")
+    | .timeout => throw (IO.userError s!"{name}: expected .unsat, got .timeout")
   else
     assertTrue s!"{name}: interp == 10" (interpRc == 10)
     match ffiRes with
@@ -84,6 +85,7 @@ private def testDiffBV (name : String) (bv : BVLogicalExpr) (expectUnsat : Bool)
     | .unsat _ => throw (IO.userError s!"{name}: expected .sat, got .unsat")
     | .unknown => throw (IO.userError s!"{name}: expected .sat, got .unknown")
     | .workTooSmall => throw (IO.userError s!"{name}: expected .sat, got .workTooSmall")
+    | .timeout => throw (IO.userError s!"{name}: expected .sat, got .timeout")
 
 def runAll : IO Unit := do
   -- 1. Trivial UNSAT & Trivial SAT (BV_TRIVIAL_SAT_MAGIC -> empty ByteArray)
@@ -113,20 +115,23 @@ def runAll : IO Unit := do
   assertTrue "work=1024 returns .workTooSmall" (r1024.result matches .workTooSmall)
   let r4096 ← solveBVProgWithStats encDist.words 4096 4096 1000000
   assertTrue "work=4096 returns .workTooSmall" (r4096.result matches .workTooSmall)
-  let rRetryU ← solveBVProgWithStats enc8.words 1024 (256 * 1024) 1000000
-  assertTrue "work=1024..262144 retry returns .unsat with attempts > 1"
+  let rRetryU ← solveBVProgWithStats enc8.words 1024 (2 * 1024 * 1024) 1000000
+  assertTrue "work=1024..2MiB retry returns .unsat with attempts > 1"
     ((rRetryU.result matches .unsat _) && rRetryU.attempts > 1)
-  let rRetryS ← solveBVProgWithStats enc8Sat.words 1024 (256 * 1024) 1000000
+  let rRetryS ← solveBVProgWithStats enc8Sat.words 1024 (2 * 1024 * 1024) 1000000
   match rRetryS.result with
   | .sat m =>
     assertTrue "retry SAT attempts > 1" (rRetryS.attempts > 1)
     assertTrue "retry SAT evalEfficient" (decodeAndValidate bv8AddSat enc8Sat m).isSome
-  | _ => throw (IO.userError "work=1024..262144 retry on SAT failed")
+  | _ => throw (IO.userError "work=1024..2MiB retry on SAT failed")
 
-  -- 3. .unknown on fuel=1 (NO 32x retry storm -> attempts == 1)
-  let rFuel1 ← solveBVProgWithStats encDist.words 262144 262144 1
-  assertTrue s!"fuel=1 returns .unknown in 1 attempt (attempts={rFuel1.attempts})"
-    ((rFuel1.result matches .unknown) && rFuel1.attempts == 1)
+  -- 3. .timeout on fuel=0 and fuel=1 (NO 32x retry storm -> attempts == 1)
+  let rFuel0 ← solveBVProgWithStats encDist.words (2 * 1024 * 1024) (2 * 1024 * 1024) 0
+  assertTrue s!"fuel=0 returns .timeout in 1 attempt (attempts={rFuel0.attempts})"
+    ((rFuel0.result matches .timeout) && rFuel0.attempts == 1)
+  let rFuel1 ← solveBVProgWithStats encDist.words (2 * 1024 * 1024) (2 * 1024 * 1024) 1
+  assertTrue s!"fuel=1 returns .timeout in 1 attempt (attempts={rFuel1.attempts})"
+    ((rFuel1.result matches .timeout) && rFuel1.attempts == 1)
 
   -- 4. Invalid BVP1 returns .unknown in 1 attempt (NO 32x retry storm)
   let rBadMagic ← solveBVProgWithStats [0xDEADBEEF] 262144 262144 1000000

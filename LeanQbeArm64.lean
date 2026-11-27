@@ -3,6 +3,7 @@ module
 public import LeanQbe.T.CoreHub
 public import LeanQbe.T.Arm64.Base
 public import LeanQbe.T.Arm64.Bignum
+public import LeanQbe.T.Arm64.BitblastFidelityParam
 public import LeanQbe.T.Arm64.ChaCha
 public import LeanQbe.T.Arm64.DebugAsm
 public import LeanQbe.T.Arm64.Frame

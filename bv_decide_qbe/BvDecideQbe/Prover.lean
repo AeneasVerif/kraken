@@ -48,6 +48,7 @@ structure QbeContext where
   initWorkOverride? : Option Nat := none
   maxWorkBytes : Nat := BvDecideQbe.maxWorkBytes
   axiomDeclRange? : Option Syntax := none
+  acNf : Bool := false
 
 /-- Metadata returned when `unsatProver` closes a goal. -/
 structure ProveResult where
@@ -122,6 +123,13 @@ def probeBVExpr (bvExpr : BVLogicalExpr) (ctx : QbeContext := {}) :
       return .error eqs
   | .workTooSmall =>
     throwError m!"Tactic `bv_decide_qbe` failed: workspace limit ({ctx.maxWorkBytes} B) exceeded"
+  | .timeout =>
+    let mut err := m!"The SAT solver timed out while solving the problem.\n\
+      Consider increasing the timeout with the `timeout` config option."
+    if !ctx.acNf then
+      err := err ++ m!"\nIf solving your problem relies inherently on using associativity or \
+        commutativity, consider enabling the `acNf` config option."
+    throwError err
   | .unknown =>
     throwError "Tactic `bv_decide_qbe` failed: solver returned unknown"
 

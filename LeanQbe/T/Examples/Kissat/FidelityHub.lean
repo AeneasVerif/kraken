@@ -48,6 +48,7 @@ public import LeanQbe.T.Examples.Kissat.FullFidelityBcpProof2b
 public import LeanQbe.T.Examples.Kissat.FullFidelityBcpProof2c
 public import LeanQbe.T.Examples.Kissat.FullFidelityBcpProof2d
 public import LeanQbe.T.Examples.Kissat.FullFidelityBcpProof3
+public import LeanQbe.T.Examples.Kissat.FullFidelityBitblastLemmas
 public import LeanQbe.T.Examples.Kissat.FullFidelityBva
 public import LeanQbe.T.Examples.Kissat.FullFidelityBvaProof
 public import LeanQbe.T.Examples.Kissat.FullFidelityBvaProof0

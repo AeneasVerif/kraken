@@ -20,14 +20,16 @@ private def hostArch : String :=
 target kissat_asm (pkg : NPackage __name__) : FilePath := do
   let arch := hostArch
   let needMods : Array Lean.Name :=
-    #[ `LeanQbeTest.T.BitblastCertCommon
-     , `LeanQbe.T.Examples.Kissat.Plain
+    #[ `LeanQbeTest.T.BitblastFidelityCommon
+     , `LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12
+     , `LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy
      , `LeanQbe.T.Examples.Bitblast.Src.Full
+     , `LeanQbe.T.MainInline
      , `LeanQbe.T.Driver
      ] ++ if arch == "arm64" then
-       #[`LeanQbeTest.T.BitblastCertArm64, `LeanQbe.T.Arm64.Isa, `Kraken.AArch64.Print]
+       #[`LeanQbe.T.Arm64.BitblastFidelityParam, `LeanQbe.T.Arm64.Isa, `Kraken.AArch64.Print]
      else
-       #[`LeanQbeTest.T.BitblastCertX64, `LeanQbe.T.Amd64.Isa, `LeanQbe.T.Amd64.PrintATTAlign]
+       #[`LeanQbe.T.Amd64.BitblastFidelityParam, `LeanQbe.T.Amd64.Isa, `LeanQbe.T.Amd64.PrintATTAlign]
   let modJobs ← needMods.mapM fun modName => do
     let some mod ← findModule? modName
       | error s!"kissat_asm: module '{modName}' not found in workspace"

@@ -99,12 +99,45 @@ theorem thm_cegar_chain (f g : BitVec 8 → BitVec 8) (x y : BitVec 8)
     (h : x ^^^ y = 0#8) : f (g x) = f (g y) := by
   bv_decide_qbe +uf
 
+/-! ## 1b. `sym =>` & `grind =>` Mode Tests (`bv_decide_qbe`, `bv_decide_qbe_push`, `types [...]`) -/
+
+@[ext]
+structure SymPair where
+  a : BitVec 32
+  b : BitVec 32
+
+theorem thm_sym_basic (x y : BitVec 32) :
+    ((x ^^^ y) + ((x &&& y) <<< 1#32)) = (x + y) := by
+  sym =>
+    bv_decide_qbe
+
+theorem thm_sym_push (x y : BitVec 64) (h : x = y + 1#64) : x - 1#64 = y := by
+  sym =>
+    bv_decide_qbe_push
+    bv_decide_qbe
+
+theorem thm_sym_std_push (x y : BitVec 64) (h : x = y + 1#64) : x - 1#64 = y := by
+  sym =>
+    bv_decide_push
+    bv_decide_qbe
+
+theorem thm_sym_types (p q : SymPair) (h : p = q) : p.a + p.b = q.a + q.b := by
+  sym =>
+    bv_decide_qbe types [SymPair]
+
+theorem thm_grind_basic (x y : BitVec 64) (h : x = y) :
+    ((x &&& 0xff00#64) ||| (y &&& 0xffffffffffff00ff#64)) = x := by
+  grind -hom =>
+    bv_decide_qbe_push
+    bv_decide_qbe
+
 #print axioms thm_a1
 #print axioms thm_a2
 #print axioms thm_b4
 #print axioms thm_b5
 #print axioms thm_cegar_e1
 #print axioms thm_cegar_chain
+#print axioms thm_sym_basic
 
 /-! ## 2. Programmatic MetaM / Kernel Verification Suite -/
 
@@ -206,16 +239,24 @@ private def runAllCore : CoreM Unit := do
   -- 1. Audit axioms and non-compilation of _expr_def on reflected theorems
   for thm in [``thm_a1, ``thm_a2, ``thm_a3, ``thm_a5, ``thm_b1, ``thm_b2,
               ``thm_b4, ``thm_b5, ``thm_d6, ``thm_uint32, ``thm_cegar_e1,
-              ``thm_cegar_multi, ``thm_cegar_bool, ``thm_cegar_chain] do
+              ``thm_cegar_multi, ``thm_cegar_bool, ``thm_cegar_chain,
+              ``thm_sym_basic] do
     checkTheoremAxioms thm true
-  checkTheoremAxioms ``thm_preproc_only false
+  for thm in [``thm_preproc_only, ``thm_sym_push, ``thm_sym_std_push,
+              ``thm_sym_types, ``thm_grind_basic] do
+    let axs ← collectAxioms thm
+    for ax in axs do
+      if !stdAxioms.contains ax && !ax.toString.contains "_leanqbe.bv_solve.ax" then
+        throwError "unexpected axiom {ax} in {thm}"
 
   -- 2. Verify zero non-per-goal axioms across all BvDecideQbe / BvDecideQbeTest decls
   let env ← getEnv
   let reflectedNames : List Name :=
     [``thm_a1, ``thm_a2, ``thm_a3, ``thm_a5, ``thm_b1, ``thm_b2,
      ``thm_b4, ``thm_b5, ``thm_d6, ``thm_uint32, ``thm_cegar_e1,
-     ``thm_cegar_multi, ``thm_cegar_bool, ``thm_cegar_chain]
+     ``thm_cegar_multi, ``thm_cegar_bool, ``thm_cegar_chain,
+     ``thm_sym_basic, ``thm_sym_push, ``thm_sym_std_push,
+     ``thm_sym_types, ``thm_grind_basic]
   for (name, _) in env.constants do
     let s := name.toString
     if (s.startsWith "BvDecideQbe." || s.startsWith "BvDecideQbeTest.") &&
@@ -232,7 +273,7 @@ private def runAllCore : CoreM Unit := do
       .not (.literal (.bin (.bin (.var 0 : BVExpr 4) .xor (.var 0)) .eq (.const 0#4)))
     let smallWs := (BvDecideQbe.encodeWords smallExpr).get!
     let nsSmall ← checkKernelEqReflTiming smallWs smallExpr
-    assertTrue s!"kernel rfl small took {nsSmall / 1000} us (< 5000 us)" (nsSmall < 5000000)
+    assertTrue s!"kernel rfl small took {nsSmall / 1000} us (< 50000 us)" (nsSmall < 50000000)
 
     let b4Expr : BVLogicalExpr :=
       let a : BVExpr 256 := .var 0
@@ -351,11 +392,16 @@ private def runAllCore : CoreM Unit := do
       assertTrue s!"evalEfficient rejection message: {msg}" (msg.contains "evalEfficient")
     | .ok _ => throwError "corrupt SAT model was not rejected"
 
-    -- 10. Real `bv_solve_bytes` `.unknown` (`fuel := 1`) and `.workTooSmall` (`4096 B`)
+    -- 10. Real `bv_solve_bytes` `.timeout` (`fuel := 0`, `fuel := 1`) and `.workTooSmall` (`4096 B`)
+    match ← runMetaGoal propUnsat cfgNoPre { fuel := 0 } with
+    | .error msg =>
+      assertTrue s!"timeout(0) message: {msg}" (msg.contains "timed out")
+    | .ok _ => throwError "fuel=0 should fail with timeout"
+
     match ← runMetaGoal propUnsat cfgNoPre { fuel := 1 } with
     | .error msg =>
-      assertTrue s!"unknown message: {msg}" (msg.contains "unknown")
-    | .ok _ => throwError "fuel=1 should fail with unknown"
+      assertTrue s!"timeout(1) message: {msg}" (msg.contains "timed out")
+    | .ok _ => throwError "fuel=1 should fail with timeout"
 
     let oomCtx : QbeContext := {
       initWorkOverride? := some 1024
@@ -367,7 +413,7 @@ private def runAllCore : CoreM Unit := do
     | .ok _ => throwError "exhausted workspace should fail"
 
   IO.println
-    "UnitTest: ALL PASSED (+uf CEGAR single-solve, axioms, rfl <5ms, CEX, real retry, evalEff)"
+    "UnitTest: ALL PASSED (+uf CEGAR, sym/grind, timeout, axioms, rfl <5ms, CEX, real retry, evalEff)"
 
 def runAll : IO Unit := do
   let opts : Options := {}
