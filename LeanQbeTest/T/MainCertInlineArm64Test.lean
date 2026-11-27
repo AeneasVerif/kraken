@@ -1,6 +1,7 @@
 module
 
 public import LeanQbe.T.MainCertInline
+public import LeanQbe.T.MainCertFlat
 public import LeanQbe.T.Arm64.TargLemmas
 public import LeanQbe.T.Logic.MemLemmas
 public import LeanQbeTest.T.Common.Fixtures
@@ -10,6 +11,7 @@ import all Kraken.Mem
 import all Kraken.Separation
 public meta import Lean
 public meta import LeanQbe.T.MainCertInline
+public meta import LeanQbe.T.MainCertFlatElab
 public meta import LeanQbe.T.Arm64.Targ
 public meta import LeanQbeTest.T.Common.Fixtures
 
@@ -55,12 +57,13 @@ def slice1Mod : Module := { fns := inlModB5.fns.take 2 }
 def slice2Mod : Module := { fns := inlModB5.fns.drop 2 }
 
 compile_linked_chunks! armB5Slice1
-  armTarget armLayout armLegalTarget armLabelClean slice1Mod 1
+  armTarget armLayout armLegalTarget armLabelClean slice1Mod 1 (flat := true)
 
-eval_prefix_ext! extArmB5Slice1 armTarget armLegalTarget (inlModB5.fns.take 2)
+eval_prefix_ext! extArmB5Slice1 armTarget armLegalTarget (inlModB5.fns.take 2) (flat := true)
 
 compile_linked_chunks! armB5Slice2
   armTarget armLayout armLegalTarget armLabelClean slice2Mod 1 (ext := extArmB5Slice1)
+  (flat := true)
 
 noncomputable def armCertB5Mat :
     LinkedCert armTarget armLayout armLegalTarget armLabelClean inlModB5 [] [] 0 2048 :=

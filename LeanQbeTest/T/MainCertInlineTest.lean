@@ -1,6 +1,7 @@
 module
 
 public import LeanQbe.T.MainCertInline
+public import LeanQbe.T.MainCertFlat
 public import LeanQbe.T.Amd64.TargLemmas
 public import LeanQbe.T.Logic.MemLemmas
 public import LeanQbeTest.T.Common.Fixtures
@@ -10,6 +11,7 @@ import all Kraken.Mem
 import all Kraken.Separation
 public meta import Lean
 public meta import LeanQbe.T.MainCertInline
+public meta import LeanQbe.T.MainCertFlatElab
 public meta import LeanQbe.T.Amd64.Targ
 public meta import LeanQbeTest.T.Common.Fixtures
 
@@ -67,12 +69,12 @@ def slice1Mod : Module := { fns := inlModB5.fns.take 2 }
 def slice2Mod : Module := { fns := inlModB5.fns.drop 2 }
 
 compile_linked_chunks! certB5Slice1
-  x64Target x64Layout x64LegalTarget x64LabelClean slice1Mod 1
+  x64Target x64Layout x64LegalTarget x64LabelClean slice1Mod 1 (flat := true)
 
-eval_prefix_ext! extB5Slice1 x64Target x64LegalTarget (inlModB5.fns.take 2)
+eval_prefix_ext! extB5Slice1 x64Target x64LegalTarget (inlModB5.fns.take 2) (flat := true)
 
 compile_linked_chunks! certB5Slice2
-  x64Target x64Layout x64LegalTarget x64LabelClean slice2Mod 1 (ext := extB5Slice1)
+  x64Target x64Layout x64LegalTarget x64LabelClean slice2Mod 1 (ext := extB5Slice1) (flat := true)
 
 noncomputable def certB5Mat :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean inlModB5 [] [] 0 2048 :=
@@ -86,7 +88,7 @@ noncomputable def certB5 :
   certB5Mat.castModule inlModB5.eq
 
 compile_linked_chunks! cert40Mat
-  x64Target x64Layout x64LegalTarget x64LabelClean inlMod40 2
+  x64Target x64Layout x64LegalTarget x64LabelClean inlMod40 2 (flat := true)
 
 noncomputable def cert40 :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean

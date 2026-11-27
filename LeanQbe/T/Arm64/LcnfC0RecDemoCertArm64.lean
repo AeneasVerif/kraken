@@ -43,7 +43,7 @@ compile_linked_budget_scc! recDemoArm64ProgCert armTarget armLayout armLegalTarg
   recDemoBudgetMod 1 (maxBound := recDemoExportBound)
   (exportBounds := [(recDemoListSumName, recDemoExportBound)])
   (ext := rtC0CoreArm64AllExt) (extSigs := rtC0CoreMod.fns.map Fn.sig)
-  (exits := rtExitSyms) (nX := 64)
+  (exits := rtExitSyms) (nX := 64) (flat := true)
 
 /-- Lift of the `86`-function acyclic runtime `rtC0CoreArm64Cert` into `LinkedCertScc`. -/
 @[expose] noncomputable def rtC0CoreSccCertArm64 :

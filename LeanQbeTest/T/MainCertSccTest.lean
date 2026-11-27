@@ -105,6 +105,56 @@ theorem emptySccCert_numChunks : emptySccCert.numChunks = 1 := by rfl
 theorem partCertB_numChunks : partCertB.numChunks = 2 := by rfl
 theorem appendedMixedCert_numChunks : appendedMixedCert.numChunks = 3 := by rfl
 
+/-! ## 1b. Flat `TFlatFn` `(flat := true)` + Parity + Trap T5 Checks -/
+
+compile_linked_budget_scc! emptySccFlatCert litmusTarget litmusLayout LegalTarget.aarch64
+  litmusLabelClean emptySccMod 2 (flat := true)
+
+theorem emptySccFlatCert_code_eq : emptySccFlatCert.code = emptySccCert.code := rfl
+
+@[expose] def flatInc1Tf : TFlatFn :=
+  { name := "flatInc1", as := [i64], rs := [i64]
+    body := .let_ ⟨.add i64, (.var 0, .imm 1#64, ())⟩ (.ret (.var 0, ())) }
+
+@[expose] def flatRecTf : TFlatFn :=
+  { name := "flatRec", as := [i64], rs := [i64]
+    body :=
+      .let_ ⟨.cmp .eq i64, (.var 0, .imm 0#64, ())⟩ <|
+      .jnz (.var 0) (.ret (.imm 0#64, ())) <|
+      .let_ ⟨.sub i64, (.var 1, .imm 1#64, ())⟩ <|
+      .call "flatRec" (as := [i64]) [i64] (.var 0, ()) <|
+      .call "flatInc1" (as := [i64]) [i64] (.var 0, ()) <|
+      .ret (.var 0, ()) }
+
+@[expose] def mixedFlatBudgetMod : BudgetModule :=
+  { fns := [⟨flatInc1Tf.toFn, 16, 16⟩, ⟨flatRecTf.toFn, 32, 32⟩] }
+
+compile_linked_budget_scc! mixedFlatLegCert litmusTarget litmusLayout LegalTarget.aarch64
+  litmusLabelClean mixedFlatBudgetMod 1 (maxBound := 256)
+  (exportBounds := [("flatRec", 128)]) (flat := false)
+
+compile_linked_budget_scc! mixedFlatCert litmusTarget litmusLayout LegalTarget.aarch64
+  litmusLabelClean mixedFlatBudgetMod 1 (maxBound := 256)
+  (exportBounds := [("flatRec", 128)]) (flat := true)
+
+theorem mixedFlatCert_numChunks : mixedFlatCert.numChunks = 2 := by rfl
+theorem mixedFlatCert_code_eq : mixedFlatCert.code = mixedFlatLegCert.code := rfl
+theorem mixedFlatCert_inc_bound_eq :
+    mixedFlatCert.bound "flatInc1" = mixedFlatLegCert.bound "flatInc1" := rfl
+theorem mixedFlatCert_rec_bound_eq :
+    mixedFlatCert.bound "flatRec" = mixedFlatLegCert.bound "flatRec" := rfl
+
+-- Trap T5: `(flat := true)` must fail loudly on unmaterialized PHOAS `partModB`.
+#eval show Lean.Elab.Term.TermElabM Unit from do
+  let opts : CertSccOptions := { flatT? := some (← `(true)) }
+  let failed ← try
+    let _ ← elabAndEvalSccChunks (← `(litmusTarget)) (← `(litmusLayout))
+      (← `(LegalTarget.aarch64)) (← `(litmusLabelClean)) (← `(partModB)) 1 opts
+    pure false
+  catch _ => pure true
+  if !failed then
+    throwError "expected compile_linked_budget_scc! (flat := true) on partModB to throw"
+
 /-! ## 2. Negative Validation Checks -/
 
 #guard !Module.checkAcyclic ⟨[fnEven, fnOdd], [], []⟩
@@ -132,6 +182,9 @@ theorem neg_ext_collision_rejected :
 #print axioms LeanQbe.T.LinkedCertScc.fnSpec_host
 #print axioms LeanQbe.T.LinkedCertScc.eventually_ret1_i64_of_le
 #print axioms emptySccCert
+#print axioms emptySccFlatCert
+#print axioms mixedFlatCert
+#print axioms mixedFlatCert_code_eq
 #print axioms partCertA_scc
 #print axioms appendedMixedCert
 

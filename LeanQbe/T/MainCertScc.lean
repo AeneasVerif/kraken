@@ -4,11 +4,15 @@ public import LeanQbe.T.MainLinkScc
 public import LeanQbe.T.MainCertCore
 public import LeanQbe.T.MainCertProof
 public import LeanQbe.T.MainCertElab
+public import LeanQbe.T.MainCertFlat
 public import LeanQbe.T.Scc
+import LeanQbe.T.MainFlatLemmas
+import LeanQbe.T.RegaFlatLemmas
 public meta import Lean
 public meta import LeanQbe.T.MainLinkScc
 public meta import LeanQbe.T.MainCertCore
 public meta import LeanQbe.T.MainCertElab
+public meta import LeanQbe.T.MainCertFlatElab
 public meta import LeanQbe.T.MainLinkSplice
 public meta import LeanQbe.T.MainSplice
 public meta import LeanQbe.T.Scc
@@ -116,6 +120,121 @@ theorem supportsAll_of_compileModuleBudgetRecAuxSupp {I : Isa} {lt : LegalTarget
       .ok code) :
     ∀ bfn ∈ bfs, (bfn.toFn.earlyOpt).body.supportsSource lt = true :=
   (budgetRecAuxSupp_spec h).2
+
+/-- First-order `TFlatFn` bundle mirroring `BudgetFn` without PHOAS closures. -/
+structure FlatBudgetFn where
+  toFlat : TFlatFn
+  maxFrame : Nat
+  minEntry : Nat := maxFrame
+
+/-- Denotes a `FlatBudgetFn` back to a PHOAS `BudgetFn` (`toFlat.toFn`). -/
+@[expose] def FlatBudgetFn.toBudgetFn (b : FlatBudgetFn) : BudgetFn :=
+  ⟨b.toFlat.toFn, b.maxFrame, b.minEntry⟩
+
+/-- First-order mirror of `compileModuleBudgetRecAuxSupp` executing `MainFlat` passes. -/
+@[expose] def compileModuleBudgetRecAuxFlat (I : Isa) (lt : LegalTarget) (raBytes : Nat)
+    (recSigs : List SigEntry) (extCallees : List (SigEntry × Nat))
+    (exits : List Sym) (nX : Nat) :
+    List FlatBudgetFn → List I.Hints → Except String (List I.Directive)
+  | [], [] => .ok []
+  | bf :: bfs, h :: hs =>
+    let f := bf.toFlat
+    if !f.wfCheck then .error s!"{f.name}: wfCheck failed"
+    else
+      let ef := earlyOptFlat f
+      if ef.supportsSource lt then
+        let mf := midStageFlat lt ef
+        let ext := TFlat.ext mf.body
+        let fakeBfn : BudgetFn :=
+          { toFn := ⟨f.name, [], [], fun _ _ _ => .hlt⟩
+            maxFrame := bf.maxFrame
+            minEntry := bf.minEntry }
+        match Rega.lowerFlatFn I h ext mf,
+              checkAndBoundBudgetRecExt I raBytes recSigs extCallees exits nX h ext fakeBfn with
+        | .ok c, true =>
+          match compileModuleBudgetRecAuxFlat I lt raBytes recSigs extCallees exits nX bfs hs with
+          | .ok cs => .ok (c ++ cs) | .error e => .error e
+        | .error e, _ => .error s!"{f.name}: {e}"
+        | _, false => .error s!"{f.name}: budget check failed"
+      else .error s!"{f.name}: unsupported source op for target"
+  | _, _ => .error "compileModuleBudgetRec: fn/hints length mismatch"
+
+section FlatBridge
+attribute [local irreducible] earlyOptFlat midStageFlat
+
+private theorem compileModuleBudgetRecAuxSupp_of_flat (I : Isa) (lt : LegalTarget)
+    (raBytes : Nat) (recSigs : List SigEntry) (extCallees : List (SigEntry × Nat))
+    (exits : List Sym) (nX : Nat) :
+    ∀ (fbfs : List FlatBudgetFn) (hs : List I.Hints) (code : List I.Directive),
+      compileModuleBudgetRecAuxFlat I lt raBytes recSigs extCallees exits nX fbfs hs =
+        .ok code →
+      compileModuleBudgetRecAuxSupp I lt raBytes recSigs extCallees exits nX
+        (fbfs.map FlatBudgetFn.toBudgetFn) hs = .ok code
+  | [], [], _, h => h
+  | [], _ :: _, _, h | _ :: _, [], _, h => by
+      dsimp only [compileModuleBudgetRecAuxFlat] at h; cases h
+  | bf :: fbfs, h :: hs, code, hok => by
+      dsimp only [compileModuleBudgetRecAuxFlat] at hok
+      cases hwf : bf.toFlat.wfCheck
+      · simp only [hwf, Bool.not_false, ↓reduceIte] at hok; cases hok
+      · simp only [hwf, Bool.not_true, Bool.false_eq_true, ↓reduceIte] at hok
+        have heowf := earlyOptFlat_wfCheck bf.toFlat hwf
+        have heoto := earlyOptFlat_toFn bf.toFlat hwf
+        have hsupp_eq : (bf.toFlat.toFn.earlyOpt).body.supportsSource lt =
+            (earlyOptFlat bf.toFlat).supportsSource lt := by
+          rw [← heoto]; exact TFlatFn.supportsSource_eq lt (earlyOptFlat bf.toFlat) heowf
+        cases hsup : (earlyOptFlat bf.toFlat).supportsSource lt
+        · simp only [hsup, Bool.false_eq_true, ↓reduceIte] at hok; cases hok
+        · simp only [hsup, ↓reduceIte] at hok
+          have hmwf := midStageFlat_wfCheck lt (earlyOptFlat bf.toFlat) heowf
+          have hmto := midStageFlat_toFn lt (earlyOptFlat bf.toFlat) heowf
+          let ef := earlyOptFlat bf.toFlat
+          let mf := midStageFlat lt ef
+          have hext : TFlat.ext mf.body = Fn.ext (Fn.midFromEarly lt bf.toFlat.toFn.earlyOpt) := by
+            rw [TFlat.ext_eq_fn_ext mf hmwf, hmto, heoto]
+          have hlow : Rega.lowerFlatFn I h (TFlat.ext mf.body) mf =
+              Rega.lowerFn I h (Fn.ext (Fn.midFromEarly lt bf.toFlat.toFn.earlyOpt))
+                (Fn.midFromEarly lt bf.toFlat.toFn.earlyOpt) := by
+            rw [hext]
+            have h1 := Rega.lowerFlatFn_eq_lowerFn I h
+              (Fn.ext (Fn.midFromEarly lt bf.toFlat.toFn.earlyOpt)) mf hmwf
+            rwa [hmto, heoto] at h1
+          have hchk : checkAndBoundBudgetRecExt I raBytes recSigs extCallees exits nX h
+                (TFlat.ext mf.body) ⟨⟨bf.toFlat.name, [], [], fun _ _ _ => .hlt⟩,
+                  bf.maxFrame, bf.minEntry⟩ =
+              checkAndBoundBudgetRecExt I raBytes recSigs extCallees exits nX h
+                (Fn.ext (Fn.midFromEarly lt bf.toFlat.toFn.earlyOpt))
+                { toFn := bf.toFlat.toFn, maxFrame := bf.maxFrame, minEntry := bf.minEntry } := by
+            rw [← hext]; rfl
+          dsimp only [List.map, compileModuleBudgetRecAuxSupp]
+          simp only [FlatBudgetFn.toBudgetFn, hsupp_eq, hsup, ↓reduceIte]
+          rw [← hlow, ← hchk]
+          split at hok
+          · rename_i c _ hlowOk hcbOk
+            split at hok
+            · rename_i cs hrest
+              rw [hlowOk, hcbOk]
+              dsimp only
+              have ih := compileModuleBudgetRecAuxSupp_of_flat I lt raBytes recSigs extCallees
+                exits nX fbfs hs cs hrest
+              rw [ih]; exact hok
+            · simp at hok
+          · cases hok
+          · cases hok
+
+theorem compileModuleBudgetRecAuxSupp_of_flat_eq {I : Isa} {lt : LegalTarget} {raBytes : Nat}
+    {recSigs : List SigEntry} {extCallees : List (SigEntry × Nat)} {exits : List Sym} {nX : Nat}
+    {bfs : List BudgetFn} {fbfs : List FlatBudgetFn} {hs : List I.Hints}
+    {code : List I.Directive}
+    (hbfs : bfs = fbfs.map FlatBudgetFn.toBudgetFn)
+    (hok : compileModuleBudgetRecAuxFlat I lt raBytes recSigs extCallees exits nX fbfs hs =
+      .ok code) :
+    compileModuleBudgetRecAuxSupp I lt raBytes recSigs extCallees exits nX bfs hs = .ok code := by
+  subst hbfs
+  exact compileModuleBudgetRecAuxSupp_of_flat I lt raBytes recSigs extCallees exits nX
+    fbfs hs code hok
+
+end FlatBridge
 
 /-- Accumulated signature list produced by threading `checkChunksCalls` across `chunks`. -/
 @[expose] def sccChunksSigAcc {T : Target} {lt : LegalTarget} {exits : List Sym} {nX : Nat} :
@@ -528,76 +647,116 @@ private def splitRecSubchunks {I : Isa} (k maxDirs startIdx : Nat) (isEndAfter :
         go fuel (idx + grp.length) rest' (leaf :: out)
   go (xs.length + 1) startIdx xs []
 
+mutual
+private def tflatCalleesAux {rs : List Ty} : TFlat rs → List SigEntry → List SigEntry
+  | .let_ _ k, cs | .load _ _ k, cs | .store _ _ k, cs => tflatCalleesAux k cs
+  | .call f (as := as) bs _ k, cs =>
+      tflatCalleesAux k (addCalleeEntry (f, as, bs) cs)
+  | .jnz _ t e, cs => tflatCalleesAux e (tflatCalleesAux t cs)
+  | .jump _ _, cs | .ret _, cs | .exit _ _, cs | .hlt, cs => cs
+  | .group bodies k, cs => tblocksCalleesAux bodies (tflatCalleesAux k cs)
+
+private def tblocksCalleesAux {rs : List Ty} :
+    {sig : List (List Ty)} → TBlocks rs sig → List SigEntry → List SigEntry
+  | _, .nil, cs => cs
+  | _, .cons b bs, cs => tblocksCalleesAux bs (tflatCalleesAux b cs)
+end
+
+mutual
+private def tflatExitsOk (exits : List Sym) {rs : List Ty} : TFlat rs → Bool
+  | .let_ _ k | .load _ _ k | .store _ _ k | .call _ _ _ k => tflatExitsOk exits k
+  | .jnz _ t e => tflatExitsOk exits t && tflatExitsOk exits e
+  | .jump _ _ | .ret _ | .hlt => true
+  | .exit f _ => exits.any (· == f)
+  | .group bodies k => tblocksExitsOk exits bodies && tflatExitsOk exits k
+
+private def tblocksExitsOk (exits : List Sym) {rs : List Ty} :
+    {sig : List (List Ty)} → TBlocks rs sig → Bool
+  | _, .nil => true
+  | _, .cons b bs => tflatExitsOk exits b && tblocksExitsOk exits bs
+end
+
+private def evalSccEmpty (I : Isa) (ext0 : List (SigEntry × Nat))
+    [Lean.ToExpr (List I.Hints)] [Lean.ToExpr (List I.Directive)] : EvalSccModuleData :=
+  let extLit := Lean.toExpr ext0
+  { chunks := [.acyc 0 0 true extLit (Lean.toExpr ([] : List I.Hints))
+      (Lean.toExpr ([] : List I.Directive)) (Lean.toExpr ([] : List (Sym × Nat)))]
+    finalExtLit := extLit }
+
+private def evalSccItemsFromList (I : Isa) (raBytes : Nat)
+    (ext0 : List (SigEntry × Nat)) (extSigs0 : List SigEntry) (exits : List Sym) (nX : Nat)
+    (chunkSize maxBound maxDirs : Nat) (exportBounds : List (Sym × Nat))
+    (allItems : List (SccItem I))
+    [Lean.ToExpr (List I.Hints)] [Lean.ToExpr (List I.Directive)] :
+    Except String EvalSccModuleData := do
+  let k := Nat.max chunkSize 1
+  let emitAcyc (isLast : Bool) (startIdx : Nat) (chunkExt0 : List (SigEntry × Nat))
+      (revGrp : List (SccItem I × Nat)) : EvalSccChunk :=
+    let grp := revGrp.reverse
+    .acyc startIdx grp.length isLast (Lean.toExpr chunkExt0) (Lean.toExpr (grp.map (·.1.hint)))
+      (Lean.toExpr (grp.foldr (fun x cs => x.1.code ++ cs) []))
+      (Lean.toExpr (grp.map fun x => (x.1.name, x.2)))
+  let rec walk (fuel idx : Nat) (availSigs : List SigEntry)
+      (chunkExt0 acc : List (SigEntry × Nat)) (acycStart acycDirs : Nat)
+      (acycAcc : List (SccItem I × Nat)) (rest : List (SccItem I))
+      (out : List EvalSccChunk) : Except String EvalSccModuleData :=
+    let flush (isLast : Bool) :=
+      if acycAcc.isEmpty then out else emitAcyc isLast acycStart chunkExt0 acycAcc :: out
+    match fuel, rest with
+    | 0, _ | _, [] => .ok { chunks := (flush true).reverse, finalExtLit := Lean.toExpr acc }
+    | fuel' + 1, it :: tl =>
+      if it.callsOk availSigs then
+        let nextDirs := acycDirs + it.code.length
+        if !acycAcc.isEmpty && (acycAcc.length >= k || (maxDirs > 0 && nextDirs > maxDirs)) then
+          walk fuel' idx availSigs acc acc idx 0 [] rest (flush false)
+        else do
+          let b ← evalOneFnBoundCheck I raBytes exits nX maxBound acc it.name it.hint it.ext
+          let acycAcc' := (it, b) :: acycAcc; let acc' := (it.legalSig, b) :: acc
+          let avail' := it.srcSig :: availSigs
+          if tl.isEmpty then
+            .ok {
+              chunks := (emitAcyc true acycStart chunkExt0 acycAcc' :: out).reverse
+              finalExtLit := Lean.toExpr acc' }
+          else walk fuel' (idx + 1) avail' chunkExt0 acc' acycStart nextDirs acycAcc' tl out
+      else
+        let out1 := flush false; let len := closedPrefixLen availSigs rest
+        let sccItems := rest.take len; let tl' := rest.drop len
+        let sccSrcSigs := sccItems.map (·.srcSig)
+        if let some bad := sccItems.find? fun x => !x.callsOk (availSigs ++ sccSrcSigs) then
+          .error s!"{bad.name}: unknown callee or undeclared exit"
+        else if let some hit := sccItems.find? fun x => acc.any (·.1.1 == x.name) then
+          .error s!"{hit.name}: function name collides with external callee"
+        else do
+          let recSigs := sccItems.map (·.legalSig)
+          let _ ← evalRecItems I raBytes recSigs acc exits nX sccItems
+          let leaves := splitRecSubchunks k maxDirs idx tl'.isEmpty sccItems
+          if !Nat.ble maxBound (2 ^ 64) || !Nat.ble (maxBound + raBytes) (2 ^ 64) ||
+              !exportBounds.all (fun p => Nat.ble p.2 maxBound) then
+            .error s!"recBudgetSCC({it.name}): exportBounds/maxBound overflow"
+          else
+            let sccCh : EvalSccChunk :=
+              .recBudgetSCC (Lean.toExpr acc) (Lean.toExpr recSigs) leaves
+            let sccSigs := recSigs.map fun s => (s, budgetBound exportBounds maxBound s.1)
+            let acc2 := sccSigs.reverse ++ acc
+            walk fuel' (idx + len) (sccSrcSigs ++ availSigs) acc2 acc2 (idx + len) 0 [] tl'
+              (sccCh :: out1)
+  walk (allItems.length * 2 + 4) 0 extSigs0 ext0 ext0 0 0 [] allItems []
+
 private def evalSccItemsCore (I : Isa) (lt : LegalTarget) (raBytes : Nat)
     (ext0 : List (SigEntry × Nat)) (extSigs0 : List SigEntry) (exits : List Sym) (nX : Nat)
     (bfs : List BudgetFn) (chunkSize maxBound maxDirs : Nat) (exportBounds : List (Sym × Nat))
     [Lean.ToExpr (List I.Hints)] [Lean.ToExpr (List I.Directive)] :
     Except String EvalSccModuleData := do
-  let k := Nat.max chunkSize 1
   if bfs.isEmpty then
-    let (code, bounds) ← compileModule I lt raBytes ext0 exits nX [] []
-    let extLit := Lean.toExpr ext0
-    pure {
-      chunks := [.acyc 0 0 true extLit (Lean.toExpr ([] : List I.Hints))
-        (Lean.toExpr code) (Lean.toExpr bounds)]
-      finalExtLit := extLit }
+    pure (evalSccEmpty I ext0)
   else
     let allItems ← spawnLowerItems I lt bfs (fun b => b.toFn)
         fun nm h c mf ext b =>
       let cals := b.toFn.callees
       SccItem.mk nm b.toFn.sig mf.sig h c ext cals (b.toFn.checkCallsOk cals exits)
         (b.maxFrame, b.minEntry)
-    let emitAcyc (isLast : Bool) (startIdx : Nat) (chunkExt0 : List (SigEntry × Nat))
-        (revGrp : List (SccItem I × Nat)) : EvalSccChunk :=
-      let grp := revGrp.reverse
-      .acyc startIdx grp.length isLast (Lean.toExpr chunkExt0) (Lean.toExpr (grp.map (·.1.hint)))
-        (Lean.toExpr (grp.foldr (fun x cs => x.1.code ++ cs) []))
-        (Lean.toExpr (grp.map fun x => (x.1.name, x.2)))
-    let rec walk (fuel idx : Nat) (availSigs : List SigEntry)
-        (chunkExt0 acc : List (SigEntry × Nat)) (acycStart acycDirs : Nat)
-        (acycAcc : List (SccItem I × Nat)) (rest : List (SccItem I))
-        (out : List EvalSccChunk) : Except String EvalSccModuleData :=
-      let flush (isLast : Bool) :=
-        if acycAcc.isEmpty then out else emitAcyc isLast acycStart chunkExt0 acycAcc :: out
-      match fuel, rest with
-      | 0, _ | _, [] => .ok { chunks := (flush true).reverse, finalExtLit := Lean.toExpr acc }
-      | fuel' + 1, it :: tl =>
-        if it.callsOk availSigs then
-          let nextDirs := acycDirs + it.code.length
-          if !acycAcc.isEmpty && (acycAcc.length >= k || (maxDirs > 0 && nextDirs > maxDirs)) then
-            walk fuel' idx availSigs acc acc idx 0 [] rest (flush false)
-          else do
-            let b ← evalOneFnBoundCheck I raBytes exits nX maxBound acc it.name it.hint it.ext
-            let acycAcc' := (it, b) :: acycAcc; let acc' := (it.legalSig, b) :: acc
-            let avail' := it.srcSig :: availSigs
-            if tl.isEmpty then
-              .ok {
-                chunks := (emitAcyc true acycStart chunkExt0 acycAcc' :: out).reverse
-                finalExtLit := Lean.toExpr acc' }
-            else walk fuel' (idx + 1) avail' chunkExt0 acc' acycStart nextDirs acycAcc' tl out
-        else
-          let out1 := flush false; let len := closedPrefixLen availSigs rest
-          let sccItems := rest.take len; let tl' := rest.drop len
-          let sccSrcSigs := sccItems.map (·.srcSig)
-          if let some bad := sccItems.find? fun x => !x.callsOk (availSigs ++ sccSrcSigs) then
-            .error s!"{bad.name}: unknown callee or undeclared exit"
-          else if let some hit := sccItems.find? fun x => acc.any (·.1.1 == x.name) then
-            .error s!"{hit.name}: function name collides with external callee"
-          else do
-            let recSigs := sccItems.map (·.legalSig)
-            let _ ← evalRecItems I raBytes recSigs acc exits nX sccItems
-            let leaves := splitRecSubchunks k maxDirs idx tl'.isEmpty sccItems
-            if !Nat.ble maxBound (2 ^ 64) || !Nat.ble (maxBound + raBytes) (2 ^ 64) ||
-                !exportBounds.all (fun p => Nat.ble p.2 maxBound) then
-              .error s!"recBudgetSCC({it.name}): exportBounds/maxBound overflow"
-            else
-              let sccCh : EvalSccChunk :=
-                .recBudgetSCC (Lean.toExpr acc) (Lean.toExpr recSigs) leaves
-              let sccSigs := recSigs.map fun s => (s, budgetBound exportBounds maxBound s.1)
-              let acc2 := sccSigs.reverse ++ acc
-              walk fuel' (idx + len) (sccSrcSigs ++ availSigs) acc2 acc2 (idx + len) 0 [] tl'
-                (sccCh :: out1)
-    walk (allItems.length * 2 + 4) 0 extSigs0 ext0 ext0 0 0 [] allItems []
+    evalSccItemsFromList I raBytes ext0 extSigs0 exits nX chunkSize maxBound maxDirs
+      exportBounds allItems
 
 def evalLinkedBudgetSccChunks (I : Isa) (lt : LegalTarget) (raBytes : Nat)
     (ext0 : List (SigEntry × Nat)) (extSigs0 : List SigEntry) (exits : List Sym) (nX : Nat)
@@ -605,6 +764,25 @@ def evalLinkedBudgetSccChunks (I : Isa) (lt : LegalTarget) (raBytes : Nat)
     [Lean.ToExpr (List I.Hints)] [Lean.ToExpr (List I.Directive)] :
     Except String EvalSccModuleData :=
   evalSccItemsCore I lt raBytes ext0 extSigs0 exits nX bfs chunkSize maxBound maxDirs exportBounds
+
+/-- Flat `TFlatFn` meta evaluator mirroring `evalLinkedBudgetSccChunks` via `MainFlat`. -/
+def evalLinkedBudgetSccChunksFlat (I : Isa) (lt : LegalTarget) (raBytes : Nat)
+    (ext0 : List (SigEntry × Nat)) (extSigs0 : List SigEntry) (exits : List Sym) (nX : Nat)
+    (chunkSize maxBound maxDirs : Nat) (exportBounds : List (Sym × Nat))
+    [Lean.ToExpr (List I.Hints)] [Lean.ToExpr (List I.Directive)]
+    (items : List (TFlatFn × Nat × Nat)) :
+    Except String EvalSccModuleData := do
+  if items.isEmpty then
+    pure (evalSccEmpty I ext0)
+  else
+    let allItems ← spawnLowerFlatItems I lt items (·.1)
+        fun nm h c mf ext it =>
+      let (tf, maxFrame, minEntry) := it
+      let cals := (tflatCalleesAux tf.body []).reverse
+      SccItem.mk nm (tf.name, tf.as, tf.rs) (mf.name, mf.as, mf.rs) h c ext cals
+        (tflatExitsOk exits tf.body) (maxFrame, minEntry)
+    evalSccItemsFromList I raBytes ext0 extSigs0 exits nX chunkSize maxBound maxDirs
+      exportBounds allItems
 
 structure CertSccOptions where
   maxBT? : Option Term := none
@@ -616,6 +794,7 @@ structure CertSccOptions where
   maxDirsT? : Option Term := none
   compileT? : Option Term := none
   compileExtT? : Option Term := none
+  flatT? : Option Term := none
   deriving Inhabited
 
 structure CertSccInputs where
@@ -626,11 +805,12 @@ structure CertSccInputs where
   exportBoundsE : Lean.Expr
   chunks : List EvalSccChunk
   finalExtLit : Lean.Expr
+  flatBfsCtx? : Option (Lean.Expr × Lean.Expr × Lean.Expr × Lean.Expr) := none
 
 def parseCertSccOptions (optKeys : TSyntaxArray `ident) (optVals : TSyntaxArray `term) :
     CommandElabM CertSccOptions :=
   parseKvOptions "compile_linked_budget_scc!"
-    "maxBound, exportBounds, ext, extSigs, exits, nX, maxDirs, compile, compileExt" {}
+    "maxBound, exportBounds, ext, extSigs, exits, nX, maxDirs, compile, compileExt, flat" {}
     (fun opts k v => pure <| match k with
       | `maxBound => some { opts with maxBT? := some v }
       | `exportBounds => some { opts with exportBoundsT? := some v }
@@ -641,6 +821,7 @@ def parseCertSccOptions (optKeys : TSyntaxArray `ident) (optVals : TSyntaxArray 
       | `maxDirs => some { opts with maxDirsT? := some v }
       | `compile => some { opts with compileT? := some v }
       | `compileExt => some { opts with compileExtT? := some v }
+      | `flat => some { opts with flatT? := some v }
       | _ => none) optKeys optVals
 
 def elabAndEvalSccChunks (targT layoutT ltT clT modT : Term) (chunkSize : Nat)
@@ -657,19 +838,41 @@ def elabAndEvalSccChunks (targT layoutT ltT clT modT : Term) (chunkSize : Nat)
       (Lean.mkConst ``LeanQbe.T.Extern.sig) (mkApp (Lean.mkConst ``LeanQbe.T.Module.externs) modE))
   let nilSymNat := mkApp (Lean.mkConst ``List.nil [.zero]) tys.symNatTy
   let exportBoundsE ← elabOptTerm opts.exportBoundsT? tys.listBoundsTy nilSymNat
+  let flat ← evalBoolOpt opts.flatT? false
   Term.synthesizeSyntheticMVarsNoPostponing
   let modE ← instantiateMVars modE; let bfsBaseE ← instantiateMVars bfsBaseE
   let extSigsE ← instantiateMVars extSigsE; let exportBoundsE ← instantiateMVars exportBoundsE
-  let callE ← instantiateMVars <| mkAppN (Lean.mkConst ``LeanQbe.T.evalLinkedBudgetSccChunks)
-    #[b.isaE, b.ltE, b.raE, b.ext0E, extSigsE, b.exitsE, b.nXE, bfsBaseE, mkNatLit chunkSize,
-      b.maxBE, b.maxDirsE, exportBoundsE, b.toExprHintsInst, b.toExprDirInst]
   let outTy := mkApp2 (Lean.mkConst ``Except [.zero, .zero]) (Lean.mkConst ``String)
     (Lean.mkConst ``LeanQbe.T.EvalSccModuleData)
-  match (← unsafe evalExpr (Except String EvalSccModuleData) outTy callE) with
+  let (evalRes, flatBfsCtx?) ←
+    if flat then
+      match (← decodeFlatBudgetSliceExpr bfsBaseE) with
+      | some (flatItems, flatBfsListE, bfsEqProof, flatFnsListE, fnsEqProof) =>
+        let flatTy := Lean.mkConst ``LeanQbe.T.TFlatFn
+        let natPairTy := mkApp2 (Lean.mkConst ``Prod [.zero, .zero]) tys.natTy tys.natTy
+        let flatItemTy := mkApp2 (Lean.mkConst ``Prod [.zero, .zero]) flatTy natPairTy
+        let listFlatItemTy := mkApp (Lean.mkConst ``List [.zero]) flatItemTy
+        let runnerTy := Lean.mkForall `_ .default listFlatItemTy outTy
+        let callE ← instantiateMVars <|
+          mkAppN (Lean.mkConst ``LeanQbe.T.evalLinkedBudgetSccChunksFlat)
+            #[b.isaE, b.ltE, b.raE, b.ext0E, extSigsE, b.exitsE, b.nXE, mkNatLit chunkSize,
+              b.maxBE, b.maxDirsE, exportBoundsE, b.toExprHintsInst, b.toExprDirInst]
+        let runner ← unsafe evalExpr
+          (List (TFlatFn × Nat × Nat) → Except String EvalSccModuleData) runnerTy callE
+        pure (runner flatItems, some (flatBfsListE, bfsEqProof, flatFnsListE, fnsEqProof))
+      | none =>
+        throwError "compile_linked_budget_scc!: (flat := true) requires a materialized \
+          TFlatFn/denoteFunc BudgetModule slice (decodeFlatBudgetSliceExpr returned none)"
+    else
+      let callE ← instantiateMVars <| mkAppN (Lean.mkConst ``LeanQbe.T.evalLinkedBudgetSccChunks)
+        #[b.isaE, b.ltE, b.raE, b.ext0E, extSigsE, b.exitsE, b.nXE, bfsBaseE, mkNatLit chunkSize,
+          b.maxBE, b.maxDirsE, exportBoundsE, b.toExprHintsInst, b.toExprDirInst]
+      pure (← unsafe evalExpr (Except String EvalSccModuleData) outTy callE, none)
+  match evalRes with
   | .error e => throwError "compile_linked_budget_scc!: {e}"
   | .ok md => return {
       base := b, modE, bfsBaseE, extSigsE, exportBoundsE,
-      chunks := md.chunks, finalExtLit := md.finalExtLit }
+      chunks := md.chunks, finalExtLit := md.finalExtLit, flatBfsCtx? }
 
 private structure EmittedLeafNames where
   leaf : EvalSccLeaf
@@ -678,6 +881,8 @@ private structure EmittedLeafNames where
   codeNm : Name
   cmAuxNm : Name
   subNm : Name
+  flatNm? : Option Name := none
+  cmFlatNm? : Option Name := none
   deriving Inhabited
 
 private inductive EmittedChunkMeta where
@@ -697,6 +902,31 @@ private def elabCompileLinkedBudgetScc (certId : Ident)
   let budgetExcTy :=
     mkApp2 (Lean.mkConst ``Except [.zero, .zero]) (Lean.mkConst ``String) b.listDirTy
   let fnsBaseE := mkApp (Lean.mkConst ``LeanQbe.T.Module.fns) inp.modE
+  let (flatBfsCtx?, flatFnsCtx?) ← match inp.flatBfsCtx? with
+    | some (flatBfsListE, bfsEqProof, flatFnsListE, fnsEqProof) =>
+      let flatTy := Lean.mkConst ``LeanQbe.T.TFlatFn
+      let listFlatTy := mkApp (Lean.mkConst ``List [.zero]) flatTy
+      let flatBfnTy := Lean.mkConst ``LeanQbe.T.FlatBudgetFn
+      let listFlatBfnTy := mkApp (Lean.mkConst ``List [.zero]) flatBfnTy
+      let flatBfsNm := auxNs ++ `flatBfs; let bfsFlatEqNm := auxNs ++ `bfs_flat_eq
+      let flatBfsConstE := Lean.mkConst flatBfsNm
+      let bfsRhsE := mkApp4 (Lean.mkConst ``List.map [.zero, .one])
+        flatBfnTy bfnTy (Lean.mkConst ``LeanQbe.T.FlatBudgetFn.toBudgetFn) flatBfsConstE
+      let bfsEqTy := mkApp3 (Lean.mkConst ``Eq [2]) listBfnTy inp.bfsBaseE bfsRhsE
+      let flatFnsNm := auxNs ++ `flatFns; let fnsFlatEqNm := auxNs ++ `fns_flat_eq
+      let flatFnsConstE := Lean.mkConst flatFnsNm
+      let fnsRhsE := mkApp4 (Lean.mkConst ``List.map [.zero, .one])
+        flatTy tys.fnTy (Lean.mkConst ``LeanQbe.T.TFlatFn.toFn) flatFnsConstE
+      let fnsEqTy := mkApp3 (Lean.mkConst ``Eq [2]) tys.listFnTy fnsBaseE fnsRhsE
+      liftCoreM do
+        addCertDef flatBfsNm listFlatBfnTy flatBfsListE false
+        addCertThm bfsFlatEqNm bfsEqTy bfsEqProof
+        addCertDef flatFnsNm listFlatTy flatFnsListE false
+        addCertThm fnsFlatEqNm fnsEqTy fnsEqProof
+      pure (some (flatBfnTy, flatBfsConstE, bfsFlatEqNm),
+        some (fnsBaseE, flatFnsConstE, fnsFlatEqNm))
+    | none => pure (none, none)
+  let flatFnsBaseE? := flatFnsCtx?.map (·.2.1)
   let emitLeaves (pfx : String) (leaves : List EvalSccLeaf) :
       CommandElabM (Array EmittedLeafNames) := do
     let mut leafArr : Array EmittedLeafNames := #[]; let mut sj : Nat := 0
@@ -704,12 +934,20 @@ private def elabCompileLinkedBudgetScc (certId : Ident)
       let nm := fun s => auxNs ++ Name.mkSimple s!"{pfx}_s{sj}_{s}"
       let fnsNm := nm "fns"; let hintsNm := nm "hints"; let codeNm := nm "code"
       let sliceE := mkSliceExpr bfnTy inp.bfsBaseE lf.startIdx lf.fnCount lf.isModuleLast
+      let flatNm? := flatBfsCtx?.map fun _ => nm "flat"
+      let cmFlatNm? := flatBfsCtx?.map fun _ => nm "cm_flat"
       liftCoreM do
         addCertDef fnsNm listBfnTy sliceE b.compileCert
         addCertDef hintsNm b.listHintsTy lf.hintsLit b.compileCert
         addCertDef codeNm b.listDirTy lf.codeLit b.compileCert
+        if let (some (flatBfnTy, flatBfsConstE, _), some flatNm) := (flatBfsCtx?, flatNm?) then
+          let listFlatBfnTy := mkApp (Lean.mkConst ``List [.zero]) flatBfnTy
+          let flatSliceE :=
+            mkSliceExpr flatBfnTy flatBfsConstE lf.startIdx lf.fnCount lf.isModuleLast .zero
+          addCertDef flatNm listFlatBfnTy flatSliceE false
       leafArr := leafArr.push {
-        leaf := lf, fnsNm, hintsNm, codeNm, cmAuxNm := nm "cm", subNm := nm "sub" }
+        leaf := lf, fnsNm, hintsNm, codeNm, cmAuxNm := nm "cm", subNm := nm "sub",
+        flatNm?, cmFlatNm? }
       sj := sj + 1
     return leafArr
   let emitRec (pfx : String) (extLit recSigsLit : Lean.Expr)
@@ -728,7 +966,7 @@ private def elabCompileLinkedBudgetScc (certId : Ident)
     emitted := emitted.push <| ← match ch with
       | .acyc startIdx fnCount isLast extLit hintsLit codeLit boundsLit =>
         .acyc <$> emitAcycChunkDefs auxNs pfx b.compileCert fnsBaseE b.listHintsTy b.listDirTy
-          ⟨startIdx, fnCount, isLast, extLit, hintsLit, codeLit, boundsLit⟩
+          ⟨startIdx, fnCount, isLast, extLit, hintsLit, codeLit, boundsLit⟩ flatFnsBaseE?
       | .recBudgetSCC extLit recSigsLit leaves =>
         emitRec pfx extLit recSigsLit leaves
     ci := ci + 1
@@ -737,7 +975,7 @@ private def elabCompileLinkedBudgetScc (certId : Ident)
     liftCoreM <| addKernelEqThm nm (Lean.mkConst ``Bool) lhs (Lean.mkConst ``Bool.true) .zero
   for em in emitted do
     match em with
-    | .acyc ac => liftCoreM <| emitAcycChunkThms b ac
+    | .acyc ac => liftCoreM <| emitAcycChunkThms b ac flatFnsCtx?
     | .recBudget extNm recSigsNm _ _ _ leaves =>
       for lfn in leaves do
         let cmLhs := mkAppN (Lean.mkConst ``LeanQbe.T.compileModuleBudgetRecAuxSupp)
@@ -745,7 +983,31 @@ private def elabCompileLinkedBudgetScc (certId : Ident)
             Lean.mkConst lfn.fnsNm, Lean.mkConst lfn.hintsNm]
         let cmRhs := mkApp3 (Lean.mkConst ``Except.ok [.zero, .zero])
           (Lean.mkConst ``String) b.listDirTy (Lean.mkConst lfn.codeNm)
-        liftCoreM <| addKernelEqThm lfn.cmAuxNm budgetExcTy cmLhs cmRhs .zero
+        match flatBfsCtx?, lfn.flatNm?, lfn.cmFlatNm? with
+        | some (flatBfnTy, flatBfsConstE, bfsFlatEqNm), some flatNm, some cmFlatNm =>
+          let cmFlatLhs := mkAppN (Lean.mkConst ``LeanQbe.T.compileModuleBudgetRecAuxFlat)
+            #[b.isaE, b.ltE, b.raE, Lean.mkConst recSigsNm, Lean.mkConst extNm, b.exitsE, b.nXE,
+              Lean.mkConst flatNm, Lean.mkConst lfn.hintsNm]
+          liftCoreM do
+            addKernelEqThm cmFlatNm budgetExcTy cmFlatLhs cmRhs .zero
+            let sliceEqPf := if lfn.leaf.isModuleLast then
+              mkAppN (Lean.mkConst ``LeanQbe.T.map_drop_eq [.zero, .one])
+                #[flatBfnTy, bfnTy, Lean.mkConst ``LeanQbe.T.FlatBudgetFn.toBudgetFn,
+                  inp.bfsBaseE, flatBfsConstE, Lean.mkConst bfsFlatEqNm,
+                  mkNatLit lfn.leaf.startIdx]
+            else
+              mkAppN (Lean.mkConst ``LeanQbe.T.map_slice_eq [.zero, .one])
+                #[flatBfnTy, bfnTy, Lean.mkConst ``LeanQbe.T.FlatBudgetFn.toBudgetFn,
+                  inp.bfsBaseE, flatBfsConstE, Lean.mkConst bfsFlatEqNm,
+                  mkNatLit lfn.leaf.startIdx, mkNatLit lfn.leaf.fnCount]
+            let cmTy := mkApp3 (Lean.mkConst ``Eq [.succ .zero]) budgetExcTy cmLhs cmRhs
+            let cmVal := mkAppN (Lean.mkConst ``LeanQbe.T.compileModuleBudgetRecAuxSupp_of_flat_eq)
+              #[b.isaE, b.ltE, b.raE, Lean.mkConst recSigsNm, Lean.mkConst extNm, b.exitsE,
+                b.nXE, Lean.mkConst lfn.fnsNm, Lean.mkConst flatNm, Lean.mkConst lfn.hintsNm,
+                Lean.mkConst lfn.codeNm, sliceEqPf, Lean.mkConst cmFlatNm]
+            addCertThm lfn.cmAuxNm cmTy cmVal
+        | _, _, _ =>
+          liftCoreM <| addKernelEqThm lfn.cmAuxNm budgetExcTy cmLhs cmRhs .zero
   -- Pass 3: assemble `.acyc` and `.recBudgetSCC` `Chunk` entries & checks.
   let chunkTy := mkAppN (Lean.mkConst ``LeanQbe.T.Chunk) #[b.targE, b.ltE, b.exitsE, b.nXE]
   let mut chunkEntries : Array Lean.Expr := #[]
@@ -873,7 +1135,9 @@ private def elabCompileLinkedBudgetScc (certId : Ident)
     addCertDef (certNm ++ `exportedExt) tys.listExtTy inp.finalExtLit b.compileExt
 
 /-- `compile_linked_budget_scc! certName target layout legalTarget labelClean budgetMod chunkSize
-...` partitions `budgetMod.fns` into `.acyc` spans and closed `.recBudgetSCC` SCC chunks. -/
+[(maxBound := ...)] [(exportBounds := ...)] [(ext := ...)] [(extSigs := ...)] [(exits := ...)]
+[(nX := ...)] [(maxDirs := ...)] [(compile := ...)] [(compileExt := ...)] [(flat := ...)]`
+partitions `budgetMod.fns` into `.acyc` spans and closed `.recBudgetSCC` SCC chunks. -/
 scoped syntax "compile_linked_budget_scc! " ident
     term:arg term:arg term:arg term:arg term:arg num
     ("(" ident " := " term ")")* : command
