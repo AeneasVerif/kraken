@@ -104,18 +104,18 @@ theorem Program.size_append (p₁ p₂ : Program Instr Const) (l : Layout) :
   simp only [size, Layout.mapIdx_dirSize_append_left_const, Layout.dirSize_offset,
     List.mapIdx_append, List.sum_append]
 
-class Layout.WellFormed (l : Layout) (p : Program Instr Const) : Prop where
+class Program.AssemblableWith (p : Program Instr Const) (l : Layout) : Prop where
   no_overflow : p.size l < 2^64
   unique_labels : p.labels.Nodup
 
-theorem Layout.WellFormed.append_left {p₁ p₂ : Program Instr Const} {l : Layout}
-    (h : l.WellFormed (p₁ ++ p₂)) : l.WellFormed p₁ where
-  no_overflow := by grind only [Program.size_append, Layout.WellFormed]
+theorem Program.AssemblableWith.append_left {p₁ p₂ : Program Instr Const} {l : Layout}
+    (h : (p₁ ++ p₂).AssemblableWith l) : p₁.AssemblableWith l where
+  no_overflow := by grind only [Program.size_append, Program.AssemblableWith]
   unique_labels := by grind [Program.labels, h.unique_labels]
 
-theorem Layout.WellFormed.append_right {p₁ p₂ : Program Instr Const} {l : Layout}
-    (h : l.WellFormed (p₁ ++ p₂)) : (l.offset p₁).WellFormed p₂ where
-  no_overflow := by grind only [Program.size_append, Layout.WellFormed]
+theorem Program.AssemblableWith.append_right {p₁ p₂ : Program Instr Const} {l : Layout}
+    (h : (p₁ ++ p₂).AssemblableWith l) : p₂.AssemblableWith (l.offset p₁) where
+  no_overflow := by grind only [Program.size_append, Program.AssemblableWith]
   unique_labels := by grind [Program.labels, h.unique_labels]
 
 structure Addressable (Directive : Type) extends Sized Directive where (addr : Int64)
@@ -259,14 +259,14 @@ theorem Executable.sizeBefore_le (n : Nat) :
   simpa [sizeBefore, List.take_of_length_le (Nat.le_max_right n e.program.length)] using
     e.sizeBefore_mono (Nat.le_max_left n e.program.length)
 
-theorem Program.sizeBefore_lt {prog : Program Instr Const} {l : Layout} (hl : l.WellFormed prog)
+theorem Program.sizeBefore_lt {prog : Program Instr Const} {l : Layout} (hl : prog.AssemblableWith l)
     (n : Nat) :
     (l.apply prog).sizeBefore n < 2^64 :=
   Nat.lt_of_le_of_lt ((l.apply prog).sizeBefore_le n)
     (Program.map_size_apply_eq prog l ▸ hl.no_overflow)
 
 theorem Program.sizeBefore_eq_of_addrOf_eq {prog : Program Instr Const} {l : Layout}
-    (hl : l.WellFormed prog)
+    (hl : prog.AssemblableWith l)
     {j k : Nat} (h : (l.apply prog).addrOf j = (l.apply prog).addrOf k) :
     (l.apply prog).sizeBefore j = (l.apply prog).sizeBefore k := by
   have hj := Program.sizeBefore_lt hl j
@@ -277,7 +277,7 @@ theorem Program.sizeBefore_eq_of_addrOf_eq {prog : Program Instr Const} {l : Lay
 `(l.apply prog).directivesAtAddress ((l.apply prog).addrOf k)` consists of a prefix of
 zero-size directives at `(l.apply prog).addrOf k` followed by `[{directive := d, size := l.dirSize prog k}]`. -/
 theorem Program.directivesAtAddress_addrOf {prog : Program Instr Const} {l : Layout}
-    (hl : l.WellFormed prog)
+    (hl : prog.AssemblableWith l)
     {k : Nat} {d : Directive Instr Const} (hd : prog[k]? = some d) (hz : 0 < l.dirSize prog k) :
     ZeroSizePrefix ((l.apply prog).directivesAtAddress ((l.apply prog).addrOf k))
       [{directive := d, size := l.dirSize prog k}] := by
@@ -448,7 +448,7 @@ theorem Program.containsAddr_of_mem_directivesAtAddress (p : Program Instr Const
   exact ⟨(l.apply p).sizeBefore i, by omega, hx_addr.symm.trans (congrArg Addressable.addr hi_eq)⟩
 
 theorem Program.directivesAtAddress_append_left {p₁ p₂ : Program Instr Const} {l : Layout}
-    (hl : l.WellFormed (p₁ ++ p₂)) (pc : Int64)
+    (hl : (p₁ ++ p₂).AssemblableWith l) (pc : Int64)
     (hpc : p₁.ContainsAddr l pc) :
     (l.apply (p₁ ++ p₂)).directivesAtAddress pc = (l.apply p₁).directivesAtAddress pc := by
   have hno₂ : ∀ y ∈ ((l.offset p₁).apply p₂).withAddresses, y.addr ≠ pc := by
@@ -480,7 +480,7 @@ theorem Program.directivesAtAddress_append_left {p₁ p₂ : Program Instr Const
     · rfl
 
 theorem Program.directivesAtAddress_append_right {p₁ p₂ : Program Instr Const} {l : Layout}
-    (hl : l.WellFormed (p₁ ++ p₂)) (pc : Int64)
+    (hl : (p₁ ++ p₂).AssemblableWith l) (pc : Int64)
     (hpc : p₂.ContainsAddr (l.offset p₁) pc) :
     ZeroSizePrefix ((l.apply (p₁ ++ p₂)).directivesAtAddress pc)
       (((l.offset p₁).apply p₂).directivesAtAddress pc) := by
