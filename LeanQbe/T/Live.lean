@@ -1,6 +1,8 @@
 module
 
 public import LeanQbe.T.Rega
+public import Std.Data.HashSet
+public import Std.Data.HashMap
 
 /-!
 # Typed Liveness Analysis (untrusted, reusing `Arg.vars`/`tupVars`/`Op.vars`)
@@ -30,7 +32,7 @@ def Bank.isVec : Bank → Bool | .vec _ => true | .gpr => false
 def Bank.slots : Bank → Nat | .gpr => 1 | .vec w => w.slots
 def Bank.slotWidth : Bank → SlotWidth | .gpr => .w64 | .vec w => w
 
-/-! ## Small `Nat` Set Operations (backed by `Trie Unit`) -/
+/-! ## Small `Nat` Set Operations (backed by `Trie Unit` / `Std.HashSet Nat`) -/
 
 def trieOfList (xs : List Nat) : Trie Unit :=
   xs.foldl (fun t x => t.insert x ()) .empty
@@ -38,31 +40,59 @@ def trieOfList (xs : List Nat) : Trie Unit :=
 def trieMem (t : Trie Unit) (x : Nat) : Bool :=
   (t.find? x).isSome
 
+def hashSetOfList (xs : List Nat) : Std.HashSet Nat :=
+  xs.foldl (fun s x => s.insert x) (Std.HashSet.emptyWithCapacity xs.length)
+
 def natMem (x : Nat) : List Nat → Bool
   | [] => false | y :: ys => if Nat.beq x y then true else natMem x ys
 
 def erase (x : Nat) (xs : List Nat) : List Nat :=
-  xs.filter (!Nat.beq · x)
+  if !natMem x xs then xs else xs.filter (!Nat.beq · x)
 
 def eraseMany (xs : List Nat) (ys : List Nat) : List Nat :=
-  if xs.isEmpty then ys
-  else
-    let s := trieOfList xs
-    ys.filter (!trieMem s ·)
+  if ys.isEmpty then []
+  else match xs with
+  | [] => ys
+  | [x] => erase x ys
+  | [x, y] => ys.filter fun z => !Nat.beq z x && !Nat.beq z y
+  | _ =>
+    let s := hashSetOfList xs
+    ys.filter (!s.contains ·)
+
+def dedup : List Nat → List Nat
+  | [] => []
+  | [x] => [x]
+  | [x, y] => if Nat.beq x y then [x] else [x, y]
+  | xs =>
+    let rec go (xs : List Nat) (seen : Std.HashSet Nat) (acc : List Nat) : List Nat :=
+      match xs with
+      | [] => acc.reverse
+      | x :: rest =>
+        if seen.contains x then go rest seen acc
+        else go rest (seen.insert x) (x :: acc)
+    go xs (Std.HashSet.emptyWithCapacity xs.length) []
 
 def union (a b : List Nat) : List Nat :=
   if b.isEmpty then a
-  else
-    let seen := trieOfList a
-    let base := if a.isEmpty then [] else a.reverse
-    (b.foldl (fun (acc, s) x =>
-      if trieMem s x then (acc, s) else (x :: acc, s.insert x ())) (base, seen)).1.reverse
-
-def dedup (xs : List Nat) : List Nat :=
-  if xs.isEmpty then []
-  else
-    (xs.foldl (fun (acc, s) x =>
-      if trieMem s x then (acc, s) else (x :: acc, s.insert x ())) ([], .empty)).1.reverse
+  else if a.isEmpty then dedup b
+  else match b with
+  | [x] => if natMem x a then a else a ++ [x]
+  | [x, y] =>
+    let hasX := natMem x a
+    let hasY := Nat.beq x y || natMem y a
+    if hasX && hasY then a
+    else if hasX then a ++ [y]
+    else if hasY then a ++ [x]
+    else a ++ [x, y]
+  | _ =>
+    let seen0 := hashSetOfList a
+    let rec go (bs : List Nat) (seen : Std.HashSet Nat) (added : List Nat) : List Nat :=
+      match bs with
+      | [] => if added.isEmpty then a else a ++ added.reverse
+      | x :: rest =>
+        if seen.contains x then go rest seen added
+        else go rest (seen.insert x) (x :: added)
+    go b seen0 []
 
 /-- Variable IDs reusing `Ops.lean`'s `Arg.vars`, `tupVars`, and `Op.vars`. -/
 def argVarIds {t : Ty} (a : Arg VNat t) : List Nat := a.vars.map (·.2)
@@ -86,7 +116,8 @@ inductive Tree where
   | let_ (lv : List Nat) (ip nv0 : Nat) (ts : List Ty) (op : Op VNat ts) (k : Tree)
   | load (lv : List Nat) (ip x : Nat) (t : Ty) (a : Arg VNat i64) (k : Tree)
   | store (lv : List Nat) (ip : Nat) (t : Ty) (v : Arg VNat t) (a : Arg VNat i64) (k : Tree)
-  | call (lv : List Nat) (ip nv0 : Nat) (g : Sym) (as bs : List Ty) (args : Tup (Arg VNat) as) (k : Tree)
+  | call (lv : List Nat) (ip nv0 : Nat) (g : Sym) (as bs : List Ty)
+      (args : Tup (Arg VNat) as) (k : Tree)
   | jnz (lv : List Nat) (ip c l : Nat) (t e : Tree)
   | skip (lv : List Nat) (ip : Nat) (k : Tree)
   | jump (lv : List Nat) (ip j : Nat) (ts : List Ty) (args : Tup (Arg VNat) ts)
@@ -111,7 +142,8 @@ mutual
 def toTreeExpr {rs : List Ty} :
     Expr VNat LNat rs → Nat → Nat → Nat → Trie Ty → Tree × Nat × Nat × Nat × Trie Ty
   | .let_ (ts := ts) op k, nv, nl, ip, tys =>
-    let (tk, r) := toTreeExpr (k (Tup.levels ts nv)) (nv + ts.length) nl (ip + 1) (recordTypes (levelTypes nv ts) tys)
+    let (tk, r) := toTreeExpr (k (Tup.levels ts nv)) (nv + ts.length) nl (ip + 1)
+      (recordTypes (levelTypes nv ts) tys)
     (.let_ [] ip nv ts op tk, r)
   | .load t a k, nv, nl, ip, tys =>
     let (tk, r) := toTreeExpr (k nv) (nv + 1) nl (ip + 1) (tys.insert nv t)
@@ -120,7 +152,8 @@ def toTreeExpr {rs : List Ty} :
     let (tk, r) := toTreeExpr k nv nl (ip + 1) tys
     (.store [] ip t v a tk, r)
   | .call g (as := as) (bs := bs) args k, nv, nl, ip, tys =>
-    let (tk, r) := toTreeExpr (k (Tup.levels bs nv)) (nv + bs.length) nl (ip + 1) (recordTypes (levelTypes nv bs) tys)
+    let (tk, r) := toTreeExpr (k (Tup.levels bs nv)) (nv + bs.length) nl (ip + 1)
+      (recordTypes (levelTypes nv bs) tys)
     (.call [] ip nv g as bs args tk, r)
   | .jnz (.imm b) t e, nv, nl, ip, tys =>
     let (tk, r) := if b then toTreeExpr t nv nl (ip + 1) tys else toTreeExpr e nv nl (ip + 1) tys
@@ -145,7 +178,8 @@ def toTreeBlocks {rs : List Ty} :
   | _, .nil, _, nv, nl, ip, tys => (.nil, nv, nl, ip, tys)
   | _, .cons (ts := ts) b bs, lid, nv, nl, ip, tys =>
     let ps := levelTypes nv ts
-    let (tb, nv1, nl1, ip1, tys2) := toTreeExpr (b (Tup.levels ts nv)) (nv + ts.length) nl ip (recordTypes ps tys)
+    let (tb, nv1, nl1, ip1, tys2) :=
+      toTreeExpr (b (Tup.levels ts nv)) (nv + ts.length) nl ip (recordTypes ps tys)
     let (rest, r) := toTreeBlocks bs (lid + 1) nv1 nl1 ip1 tys2
     (.cons lid ps tb rest, r)
 end
@@ -153,7 +187,8 @@ end
 /-- Convert `f : Fn` to `Tree`, returning `(tree, fnParams, nv, nl, nip, varTypes)`. -/
 def Tree.ofFn (f : Fn) : Tree × List (Nat × Ty) × Nat × Nat × Nat × Trie Ty :=
   let ps := levelTypes 0 f.as
-  let (t, nv, nl, nip, tys) := toTreeExpr (f.body VNat LNat (Tup.levels f.as 0)) f.as.length 0 0 (recordTypes ps .empty)
+  let (t, nv, nl, nip, tys) :=
+    toTreeExpr (f.body VNat LNat (Tup.levels f.as 0)) f.as.length 0 0 (recordTypes ps .empty)
   (t, ps, nv, nl, nip, tys)
 
 /-! ## Address-Arithmetic Elision (`[base + idx*scale + disp]`, untrusted) -/
@@ -763,7 +798,8 @@ def elideRmwTreeDeps (I : Isa) (t : Tree) (elideIps : Trie Bool)
 
 mutual
 def Tree.blocks : Tree → List (Nat × List (Nat × Ty) × Tree)
-  | .let_ _ _ _ _ _ k | .load _ _ _ _ _ k | .store _ _ _ _ _ k | .call _ _ _ _ _ _ _ k | .skip _ _ k => k.blocks
+  | .let_ _ _ _ _ _ k | .load _ _ _ _ _ k | .store _ _ _ _ _ k
+  | .call _ _ _ _ _ _ _ k | .skip _ _ k => k.blocks
   | .jnz _ _ _ _ t e => t.blocks ++ e.blocks
   | .group _ bs k => bs.blocks ++ k.blocks
   | .jump .. | .ret .. | .exit .. | .stop _ => []
@@ -776,7 +812,8 @@ end
 mutual
 def allJumps : Tree → List Nat
   | .jump _ _ j _ _ => [j]
-  | .let_ _ _ _ _ _ k | .load _ _ _ _ _ k | .store _ _ _ _ _ k | .call _ _ _ _ _ _ _ k | .skip _ _ k => allJumps k
+  | .let_ _ _ _ _ _ k | .load _ _ _ _ _ k | .store _ _ _ _ _ k
+  | .call _ _ _ _ _ _ _ k | .skip _ _ k => allJumps k
   | .jnz _ _ _ _ t e => union (allJumps t) (allJumps e)
   | .group _ bs k => union (allJumpsB bs) (allJumps k)
   | .ret .. | .exit .. | .stop _ => []
@@ -786,80 +823,222 @@ def allJumpsB : TreeBlocks → List Nat
   | .cons _ _ b bs => union (allJumps b) (allJumpsB bs)
 end
 
-mutual
-def fillLive (lTrie : Trie (List Nat)) (addrDeps : Trie (List Nat) := .empty)
-    (rmwDeps : Trie (List Nat) := .empty) : Tree → List Nat × Tree
-  | .let_ _ ip nv0 ts op k =>
-    let (klv, k) := fillLive lTrie addrDeps rmwDeps k
-    let ops := addrDeps.getD ip (opVarIds op)
-    let lv := union (eraseMany ((List.range ts.length).map (nv0 + ·)) klv) ops
-    (lv, .let_ lv ip nv0 ts op k)
-  | .load _ ip x t a k =>
-    let (klv, k) := fillLive lTrie addrDeps rmwDeps k
-    let aUses := addrDeps.getD ip (argVarIds a)
-    let lv := union (erase x klv) aUses
-    (lv, .load lv ip x t a k)
-  | .store _ ip t v a k =>
-    let (klv, k) := fillLive lTrie addrDeps rmwDeps k
-    let lv := union klv (storeVarIds addrDeps rmwDeps ip v a)
-    (lv, .store lv ip t v a k)
-  | .call _ ip nv0 g as bs args k =>
-    let (klv, k) := fillLive lTrie addrDeps rmwDeps k
-    let lv := union (eraseMany ((List.range bs.length).map (nv0 + ·)) klv) (tupVarIds args)
-    (lv, .call lv ip nv0 g as bs args k)
-  | .jnz _ ip c l t e =>
-    let (tlv, t) := fillLive lTrie addrDeps rmwDeps t
-    let (elv, e) := fillLive lTrie addrDeps rmwDeps e
-    let lv := union (union tlv elv) [c]
-    (lv, .jnz lv ip c l t e)
-  | .skip _ ip k =>
-    let (klv, k) := fillLive lTrie addrDeps rmwDeps k
-    (klv, .skip klv ip k)
-  | .jump _ ip j ts args => let lv := union (tupVarIds args) (lTrie.getD j []); (lv, .jump lv ip j ts args)
-  | .ret _ ip rs vs => let lv := tupVarIds vs; (lv, .ret lv ip rs vs)
-  | .exit _ ip g as args => let lv := tupVarIds args; (lv, .exit lv ip g as args)
-  | .stop ip => ([], .stop ip)
-  | .group _ bs k =>
-    let (klv, k) := fillLive lTrie addrDeps rmwDeps k
-    (klv, .group klv (fillLiveB lTrie addrDeps rmwDeps bs) k)
+def unionWithSet (a : List Nat) (aSet : Std.HashSet Nat) (b : List Nat) :
+    List Nat × Std.HashSet Nat :=
+  match b with
+  | [] => (a, aSet)
+  | [x] => if aSet.contains x then (a, aSet) else (a ++ [x], aSet.insert x)
+  | _ =>
+    let rec go (bs : List Nat) (s : Std.HashSet Nat) (added : List Nat) :
+        List Nat × Std.HashSet Nat :=
+      match bs with
+      | [] => if added.isEmpty then (a, s) else (a ++ added.reverse, s)
+      | x :: rest =>
+        if s.contains x then go rest s added
+        else go rest (s.insert x) (x :: added)
+    go b aSet []
 
-def fillLiveB (lTrie : Trie (List Nat)) (addrDeps : Trie (List Nat) := .empty)
-    (rmwDeps : Trie (List Nat) := .empty) : TreeBlocks → TreeBlocks
+def eraseOneWithSet (x : Nat) (a : List Nat) (aSet : Std.HashSet Nat) :
+    List Nat × Std.HashSet Nat :=
+  if !aSet.contains x then (a, aSet)
+  else (a.filter (!Nat.beq · x), aSet.erase x)
+
+def eraseRangeWithSet (nv0 n : Nat) (a : List Nat) (aSet : Std.HashSet Nat) :
+    List Nat × Std.HashSet Nat :=
+  match n with
+  | 0 => (a, aSet)
+  | 1 => eraseOneWithSet nv0 a aSet
+  | _ =>
+    let rec rm (i : Nat) (s : Std.HashSet Nat) (hit : Bool) : Std.HashSet Nat × Bool :=
+      match i with
+      | 0 => (s, hit)
+      | k + 1 =>
+        let v := nv0 + k
+        if s.contains v then rm k (s.erase v) true else rm k s hit
+    let (s', hit) := rm n aSet false
+    if !hit then (a, s')
+    else (a.filter (fun z => !(Nat.ble nv0 z && Nat.blt z (nv0 + n))), s')
+
+def defRange (nv0 n : Nat) : List Nat :=
+  match n with
+  | 0 => []
+  | 1 => [nv0]
+  | _ => (List.range n).map (nv0 + ·)
+
+mutual
+def fillLiveAux (lTrie : Trie (List Nat)) (addrDeps rmwDeps : Trie (List Nat))
+    (mapArgs : List Nat → List Nat) : Tree → List Nat × Std.HashSet Nat × Tree
+  | .let_ _ ip nv0 ts op k =>
+    let (klv, kSet, k) := fillLiveAux lTrie addrDeps rmwDeps mapArgs k
+    let ops := addrDeps.getD ip (opVarIds op)
+    let (lv0, s0) := eraseRangeWithSet nv0 ts.length klv kSet
+    let (lv, s) := unionWithSet lv0 s0 ops
+    (lv, s, .let_ lv ip nv0 ts op k)
+  | .load _ ip x t a k =>
+    let (klv, kSet, k) := fillLiveAux lTrie addrDeps rmwDeps mapArgs k
+    let aUses := addrDeps.getD ip (argVarIds a)
+    let (lv0, s0) := eraseOneWithSet x klv kSet
+    let (lv, s) := unionWithSet lv0 s0 aUses
+    (lv, s, .load lv ip x t a k)
+  | .store _ ip t v a k =>
+    let (klv, kSet, k) := fillLiveAux lTrie addrDeps rmwDeps mapArgs k
+    let (lv, s) := unionWithSet klv kSet (storeVarIds addrDeps rmwDeps ip v a)
+    (lv, s, .store lv ip t v a k)
+  | .call _ ip nv0 g as bs args k =>
+    let (klv, kSet, k) := fillLiveAux lTrie addrDeps rmwDeps mapArgs k
+    let (lv0, s0) := eraseRangeWithSet nv0 bs.length klv kSet
+    let (lv, s) := unionWithSet lv0 s0 (mapArgs (tupVarIds args))
+    (lv, s, .call lv ip nv0 g as bs args k)
+  | .jnz _ ip c l t e =>
+    let (tlv, tSet, t) := fillLiveAux lTrie addrDeps rmwDeps mapArgs t
+    let (elv, _, e) := fillLiveAux lTrie addrDeps rmwDeps mapArgs e
+    let (lv0, s0) := unionWithSet tlv tSet elv
+    let (lv, s) := unionWithSet lv0 s0 [c]
+    (lv, s, .jnz lv ip c l t e)
+  | .skip _ ip k =>
+    let (klv, kSet, k) := fillLiveAux lTrie addrDeps rmwDeps mapArgs k
+    (klv, kSet, .skip klv ip k)
+  | .jump _ ip j ts args =>
+    let a0 := mapArgs (tupVarIds args)
+    let (lv, s) := unionWithSet a0 (hashSetOfList a0) (lTrie.getD j [])
+    (lv, s, .jump lv ip j ts args)
+  | .ret _ ip rs vs =>
+    let lv := mapArgs (tupVarIds vs)
+    (lv, hashSetOfList lv, .ret lv ip rs vs)
+  | .exit _ ip g as args =>
+    let lv := mapArgs (tupVarIds args)
+    (lv, hashSetOfList lv, .exit lv ip g as args)
+  | .stop ip => ([], {}, .stop ip)
+  | .group _ bs k =>
+    let (klv, kSet, k) := fillLiveAux lTrie addrDeps rmwDeps mapArgs k
+    (klv, kSet, .group klv (fillLiveAuxB lTrie addrDeps rmwDeps mapArgs bs) k)
+
+def fillLiveAuxB (lTrie : Trie (List Nat)) (addrDeps rmwDeps : Trie (List Nat))
+    (mapArgs : List Nat → List Nat) : TreeBlocks → TreeBlocks
   | .nil => .nil
   | .cons l ps b bs =>
-    .cons l ps (fillLive lTrie addrDeps rmwDeps b).2 (fillLiveB lTrie addrDeps rmwDeps bs)
+    .cons l ps (fillLiveAux lTrie addrDeps rmwDeps mapArgs b).2.2
+      (fillLiveAuxB lTrie addrDeps rmwDeps mapArgs bs)
 end
+
+def fillLive (lTrie : Trie (List Nat)) (addrDeps : Trie (List Nat) := .empty)
+    (rmwDeps : Trie (List Nat) := .empty) (t : Tree) : List Nat × Tree :=
+  let (lv, _, t') := fillLiveAux lTrie addrDeps rmwDeps id t
+  (lv, t')
+
+def fillLiveB (lTrie : Trie (List Nat)) (addrDeps : Trie (List Nat) := .empty)
+    (rmwDeps : Trie (List Nat) := .empty) (bs : TreeBlocks) : TreeBlocks :=
+  fillLiveAuxB lTrie addrDeps rmwDeps id bs
+
+/-- Compact transfer-function skeleton for a block body, collapsing straight-line chains into a
+single `(kill, gen)` summary while preserving exact `fillLive` live-set element order. -/
+inductive LiveSkel where
+  | seq (kill : Std.HashSet Nat) (gen : List Nat) (tail : LiveSkel)
+  | jnz (c : Nat) (t e : LiveSkel)
+  | jump (j : Nat) (args : List Nat)
+  | const (lv : List Nat)
+
+def prependSkel (defs uses : List Nat) : LiveSkel → LiveSkel
+  | .const lv => .const (union (eraseMany defs lv) uses)
+  | .seq kill gen tail =>
+    let kill' := defs.foldl (fun s x => s.insert x) kill
+    let gen' := union (eraseMany defs gen) uses
+    .seq kill' gen' tail
+  | tail =>
+    if defs.isEmpty && uses.isEmpty then tail
+    else .seq (hashSetOfList defs) uses tail
+
+def mkLiveSkel (addrDeps rmwDeps : Trie (List Nat)) (mapArgs : List Nat → List Nat) :
+    Tree → LiveSkel
+  | .let_ _ ip nv0 ts op k =>
+    prependSkel (defRange nv0 ts.length) (addrDeps.getD ip (opVarIds op))
+      (mkLiveSkel addrDeps rmwDeps mapArgs k)
+  | .load _ ip x _ a k =>
+    prependSkel [x] (addrDeps.getD ip (argVarIds a)) (mkLiveSkel addrDeps rmwDeps mapArgs k)
+  | .store _ ip _ v a k =>
+    prependSkel [] (storeVarIds addrDeps rmwDeps ip v a) (mkLiveSkel addrDeps rmwDeps mapArgs k)
+  | .call _ _ nv0 _ _ bs args k =>
+    prependSkel (defRange nv0 bs.length) (mapArgs (tupVarIds args))
+      (mkLiveSkel addrDeps rmwDeps mapArgs k)
+  | .jnz _ _ c _ t e =>
+    let st := mkLiveSkel addrDeps rmwDeps mapArgs t
+    let se := mkLiveSkel addrDeps rmwDeps mapArgs e
+    match st, se with
+    | .const tlv, .const elv => .const (union (union tlv elv) [c])
+    | _, _ => .jnz c st se
+  | .skip _ _ k | .group _ _ k => mkLiveSkel addrDeps rmwDeps mapArgs k
+  | .jump _ _ j _ args => .jump j (mapArgs (tupVarIds args))
+  | .ret _ _ _ vs => .const (mapArgs (tupVarIds vs))
+  | .exit _ _ _ _ args => .const (mapArgs (tupVarIds args))
+  | .stop _ => .const []
+
+def skelJumps : LiveSkel → List Nat → List Nat
+  | .seq _ _ tail, acc => skelJumps tail acc
+  | .jnz _ t e, acc => skelJumps t (skelJumps e acc)
+  | .jump j _, acc => j :: acc
+  | .const _, acc => acc
+
+def evalLiveSkel (lt : Std.HashMap Nat (List Nat)) : LiveSkel → List Nat
+  | .const lv => lv
+  | .jump j args => union args (lt.getD j [])
+  | .jnz c t e => union (union (evalLiveSkel lt t) (evalLiveSkel lt e)) [c]
+  | .seq kill gen tail =>
+    let lv := evalLiveSkel lt tail
+    let lv' := if kill.isEmpty then lv else lv.filter (!kill.contains ·)
+    union lv' gen
+
+/-- Generalized join-point liveness fixpoint over pre-summarized block skeletons. -/
+def liveLabelsWith (bs0 : List (Nat × List (Nat × Ty) × Tree))
+    (addrDeps rmwDeps : Trie (List Nat)) (mapArgs : List Nat → List Nat) :
+    Trie (List Nat) :=
+  let bs := bs0.map fun (l, ps, tb) =>
+    let pvars := ps.map Prod.fst
+    let skel := prependSkel pvars [] (mkLiveSkel addrDeps rmwDeps mapArgs tb)
+    (l, skel, dedup (skelJumps skel []))
+  let rec go : Nat → Bool → Std.HashMap Nat (List Nat) → Std.HashSet Nat →
+      Std.HashMap Nat (List Nat)
+    | 0, _, lt, _ => lt
+    | fuel + 1, first, lt, prevCh =>
+      let (lt', nextCh, ch) := bs.foldl (fun (lt, nch, ch) (l, skel, js) =>
+        if !(first || js.any (prevCh.contains ·)) then (lt, nch, ch)
+        else
+          let lv := evalLiveSkel lt skel
+          if Nat.beq lv.length (lt.getD l []).length then (lt, nch, ch)
+          else (lt.insert l lv, nch.insert l, true))
+        (lt, {}, false)
+      if ch then go fuel false lt' nextCh else lt
+  let ltMap := go (8 * bs.length + 8) true {} {}
+  ltMap.fold (fun t l lv => t.insert l lv) .empty
 
 /-- Live-in variables (excluding own parameters) for every block label, by fixpoint iteration. -/
 def liveLabels (bs0 : List (Nat × List (Nat × Ty) × Tree))
     (addrDeps : Trie (List Nat) := .empty) (rmwDeps : Trie (List Nat) := .empty) :
     Trie (List Nat) :=
-  let bs := bs0.map fun (l, ps, tb) => (l, ps.map Prod.fst, tb, allJumps tb)
-  let rec go : Nat → Bool → Trie (List Nat) → Trie Bool → Trie (List Nat)
-    | 0, _, lt, _ => lt
-    | fuel + 1, first, lt, prevCh =>
-      let (lt', nextCh, ch) := bs.foldl (fun (lt, nch, ch) (l, pvars, tb, js) =>
-        if !(first || js.any (fun j => prevCh.getD j false)) then (lt, nch, ch)
-        else
-          let lv := eraseMany pvars (fillLive lt addrDeps rmwDeps tb).1
-          if Nat.beq lv.length (lt.getD l []).length then (lt, nch, ch)
-          else (lt.insert l lv, nch.insert l true, true))
-        (lt, .empty, false)
-      if ch then go fuel false lt' nextCh else lt
-  go (8 * bs.length + 8) true .empty .empty
+  liveLabelsWith bs0 addrDeps rmwDeps id
 
 mutual
-def acrossCalls : Tree → List Nat
-  | .call _ _ nv0 _ _ bs _ k => union (eraseMany ((List.range bs.length).map (nv0 + ·)) k.lv) (acrossCalls k)
-  | .let_ _ _ _ _ _ k | .load _ _ _ _ _ k | .store _ _ _ _ _ k | .skip _ _ k => acrossCalls k
-  | .jnz _ _ _ _ t e => union (acrossCalls t) (acrossCalls e)
-  | .group _ bs k => union (acrossCallsB bs) (acrossCalls k)
-  | .jump .. | .ret .. | .exit .. | .stop _ => []
+def acrossCallsGo : Tree → List Nat × Std.HashSet Nat → List Nat × Std.HashSet Nat
+  | .call _ _ nv0 _ _ bs _ k, (acc, seen) =>
+    let (acc1, seen1) := k.lv.foldl (fun (a, s) x =>
+      if (Nat.ble nv0 x && Nat.blt x (nv0 + bs.length)) || s.contains x then (a, s)
+      else (x :: a, s.insert x)) (acc, seen)
+    acrossCallsGo k (acc1, seen1)
+  | .let_ _ _ _ _ _ k, st | .load _ _ _ _ _ k, st | .store _ _ _ _ _ k, st
+  | .skip _ _ k, st => acrossCallsGo k st
+  | .jnz _ _ _ _ t e, st => acrossCallsGo e (acrossCallsGo t st)
+  | .group _ bs k, st => acrossCallsGo k (acrossCallsGoB bs st)
+  | .jump .., st | .ret .., st | .exit .., st | .stop _, st => st
 
-def acrossCallsB : TreeBlocks → List Nat
-  | .nil => []
-  | .cons _ _ b bs => union (acrossCalls b) (acrossCallsB bs)
+def acrossCallsGoB : TreeBlocks → List Nat × Std.HashSet Nat → List Nat × Std.HashSet Nat
+  | .nil, st => st
+  | .cons _ _ b bs, st => acrossCallsGoB bs (acrossCallsGo b st)
 end
+
+def acrossCalls (t : Tree) : List Nat :=
+  (acrossCallsGo t ([], {})).1.reverse
+
+def acrossCallsB (bs : TreeBlocks) : List Nat :=
+  (acrossCallsGoB bs ([], {})).1.reverse
 
 def loopBlocks (bs : List (Nat × List (Nat × Ty) × Tree)) : Trie Bool :=
   let adj := bs.foldl (fun a (l, _, tb) => a.insert l (allJumps tb)) (.empty : Trie (List Nat))
