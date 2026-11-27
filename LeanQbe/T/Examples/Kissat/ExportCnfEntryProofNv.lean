@@ -5,6 +5,8 @@ Released under Apache 2.0 license as described in the file LICENSE.
 module
 
 public import LeanQbe.T.Examples.Kissat.ExportCnfEntryProof
+public import LeanQbe.T.Examples.Kissat.FullOneLitConflLemmas
+import LeanQbe.T.Examples.Kissat.FullArena
 import LeanQbe.T.Logic.MemLemmas
 import LeanQbe.T.Logic.ControlComb
 import LeanQbe.T.Logic.C0Step
@@ -15,17 +17,13 @@ import Kraken.Separation
 /-!
 # Verified Simplified-CNF Exporter — Shard E3 Concrete `Mem 64` Non-Vacuity (`<= std3`)
 
-Concrete `Mem 64` non-vacuity witnesses (`XPost := False`, `<= std3`) for `ExportCnfEntry`:
-1. `m6_export_unsat_nv`: closed `394`-fn `m6ExportEnv` on contradiction `"p cnf 1 2\n1 0\n-1 0\n"`,
-   returning `r = 20#64` and emitting `"p cnf 0 1\n0\n"` (`12 B`).
-2. `m6_export_sat_sound_nv`: closed `394`-fn `m6ExportEnv` on satisfiable `"p cnf 2 1\n1 2 0\n"`,
-   certifying `r ≠ 20#64` and `parseDimacs outBytes = some cnfOut` with
-   `cnfOut.Unsat → nvM6SatCnf.Unsat`.
-3. `export_entry_unit_unknown_nv`: deterministic `r = 1#64` simplified CNF export through real
+Concrete `Mem 64` non-vacuity witnesses (`XPost := False`, `<= std3`) for `ExportCnfEntry`
+(`exportCnfEntryEnv`, zero dependency on `FullM6Proof`, `FullM6SatSound`, or `FullM6OrchProof2`):
+1. `export_entry_unit_unknown_nv`: deterministic `r = 1#64` simplified CNF export through real
    `kissat_export_cnf_bytes` (`exportCnfEntryEnv`) on a unit-clause `FullState`.
-4. `export_entry_inconsistent_nv`: deterministic `r = 20#64` emission of `"p cnf 0 1\n0\n"` when
+2. `export_entry_inconsistent_nv`: deterministic `r = 20#64` emission of `"p cnf 0 1\n0\n"` when
    `h->inconsistent != 0` on `pp = 1` (`BUG-CROSS-01` fix).
-5. `export_entry_sat_nv`: deterministic `r = 10#64` emission of `"p cnf 0 0\n"` (`10 B`)
+3. `export_entry_sat_nv`: deterministic `r = 10#64` emission of `"p cnf 0 0\n"` (`10 B`)
    on `pp = 10`.
 -/
 
@@ -33,30 +31,350 @@ set_option autoImplicit false
 
 namespace LeanQbe.T.Examples.Kissat.ExportCnfEntryProof
 
-open Std.Sat
+open Std Std.Sat Std.ExtHashMap
 open Kraken
+open Kraken.Bedrock2.Test
 open LeanQbe.T
 open LeanQbe.T.ProofUtil
 open LeanQbe.T.Examples.LratBytes
 open LeanQbe.T.Examples.Kissat
 open LeanQbe.T.Examples.Kissat.Full
-open LeanQbe.T.Examples.Kissat.FullM6
 open LeanQbe.T.Examples.Kissat.FullM6Hdr
-open LeanQbe.T.Examples.Kissat.FullM6Proof
-open LeanQbe.T.Examples.Kissat.FullM6Orch
 open LeanQbe.T.Examples.Kissat.ExportCnfFmt
 open LeanQbe.T.Examples.Kissat.ExportCnfState
 open LeanQbe.T.Examples.Kissat.ExportCnfEntry
 
 public section
 
-/-! ## 1. Closed `394`-Fn Concrete `Mem 64` Non-Vacuity (`m6ExportEnv`) -/
+/-! ## 1. Concrete `M6Hdr` Heap Fixture & `KissatExportOut` Layout (`<= std3`) -/
 
 /-- Shared 8-byte aligned `KissatExportOut` descriptor address (`0x4000#64`). -/
 @[expose] def nvOutDescPtr : BitVec 64 := 0x4000#64
 
 /-- Shared output buffer base address immediately following `nvOutDescPtr` (`0x4018#64`). -/
 @[expose] def nvOutBufPtr : BitVec 64 := 0x4018#64
+
+/-- Concrete CNF pointer (`0x1000#64`) and `8,192 B` workspace length for NV fixtures. -/
+@[expose] def nvM6CnfPtr : BitVec 64 := 0x1000#64
+
+/-- Concrete `8,192 B` workspace size. -/
+@[expose] def nvM6WorkLen : Nat := 8192
+
+/-- Concrete SAT DIMACS `"p cnf 2 1\n1 2 0\n"` (`(x1 ∨ x2)`, `16` bytes). -/
+@[expose] def nvM6SatBytes : List UInt8 :=
+  [112, 32, 99, 110, 102, 32, 50, 32, 49, 10, 49, 32, 50, 32, 48, 10]
+
+/-- Parsed `CNF Nat` for `nvM6SatBytes`. -/
+@[expose] def nvM6SatCnf : CNF Nat :=
+  CNF.empty.add (CNF.Clause.ofLiterals [(1, true), (2, true)])
+
+/-- Concrete workspace base address immediately following `nvM6SatBytes`. -/
+@[expose] def nvM6SatWorkPtr : BitVec 64 :=
+  nvM6CnfPtr + BitVec.ofNat 64 nvM6SatBytes.length
+
+/-- Canonical initialized `288`-word `M6HdrExt` header (`fullM6HdrMagic` at word `0`). -/
+@[expose] def nvM6ExtInitWords : List (BitVec 64) :=
+  fullM6HdrMagic :: List.replicate 287 0#64
+
+private theorem nvM6SatCnf_sat : ∃ α, nvM6SatCnf.Sat α := by
+  refine ⟨fun v => v == 1, ?_⟩
+  rw [nvM6SatCnf, CNF.sat_add]
+  refine ⟨?_, CNF.sat_empty⟩
+  rw [CNF.Clause.sat_iff_exists_mem_eq]
+  exact ⟨(1, true), by rw [← CNF.Clause.mem_literals_iff]; simp, rfl⟩
+
+private theorem nvM6SatCnf_not_unsat : ¬ nvM6SatCnf.Unsat := by
+  rw [CNF.unsat_iff_not_sat]
+  exact fun h => let ⟨α, hα⟩ := nvM6SatCnf_sat; h α hα
+
+private theorem nvM6ExtInitWords_len : nvM6ExtInitWords.length = fullM6ExtWords := by
+  rw [nvM6ExtInitWords, List.length_cons, List.length_replicate, fullM6ExtWords]
+
+theorem nvM6SatCfg_avail_fit :
+    (6416#64 : BitVec 64).toNat + (nvM6WorkLen - fullM6ExtBytes) < 2 ^ 64 := by
+  unfold nvM6WorkLen fullM6ExtBytes
+  decide
+
+theorem nvM6SatCfg_hsize :
+    fullFixedBytes 2 + 4 * 0 + 4 * 1 + 12 * 0 + 4 * 0 + 4 * 0 + 4 * 0 ≤
+      nvM6WorkLen - fullM6ExtBytes := by
+  have hfb : fullFixedBytes 2 = 1960 := by
+    unfold fullFixedBytes valsBytes markBytes u32FullBytes fullMinDepthOf; decide
+  rw [hfb]
+  unfold nvM6WorkLen fullM6ExtBytes
+  omega
+
+/-- Concrete `FullCfg` for `nvM6SatBytes` (`mv = 2, nc = 1`) at `fullM6WorkHdr nvM6SatWorkPtr`. -/
+@[expose] def nvM6SatCfg : FullCfg where
+  hdr := 6416#64
+  avail := nvM6WorkLen - fullM6ExtBytes
+  mv := 2
+  max_vars := 2
+  bva_cap := 0
+  nc := 1
+  arena_cap := 0
+  wcap := 1
+  delayed_cap := 0
+  red_cap := 0
+  extend_cap := 0
+  scratch_cap := 0
+  hbva := rfl
+  hmv := by unfold dimacsBound; omega
+  hmaxv := by unfold dimacsBound; omega
+  hnc := by unfold dimacsBound; omega
+  harena := by unfold dimacsBound; omega
+  hwcap := by unfold dimacsBound; omega
+  hdel := by unfold dimacsBound; omega
+  hred := by unfold dimacsBound; omega
+  hext := by unfold dimacsBound; omega
+  hscr := by unfold dimacsBound; omega
+  havail_fit := nvM6SatCfg_avail_fit
+  hsize := nvM6SatCfg_hsize
+
+/-- Concrete solved `FullState` for `(x1 ∨ x2)` with `vals = [1#8, 0xFF#8, 1#8, 0xFF#8]`. -/
+@[expose] def nvM6SatState : FullState where
+  core :=
+    { nvOneLitState.core with
+      cur_vars := 2, unassigned := 0#64
+      vals := [1#8, 0xFF#8, 1#8, 0xFF#8]
+      lit_mark := List.replicate 4 0#8
+      mrk := List.replicate 2 0#8
+      flags := List.replicate 2 0#32
+      lvl := List.replicate 2 0#32
+      rsns := List.replicate 2 0xFFFFFFFF#32
+      trl := List.replicate 2 0#32
+      trail_pos := List.replicate 2 0#32
+      tmp := List.replicate 2 0#32
+      min_clr := List.replicate 2 0#32
+      frame_trail := List.replicate 3 0#32
+      frame_dec := List.replicate 3 0#32
+      wvec := List.replicate 8 0#32
+      repr := List.replicate 4 0#32
+      min_stk := List.replicate 6 0#32 }
+  scratch :=
+    { nvOneLitState.scratch with
+      walk_vals := List.replicate 4 0#8
+      phases := List.replicate 2 0#8
+      phases_target := List.replicate 2 0#8
+      phases_best := List.replicate 2 0#8
+      walk_best := List.replicate 2 0#8
+      heap := List.replicate 2 0#32
+      pos := List.replicate 2 0#32
+      shrink_stk := List.replicate 2 0#32
+      q_prev := List.replicate 2 0#32
+      q_next := List.replicate 2 0#32
+      q_stamp := List.replicate 2 0#32
+      wsort := List.replicate 4 0#32
+      work_stk1 := List.replicate 4 0#32
+      work_stk2 := List.replicate 4 0#32
+      tarjan_mark := List.replicate 4 0#32
+      tarjan_reach := List.replicate 4 0#32
+      score := List.replicate 2 0#64
+      sim_sig := List.replicate 2 0#64 }
+
+private theorem nvM6Sat_lengths : nvM6SatState.LengthsOk nvM6SatCfg :=
+  ⟨by refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_,
+        ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩ <;>
+        simp [nvM6SatState, nvM6SatCfg, nvOneLitState, FullCfg.minDepth, fullMinDepthOf],
+   by refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_,
+        ?_, ?_, ?_, ?_, ?_, ?_⟩ <;>
+        simp [nvM6SatState, nvM6SatCfg, nvOneLitState, nvOneLitScratch]⟩
+
+@[expose] def nvM6SatBlockHdr : List UInt8 :=
+  bytes64 [2#64, 1#64, 0#64, 0#64] ++ bytes64 (Full.hdrTailWords nvM6SatCfg nvM6SatState)
+
+@[expose] def nvM6SatBlockBytes : List UInt8 :=
+  (bytesOf (t := i8) nvM6SatState.core.vals ++ List.replicate 4 0) ++
+  (bytesOf (t := i8) nvM6SatState.scratch.walk_vals ++ List.replicate 4 0) ++
+  (bytesOf (t := i8) nvM6SatState.core.lit_mark ++ List.replicate 4 0) ++
+  (bytesOf (t := i8) nvM6SatState.core.mrk ++ List.replicate 6 0) ++
+  (bytesOf (t := i8) nvM6SatState.scratch.phases ++ List.replicate 6 0) ++
+  (bytesOf (t := i8) nvM6SatState.scratch.phases_target ++ List.replicate 6 0) ++
+  (bytesOf (t := i8) nvM6SatState.scratch.phases_best ++ List.replicate 6 0) ++
+  (bytesOf (t := i8) nvM6SatState.scratch.walk_best ++ List.replicate 6 0)
+
+@[expose] def nvM6SatBlockU32A : List UInt8 :=
+  (bytesOf (t := i32) nvM6SatState.core.flags ++ List.replicate 8 0) ++
+  (bytesOf (t := i32) nvM6SatState.core.lvl ++ List.replicate 8 0) ++
+  (bytesOf (t := i32) nvM6SatState.core.rsns ++ List.replicate 8 0) ++
+  (bytesOf (t := i32) nvM6SatState.core.trl ++ List.replicate 8 0) ++
+  (bytesOf (t := i32) nvM6SatState.core.trail_pos ++ List.replicate 8 0)
+
+@[expose] def nvM6SatBlockU32B : List UInt8 :=
+  (bytesOf (t := i32) nvM6SatState.core.tmp ++ List.replicate 8 0) ++
+  (bytesOf (t := i32) nvM6SatState.scratch.heap ++ List.replicate 8 0) ++
+  (bytesOf (t := i32) nvM6SatState.scratch.pos ++ List.replicate 8 0) ++
+  (bytesOf (t := i32) nvM6SatState.core.min_clr ++ List.replicate 8 0) ++
+  (bytesOf (t := i32) nvM6SatState.scratch.shrink_stk ++ List.replicate 8 0)
+
+@[expose] def nvM6SatBlockU32C : List UInt8 :=
+  (bytesOf (t := i32) nvM6SatState.scratch.q_prev ++ List.replicate 8 0) ++
+  (bytesOf (t := i32) nvM6SatState.scratch.q_next ++ List.replicate 8 0) ++
+  (bytesOf (t := i32) nvM6SatState.scratch.q_stamp ++ List.replicate 8 0) ++
+  (bytesOf (t := i32) nvM6SatState.core.frame_trail ++ List.replicate 4 0) ++
+  (bytesOf (t := i32) nvM6SatState.core.frame_dec ++ List.replicate 4 0)
+
+@[expose] def nvM6SatBlockWvec : List UInt8 :=
+  bytesOf (t := i32) nvM6SatState.core.wvec ++
+  bytesOf (t := i32) nvM6SatState.core.repr ++
+  bytesOf (t := i32) nvM6SatState.scratch.wsort ++
+  bytesOf (t := i32) nvM6SatState.scratch.work_stk1 ++
+  bytesOf (t := i32) nvM6SatState.scratch.work_stk2 ++
+  bytesOf (t := i32) nvM6SatState.scratch.tarjan_mark ++
+  bytesOf (t := i32) nvM6SatState.scratch.tarjan_reach ++
+  bytes64 nvM6SatState.scratch.score ++
+  bytes64 nvM6SatState.scratch.sim_sig
+
+@[expose] def nvM6SatBlockTail : List UInt8 :=
+  bytesOf (t := i32) nvM6SatState.core.min_stk ++
+  bytesOf (t := i32) nvM6SatState.scratch.glue_used ++
+  bytesOf (t := i32) nvM6SatState.scratch.last_learned ++
+  bytesOf (t := i32) nvM6SatState.core.arena ++
+  bytesOf (t := i32) nvM6SatState.core.wstk ++
+  bytesOf (t := i32) nvM6SatState.scratch.delayed ++
+  bytesOf (t := i32) nvM6SatState.scratch.red_refs ++
+  bytesOf (t := i32) nvM6SatState.scratch.extend_stk ++
+  bytesOf (t := i32) nvM6SatState.scratch.scratch_buf ++
+  List.replicate nvM6SatCfg.slack 0
+
+@[expose] def nvM6SatArenaBytes : List UInt8 :=
+  nvM6SatBlockHdr ++ nvM6SatBlockBytes ++ nvM6SatBlockU32A ++ nvM6SatBlockU32B ++
+  nvM6SatBlockU32C ++ nvM6SatBlockWvec ++ nvM6SatBlockTail
+
+@[expose] def nvM6MemBytes : List UInt8 :=
+  nvM6SatBytes ++ bytes64 nvM6ExtInitWords ++ nvM6SatArenaBytes
+
+private theorem nvM6SatCfg_slack : nvM6SatCfg.slack = 3924 := by
+  unfold FullCfg.slack nvM6SatCfg nvM6WorkLen fullM6ExtBytes fullFixedBytes valsBytes
+    markBytes u32FullBytes fullMinDepthOf
+  decide
+
+private theorem nvJ {bs1 bs2 : List UInt8} {a1 a2 : BitVec 64} {n1 n2 : Nat}
+    {P1 P2 : Mem 64 → Prop} (h1 : bs1.length = n1 ∧ P1 (bs1.At a1))
+    (h2 : bs2.length = n2 ∧ P2 (bs2.At a2))
+    (ha : a2 = a1 + BitVec.ofNat 64 n1 := by decide)
+    (hf : n1 + n2 ≤ 2 ^ 64 := by decide) :
+    (bs1 ++ bs2).length = n1 + n2 ∧ (P1 ⋆ P2) ((bs1 ++ bs2).At a1) :=
+  nv_join_pair h1 h2 ha hf
+
+private theorem nvAP (t : Ty) (a : BitVec 64) (xs : List (Val t)) (n pad : Nat)
+    (hl : t.bytes * xs.length = n := by
+      simp [nvM6SatState, nvOneLitState, nvOneLitScratch, Ty.bytes, Ty.size])
+    (hf : n + pad ≤ 2 ^ 64 := by decide) :
+    (bytesOf (t := t) xs ++ List.replicate pad 0).length = n + pad ∧
+      (array (t := t) a xs ⋆ region (a + BitVec.ofNat 64 n) pad)
+        ((bytesOf (t := t) xs ++ List.replicate pad 0).At a) :=
+  nv_arr_pad_p n pad hl hf
+
+private theorem nvA (t : Ty) (a : BitVec 64) (xs : List (Val t)) (n : Nat)
+    (hl : t.bytes * xs.length = n := by
+      simp [nvM6SatState, nvOneLitState, nvOneLitScratch, Ty.bytes, Ty.size])
+    (hf : n ≤ 2 ^ 64 := by decide) :
+    (bytesOf (t := t) xs).length = n ∧ array (t := t) a xs ((bytesOf (t := t) xs).At a) :=
+  nv_arr_p n hl hf
+
+private theorem nvM6SatArena_ok :
+    nvM6SatArenaBytes.length = nvM6SatCfg.avail ∧
+      FullMem nvM6SatCfg nvM6SatState (nvM6SatArenaBytes.At nvM6SatCfg.hdr) := by
+  have hvb : valsBytes nvM6SatCfg.max_vars - 2 * nvM6SatCfg.max_vars = 4 := by
+    unfold valsBytes nvM6SatCfg; decide
+  have hmb : markBytes nvM6SatCfg.max_vars - nvM6SatCfg.max_vars = 6 := by
+    unfold markBytes nvM6SatCfg; decide
+  have hu4 : u32FullBytes nvM6SatCfg.max_vars - 4 * nvM6SatCfg.max_vars = 8 := by
+    unfold u32FullBytes nvM6SatCfg; decide
+  have hu8 : u32FullBytes nvM6SatCfg.max_vars - 4 * (nvM6SatCfg.max_vars + 1) = 4 := by
+    unfold u32FullBytes nvM6SatCfg; decide
+  have hHdr := nvJ
+    (nv_arr64_p (a := nvM6SatCfg.hdr) (xs := [2#64, 1#64, 0#64, 0#64]) 32 rfl (by decide))
+    (nv_arr64_p (a := nvM6SatCfg.hdr + 32) (xs := Full.hdrTailWords nvM6SatCfg nvM6SatState)
+      1120 (by rw [Full.hdrTailWords_length]) (by decide)) rfl
+  let pB1 : Mem 64 → Prop :=
+    region (nvM6SatCfg.pVals + 4#64) 4 ⋆ region (nvM6SatCfg.pWalkVals + 4#64) 4 ⋆
+    region (nvM6SatCfg.pLitMark + 4#64) 4 ⋆ region (nvM6SatCfg.pMark + 2#64) 6
+  have h1234 := nv_sep_reorg
+    (nvJ (nvJ (nvJ (nvAP i8 nvM6SatCfg.pVals nvM6SatState.core.vals 4 4 rfl)
+        (nvAP i8 nvM6SatCfg.pWalkVals nvM6SatState.scratch.walk_vals 4 4))
+      (nvAP i8 nvM6SatCfg.pLitMark nvM6SatState.core.lit_mark 4 4))
+      (nvAP i8 nvM6SatCfg.pMark nvM6SatState.core.mrk 2 6))
+    (Q := (FullCoreByteArrs nvM6SatCfg nvM6SatState.core ⋆
+      array (t := i8) nvM6SatCfg.pWalkVals nvM6SatState.scratch.walk_vals) ⋆ pB1)
+    fun _ hm => nv_zip4 hm
+  have hBytes := nv_sep_reorg
+    (nvJ (nvJ (nvJ (nvJ h1234 (nvAP i8 nvM6SatCfg.pPhases nvM6SatState.scratch.phases 2 6))
+        (nvAP i8 nvM6SatCfg.pPhasesTarget nvM6SatState.scratch.phases_target 2 6))
+      (nvAP i8 nvM6SatCfg.pPhasesBest nvM6SatState.scratch.phases_best 2 6))
+      (nvAP i8 nvM6SatCfg.pWalkBest nvM6SatState.scratch.walk_best 2 6))
+    (Q := FullCoreByteArrs nvM6SatCfg nvM6SatState.core ⋆
+      FullScrByteArrs nvM6SatCfg nvM6SatState.scratch ⋆ nvM6SatCfg.padBytes)
+    fun _ hm => by
+      have hfin := nv_zip4_tail hm
+      unfold FullScrByteArrs FullCfg.padBytes
+      rw [hvb, hmb, show BitVec.ofNat 64 (2 * nvM6SatCfg.max_vars) = 4#64 from rfl,
+        show BitVec.ofNat 64 nvM6SatCfg.max_vars = 2#64 from rfl]
+      simpa only [pB1, sep_assoc] using hfin
+  have hU32A := nvJ (nvJ (nvJ (nvJ (nvAP i32 nvM6SatCfg.pFlags nvM6SatState.core.flags 8 8)
+      (nvAP i32 nvM6SatCfg.pLevel nvM6SatState.core.lvl 8 8))
+    (nvAP i32 nvM6SatCfg.pReason nvM6SatState.core.rsns 8 8))
+    (nvAP i32 nvM6SatCfg.pTrail nvM6SatState.core.trl 8 8))
+    (nvAP i32 nvM6SatCfg.pTrailPos nvM6SatState.core.trail_pos 8 8)
+  have hU32B := nvJ (nvJ (nvJ (nvJ (nvAP i32 nvM6SatCfg.pTmp nvM6SatState.core.tmp 8 8)
+      (nvAP i32 nvM6SatCfg.pHeap nvM6SatState.scratch.heap 8 8))
+    (nvAP i32 nvM6SatCfg.pPos nvM6SatState.scratch.pos 8 8))
+    (nvAP i32 nvM6SatCfg.pMinClr nvM6SatState.core.min_clr 8 8))
+    (nvAP i32 nvM6SatCfg.pShrinkStk nvM6SatState.scratch.shrink_stk 8 8)
+  have hU32C := nvJ (nvJ (nvJ (nvJ (nvAP i32 nvM6SatCfg.pQPrev nvM6SatState.scratch.q_prev 8 8)
+      (nvAP i32 nvM6SatCfg.pQNext nvM6SatState.scratch.q_next 8 8))
+    (nvAP i32 nvM6SatCfg.pQStamp nvM6SatState.scratch.q_stamp 8 8))
+    (nvAP i32 nvM6SatCfg.pFrameTrail nvM6SatState.core.frame_trail 12 4))
+    (nvAP i32 nvM6SatCfg.pFrameDec nvM6SatState.core.frame_dec 12 4)
+  have hWvec := nvJ (nvJ (nvJ (nvJ (nvJ (nvJ (nvJ (nvJ
+      (nvA i32 nvM6SatCfg.pWvec nvM6SatState.core.wvec 32)
+      (nvA i32 nvM6SatCfg.pRepr nvM6SatState.core.repr 16))
+    (nvA i32 nvM6SatCfg.pWsort nvM6SatState.scratch.wsort 16))
+    (nvA i32 nvM6SatCfg.pWorkStk1 nvM6SatState.scratch.work_stk1 16))
+    (nvA i32 nvM6SatCfg.pWorkStk2 nvM6SatState.scratch.work_stk2 16))
+    (nvA i32 nvM6SatCfg.pTarjanMark nvM6SatState.scratch.tarjan_mark 16))
+    (nvA i32 nvM6SatCfg.pTarjanReach nvM6SatState.scratch.tarjan_reach 16))
+    (nv_arr64_p (a := nvM6SatCfg.pScore) (xs := nvM6SatState.scratch.score) 16 rfl (by decide)))
+    (nv_arr64_p (a := nvM6SatCfg.pSimSig) (xs := nvM6SatState.scratch.sim_sig) 16 rfl (by decide))
+  have hSlack : (List.replicate nvM6SatCfg.slack (0 : UInt8)).length = 3924 ∧
+      region nvM6SatCfg.pSlack nvM6SatCfg.slack
+        ((List.replicate nvM6SatCfg.slack 0).At nvM6SatCfg.pSlack) :=
+    ⟨by rw [List.length_replicate, nvM6SatCfg_slack],
+      ⟨List.replicate nvM6SatCfg.slack 0, List.length_replicate, rfl⟩⟩
+  have hTail := nvJ (nvJ (nvJ (nvJ (nvJ (nvJ (nvJ (nvJ (nvJ
+      (nvA i32 nvM6SatCfg.pMinStk nvM6SatState.core.min_stk 24)
+      (nvA i32 nvM6SatCfg.pGlueUsed nvM6SatState.scratch.glue_used 256))
+    (nvA i32 nvM6SatCfg.pLastLearned nvM6SatState.scratch.last_learned 64))
+    (nvA i32 nvM6SatCfg.pArena nvM6SatState.core.arena 0))
+    (nvA i32 nvM6SatCfg.pWstk nvM6SatState.core.wstk 4))
+    (nvA i32 nvM6SatCfg.pDelayed nvM6SatState.scratch.delayed 0))
+    (nvA i32 nvM6SatCfg.pRedRefs nvM6SatState.scratch.red_refs 0))
+    (nvA i32 nvM6SatCfg.pExtendStk nvM6SatState.scratch.extend_stk 0))
+    (nvA i32 nvM6SatCfg.pScratchBuf nvM6SatState.scratch.scratch_buf 0)) hSlack
+  have h06 := nv_sep_reorg
+    (nvJ (nvJ (nvJ (nvJ (nvJ (nvJ hHdr hBytes) hU32A) hU32B) hU32C) hWvec) hTail
+      (by decide) (by omega))
+    (Q := FullMem nvM6SatCfg nvM6SatState) fun _ hm => by
+      unfold FullMem FullCoreArrays FullCoreU32A FullCoreU32B FullScratchArrays FullScrU32A
+        FullScrWksArrs FullCoreDynArrs FullScrDynArrs FullScrMetaArrs FullCfg.pad
+        FullCfg.padU32A FullCfg.padU32B FullCfg.padU32C dimacsState
+      rw [hu4, hu8, show BitVec.ofNat 64 (4 * nvM6SatCfg.max_vars) = 8#64 from rfl,
+        show BitVec.ofNat 64 (4 * (nvM6SatCfg.max_vars + 1)) = 12#64 from rfl]
+      exact sep_ac hm
+  exact ⟨show nvM6SatArenaBytes.length = nvM6SatCfg.avail from h06.1, h06.2⟩
+
+private theorem nvM6Mem_ok :
+    (bytes nvM6CnfPtr nvM6SatBytes ⋆
+      FullM6HdrMem nvM6SatCfg nvM6ExtInitWords nvM6SatState) (nvM6MemBytes.At nvM6CnfPtr) := by
+  have hExt := nv_arr64_p (a := nvM6SatWorkPtr) (xs := nvM6ExtInitWords) 2304
+    (by rw [nvM6ExtInitWords_len]; rfl) (by decide)
+  have hav : nvM6SatCfg.avail = 5888 := rfl
+  have hM6 := nv_sep_reorg
+    (nvJ hExt nvM6SatArena_ok rfl (by rw [hav]; decide))
+    (Q := FullM6HdrMem nvM6SatCfg nvM6ExtInitWords nvM6SatState) fun _ hm =>
+      fullM6HdrMem_mk (by rw [show nvM6SatCfg.hdr - 2304 = nvM6SatWorkPtr from rfl]; exact hm)
+  exact (nvJ ⟨rfl, rfl⟩ hM6 rfl (by rw [hav]; decide)).2
 
 private theorem nv_exportOutMem_bytes64 (outPtr outCap oldLen : BitVec 64) :
     (bytes64 [outPtr, outCap, oldLen]).length = 24 ∧
@@ -70,155 +388,6 @@ private theorem nv_exportOutMem_bytes64 (outPtr outCap oldLen : BitVec 64) :
     nvOutDescPtr + 16#64 by decide, show BitVec.ofNat 64 i64.bytes = 8#64 by decide] at ha2
   rw [_root_.Std.ExtHashMap.sep_emp] at ha2
   exact sep_ac ha2
-
-private theorem nv_build_export_mem {cnfBytes buf : List UInt8} {workPtr : BitVec 64}
-    {wlen padGap : Nat} {outCap oldLen : BitVec 64}
-    (hbuf : buf.length < 2 ^ 32 := by decide)
-    (hlen : cnfBytes.length + wlen + padGap = 0x3000)
-    (hwork : workPtr = nvM6CnfPtr + BitVec.ofNat 64 cnfBytes.length) :
-    (bytes nvM6CnfPtr cnfBytes ⋆ region workPtr wlen ⋆
-      exportOutMem nvOutDescPtr nvOutBufPtr outCap oldLen ⋆ bytes nvOutBufPtr buf ⋆
-      region (workPtr + BitVec.ofNat 64 wlen) padGap)
-      ((cnfBytes ++ List.replicate wlen 0 ++ List.replicate padGap 0 ++
-        bytes64 [nvOutBufPtr, outCap, oldLen] ++ buf).At nvM6CnfPtr) := by
-  have h1 : cnfBytes.length = cnfBytes.length ∧
-      bytes nvM6CnfPtr cnfBytes (cnfBytes.At nvM6CnfPtr) := ⟨rfl, rfl⟩
-  have h2 : (List.replicate wlen (0 : UInt8)).length = wlen ∧
-      region workPtr wlen ((List.replicate wlen 0).At workPtr) :=
-    ⟨List.length_replicate, ⟨List.replicate wlen 0, List.length_replicate, rfl⟩⟩
-  have h12 := nv_join_pair h1 h2 hwork (by unfold nvM6CnfPtr at *; omega)
-  have h3 : (List.replicate padGap (0 : UInt8)).length = padGap ∧
-      region (workPtr + BitVec.ofNat 64 wlen) padGap
-        ((List.replicate padGap 0).At (workPtr + BitVec.ofNat 64 wlen)) :=
-    ⟨List.length_replicate, ⟨List.replicate padGap 0, List.length_replicate, rfl⟩⟩
-  have hwork2 : workPtr + BitVec.ofNat 64 wlen =
-      nvM6CnfPtr + BitVec.ofNat 64 (cnfBytes.length + wlen) := by
-    rw [hwork, BitVec.add_assoc]; congr 1
-    apply BitVec.eq_of_toNat_eq; simp
-  have h123 := nv_join_pair h12 h3 hwork2 (by omega)
-  have h4 := nv_exportOutMem_bytes64 nvOutBufPtr outCap oldLen
-  have h4_addr : nvOutDescPtr =
-      nvM6CnfPtr + BitVec.ofNat 64 (cnfBytes.length + wlen + padGap) := by rw [hlen]; decide
-  have h1234 := nv_join_pair h123 h4 h4_addr (by omega)
-  have h5 : buf.length = buf.length ∧ bytes nvOutBufPtr buf (buf.At nvOutBufPtr) := ⟨rfl, rfl⟩
-  have h5_addr : nvOutBufPtr =
-      nvM6CnfPtr + BitVec.ofNat 64 (cnfBytes.length + wlen + padGap + 24) := by rw [hlen]; decide
-  have h12345 := nv_join_pair h1234 h5 h5_addr (by unfold nvM6CnfPtr at *; omega)
-  have heq : cnfBytes ++ List.replicate wlen 0 ++ List.replicate padGap 0 ++
-      bytes64 [nvOutBufPtr, outCap, oldLen] ++ buf =
-      (((cnfBytes ++ List.replicate wlen 0) ++ List.replicate padGap 0) ++
-        bytes64 [nvOutBufPtr, outCap, oldLen]) ++ buf := by simp [List.append_assoc]
-  rw [← heq]; exact sep_ac h12345.2
-
-/-- Concrete initial `Mem 64` for UNSAT non-vacuity (`"p cnf 1 2\n1 0\n-1 0\n"`, `32 B` out). -/
-@[expose] def nvExportUnsatMem : Mem 64 :=
-  (nvM6UnsatBytes ++ List.replicate nvM6WorkLen 0 ++ List.replicate 4077 0 ++
-    bytes64 [nvOutBufPtr, 32#64, 99#64] ++ List.replicate 32 0).At nvM6CnfPtr
-
-/-- Concrete initial `Mem 64` for SAT soundness non-vacuity (`"p cnf 2 1\n1 2 0\n"`, `64 B` out). -/
-@[expose] def nvExportSatMem : Mem 64 :=
-  (nvM6SatBytes ++ List.replicate nvM6WorkLen 0 ++ List.replicate 4080 0 ++
-    bytes64 [nvOutBufPtr, 64#64, 99#64] ++ List.replicate 64 0).At nvM6CnfPtr
-
-/-- Concrete Witness 1 (**CLOSED `394`-fn `m6ExportEnv`**, `XPost := False`, `<= std3`):
-executing `kissat_simplify_export_bytes` on contradiction `nvM6UnsatBytes`
-(`"p cnf 1 2\n1 0\n-1 0\n"`) deterministically returns `r = 20#64`, writes `unsatDimacsBytes`
-(`"p cnf 0 1\n0\n"`, `12 B`), parses back to the empty-clause CNF, and witnesses
-`nvM6UnsatCnf.Unsat`. -/
-theorem m6_export_unsat_nv :
-    Func.wp m6ExportEnv kissat_simplify_export_bytes_body
-      (nvM6CnfPtr, BitVec.ofNat 64 nvM6UnsatBytes.length,
-        nvM6UnsatWorkPtr, BitVec.ofNat 64 nvM6WorkLen, 16#64, nvOutDescPtr, ())
-      nvExportUnsatMem
-      (fun (r, ()) m' =>
-        r = 20#64 ∧ nvM6UnsatCnf.Unsat ∧
-        (∃ cnfOut, parseDimacs unsatDimacsBytes = some cnfOut ∧
-          (cnfOut.Unsat → nvM6UnsatCnf.Unsat)) ∧
-        (bytes nvM6CnfPtr nvM6UnsatBytes ⋆ region nvM6UnsatWorkPtr nvM6WorkLen ⋆
-          exportOutMem nvOutDescPtr nvOutBufPtr 32#64 12#64 ⋆
-          bytes nvOutBufPtr (unsatDimacsBytes ++ List.replicate 20 0) ⋆
-          region (nvM6UnsatWorkPtr + BitVec.ofNat 64 nvM6WorkLen) 4077) m')
-      (fun _ _ _ _ => False) := by
-  have hm := nv_build_export_mem (cnfBytes := nvM6UnsatBytes) (buf := List.replicate 32 0)
-    (workPtr := nvM6UnsatWorkPtr) (wlen := nvM6WorkLen) (padGap := 4077)
-    (outCap := 32#64) (oldLen := 99#64) (by decide) (by decide) rfl
-  change (bytes nvM6CnfPtr nvM6UnsatBytes ⋆ region nvM6UnsatWorkPtr nvM6WorkLen ⋆
-    exportOutMem nvOutDescPtr nvOutBufPtr (BitVec.ofNat 64 (List.replicate 32 (0 : UInt8)).length)
-      99#64 ⋆
-    bytes nvOutBufPtr (List.replicate 32 0) ⋆
-    region (nvM6UnsatWorkPtr + BitVec.ofNat 64 nvM6WorkLen) 4077) nvExportUnsatMem at hm
-  refine wp_mono (fun rs m' hq => ?_) (fun _ _ _ _ hf => hf) _ _
-    (kissat_simplify_export_bytes_sound m6ExportEnv
-      m6ExportEnv_mem_init m6ExportEnv_loaded
-      (by decide) (by decide) (by decide) (by decide) (by decide) (by decide)
-      (fun _ => by decide) (by decide) hm)
-  rcases rs with ⟨r, _⟩
-  rcases hq with ⟨outBytes, out_len, _, _, hiff, _, hpos, hut⟩
-  have hr20 : r = 20#64 := hut 1 2 9 (by decide) (by decide) (by decide)
-    (by decide) (by decide) (by decide) nvM6Unsat_header nvM6Unsat_unitTrace (by decide)
-  have ⟨hpos_len, hle⟩ := hiff.mpr (by rw [hr20]; decide)
-  obtain ⟨hlen_eq, _, h20, _, hm'⟩ := hpos ⟨hpos_len, hle⟩
-  obtain ⟨hout_eq, _⟩ := h20 hr20
-  have h12 : out_len = 12 := by rw [← hlen_eq, hout_eq, unsatDimacsBytes_len]
-  rw [hout_eq, h12] at hm'
-  exact ⟨hr20, nvM6UnsatCnf_unsat,
-    ⟨kissatCnfToDimacs [[]], parseDimacs_unsatDimacsBytes, fun _ => nvM6UnsatCnf_unsat⟩,
-    by simpa [List.drop_replicate] using hm'⟩
-
-/-- Concrete Witness 2 (**CLOSED `394`-fn `m6ExportEnv`**, `XPost := False`, `<= std3`):
-executing `kissat_simplify_export_bytes` on satisfiable `nvM6SatBytes` (`"p cnf 2 1\n1 2 0\n"`)
-never reports UNSAT (`r ≠ 20#64`) and whenever `0 < out_len ≤ 64`, exports valid `outBytes`
-parsing back to `some cnfOut` with `cnfOut.Unsat → nvM6SatCnf.Unsat`. -/
-theorem m6_export_sat_sound_nv :
-    Func.wp m6ExportEnv kissat_simplify_export_bytes_body
-      (nvM6CnfPtr, BitVec.ofNat 64 nvM6SatBytes.length,
-        nvM6SatWorkPtr, BitVec.ofNat 64 nvM6WorkLen, 16#64, nvOutDescPtr, ())
-      nvExportSatMem
-      (fun (r, ()) m' =>
-        ∃ (outBytes : List UInt8) (out_len : Nat),
-          (r = 0#64 ∨ r = 1#64 ∨ r = 10#64) ∧ r ≠ 20#64 ∧ out_len < 2 ^ 64 ∧
-          (0 < out_len ∧ out_len ≤ 64 →
-            outBytes.length = out_len ∧
-            (∃ cnfOut : CNF Nat, parseDimacs outBytes = some cnfOut ∧
-              (cnfOut.Unsat → nvM6SatCnf.Unsat)) ∧
-            (bytes nvM6CnfPtr nvM6SatBytes ⋆ region nvM6SatWorkPtr nvM6WorkLen ⋆
-              exportOutMem nvOutDescPtr nvOutBufPtr 64#64 (BitVec.ofNat 64 out_len) ⋆
-              bytes nvOutBufPtr (outBytes ++ List.replicate (64 - out_len) 0) ⋆
-              region (nvM6SatWorkPtr + BitVec.ofNat 64 nvM6WorkLen) 4080) m'))
-      (fun _ _ _ _ => False) := by
-  have hm := nv_build_export_mem (cnfBytes := nvM6SatBytes) (buf := List.replicate 64 0)
-    (workPtr := nvM6SatWorkPtr) (wlen := nvM6WorkLen) (padGap := 4080)
-    (outCap := 64#64) (oldLen := 99#64) (by decide) (by decide) rfl
-  change (bytes nvM6CnfPtr nvM6SatBytes ⋆ region nvM6SatWorkPtr nvM6WorkLen ⋆
-    exportOutMem nvOutDescPtr nvOutBufPtr (BitVec.ofNat 64 (List.replicate 64 (0 : UInt8)).length)
-      99#64 ⋆
-    bytes nvOutBufPtr (List.replicate 64 0) ⋆
-    region (nvM6SatWorkPtr + BitVec.ofNat 64 nvM6WorkLen) 4080) nvExportSatMem at hm
-  refine wp_mono (fun rs m' hq => ?_) (fun _ _ _ _ hf => hf) _ _
-    (kissat_simplify_export_bytes_sound m6ExportEnv
-      m6ExportEnv_mem_init m6ExportEnv_loaded
-      (by decide) (by decide) (by decide) (by decide) (by decide) (by decide)
-      (fun _ => by decide) (by decide) hm)
-  rcases rs with ⟨r, _⟩
-  rcases hq with ⟨outBytes, out_len, hr, hlt, hiff, _, hpos, _⟩
-  have hne20 : r ≠ 20#64 := fun hr20 => by
-    have ⟨hgt, hle⟩ := hiff.mpr (by rw [hr20]; decide)
-    obtain ⟨_, _, h20, _, _⟩ := hpos ⟨hgt, hle⟩
-    obtain ⟨_, F0, hp0, hu0⟩ := h20 hr20
-    rw [parseDimacs_nvM6SatBytes, Option.some.injEq] at hp0
-    exact nvM6SatCnf_not_unsat (hp0 ▸ hu0)
-  have hr3 : r = 0#64 ∨ r = 1#64 ∨ r = 10#64 := by
-    rcases hr with rfl | rfl | rfl | rfl
-    · exact Or.inl rfl
-    · exact Or.inr (Or.inl rfl)
-    · exact Or.inr (Or.inr rfl)
-    · exact absurd rfl hne20
-  refine ⟨outBytes, out_len, hr3, hne20, hlt, fun ⟨hgt, hle⟩ => ?_⟩
-  obtain ⟨hlen_eq, ⟨F0, cnfOut, hp0, hpOut, hu⟩, _, _, hm'⟩ := hpos ⟨hgt, hle⟩
-  rw [parseDimacs_nvM6SatBytes, Option.some.injEq] at hp0
-  subst hp0
-  rw [List.drop_replicate] at hm'
-  exact ⟨hlen_eq, ⟨cnfOut, hpOut, hu⟩, hm'⟩
 
 /-! ## 2. Deterministic Concrete `Mem 64` Non-Vacuity (`r = 1#64`, `r = 20#64`, `r = 10#64`) -/
 
