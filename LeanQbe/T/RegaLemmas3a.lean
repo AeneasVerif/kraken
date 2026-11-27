@@ -230,7 +230,7 @@ theorem tryAddr_ok {G : VCtx} {nv : Nat} {st : SymState T.toIsa} {s : T.mach.MDa
         split at h
         · next hd =>
           obtain ⟨rb, hr, hk⟩ := Option.bind_eq_some_iff.mp h
-          obtain ⟨vb, hmb, hv⟩ := hA.defs _ _ hdef v hm
+          obtain ⟨vb, hmb, hv⟩ := (hA.defs _ _ hdef).2 v hm
           exact reg hk (Or.inr ⟨_, _, hr, hmb, rfl⟩) (by simp_all [Arg.val])
         · simp at h
       · simp at h
@@ -240,7 +240,7 @@ theorem tryAddr_ok {G : VCtx} {nv : Nat} {st : SymState T.toIsa} {s : T.mach.MDa
     · split at h
       · next base d hdef =>
         obtain ⟨rb, hr, hk⟩ := Option.bind_eq_some_iff.mp h
-        obtain ⟨vb, hmb, hv⟩ := hA.defs _ _ hdef v hm
+        obtain ⟨vb, hmb, hv⟩ := (hA.defs _ _ hdef).2 v hm
         exact reg hk (Or.inr ⟨_, _, hr, hmb, rfl⟩)
           (by simp [Arg.val, hv, Int64.toBitVec_ofBitVec])
       · next base idx sh d hdef =>
@@ -554,7 +554,7 @@ private theorem rmwFact_ok {G : VCtx} {y w : Nat} {df : DefFact} {vy : BitVec w}
     · rename_i h64; replace h64 : w = 64 := by simpa using h64
       subst h64; simp only [Option.some.injEq, Prod.mk.injEq] at hf
       rcases hf with ⟨rfl, rfl, rfl⟩
-      obtain ⟨vb, hmb, rfl⟩ := hOk vy hmy
+      obtain ⟨vb, hmb, rfl⟩ := hOk.2 vy hmy
       exact ⟨vb, .imm (d.setWidth 64), hmb, .imm _, by simp [RmwOp.eval, BitVec.setWidth_eq]⟩
     · simp at hf
   | addrSum b i sh d =>
@@ -911,8 +911,8 @@ private theorem tryAddr_unique {G : VCtx} {nv : Nat} {st : SymState T.toIsa}
             split at h
             · obtain ⟨rb, hrb, _⟩ := Option.bind_eq_some_iff.mp h
               obtain ⟨-, hgb⟩ := findGprFor_ok hA hrb
-              obtain ⟨vb1, hmb1, hv1⟩ := hA.defs _ _ hdef _ hm1
-              obtain ⟨vb2, hmb2, hv2⟩ := hA.defs _ _ hdef _ hm2
+              obtain ⟨vb1, hmb1, hv1⟩ := (hA.defs _ _ hdef).2 _ hm1
+              obtain ⟨vb2, hmb2, hv2⟩ := (hA.defs _ _ hdef).2 _ hm2
               have hb1 := (hgb _ _ hmb1).2; have hb2 := (hgb _ _ hmb2).2
               simp only [BitVec.setWidth_eq] at hb1 hb2
               simp [Arg.val, hv1, hv2, ← hb1, ← hb2]
@@ -933,8 +933,8 @@ private theorem tryAddr_unique {G : VCtx} {nv : Nat} {st : SymState T.toIsa}
           simp only [hdef] at h
           obtain ⟨rb, hrb, _⟩ := Option.bind_eq_some_iff.mp h
           obtain ⟨-, hgb⟩ := findGprFor_ok hA hrb
-          obtain ⟨vb1, hmb1, hv1⟩ := hA.defs _ _ hdef _ hm1
-          obtain ⟨vb2, hmb2, hv2⟩ := hA.defs _ _ hdef _ hm2
+          obtain ⟨vb1, hmb1, hv1⟩ := (hA.defs _ _ hdef).2 _ hm1
+          obtain ⟨vb2, hmb2, hv2⟩ := (hA.defs _ _ hdef).2 _ hm2
           have hb1 := (hgb _ _ hmb1).2; have hb2 := (hgb _ _ hmb2).2
           simp only [BitVec.setWidth_eq] at hb1 hb2
           simp [Arg.val, hv1, hv2, ← hb1, ← hb2]

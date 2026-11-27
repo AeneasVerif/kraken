@@ -202,7 +202,9 @@ public import LeanQbe.T.RegaLemmas3a
 public import LeanQbe.T.RegaLemmas3b
 public import LeanQbe.T.RegaLemmas4
 public import LeanQbe.T.RegaLemmasCmpReuse
+public import LeanQbe.T.RegaLemmasRemat
 public import LeanQbe.T.RegaLemmasZero
+public import LeanQbe.T.RegaRemat
 public import LeanQbe.T.RegaZero
 public import LeanQbe.T.RegaZext
 public import LeanQbe.T.Scc
