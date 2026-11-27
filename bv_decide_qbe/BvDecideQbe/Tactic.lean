@@ -58,17 +58,18 @@ private def elabBVDecideConfigGrind (cfg : TSyntax `Lean.Parser.Tactic.optConfig
 
 @[tactic bvDecideQbeStx]
 def evalBvDecideQbe : Tactic := fun
-  | `(tactic| bv_decide_qbe $cfg:optConfig $[$types:bvTypes]?) => do
+  | `(tactic| bv_decide_qbe $cfgStx:optConfig $[$types:bvTypes]?) => do
     let ref ← getRef
-    let cfg ← elabBVDecideConfig cfg
+    let cfg ← elabBVDecideConfig cfgStx
     let types ← elabBVDecideTypes types cfg
-    let tacticCtx := mkQbeTacticContext cfg types
-    let qbeCtx : QbeContext := {
-      fuel := fuelOfTimeout cfg.timeout
-      axiomDeclRange? := some ref
-      acNf := cfg.acNf
-    }
     liftMetaFinishingTactic fun g => do
+      let cfg ← resolveAutoAcNf cfgStx cfg g
+      let tacticCtx := mkQbeTacticContext cfg types
+      let qbeCtx : QbeContext := {
+        fuel := fuelOfTimeout cfg.timeout
+        axiomDeclRange? := some ref
+        acNf := cfg.acNf
+      }
       let params ← Grind.mkDefaultParams {}
       discard <| Grind.GrindM.run (params := params) <|
         bvDecideQbe (.mvarIdTarget g) tacticCtx qbeCtx
@@ -76,10 +77,11 @@ def evalBvDecideQbe : Tactic := fun
 
 @[grind_tactic bvDecideQbeGrindStx]
 def evalBvDecideQbeGrind : Grind.GrindTactic := fun
-  | `(grind| bv_decide_qbe $cfg:optConfig $[$types:bvTypes]?) => do
+  | `(grind| bv_decide_qbe $cfgStx:optConfig $[$types:bvTypes]?) => do
     let ref ← getRef
     let g ← Grind.getMainGoal
-    let cfg ← elabBVDecideConfigGrind cfg g.mvarId `bv_decide_qbe
+    let cfg ← elabBVDecideConfigGrind cfgStx g.mvarId `bv_decide_qbe
+    let cfg ← resolveAutoAcNfGrind cfgStx cfg g
     let types ← elabBVDecideTypes types cfg
     let tacticCtx := mkQbeTacticContext cfg types
     let qbeCtx : QbeContext := {
@@ -93,9 +95,10 @@ def evalBvDecideQbeGrind : Grind.GrindTactic := fun
 
 @[grind_tactic bvDecideQbePushStx]
 def evalBvDecideQbePush : Grind.GrindTactic := fun
-  | `(grind| bv_decide_qbe_push $cfg:optConfig) => do
+  | `(grind| bv_decide_qbe_push $cfgStx:optConfig) => do
     let g ← Grind.getMainGoal
-    let cfg ← elabBVDecideConfigGrind cfg g.mvarId `bv_decide_qbe_push
+    let cfg ← elabBVDecideConfigGrind cfgStx g.mvarId `bv_decide_qbe_push
+    let cfg ← resolveAutoAcNfGrind cfgStx cfg g (fixedInt := false)
     Grind.liftGoalM <| do
       let g ← get
       let ctx := Normalize.PreProcessContext.new .push cfg
