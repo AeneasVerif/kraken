@@ -198,16 +198,32 @@ meta def zextElideArm64Fn : Fn :=
     .let_ (op2 (.add i64) (.var t) (.var z2)) fun (res, ()) =>
     .ret (.var res, ())⟩
 
-/-- `sext 32 64` must NOT be elided after `load i32` (`sbfm x, x, #0, #31` must remain). -/
+/-- `load i32` + single-use `sext 32 64` fuses into `ldrsw x, [p]` (W5 `b6c0f6c5`; replaces
+`ldr w + sbfm x, x, #0, #31`) and must never be elided to unsigned `ldr w`. -/
 meta def sextKeepArm64Fn : Fn :=
   ⟨"sextKeepArm64", [i64], [i64], fun _ _ (p, ()) =>
     .load i32 (.var p) fun x =>
     .let_ (op1 (.sext 32 64) (.var x)) fun (sx, ()) =>
     .ret (.var sx, ())⟩
 
+/-- When `load i32` has a second use preventing `ldrsw` fusion, `sext 32 64` must NOT be elided
+(`sbfm x, x, #0, #31` must remain). -/
+meta def sextKeepMultiUseArm64Fn : Fn :=
+  ⟨"sextKeepMultiUseArm64", [i64], [i32, i64], fun _ _ (p, ()) =>
+    .load i32 (.var p) fun x =>
+    .let_ (op1 (.sext 32 64) (.var x)) fun (sx, ()) =>
+    .ret (.var x, .var sx, ())⟩
+
+meta def isLdrswDir : armTarget.toIsa.Directive → Bool
+  | .instr { operation := .LDRSW .., .. } => true
+  | _ => false
+
 #guard chk [zextElideArm64Fn]
 #guard countDirs isArmOrrWOrUbfmDir (codeOf [zextElideArm64Fn]) == 0
 #guard chk [sextKeepArm64Fn]
-#guard countDirs isArmSext32Dir (codeOf [sextKeepArm64Fn]) == 1
+#guard countDirs isLdrswDir (codeOf [sextKeepArm64Fn]) == 1 &&
+  countDirs isArmSext32Dir (codeOf [sextKeepArm64Fn]) == 0
+#guard chk [sextKeepMultiUseArm64Fn]
+#guard countDirs isArmSext32Dir (codeOf [sextKeepMultiUseArm64Fn]) == 1
 
 end LeanQbeTest.T.FlagRaOptArm64Test

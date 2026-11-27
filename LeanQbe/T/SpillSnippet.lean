@@ -229,20 +229,46 @@ structure RegionFind where
   calleeIps    : List Nat
   calleeNvs    : List Nat
   calleeLids   : List Nat
+  preExitIps   : List Nat := []
+  preExitVars  : List Nat := []
+  preExitDefs  : List Nat := []
 
 /-- Default start/exit magic store constants used in Phase-0 stress harnesses. -/
 def defaultStartMagics : List (BitVec 64) := [1369899009#64, 0x51A70000#64]
 def defaultExitMagics  : List (BitVec 64) := [1369899010#64, 0x51A80000#64]
 
-/-- Locate a marked exit store inside `contTree`. -/
-def findExitStore? (exitMagics : List (BitVec 64) := defaultExitMagics) :
-    Live.Tree → Option (Nat × Nat × List Nat)
-  | .store _ eIp (.bits 64) (.imm ce) _ afterExit =>
+/-- Locate a marked exit store inside `contTree`, returning
+`(exitIp, exitNextIp, liveAfterExit, preExitIps, preExitUsedVars, preExitDefVars)`.
+Tracking the pre-exit prefix ensures `splice_snippet_hints` keeps registers needed before
+`exitNextIp` un-evicted when `Move.ld` restores run after `exitIp`. -/
+def findExitStoreMeta? (exitMagics : List (BitVec 64) := defaultExitMagics) :
+    Live.Tree → Option (Nat × Nat × List Nat × List Nat × List Nat × List Nat)
+  | .store _ eIp (.bits 64) (.imm ce) a afterExit =>
     if exitMagics.contains ce then
-      some (eIp, (firstIpOf afterExit).getD (eIp + 1), treeHeadLive afterExit)
-    else findExitStore? exitMagics afterExit
-  | .let_ _ _ _ _ _ k | .load _ _ _ _ _ k | .skip _ _ k => findExitStore? exitMagics k
+      some (eIp, (firstIpOf afterExit).getD (eIp + 1), treeHeadLive afterExit,
+        [eIp], Live.argVarIds a, [])
+    else do
+      let (rIp, nxt, lv, ips, uvs, dvs) ← findExitStoreMeta? exitMagics afterExit
+      some (rIp, nxt, lv, eIp :: ips, Live.argVarIds a ++ uvs, dvs)
+  | .store _ eIp _ v a afterExit => do
+    let (rIp, nxt, lv, ips, uvs, dvs) ← findExitStoreMeta? exitMagics afterExit
+    some (rIp, nxt, lv, eIp :: ips, Live.argVarIds v ++ Live.argVarIds a ++ uvs, dvs)
+  | .let_ _ ip nv ts op k => do
+    let (rIp, nxt, lv, ips, uvs, dvs) ← findExitStoreMeta? exitMagics k
+    let newVs := (List.range ts.length).map (nv + ·)
+    some (rIp, nxt, lv, ip :: ips, Live.opVarIds op ++ uvs, newVs ++ dvs)
+  | .load _ ip nv _ a k => do
+    let (rIp, nxt, lv, ips, uvs, dvs) ← findExitStoreMeta? exitMagics k
+    some (rIp, nxt, lv, ip :: ips, Live.argVarIds a ++ uvs, nv :: dvs)
+  | .skip _ ip k => do
+    let (rIp, nxt, lv, ips, uvs, dvs) ← findExitStoreMeta? exitMagics k
+    some (rIp, nxt, lv, ip :: ips, uvs, dvs)
   | _ => none
+
+/-- Locate a marked exit store inside `contTree`. -/
+def findExitStore? (exitMagics : List (BitVec 64) := defaultExitMagics) (t : Live.Tree) :
+    Option (Nat × Nat × List Nat) :=
+  (findExitStoreMeta? exitMagics t).map fun (eIp, nxt, lv, _, _, _) => (eIp, nxt, lv)
 
 mutual
 /-- Locate an explicitly marker-bracketed snippet `.group` inside an outer `Live.Tree`. -/
@@ -252,8 +278,8 @@ def findMarkedRegion? (startMagics : List (BitVec 64) := defaultStartMagics)
   | .store _ sIp (.bits 64) (.imm c) _
       (.group _ (.cons contLid psCont contTree .nil) calleeTree) =>
     if startMagics.contains c then
-      match findExitStore? exitMagics contTree with
-      | some (eIp, nextIp, liveExit) =>
+      match findExitStoreMeta? exitMagics contTree with
+      | some (eIp, nextIp, liveExit, preIps, preUvs, preDvs) =>
         let (cIps, cNvs, cLids) := collectTreeIds calleeTree
         some {
           startIp := sIp
@@ -266,6 +292,9 @@ def findMarkedRegion? (startMagics : List (BitVec 64) := defaultStartMagics)
           calleeIps := cIps
           calleeNvs := cNvs
           calleeLids := cLids
+          preExitIps := preIps
+          preExitVars := Live.dedup preUvs
+          preExitDefs := Live.dedup preDvs
         }
       | none => none
     else findMarkedRegion? startMagics exitMagics
@@ -529,25 +558,41 @@ def splice_snippet_hints (I : Isa) (sDirect outerLate : Fn) (hOuter : I.Hints)
   let hSnip := hSnipOverride?.getD (Spill.hints I sDirect)
   if hSnip.nslots > 0 then
     throw s!"snippet '{sDirect.name}' needs {hSnip.nslots} spill slots standalone"
-  -- Invariant #1: collect exact `keepInputRegs` from outer variables referenced inside `calleeTree`.
+  -- Invariant #1: collect exact `keepInputRegs` from outer variables referenced inside `calleeTree`
+  -- plus any outer registers needed in `contTree` before `exitNextIp` (where eviction restores run).
   let outerParamRegs : List (Option I.Reg) := match I.assignArgs outerLate.as with
     | some tup => abiRegsList tup
     | none => []
   let calleeNvSet := Live.trieOfList reg.calleeNvs
   let outerInputVars := (collectTreeUsedVars reg.calleeTree).filter (!Live.trieMem calleeNvSet ·)
-  let regsFromInputVars := outerInputVars.filterMap fun v =>
+  let regOfOuterVar (v : Nat) : Option I.Reg :=
     if v < outerParamRegs.length then outerParamRegs[v]?.join
     else match hOuter.dest.find? v with | some (.gpr r) => some r | _ => none
+  let regsFromInputVars := outerInputVars.filterMap regOfOuterVar
   let ipUses := collectIpUsedVars reg.calleeTree
   let outerIps := ipUses.filterMap fun (ip, vs) =>
     if vs.any (!Live.trieMem calleeNvSet ·) then some ip else none
-  let regsFromIpLoads := outerIps.flatMap fun ip =>
-    match hOuter.pre.find? ip with
-    | some ps => ps.moves.filterMap fun | .ld r _ => some r | _ => none
-    | none => []
-  let keepInputRegs := dedupList (regsFromInputVars ++ regsFromIpLoads ++ extraKeepRegs)
-  -- Collect exit `contRetRegs`, `contLiveRegs`, and outer live-through regs across internal blocks.
+  let loadRegsAt (ips : List Nat) : List I.Reg :=
+    ips.flatMap fun ip =>
+      match hOuter.pre.find? ip with
+      | some ps => ps.moves.filterMap fun | .ld r _ => some r | _ => none
+      | none => []
+  let regsFromIpLoads := loadRegsAt outerIps
   let enCont? := hOuter.entry.find? reg.contLid
+  let preExitVarRegs := reg.preExitVars.filterMap fun v =>
+    match enCont? with
+    | some en =>
+      en.live.findSome? fun
+        | (.var w, .gpr r) => if w == v then some r else none
+        | _ => none
+    | none => regOfOuterVar v
+  let preExitDefRegs := reg.preExitDefs.filterMap fun v =>
+    match hOuter.dest.find? v with | some (.gpr r) => some r | _ => none
+  let preExitLoadRegs := loadRegsAt reg.preExitIps
+  let keepInputRegs := dedupList
+    (regsFromInputVars ++ regsFromIpLoads ++ preExitVarRegs ++ preExitDefRegs ++
+      preExitLoadRegs ++ extraKeepRegs)
+  -- Collect exit `contRetRegs`, `contLiveRegs`, and outer live-through regs across internal blocks.
   let contRetRegs : List I.Reg := match enCont? with
     | some en => en.ploc.filterMap fun | .gpr r => some r | _ => none
     | none => []

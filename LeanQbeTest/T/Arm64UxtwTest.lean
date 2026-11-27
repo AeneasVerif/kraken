@@ -35,6 +35,7 @@ meta def hasMemUxtwOff : AddrExpr → Bool
 
 meta def isMemUxtwDir : Directive → Bool
   | .instr { operation := .LDR _ (.addr a), .. }
+  | .instr { operation := .LDRSW _ (.addr a), .. }
   | .instr { operation := .LDRB _ a, .. }
   | .instr { operation := .LDRH _ a, .. }
   | .instr { operation := .LDRSB _ a, .. }
@@ -48,12 +49,14 @@ meta def isUbfiz32Dir : Directive → Bool
   | .instr { operation := .UBFM _ _ _ 31, .. } => true
   | _ => false
 
--- Negative guard checks (`SP`, bad shift, unencodable disp/scale)
+-- Negative guard checks (`SP`, bad shift, unencodable disp/scale, invalid sext widths `m >= n`)
 #guard (armLoadZextIdx i32 (.reg .X0) .SP (.reg .X2) .s4 0).isNone
 #guard (armLoadZextIdx i32 (.reg .X0) (.reg .X1) .SP .s4 0).isNone
 #guard (armLoadZextIdx i32 (.reg .X0) (.reg .X1) (.reg .X2) .s8 0).isNone
 #guard (armLoadZextIdx i32 (.reg .X0) (.reg .X1) (.reg .X2) .s4 0x123456).isNone
-#guard (armLoadSextZextIdx 32 64 (.reg .X0) (.reg .X1) (.reg .X2) .s4 0).isNone
+-- W5 (`b6c0f6c5`) added `m = 32` (`LDRSW`) support; keep negative guards for `!(m < n)` widths.
+#guard (armLoadSextZextIdx 32 32 (.reg .X0) (.reg .X1) (.reg .X2) .s4 0).isNone
+#guard (armLoadSextZextIdx 64 64 (.reg .X0) (.reg .X1) (.reg .X2) .s8 0).isNone
 #guard (armLoadSextZextIdx 8 64 (.reg .X0) .SP (.reg .X2) .s1 0).isNone
 #guard (armStoreZextIdx i64 (.gpr (.reg .X0)) (.reg .X1) .SP .s8 0).isNone
 #guard (armStoreZextIdx i64 (.gpr (.reg .X0)) (.reg .X1) (.reg .X2) .s4 (-16384)).isNone
@@ -86,6 +89,11 @@ meta def isUbfiz32Dir : Directive → Bool
   | _ => false
 
 #guard match armLoadSextZextIdx 16 64 (.reg .X0) (.reg .X1) (.reg .X2) .s2 0 with
+  | some ([d], m) => isMemUxtwDir d && m == maskNone
+  | _ => false
+
+-- W5 (`b6c0f6c5`) added `ldrsw x, [xb, wi, uxtw #2]` (`m = 32 -> 64`).
+#guard match armLoadSextZextIdx 32 64 (.reg .X0) (.reg .X1) (.reg .X2) .s4 0 with
   | some ([d], m) => isMemUxtwDir d && m == maskNone
   | _ => false
 
@@ -162,6 +170,9 @@ meta def renderDirs : Option (List Directive × FlagMask) → List String
 
 #guard renderDirs (armLoadSextZextIdx 8 64 (.reg .X0) (.reg .X1) (.reg .X2) .s1 0) ==
   ["ldrsb x0, [x1, w2, uxtw #0]"]
+
+#guard renderDirs (armLoadSextZextIdx 32 64 (.reg .X0) (.reg .X1) (.reg .X2) .s4 0) ==
+  ["ldrsw x0, [x1, w2, uxtw #2]"]
 
 #guard renderDirs (armStoreZextIdx i64 (.gpr (.reg .X0)) (.reg .X1) (.reg .X2) .s8 0) ==
   ["str x0, [x1, w2, uxtw #3]"]
