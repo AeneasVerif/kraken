@@ -229,6 +229,17 @@ public import LeanQbe.T.Examples.Kissat.PlainSearchLemmas1
 public import LeanQbe.T.Examples.Kissat.PlainSpec
 public import LeanQbe.T.Examples.Kissat.PlainSpec1
 public import LeanQbe.T.Examples.Kissat.PlainSpec2
+public import LeanQbe.T.Examples.Kissat.Proof.Gates.Cert
+public import LeanQbe.T.Examples.Kissat.Proof.Gates.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Gates.WpHelpers
+public import LeanQbe.T.Examples.Kissat.Proof.Gates.WpM7And
+public import LeanQbe.T.Examples.Kissat.Proof.Gates.WpM7Basic
+public import LeanQbe.T.Examples.Kissat.Proof.Gates.WpM7Ite
+public import LeanQbe.T.Examples.Kissat.Proof.Gates.WpM7Xor
+public import LeanQbe.T.Examples.Kissat.Proof.Gates.WpM7Xor0
+public import LeanQbe.T.Examples.Kissat.Proof.Gates.WpM8And
+public import LeanQbe.T.Examples.Kissat.Proof.Gates.WpM8Equiv
+public import LeanQbe.T.Examples.Kissat.Proof.Gates.WpM8Ite
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Arena
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Arena1
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Contracts
