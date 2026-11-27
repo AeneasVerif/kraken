@@ -312,6 +312,20 @@ theorem test_uint8_16_32_64_bit_grind
     ((((md <<< 6) ||| (reg <<< 3) ||| rm) >>> 6) : UInt8) = md := by
   refine ⟨?_, ?_, ?_⟩ <;> c0_bv_bit_grind
 
+def DEF_PH_GARB : BitVec 32 := 0x00080000#32
+
+theorem test_c0_bv_bit_grind_def_mask_huge_shift_and_extract
+    (m : Mem 64) (p : Fin 25 → BitVec 64) (xs : Fin 25 → List (BitVec 64))
+    (ys : List (Val i32)) (v : BitVec 64) (bs : List UInt8)
+    (_hmem : SpatialNoise25 p xs ys v bs m)
+    (w g : BitVec 32) (hg : g.toNat < 2 ^ 19) (md reg rm : BitVec 8)
+    (hrm : rm.toNat < 8) :
+    (((w &&& ~~~PH_GLUE_MASK) ||| g) &&& DEF_PH_GARB) = (w &&& DEF_PH_GARB) ∧
+    (w &&& (1#32 <<< 10000000)) = 0#32 ∧
+    (w &&& (0xFFFF#32 >>> 10000000)) = 0#32 ∧
+    BitVec.extractLsb 5 3 ((md <<< 6) ||| (reg <<< 3) ||| rm) = reg.truncate 3 := by
+  refine ⟨?_, ?_, ?_, ?_⟩ <;> c0_bv_bit_grind
+
 /-! ## 5. Strict `<= std3` Axiom & E-Match Lint Checks -/
 
 #grind_lint check in LeanQbe.T.C0Grind
@@ -319,6 +333,7 @@ theorem test_uint8_16_32_64_bit_grind
 #print axioms test_c0_bv_bit_grind_after_have_let_and_abbrev_eq
 #print axioms test_c0_bv_bit_grind_unintrod_let_and_abbrev_hyp
 #print axioms test_uint8_16_32_64_bit_grind
+#print axioms test_c0_bv_bit_grind_def_mask_huge_shift_and_extract
 
 #print axioms test_bv32_64_add_setWidth
 #print axioms test_bv32_64_wrap_add_mul_truncate

@@ -10,11 +10,10 @@ Standalone leaf proof-automation kit unlocking Lean 4 `nightly-2026-11-08`'s bui
 (`hom := true`, `Init.Grind.Homo.*`, `List` `@[grind =]`) inside C0 weakest-precondition proofs
 without exposing `grind`'s `initCore` to large `Mem 64` separation-logic chains or C0 AST terms:
 
-1. **Curated `@[grind =]` / `[grind hom]` bridges**:
-   * Non-looping `List.getD` read-over-write bridge (`list_getD_set`) compatible with `Init`'s
-     `List.getD_eq_getElem?_getD`, `List.getElem?_set`, and `List.length_set`, plus convenience
-     lemmas `list_getD_set_eq`, `list_getD_set_ne`, `list_getD_eq_getElem`,
-     `list_getD_of_length_le`.
+1. **Curated `List.getD` & `[grind hom]` bridges**:
+   * Plain `List.getD` convenience lemmas (`list_getD_set`, `list_getD_set_eq`, `list_getD_set_ne`,
+     `list_getD_eq_getElem`, `list_getD_of_length_le`); core `Init`'s `List.getD_eq_getElem?_getD`,
+     `List.getElem?_set`, and `List.length_set` already close 3–8-set chains with 0 extra insts.
    * Missing `[grind hom]` rules `BitVec.ult_eq_decide` and `BitVec.ule_eq_decide` (complementing
      `Init.Grind.Homo.BitVec`'s `slt_eq_decide` / `sle_eq_decide`).
 2. **`c0_grind` tactic** (`c0_grind`, `c0_grind [extra, ...]`, optional `grind` config flags):
@@ -37,9 +36,9 @@ public section
 
 /-! ## 1. Curated `List.getD` & `BitVec` `grind` Bridges -/
 
-/-- Direct read-over-write rule for `List.getD` over `List.set`, strictly shrinking `List.set`
-nesting without E-matching loops alongside `List.getD_eq_getElem?_getD` and `List.length_set`. -/
-@[grind =] theorem list_getD_set {α : Type _} (xs : List α) (i j : Nat) (v d : α) :
+/-- Direct read-over-write rule for `List.getD` over `List.set` (kept plain without `@[grind =]`
+so `Init`'s `List.getD_eq_getElem?_getD` / `List.getElem?_set` close chains with 0 extra insts). -/
+theorem list_getD_set {α : Type _} (xs : List α) (i j : Nat) (v d : α) :
     (xs.set i v).getD j d =
       if i = j then (if i < xs.length then v else d) else xs.getD j d := by
   simp only [List.getD_eq_getElem?_getD, List.getElem?_set]
@@ -233,16 +232,20 @@ private meta def pruneC0Goal (mvar : MVarId) (paramStxs : Array Syntax) : MetaM 
 
 /-! ## 4. Bitmask Literal `getLsbD` Decomposition & Bound Projection -/
 
-private meta partial def evalClosedBvLit? (e : Lean.Expr) : MetaM (Option (Nat × Nat)) := do
+private meta partial def evalClosedBvLit? (e : Lean.Expr) (fuel : Nat := 16) :
+    MetaM (Option (Nat × Nat)) := do
+  if fuel == 0 then return none
   let e := e.consumeMData
   if e.isAppOfArity ``BitVec.ofNat 2 then
     let some w ← Meta.getNatValue? (e.getArg! 0) | return none
+    unless w ≤ 64 do return none
     let some n ← Meta.getNatValue? (e.getArg! 1) | return none
     return some (w, n % 2 ^ w)
   if e.isAppOfArity ``OfNat.ofNat 3 then
     let ty ← whnfR (e.getArg! 0)
     if ty.isAppOfArity ``BitVec 1 then
       let some w ← Meta.getNatValue? ty.appArg! | return none
+      unless w ≤ 64 do return none
       let some n ← Meta.getNatValue? (e.getArg! 1) | return none
       return some (w, n % 2 ^ w)
   for (fnNm, tyNm, w) in #[(``UInt8.toBitVec, ``UInt8, 8), (``UInt16.toBitVec, ``UInt16, 16),
@@ -256,13 +259,14 @@ private meta partial def evalClosedBvLit? (e : Lean.Expr) : MetaM (Option (Nat �
         if let some n ← Meta.getNatValue? u.appArg! then return some (w, n % 2 ^ w)
   if e.isAppOfArity ``BitVec.allOnes 1 then
     let some w ← Meta.getNatValue? e.appArg! | return none
+    unless w ≤ 64 do return none
     return some (w, 2 ^ w - 1)
   if e.isAppOfArity ``Complement.complement 3 then
-    let some (w, v) ← evalClosedBvLit? (e.getArg! 2) | return none
+    let some (w, v) ← evalClosedBvLit? (e.getArg! 2) (fuel - 1) | return none
     return some (w, (2 ^ w - 1) - v)
   let evalBin (op : Nat → Nat → Nat) : MetaM (Option (Nat × Nat)) := do
-    let some (w1, v1) ← evalClosedBvLit? (e.getArg! 4) | return none
-    let some (w2, v2) ← evalClosedBvLit? (e.getArg! 5) | return none
+    let some (w1, v1) ← evalClosedBvLit? (e.getArg! 4) (fuel - 1) | return none
+    let some (w2, v2) ← evalClosedBvLit? (e.getArg! 5) (fuel - 1) | return none
     return if w1 == w2 then some (w1, op v1 v2) else none
   if e.isAppOfArity ``HAnd.hAnd 6 then return ← evalBin (· &&& ·)
   if e.isAppOfArity ``HOr.hOr 6 then return ← evalBin (· ||| ·)
@@ -270,15 +274,23 @@ private meta partial def evalClosedBvLit? (e : Lean.Expr) : MetaM (Option (Nat �
   if e.isAppOfArity ``HMod.hMod 6 then
     return ← evalBin (fun a b => if b == 0 then a else a % b)
   if e.isAppOfArity ``HShiftLeft.hShiftLeft 6 || e.isAppOfArity ``HShiftRight.hShiftRight 6 then
-    let some (w, v) ← evalClosedBvLit? (e.getArg! 4) | return none
+    let some (w, v) ← evalClosedBvLit? (e.getArg! 4) (fuel - 1) | return none
     let k? ← match ← Meta.getNatValue? (e.getArg! 5) with
       | some k => pure (some k)
-      | none => pure ((← evalClosedBvLit? (e.getArg! 5)).map (·.2))
+      | none => pure ((← evalClosedBvLit? (e.getArg! 5) (fuel - 1)).map (·.2))
     let some k := k? | return none
-    let res := if e.isAppOfArity ``HShiftLeft.hShiftLeft 6 then (v <<< k) % 2 ^ w else v >>> k
+    let res :=
+      if k ≥ w then 0
+      else if e.isAppOfArity ``HShiftLeft.hShiftLeft 6 then (v <<< k) % 2 ^ w else v >>> k
     return some (w, res)
+  if let .const nm us := e then
+    if !(← isIrreducible nm) then
+      if let some (.defnInfo info) := (← getEnv).find? nm then
+        if info.safety == .safe && info.levelParams.length == us.length then
+          return ← evalClosedBvLit?
+            (info.value.instantiateLevelParams info.levelParams us) (fuel - 1)
   let e' ← whnfR e
-  if e' != e then evalClosedBvLit? e' else return none
+  if e' != e then evalClosedBvLit? e' (fuel - 1) else return none
 
 private meta def bitRuns (w v : Nat) : List (Nat × Nat) := Id.run do
   let mut runs : List (Nat × Nat) := []
@@ -478,10 +490,11 @@ private meta def injectBitHyps (mvar : MVarId) : MetaM (MVarId × Array FVarId) 
 
 private meta def bitGetLsbDConstNames : Array Name := #[
   ``BitVec.getLsbD_and, ``BitVec.getLsbD_or, ``BitVec.getLsbD_xor, ``BitVec.getLsbD_not,
-  ``BitVec.getLsbD_shiftLeft, ``BitVec.getLsbD_ushiftRight,
-  ``BitVec.shiftLeft_eq', ``BitVec.ushiftRight_eq',
+  ``BitVec.getLsbD_shiftLeft, ``BitVec.getLsbD_ushiftRight, ``BitVec.getLsbD_sshiftRight,
+  ``BitVec.shiftLeft_eq', ``BitVec.ushiftRight_eq', ``BitVec.sshiftRight_eq',
   ``BitVec.getLsbD_setWidth, ``BitVec.getLsbD_setWidth',
-  ``BitVec.getLsbD_signExtend, ``BitVec.getLsbD_extractLsb',
+  ``BitVec.getLsbD_signExtend, ``BitVec.msb_eq_getLsbD_last,
+  ``BitVec.getLsbD_extractLsb, ``BitVec.getLsbD_extractLsb', ``BitVec.getLsbD_append,
   ``BitVec.getLsbD_zero, ``BitVec.getLsbD_one, ``BitVec.getLsbD_allOnes, ``BitVec.getLsbD_ofNat,
   ``Nat.testBit_and, ``Nat.testBit_or, ``Nat.testBit_xor,
   ``Nat.testBit_shiftLeft, ``Nat.testBit_shiftRight,
