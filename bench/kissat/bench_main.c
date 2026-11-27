@@ -245,6 +245,66 @@ static void print_full_telemetry(
   putchar('\n');
 }
 
+static void flush_v_buf(FILE *out, char *buf, size_t *pos) {
+  if (*pos > 0) {
+    fwrite(buf, 1, *pos, out);
+    *pos = 0;
+  }
+}
+
+static void append_v_bytes(
+    FILE *out, char *buf, size_t cap, size_t *pos, const char *src, size_t len) {
+  if (*pos + len > cap) {
+    flush_v_buf(out, buf, pos);
+  }
+  if (len > cap) {
+    fwrite(src, 1, len, out);
+  } else {
+    memcpy(buf + *pos, src, len);
+    *pos += len;
+  }
+}
+
+static void write_dimacs_model(FILE *out, const int8_t *vals, uint64_t mv) {
+  char obuf[65536];
+  size_t opos = 0;
+  size_t col = 0;
+  for (uint64_t v = 1ULL; v <= mv; v++) {
+    int8_t b = vals[2ULL * (v - 1ULL)];
+    char tok[32];
+    size_t ti = sizeof(tok);
+    uint64_t x = v;
+    do {
+      tok[--ti] = (char)('0' + (x % 10ULL));
+      x /= 10ULL;
+    } while (x != 0ULL);
+    if (b <= 0) {
+      tok[--ti] = '-';
+    }
+    size_t n = sizeof(tok) - ti;
+    if (col == 0) {
+      append_v_bytes(out, obuf, sizeof(obuf), &opos, "v ", 2);
+      col = 2;
+    } else if (col + 1 + n > 78) {
+      append_v_bytes(out, obuf, sizeof(obuf), &opos, "\nv ", 3);
+      col = 2;
+    } else {
+      append_v_bytes(out, obuf, sizeof(obuf), &opos, " ", 1);
+      col++;
+    }
+    append_v_bytes(out, obuf, sizeof(obuf), &opos, tok + ti, n);
+    col += n;
+  }
+  if (col == 0) {
+    append_v_bytes(out, obuf, sizeof(obuf), &opos, "v 0\n", 4);
+  } else if (col + 2 > 78) {
+    append_v_bytes(out, obuf, sizeof(obuf), &opos, "\nv 0\n", 5);
+  } else {
+    append_v_bytes(out, obuf, sizeof(obuf), &opos, " 0\n", 3);
+  }
+  flush_v_buf(out, obuf, &opos);
+}
+
 int main(int argc, char **argv) {
   int argi = 1;
   int telemetry = 0;
@@ -253,6 +313,9 @@ int main(int argc, char **argv) {
   int ext_tel = 0;
   int m2_alias = 0;
   int poison_work = 0;
+  int no_verify = 0;
+  int print_model = 0;
+  const char *dump_model_path = NULL;
   const char *kissat_bin = NULL;
   while (argi < argc && argv[argi][0] == '-') {
     if (strcmp(argv[argi], "--telemetry") == 0) {
@@ -283,6 +346,15 @@ int main(int argc, char **argv) {
     } else if (strcmp(argv[argi], "--poison-work") == 0) {
       poison_work = 1;
       argi++;
+    } else if (strcmp(argv[argi], "--no-verify") == 0) {
+      no_verify = 1;
+      argi++;
+    } else if (strcmp(argv[argi], "--print-model") == 0) {
+      print_model = 1;
+      argi++;
+    } else if (strcmp(argv[argi], "--dump-model") == 0 && argi + 1 < argc) {
+      dump_model_path = argv[argi + 1];
+      argi += 2;
     } else if (strcmp(argv[argi], "--kissat") == 0 && argi + 1 < argc) {
       kissat_bin = argv[argi + 1];
       argi += 2;
@@ -294,7 +366,8 @@ int main(int argc, char **argv) {
     fprintf(stderr,
             "usage: %s [--telemetry|--plain-telemetry|--full-telemetry|--full-telemetry-m2|"
             "--extended-telemetry|--extended-telemetry-m2]"
-            " [--m2] [--poison-work] [--kissat <bin>] <work_bytes> <fuel> <cnf>...\n",
+            " [--m2] [--poison-work] [--no-verify] [--print-model]"
+            " [--dump-model <path>] [--kissat <bin>] <work_bytes> <fuel> <cnf>...\n",
             argv[0]);
     return 2;
   }
@@ -346,10 +419,48 @@ int main(int argc, char **argv) {
         return 1;
       }
       uint64_t mv = hdr[0];
-      const int8_t *vals = (const int8_t *)(uintptr_t)hdr[8];
-      if (!kissat_verify_dimacs_model((const char *)raw, cnf_len, vals, mv)) {
-        fprintf(stderr, "FAIL %s: invalid SAT model\n", path);
+      uintptr_t vals_ptr = (uintptr_t)hdr[8];
+      uintptr_t ws_lo = (uintptr_t)hdr + 72ULL;
+      uintptr_t ws_hi = (uintptr_t)gw.ptr + work_len;
+      if (mv > 0ULL &&
+          (vals_ptr < ws_lo || vals_ptr > ws_hi || mv > (uint64_t)(ws_hi - vals_ptr) / 2ULL)) {
+        fprintf(stderr, "FAIL %s: invalid SAT model pointer\n", path);
         return 1;
+      }
+      const int8_t *vals = (const int8_t *)vals_ptr;
+      if (!no_verify) {
+        if (!kissat_verify_dimacs_model((const char *)raw, cnf_len, vals, mv)) {
+          fprintf(stderr, "FAIL %s: invalid SAT model\n", path);
+          return 1;
+        }
+      } else if (print_model || dump_model_path) {
+        for (uint64_t v = 0ULL; v < mv; v++) {
+          int8_t pos = vals[v * 2ULL];
+          int8_t neg = vals[v * 2ULL + 1ULL];
+          if (!((pos == 1 && neg == -1) || (pos == -1 && neg == 1))) {
+            fprintf(stderr, "FAIL %s: inconsistent SAT model polarity\n", path);
+            return 1;
+          }
+        }
+      }
+      if (print_model) {
+        write_dimacs_model(stdout, vals, mv);
+      }
+      if (dump_model_path) {
+        if (strcmp(dump_model_path, "-") == 0) {
+          if (!print_model) write_dimacs_model(stdout, vals, mv);
+        } else {
+          FILE *mf = fopen(dump_model_path, "w");
+          if (!mf) {
+            fprintf(stderr, "FAIL %s: cannot open dump-model %s\n", path, dump_model_path);
+            return 1;
+          }
+          write_dimacs_model(mf, vals, mv);
+          if (fclose(mf) != 0) {
+            fprintf(stderr, "FAIL %s: failed writing dump-model %s\n", path, dump_model_path);
+            return 1;
+          }
+        }
       }
     }
     uint64_t conflicts = 0, learned = 0, min_rem = 0;
