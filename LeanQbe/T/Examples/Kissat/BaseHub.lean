@@ -262,6 +262,10 @@ public import LeanQbe.T.Examples.Kissat.Proof.Spec.Tactics
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Tactics1
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.WitnessInv
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.WitnessInv1
+public import LeanQbe.T.Examples.Kissat.Proof.Tiers.Cert
+public import LeanQbe.T.Examples.Kissat.Proof.Tiers.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Tiers.Wp0
+public import LeanQbe.T.Examples.Kissat.Proof.Tiers.Wp1
 public import LeanQbe.T.Examples.Kissat.Ref.Base
 public import LeanQbe.T.Examples.Kissat.Ref.Cdcl
 public import LeanQbe.T.Examples.Kissat.Ref.Chrono
