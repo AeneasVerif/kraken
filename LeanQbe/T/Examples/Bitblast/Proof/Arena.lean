@@ -10,6 +10,7 @@ public import LeanQbe.T.Logic.Mem
 public import LeanQbe.T.Logic.Bytes
 public import LeanQbe.T.Logic.Rules
 import LeanQbe.T.Logic.MemLemmas
+import LeanQbe.T.Logic.SlabChain
 import LeanQbe.T.Logic.Cells
 import LeanQbe.T.Logic.ProofKit
 import LeanQbe.T.Logic.C0StepAttr
@@ -747,162 +748,102 @@ end HdrLoadStore
 
 /-! ## 3. Workspace Phase Transitions and Kissat Handoff -/
 
-private theorem region_merge_add {a : BitVec 64} {n1 n2 : Nat} (hfit : n1 + n2 ≤ 2 ^ 64) :
-    (region a n1 ⋆ region (a + BitVec.ofNat 64 n1) n2) = region a (n1 + n2) :=
-  region_merge_eq rfl hfit
+private def bvHdrSeg (s : BVHdrState) : SlabSeg where
+  stride := 128
+  pred a := bvHdrMem a s
+  toReg _ _ _ := bvHdrMem_to_region
 
-private theorem bv_ofNat_add_eq (a : BitVec 64) (x y : Nat) :
-    a + BitVec.ofNat 64 x + BitVec.ofNat 64 y = a + BitVec.ofNat 64 (x + y) := by
-  apply BitVec.eq_of_toNat_eq
-  simp only [BitVec.toNat_add, BitVec.toNat_ofNat]
-  omega
+private def bvPrefixSegs (cfg : BVWorkspaceCfg) (atomBases sliceOffs : List (BitVec 32))
+    (hab : atomBases.length = cfg.n_vars) (hso : sliceOffs.length = cfg.n_nodes)
+    (haal : 4 * cfg.n_vars ≤ cfg.atom_bytes) (hsal : 4 * cfg.n_nodes ≤ cfg.slice_bytes) :
+    List SlabSeg :=
+  [ SlabSeg.ofArray i32 atomBases (4 * cfg.n_vars) cfg.atom_bytes
+      (by simp [Ty.bytes, Ty.size, hab]) haal,
+    SlabSeg.ofArray i32 sliceOffs (4 * cfg.n_nodes) cfg.slice_bytes
+      (by simp [Ty.bytes, Ty.size, hso]) hsal ]
 
-private theorem bv_ofNat_128_add_eq (a : BitVec 64) (y : Nat) :
-    a + 128 + BitVec.ofNat 64 y = a + BitVec.ofNat 64 (128 + y) :=
-  bv_ofNat_add_eq a 128 y
+private theorem bvPrefixSegs_eval {cfg : BVWorkspaceCfg} {atomBases sliceOffs : List (BitVec 32)}
+    (hab : atomBases.length = cfg.n_vars) (hso : sliceOffs.length = cfg.n_nodes)
+    (haal : 4 * cfg.n_vars ≤ cfg.atom_bytes) (hsal : 4 * cfg.n_nodes ≤ cfg.slice_bytes) :
+    SlabChain.eval (cfg.work_base + 128) (bvPrefixSegs cfg atomBases sliceOffs hab hso haal hsal) =
+      (array (t := i32) (cfg.work_base + 128) atomBases ⋆
+        region (cfg.work_base + BitVec.ofNat 64 (128 + 4 * cfg.n_vars))
+          (cfg.atom_bytes - 4 * cfg.n_vars) ⋆
+        array (t := i32) (cfg.work_base + BitVec.ofNat 64 (128 + cfg.atom_bytes)) sliceOffs ⋆
+        region (cfg.work_base + BitVec.ofNat 64 (128 + cfg.atom_bytes + 4 * cfg.n_nodes))
+          (cfg.slice_bytes - 4 * cfg.n_nodes)) := by
+  simp only [SlabChain.eval, bvPrefixSegs, SlabSeg.ofArray, ptr_add_ofNat,
+    show (128 : BitVec 64) = BitVec.ofNat 64 128 from rfl]
+  rw [sep_emp]
+  ac_rfl
 
-private theorem bv_add_sub_toNat {a b : BitVec 64} {n : Nat}
-    (hb : b = a + BitVec.ofNat 64 n) (hn : a.toNat + n < 2 ^ 64) :
-    a + BitVec.ofNat 64 (b.toNat - a.toNat) = b := by
-  apply BitVec.eq_of_toNat_eq
-  have hbt : b.toNat = a.toNat + n := by
-    rw [hb, BitVec.toNat_add, BitVec.toNat_ofNat]
-    rw [Nat.mod_eq_of_lt (by omega), Nat.mod_eq_of_lt (by omega)]
-  simp only [BitVec.toNat_add, BitVec.toNat_ofNat]
-  rw [hbt, Nat.mod_eq_of_lt (by omega), Nat.mod_eq_of_lt (by omega)]
-  omega
+private theorem bvPrefixSegs_totalBytes (cfg : BVWorkspaceCfg)
+    (atomBases sliceOffs : List (BitVec 32))
+    (hab : atomBases.length = cfg.n_vars) (hso : sliceOffs.length = cfg.n_nodes)
+    (haal : 4 * cfg.n_vars ≤ cfg.atom_bytes) (hsal : 4 * cfg.n_nodes ≤ cfg.slice_bytes) :
+    SlabChain.totalBytes (bvPrefixSegs cfg atomBases sliceOffs hab hso haal hsal) =
+      cfg.atom_bytes + cfg.slice_bytes := by
+  simp [bvPrefixSegs, SlabChain.totalBytes, SlabSeg.ofArray]
 
-/-- Collapse the entire `bvBlastMem` workspace back into `region cfg.work_base cfg.avail`
-(used on early exit / trivial UNSAT / trivial SAT / OOM). -/
+private theorem bvTailSegs_eval {cfg : BVWorkspaceCfg} {aigTail : List (BitVec 64)}
+    {htSlots litsPool : List (BitVec 32)} {k : Nat} (hk : aigTail.length = k)
+    (hht : htSlots.length = cfg.ht_slots) (hlits : litsPool.length = cfg.lits_cap)
+    (hlfit : 4 * cfg.lits_cap ≤ cfg.lits_bytes)
+    (base : BitVec 64) (hht_ptr : cfg.ht_ptr = base + BitVec.ofNat 64 (8 * k))
+    (hlits_ptr : cfg.lits_ptr = cfg.ht_ptr + BitVec.ofNat 64 (4 * cfg.ht_slots)) :
+    SlabChain.eval base
+      [ SlabSeg.ofArray64 aigTail k hk,
+        SlabSeg.ofArrayExact i32 htSlots (4 * cfg.ht_slots) (by simp [Ty.bytes, Ty.size, hht]),
+        SlabSeg.ofArray i32 litsPool (4 * cfg.lits_cap) cfg.lits_bytes
+          (by simp [Ty.bytes, Ty.size, hlits]) hlfit ] =
+      (array64 base aigTail ⋆
+        array (t := i32) cfg.ht_ptr htSlots ⋆
+        array (t := i32) cfg.lits_ptr litsPool ⋆
+        region (cfg.lits_ptr + BitVec.ofNat 64 (4 * cfg.lits_cap))
+          (cfg.lits_bytes - 4 * cfg.lits_cap)) := by
+  simp only [SlabChain.eval, SlabSeg.ofArray64, SlabSeg.ofArrayExact, SlabSeg.ofArray]
+  rw [← hht_ptr, ← hlits_ptr, sep_emp]
+  ac_rfl
+
 private theorem sep_lift_l {P P' Q : Mem 64 → Prop} (h : ∀ f, P f → P' f) :
     ∀ f, (P ⋆ Q) f → (P' ⋆ Q) f :=
   fun _ => sep_mono h
 
-private theorem sep_lift_r {P Q Q' : Mem 64 → Prop} (h : ∀ f, Q f → Q' f) :
-    ∀ f, (P ⋆ Q) f → (P ⋆ Q') f :=
-  fun _ => sep_mono_r h
-
+/-- Collapse the entire `bvBlastMem` workspace back into `region cfg.work_base cfg.avail`
+(used on early exit / trivial UNSAT / trivial SAT / OOM). -/
 theorem bvBlastMem_to_region {cfg : BVWorkspaceCfg} {hdr : BVHdrState}
     {atomBases sliceOffs : List (BitVec 32)} {aigWords : List (BitVec 64)}
     {htSlots litsPool : List (BitVec 32)} {m : Mem 64}
     (hok : BVWorkspaceOk cfg hdr atomBases sliceOffs aigWords htSlots litsPool)
     (hm : bvBlastMem cfg hdr atomBases sliceOffs aigWords htSlots litsPool m) :
     region cfg.work_base cfg.avail m := by
-  have hfit := hok.fit
-  have htot := hok.total_eq
-  have hab := hok.ab_len
-  have hso := hok.so_len
-  have haig := hok.aig_len_eq
-  have hht := hok.ht_len
-  have hlits := hok.lits_len
-  have hnv := hok.nv_lt
-  have hnn := hok.nn_lt
-  have hacap := hok.acap_lt
-  have hht_lt := hok.ht_lt
-  have hlcap := hok.lcap_lt
-  have hlfit := hok.lits_fit
-  have haal := hok.atom_align
-  have hsal := hok.slice_align
+  have hfit := hok.fit; have htot := hok.total_eq
   have hwb_lt : cfg.work_base.toNat < 2 ^ 64 := cfg.work_base.isLt
-  have f0 : ∀ f, bvHdrMem cfg.work_base hdr f → region cfg.work_base 128 f :=
-    fun _ => bvHdrMem_to_region
-  have f1 : ∀ f, array (t := i32) (cfg.work_base + 128) atomBases f →
-      region (cfg.work_base + 128) (4 * cfg.n_vars) f := fun _ h => by
-    have hr := array_to_region (t := i32) (a := cfg.work_base + 128) (xs := atomBases)
-      (by simp [Ty.bytes, Ty.size, hab]; omega) h
-    simpa [Ty.bytes, Ty.size, hab] using hr
-  have f2 : ∀ f,
-      array (t := i32) (cfg.work_base + BitVec.ofNat 64 (128 + cfg.atom_bytes)) sliceOffs f →
-      region (cfg.work_base + BitVec.ofNat 64 (128 + cfg.atom_bytes)) (4 * cfg.n_nodes) f :=
-    fun _ h => by
-      have hr := array_to_region (t := i32)
-        (a := cfg.work_base + BitVec.ofNat 64 (128 + cfg.atom_bytes)) (xs := sliceOffs)
-        (by simp [Ty.bytes, Ty.size, hso]; omega) h
-      simpa [Ty.bytes, Ty.size, hso] using hr
-  have f3 : ∀ f, array64 cfg.aig_ptr aigWords f → region cfg.aig_ptr (8 * cfg.aig_cap) f :=
-    fun _ h => by
-      have hr := array64_to_region (a := cfg.aig_ptr) (xs := aigWords) (by rw [haig]; omega) h
-      simpa [haig] using hr
-  have f4 : ∀ f, array (t := i32) cfg.ht_ptr htSlots f → region cfg.ht_ptr (4 * cfg.ht_slots) f :=
-    fun _ h => by
-      have hr := array_to_region (t := i32) (a := cfg.ht_ptr) (xs := htSlots)
-        (by simp [Ty.bytes, Ty.size, hht]; omega) h
-      simpa [Ty.bytes, Ty.size, hht] using hr
-  have f5 : ∀ f, array (t := i32) cfg.lits_ptr litsPool f →
-      region cfg.lits_ptr (4 * cfg.lits_cap) f :=
-    fun _ h => by
-      have hr := array_to_region (t := i32) (a := cfg.lits_ptr) (xs := litsPool)
-        (by simp [Ty.bytes, Ty.size, hlits]; omega) h
-      simpa [Ty.bytes, Ty.size, hlits] using hr
-  have h1 : (region cfg.work_base 128 ⋆
-      region (cfg.work_base + 128) (4 * cfg.n_vars) ⋆
-      region (cfg.work_base + BitVec.ofNat 64 (128 + 4 * cfg.n_vars))
-        (cfg.atom_bytes - 4 * cfg.n_vars) ⋆
-      region (cfg.work_base + BitVec.ofNat 64 (128 + cfg.atom_bytes)) (4 * cfg.n_nodes) ⋆
-      region (cfg.work_base + BitVec.ofNat 64 (128 + cfg.atom_bytes + 4 * cfg.n_nodes))
-        (cfg.slice_bytes - 4 * cfg.n_nodes) ⋆
-      region cfg.aig_ptr (8 * cfg.aig_cap) ⋆
-      region cfg.ht_ptr (4 * cfg.ht_slots) ⋆
-      region cfg.lits_ptr (4 * cfg.lits_cap) ⋆
-      region (cfg.lits_ptr + BitVec.ofNat 64 (4 * cfg.lits_cap))
-        (cfg.lits_bytes - 4 * cfg.lits_cap)) m := by
+  have heval := bvPrefixSegs_eval hok.ab_len hok.so_len hok.atom_align hok.slice_align
+  have htail := bvTailSegs_eval hok.aig_len_eq hok.ht_len hok.lits_len hok.lits_fit
+    cfg.aig_ptr hok.ht_ptr_eq hok.lits_ptr_eq
+  let preSegs := bvHdrSeg hdr :: bvPrefixSegs cfg atomBases sliceOffs hok.ab_len hok.so_len
+    hok.atom_align hok.slice_align
+  let tailSegs :=
+    [ SlabSeg.ofArray64 aigWords cfg.aig_cap hok.aig_len_eq,
+      SlabSeg.ofArrayExact i32 htSlots (4 * cfg.ht_slots)
+        (by simp [Ty.bytes, Ty.size, hok.ht_len]),
+      SlabSeg.ofArray i32 litsPool (4 * cfg.lits_cap) cfg.lits_bytes
+        (by simp [Ty.bytes, Ty.size, hok.lits_len]) hok.lits_fit ]
+  have hend : SlabChain.endAddr cfg.work_base preSegs = cfg.aig_ptr := by
+    rw [SlabChain.endAddr_eq, hok.aig_ptr_eq]
+    simp only [preSegs, SlabChain.totalBytes, bvHdrSeg, bvPrefixSegs_totalBytes]
+    congr 2; omega
+  have hslab : SlabChain.eval cfg.work_base (preSegs ++ tailSegs) m := by
+    rw [SlabChain.eval_append, hend, htail]
+    simp only [preSegs, SlabChain.eval, bvHdrSeg,
+      show cfg.work_base + BitVec.ofNat 64 128 = cfg.work_base + 128 from rfl, heval]
     unfold bvBlastMem at hm
-    exact sep_lift_l (sep_mono2 (sep_mono2 (sep_mono2 (sep_lift_l (sep_mono2
-      (sep_lift_l (sep_mono2 f0 f1)) f2)) f3) f4) f5) m hm
-  have hm_lits : (region cfg.lits_ptr (4 * cfg.lits_cap) ⋆
-      region (cfg.lits_ptr + BitVec.ofNat 64 (4 * cfg.lits_cap))
-        (cfg.lits_bytes - 4 * cfg.lits_cap)) =
-      region cfg.lits_ptr cfg.lits_bytes :=
-    region_merge_eq (n := cfg.lits_bytes) (by omega) (by omega)
-  have hm_hl : (region cfg.ht_ptr (4 * cfg.ht_slots) ⋆ region cfg.lits_ptr cfg.lits_bytes) =
-      region cfg.ht_ptr (4 * cfg.ht_slots + cfg.lits_bytes) := by
-    rw [hok.lits_ptr_eq, region_merge_add (by omega)]
-  have hm_ahl : (region cfg.aig_ptr (8 * cfg.aig_cap) ⋆
-      region cfg.ht_ptr (4 * cfg.ht_slots + cfg.lits_bytes)) =
-      region cfg.aig_ptr (8 * cfg.aig_cap + (4 * cfg.ht_slots + cfg.lits_bytes)) := by
-    rw [hok.ht_ptr_eq, region_merge_add (by omega)]
-  have hm_atom : (region (cfg.work_base + 128) (4 * cfg.n_vars) ⋆
-      region (cfg.work_base + BitVec.ofNat 64 (128 + 4 * cfg.n_vars))
-        (cfg.atom_bytes - 4 * cfg.n_vars)) =
-      region (cfg.work_base + 128) cfg.atom_bytes := by
-    rw [← bv_ofNat_128_add_eq cfg.work_base (4 * cfg.n_vars),
-      region_merge_eq (n := cfg.atom_bytes) (by omega) (by omega)]
-  have hm_slice : (region (cfg.work_base + BitVec.ofNat 64 (128 + cfg.atom_bytes))
-        (4 * cfg.n_nodes) ⋆
-      region (cfg.work_base + BitVec.ofNat 64 (128 + cfg.atom_bytes + 4 * cfg.n_nodes))
-        (cfg.slice_bytes - 4 * cfg.n_nodes)) =
-      region (cfg.work_base + BitVec.ofNat 64 (128 + cfg.atom_bytes)) cfg.slice_bytes := by
-    rw [← bv_ofNat_add_eq cfg.work_base (128 + cfg.atom_bytes) (4 * cfg.n_nodes),
-      region_merge_eq (n := cfg.slice_bytes) (by omega) (by omega)]
-  have hm_sa : (region (cfg.work_base + BitVec.ofNat 64 (128 + cfg.atom_bytes)) cfg.slice_bytes ⋆
-      region cfg.aig_ptr (8 * cfg.aig_cap + (4 * cfg.ht_slots + cfg.lits_bytes))) =
-      region (cfg.work_base + BitVec.ofNat 64 (128 + cfg.atom_bytes))
-        (cfg.slice_bytes + (8 * cfg.aig_cap + (4 * cfg.ht_slots + cfg.lits_bytes))) := by
-    rw [hok.aig_ptr_eq, ← bv_ofNat_add_eq cfg.work_base (128 + cfg.atom_bytes) cfg.slice_bytes,
-      region_merge_add (by omega)]
-  let tail := cfg.slice_bytes + (8 * cfg.aig_cap + (4 * cfg.ht_slots + cfg.lits_bytes))
-  have hm_asa : (region (cfg.work_base + 128) cfg.atom_bytes ⋆
-      region (cfg.work_base + BitVec.ofNat 64 (128 + cfg.atom_bytes)) tail) =
-      region (cfg.work_base + 128) (cfg.atom_bytes + tail) := by
-    rw [← bv_ofNat_128_add_eq cfg.work_base cfg.atom_bytes, region_merge_add (by omega)]
-  have hm_all : (region cfg.work_base 128 ⋆
-      region (cfg.work_base + 128) (cfg.atom_bytes + tail)) =
-      region cfg.work_base cfg.avail :=
-    region_merge_eq (n := cfg.avail) (by omega) (by omega)
-  have h1' : (region cfg.work_base 128 ⋆
-      ((region (cfg.work_base + 128) (4 * cfg.n_vars) ⋆
-        region (cfg.work_base + BitVec.ofNat 64 (128 + 4 * cfg.n_vars))
-          (cfg.atom_bytes - 4 * cfg.n_vars)) ⋆
-       ((region (cfg.work_base + BitVec.ofNat 64 (128 + cfg.atom_bytes)) (4 * cfg.n_nodes) ⋆
-         region (cfg.work_base + BitVec.ofNat 64 (128 + cfg.atom_bytes + 4 * cfg.n_nodes))
-           (cfg.slice_bytes - 4 * cfg.n_nodes)) ⋆
-        (region cfg.aig_ptr (8 * cfg.aig_cap) ⋆
-         (region cfg.ht_ptr (4 * cfg.ht_slots) ⋆
-          (region cfg.lits_ptr (4 * cfg.lits_cap) ⋆
-           region (cfg.lits_ptr + BitVec.ofNat 64 (4 * cfg.lits_cap))
-             (cfg.lits_bytes - 4 * cfg.lits_cap))))))) m := sep_ac h1
-  rw [hm_lits, hm_hl, hm_ahl, hm_slice, hm_sa, hm_atom, hm_asa, hm_all] at h1'
-  exact h1'
+    exact sep_ac hm
+  exact SlabChain.to_region_eq (by
+    simp [preSegs, tailSegs, SlabChain.totalBytes_append, SlabChain.totalBytes, bvHdrSeg,
+      bvPrefixSegs_totalBytes, SlabSeg.ofArray64, SlabSeg.ofArrayExact, SlabSeg.ofArray]; omega)
+    (by omega) hslab
 
 /-- Transition from bitblasting workspace `bvBlastMem` to COI/DIMACS workspace `bvCoiMem`,
 preserving `aigUsed := aigWords.take aigLen`, splitting off `[marks_ptr, marks_ptr + aigLen)` for
@@ -917,115 +858,63 @@ theorem bvBlastMem_to_coiMem {cfg : BVWorkspaceCfg} {hdr : BVHdrState}
     ∃ marks0 : List UInt8, marks0.length = aigLen ∧
       bvCoiMem cfg.work_base cfg.aig_ptr (cfg.aig_ptr + BitVec.ofNat 64 (8 * aigLen))
         cfg.avail hdr (aigWords.take aigLen) marks0 m := by
-  have hfit := hok.fit
-  have htot := hok.total_eq
-  have haig_len := hok.aig_len_eq
-  have hnv := hok.nv_lt
-  have hnn := hok.nn_lt
-  have hacap := hok.acap_lt
-  have hht_lt := hok.ht_lt
-  have hlcap := hok.lcap_lt
-  have hlfit := hok.lits_fit
-  have haal := hok.atom_align
-  have hsal := hok.slice_align
+  have hfit := hok.fit; have htot := hok.total_eq; have haig_len := hok.aig_len_eq
   have hwb_lt : cfg.work_base.toNat < 2 ^ 64 := cfg.work_base.isLt
   have haig_toNat :
       cfg.aig_ptr.toNat = cfg.work_base.toNat + 128 + cfg.atom_bytes + cfg.slice_bytes := by
     rw [hok.aig_ptr_eq, BitVec.toNat_add, BitVec.toNat_ofNat]
-    rw [Nat.mod_eq_of_lt (by omega), Nat.mod_eq_of_lt (by omega)]
-    omega
+    rw [Nat.mod_eq_of_lt (by omega), Nat.mod_eq_of_lt (by omega)]; omega
   let marksPtr := cfg.aig_ptr + BitVec.ofNat 64 (8 * aigLen)
   have hmptr_toNat : marksPtr.toNat = cfg.aig_ptr.toNat + 8 * aigLen := by
-    dsimp only [marksPtr]
-    rw [BitVec.toNat_add, BitVec.toNat_ofNat]
+    dsimp only [marksPtr]; rw [BitVec.toNat_add, BitVec.toNat_ofNat]
     rw [Nat.mod_eq_of_lt (by omega), Nat.mod_eq_of_lt (by omega)]
   have haig_sp : array64 cfg.aig_ptr aigWords =
-      (array64 cfg.aig_ptr (aigWords.take aigLen) ⋆
-        array64 marksPtr (aigWords.drop aigLen)) := by
+      (array64 cfg.aig_ptr (aigWords.take aigLen) ⋆ array64 marksPtr (aigWords.drop aigLen)) := by
     conv => lhs; rw [← List.take_append_drop aigLen aigWords]
     rw [array64_append, List.length_take_of_le (by omega)]
-  unfold bvBlastMem at hm
-  rw [haig_sp] at hm
-  have f1 : ∀ f, array (t := i32) (cfg.work_base + 128) atomBases f →
-      region (cfg.work_base + 128) (4 * cfg.n_vars) f := fun _ h => by
-    have hr := array_to_region (t := i32) (a := cfg.work_base + 128) (xs := atomBases)
-      (by simp [Ty.bytes, Ty.size, hok.ab_len]; omega) h
-    simpa [Ty.bytes, Ty.size, hok.ab_len] using hr
-  have f2 : ∀ f,
-      array (t := i32) (cfg.work_base + BitVec.ofNat 64 (128 + cfg.atom_bytes)) sliceOffs f →
-      region (cfg.work_base + BitVec.ofNat 64 (128 + cfg.atom_bytes)) (4 * cfg.n_nodes) f :=
-    fun _ h => by
-      have hr := array_to_region (t := i32)
-        (a := cfg.work_base + BitVec.ofNat 64 (128 + cfg.atom_bytes)) (xs := sliceOffs)
-        (by simp [Ty.bytes, Ty.size, hok.so_len]; omega) h
-      simpa [Ty.bytes, Ty.size, hok.so_len] using hr
-  have f3 : ∀ f, array64 marksPtr (aigWords.drop aigLen) f →
-      region marksPtr (8 * (cfg.aig_cap - aigLen)) f := fun _ h => by
-    have hdl : (aigWords.drop aigLen).length = cfg.aig_cap - aigLen := by simp [haig_len]
-    have hr := array64_to_region (a := marksPtr) (xs := aigWords.drop aigLen) (by rw [hdl]; omega) h
-    simpa [hdl] using hr
-  have f4 : ∀ f, array (t := i32) cfg.ht_ptr htSlots f → region cfg.ht_ptr (4 * cfg.ht_slots) f :=
-    fun _ h => by
-      have hr := array_to_region (t := i32) (a := cfg.ht_ptr) (xs := htSlots)
-        (by simp [Ty.bytes, Ty.size, hok.ht_len]; omega) h
-      simpa [Ty.bytes, Ty.size, hok.ht_len] using hr
-  have f5 : ∀ f, array (t := i32) cfg.lits_ptr litsPool f →
-      region cfg.lits_ptr (4 * cfg.lits_cap) f :=
-    fun _ h => by
-      have hr := array_to_region (t := i32) (a := cfg.lits_ptr) (xs := litsPool)
-        (by simp [Ty.bytes, Ty.size, hok.lits_len]; omega) h
-      simpa [Ty.bytes, Ty.size, hok.lits_len] using hr
-  have h2 : (bvHdrMem cfg.work_base hdr ⋆
-      region (cfg.work_base + 128) (4 * cfg.n_vars) ⋆
-      region (cfg.work_base + BitVec.ofNat 64 (128 + 4 * cfg.n_vars))
-        (cfg.atom_bytes - 4 * cfg.n_vars) ⋆
-      region (cfg.work_base + BitVec.ofNat 64 (128 + cfg.atom_bytes)) (4 * cfg.n_nodes) ⋆
-      region (cfg.work_base + BitVec.ofNat 64 (128 + cfg.atom_bytes + 4 * cfg.n_nodes))
-        (cfg.slice_bytes - 4 * cfg.n_nodes) ⋆
-      (array64 cfg.aig_ptr (aigWords.take aigLen) ⋆
-        region marksPtr (8 * (cfg.aig_cap - aigLen))) ⋆
-      region cfg.ht_ptr (4 * cfg.ht_slots) ⋆
-      region cfg.lits_ptr (4 * cfg.lits_cap) ⋆
-      region (cfg.lits_ptr + BitVec.ofNat 64 (4 * cfg.lits_cap))
-        (cfg.lits_bytes - 4 * cfg.lits_cap)) m :=
-    sep_lift_l (sep_mono2 (sep_mono2 (sep_mono2
-      (sep_lift_l (sep_mono2 (sep_lift_l (sep_lift_r f1)) f2)) (sep_lift_r f3)) f4) f5) m hm
-  have hm_atom : (region (cfg.work_base + 128) (4 * cfg.n_vars) ⋆
-      region (cfg.work_base + BitVec.ofNat 64 (128 + 4 * cfg.n_vars))
-        (cfg.atom_bytes - 4 * cfg.n_vars)) =
-      region (cfg.work_base + 128) cfg.atom_bytes := by
-    rw [← bv_ofNat_128_add_eq cfg.work_base (4 * cfg.n_vars),
-      region_merge_eq (n := cfg.atom_bytes) (by omega) (by omega)]
-  have hm_slice : (region (cfg.work_base + BitVec.ofNat 64 (128 + cfg.atom_bytes))
-        (4 * cfg.n_nodes) ⋆
-      region (cfg.work_base + BitVec.ofNat 64 (128 + cfg.atom_bytes + 4 * cfg.n_nodes))
-        (cfg.slice_bytes - 4 * cfg.n_nodes)) =
-      region (cfg.work_base + BitVec.ofNat 64 (128 + cfg.atom_bytes)) cfg.slice_bytes := by
-    rw [← bv_ofNat_add_eq cfg.work_base (128 + cfg.atom_bytes) (4 * cfg.n_nodes),
-      region_merge_eq (n := cfg.slice_bytes) (by omega) (by omega)]
-  have hm_pre : (region (cfg.work_base + 128) cfg.atom_bytes ⋆
-      region (cfg.work_base + BitVec.ofNat 64 (128 + cfg.atom_bytes)) cfg.slice_bytes) =
-      region (cfg.work_base + 128) (cfg.atom_bytes + cfg.slice_bytes) := by
-    rw [← bv_ofNat_128_add_eq cfg.work_base cfg.atom_bytes, region_merge_add (by omega)]
-  have hm_lits : (region cfg.lits_ptr (4 * cfg.lits_cap) ⋆
-      region (cfg.lits_ptr + BitVec.ofNat 64 (4 * cfg.lits_cap))
-        (cfg.lits_bytes - 4 * cfg.lits_cap)) =
-      region cfg.lits_ptr cfg.lits_bytes :=
-    region_merge_eq (n := cfg.lits_bytes) (by omega) (by omega)
-  have hm_hl : (region cfg.ht_ptr (4 * cfg.ht_slots) ⋆ region cfg.lits_ptr cfg.lits_bytes) =
-      region cfg.ht_ptr (4 * cfg.ht_slots + cfg.lits_bytes) := by
-    rw [hok.lits_ptr_eq, region_merge_add (by omega)]
-  have hm_tail : (region marksPtr (8 * (cfg.aig_cap - aigLen)) ⋆
-      region cfg.ht_ptr (4 * cfg.ht_slots + cfg.lits_bytes)) =
-      region marksPtr (cfg.avail - (128 + cfg.atom_bytes + cfg.slice_bytes + 8 * aigLen)) := by
-    rw [hok.ht_ptr_eq,
-      show cfg.aig_ptr + BitVec.ofNat 64 (8 * cfg.aig_cap) =
-        marksPtr + BitVec.ofNat 64 (8 * (cfg.aig_cap - aigLen)) from by
-        dsimp only [marksPtr]
-        rw [bv_ofNat_add_eq]; congr 1; apply BitVec.eq_of_toNat_eq
-        simp only [BitVec.toNat_ofNat]; omega]
-    exact region_merge_eq (n := cfg.avail - (128 + cfg.atom_bytes + cfg.slice_bytes + 8 * aigLen))
-      (by omega) (by omega)
+  have hdl : (aigWords.drop aigLen).length = cfg.aig_cap - aigLen := by simp [haig_len]
+  have hht_eq : cfg.ht_ptr = marksPtr + BitVec.ofNat 64 (8 * (cfg.aig_cap - aigLen)) := by
+    dsimp only [marksPtr]; rw [hok.ht_ptr_eq, ptr_add_ofNat]
+    congr 1; apply BitVec.eq_of_toNat_eq; simp only [BitVec.toNat_ofNat]; omega
+  have hpre_eq := bvPrefixSegs_eval hok.ab_len hok.so_len hok.atom_align hok.slice_align
+  have htail_eq := bvTailSegs_eval hdl hok.ht_len hok.lits_len hok.lits_fit
+    marksPtr hht_eq hok.lits_ptr_eq
+  unfold bvBlastMem at hm; rw [haig_sp] at hm
+  let preSegs := bvPrefixSegs cfg atomBases sliceOffs hok.ab_len hok.so_len hok.atom_align
+    hok.slice_align
+  let tailSegs :=
+    [ SlabSeg.ofArray64 (aigWords.drop aigLen) (cfg.aig_cap - aigLen) hdl,
+      SlabSeg.ofArrayExact i32 htSlots (4 * cfg.ht_slots)
+        (by simp [Ty.bytes, Ty.size, hok.ht_len]),
+      SlabSeg.ofArray i32 litsPool (4 * cfg.lits_cap) cfg.lits_bytes
+        (by simp [Ty.bytes, Ty.size, hok.lits_len]) hok.lits_fit ]
+  have hm_slab : (bvHdrMem cfg.work_base hdr ⋆
+      SlabChain.eval (cfg.work_base + 128) preSegs ⋆
+      array64 cfg.aig_ptr (aigWords.take aigLen) ⋆
+      SlabChain.eval marksPtr tailSegs) m := by
+    rw [hpre_eq, htail_eq]; exact sep_ac hm
+  have hpre_to_reg : ∀ m', SlabChain.eval (cfg.work_base + 128) preSegs m' →
+      region (cfg.work_base + 128) (cfg.atom_bytes + cfg.slice_bytes) m' :=
+    fun _ hp => SlabChain.to_region_eq
+      (bvPrefixSegs_totalBytes cfg atomBases sliceOffs hok.ab_len hok.so_len hok.atom_align
+        hok.slice_align) (by omega) hp
+  have htail_len : SlabChain.totalBytes tailSegs =
+      cfg.avail - (128 + cfg.atom_bytes + cfg.slice_bytes + 8 * aigLen) := by
+    simp only [tailSegs, SlabChain.totalBytes, SlabSeg.ofArray64, SlabSeg.ofArrayExact,
+      SlabSeg.ofArray]
+    omega
+  have htail_to_reg : ∀ m', SlabChain.eval marksPtr tailSegs m' →
+      region marksPtr (cfg.avail - (128 + cfg.atom_bytes + cfg.slice_bytes + 8 * aigLen)) m' :=
+    fun _ ht => SlabChain.to_region_eq htail_len (by omega) ht
+  have hm_reg1 : (bvHdrMem cfg.work_base hdr ⋆
+      region (cfg.work_base + 128) (cfg.atom_bytes + cfg.slice_bytes) ⋆
+      (array64 cfg.aig_ptr (aigWords.take aigLen) ⋆ SlabChain.eval marksPtr tailSegs)) m :=
+    sep_mono_mid hpre_to_reg (sep_ac hm_slab)
+  have htail_reg : ((bvHdrMem cfg.work_base hdr ⋆
+      region (cfg.work_base + 128) (cfg.atom_bytes + cfg.slice_bytes) ⋆
+      array64 cfg.aig_ptr (aigWords.take aigLen)) ⋆
+      region marksPtr (cfg.avail - (128 + cfg.atom_bytes + cfg.slice_bytes + 8 * aigLen))) m :=
+    sep_mono_r htail_to_reg (sep_ac hm_reg1)
   have hrem_split :
       region marksPtr (cfg.avail - (128 + cfg.atom_bytes + cfg.slice_bytes + 8 * aigLen)) =
       (region marksPtr aigLen ⋆
@@ -1035,37 +924,31 @@ theorem bvBlastMem_to_coiMem {cfg : BVWorkspaceCfg} {hdr : BVHdrState}
       (n2 := cfg.work_base.toNat + cfg.avail - (marksPtr.toNat + aigLen))
       (n := cfg.avail - (128 + cfg.atom_bytes + cfg.slice_bytes + 8 * aigLen))
       (by omega) (by omega)).symm
-  have h2' : (bvHdrMem cfg.work_base hdr ⋆
-      ((region (cfg.work_base + 128) (4 * cfg.n_vars) ⋆
-        region (cfg.work_base + BitVec.ofNat 64 (128 + 4 * cfg.n_vars))
-          (cfg.atom_bytes - 4 * cfg.n_vars)) ⋆
-       (region (cfg.work_base + BitVec.ofNat 64 (128 + cfg.atom_bytes)) (4 * cfg.n_nodes) ⋆
-        region (cfg.work_base + BitVec.ofNat 64 (128 + cfg.atom_bytes + 4 * cfg.n_nodes))
-          (cfg.slice_bytes - 4 * cfg.n_nodes))) ⋆
-      array64 cfg.aig_ptr (aigWords.take aigLen) ⋆
-      (region marksPtr (8 * (cfg.aig_cap - aigLen)) ⋆
-        (region cfg.ht_ptr (4 * cfg.ht_slots) ⋆
-          (region cfg.lits_ptr (4 * cfg.lits_cap) ⋆
-            region (cfg.lits_ptr + BitVec.ofNat 64 (4 * cfg.lits_cap))
-              (cfg.lits_bytes - 4 * cfg.lits_cap))))) m := sep_ac h2
-  rw [hm_atom, hm_slice, hm_pre, hm_lits, hm_hl, hm_tail, hrem_split] at h2'
+  rw [hrem_split, show cfg.atom_bytes + cfg.slice_bytes =
+    cfg.aig_ptr.toNat - (cfg.work_base.toNat + 128) by omega] at htail_reg
   have h2'' : ((bvHdrMem cfg.work_base hdr ⋆
       region (cfg.work_base + 128) (cfg.aig_ptr.toNat - (cfg.work_base.toNat + 128)) ⋆
       array64 cfg.aig_ptr (aigWords.take aigLen) ⋆
       region (marksPtr + BitVec.ofNat 64 aigLen)
         (cfg.work_base.toNat + cfg.avail - (marksPtr.toNat + aigLen))) ⋆
-      region marksPtr aigLen) m := by
-    rw [show cfg.aig_ptr.toNat - (cfg.work_base.toNat + 128) = cfg.atom_bytes + cfg.slice_bytes by
-      omega]
-    exact sep_ac h2'
-  have h3 := sep_mono_r (fun _ hr => region_to_bytes hr) h2''
-  obtain ⟨marks0, h4⟩ := sep_ex_r.mp h3
+      region marksPtr aigLen) m := sep_ac htail_reg
+  obtain ⟨marks0, h4⟩ := sep_ex_r.mp (sep_mono_r (fun _ hr => region_to_bytes hr) h2'')
   obtain ⟨hm_eq, hm_mem⟩ := sep_pure_r.mp h4
   refine ⟨marks0, hm_eq, ?_⟩
-  unfold bvCoiMem
-  dsimp only [marksPtr] at hm_mem
-  rw [hm_eq]
-  exact sep_ac hm_mem
+  unfold bvCoiMem; dsimp only [marksPtr] at hm_mem; rw [hm_eq]; exact sep_ac hm_mem
+
+private theorem coi_prefix_addrs {work_base aig_ptr marks_ptr : BitVec 64} {n_aig : Nat}
+    (hwb_lt : work_base.toNat < 2 ^ 64) (haig_lt : aig_ptr.toNat < 2 ^ 64)
+    (haig : work_base.toNat + 128 ≤ aig_ptr.toNat)
+    (_haig_ub : aig_ptr.toNat + n_aig < 2 ^ 64)
+    (haig_eq : marks_ptr = aig_ptr + BitVec.ofNat 64 n_aig) :
+    (work_base + 128#64) + BitVec.ofNat 64 (aig_ptr.toNat - (work_base.toNat + 128)) = aig_ptr ∧
+    aig_ptr + BitVec.ofNat 64 n_aig = marks_ptr := by
+  refine ⟨?_, haig_eq.symm⟩
+  apply BitVec.eq_of_toNat_eq
+  simp only [BitVec.toNat_add, BitVec.toNat_ofNat]
+  rw [Nat.mod_eq_of_lt (by omega), Nat.mod_eq_of_lt (by omega), Nat.mod_eq_of_lt (by omega)]
+  omega
 
 /-- Collapse all non-DIMACS workspace slices (`BVHdr`, prefix, `aig`, `marks`, and free gap)
 into `region work_base (dimacs_start - work_base)` for the `kissat_solve_bytes` handoff. -/
@@ -1086,74 +969,24 @@ theorem bvCoiMem_to_kissatHandoff {work_base aig_ptr marks_ptr dimacs_start : Bi
         (dimacs_start.toNat - (marks_ptr.toNat + marks.length)) ⋆
       bytes dimacs_start dimacsBytes) m) :
     bvDimacsMem work_base dimacs_start avail dimacsBytes m := by
-  have hwb_lt : work_base.toNat < 2 ^ 64 := work_base.isLt
-  have haig_lt : aig_ptr.toNat < 2 ^ 64 := aig_ptr.isLt
-  have hds_lt : dimacs_start.toNat < 2 ^ 64 := dimacs_start.isLt
+  have hwb_lt := work_base.isLt; have haig_lt := aig_ptr.isLt; have hds_lt := dimacs_start.isLt
   have hmptr : marks_ptr.toNat = aig_ptr.toNat + 8 * aigUsed.length := by
     rw [haig_eq, BitVec.toNat_add, BitVec.toNat_ofNat]
     rw [Nat.mod_eq_of_lt (by omega), Nat.mod_eq_of_lt (by omega)]
-  have g0 : ∀ f, bvHdrMem work_base hdr f → region work_base 128 f := fun _ => bvHdrMem_to_region
-  have g1 : ∀ f, array64 aig_ptr aigUsed f → region aig_ptr (8 * aigUsed.length) f :=
-    fun _ h => array64_to_region (by omega) h
-  have g2 : ∀ f, bytes marks_ptr marks f → region marks_ptr marks.length f :=
-    fun _ h => bytes_to_region h
-  have h1 : (region work_base 128 ⋆
-      region (work_base + 128) (aig_ptr.toNat - (work_base.toNat + 128)) ⋆
-      region aig_ptr (8 * aigUsed.length) ⋆
-      region marks_ptr marks.length ⋆
-      region (marks_ptr + BitVec.ofNat 64 marks.length)
-        (dimacs_start.toNat - (marks_ptr.toNat + marks.length)) ⋆
-      bytes dimacs_start dimacsBytes) m :=
-    sep_lift_l (sep_lift_l (sep_mono2 (sep_mono2 (sep_lift_l g0) g1) g2)) m hm
-  have hm_gap : (region marks_ptr marks.length ⋆
-      region (marks_ptr + BitVec.ofNat 64 marks.length)
-        (dimacs_start.toNat - (marks_ptr.toNat + marks.length))) =
-      region marks_ptr (dimacs_start.toNat - marks_ptr.toNat) :=
-    region_merge_eq (n := dimacs_start.toNat - marks_ptr.toNat) (by omega) (by omega)
-  have hm_aig : (region aig_ptr (8 * aigUsed.length) ⋆
-      region marks_ptr (dimacs_start.toNat - marks_ptr.toNat)) =
-      region aig_ptr (dimacs_start.toNat - aig_ptr.toNat) := by
-    have hmerge := region_merge_eq (a := aig_ptr) (n1 := 8 * aigUsed.length)
-      (n2 := dimacs_start.toNat - marks_ptr.toNat) (n := dimacs_start.toNat - aig_ptr.toNat)
-      (by omega) (by omega)
-    rw [← haig_eq] at hmerge
-    exact hmerge
-  have hm_pre : (region (work_base + 128) (aig_ptr.toNat - (work_base.toNat + 128)) ⋆
-      region aig_ptr (dimacs_start.toNat - aig_ptr.toNat)) =
-      region (work_base + 128) (dimacs_start.toNat - (work_base.toNat + 128)) := by
-    have h128 : (128 : BitVec 64).toNat = 128 := rfl
-    have hadd_toNat : (work_base + 128).toNat = work_base.toNat + 128 := by
-      rw [BitVec.toNat_add, h128, Nat.mod_eq_of_lt (by omega)]
-    have haig_bv : (work_base + 128) + BitVec.ofNat 64 (aig_ptr.toNat - (work_base.toNat + 128)) =
-        aig_ptr := by
-      apply BitVec.eq_of_toNat_eq
-      rw [BitVec.toNat_add, hadd_toNat, BitVec.toNat_ofNat]
-      rw [Nat.mod_eq_of_lt (by omega), Nat.mod_eq_of_lt (by omega)]
-      omega
-    have hmerge := region_merge_eq (a := work_base + 128)
-      (n1 := aig_ptr.toNat - (work_base.toNat + 128))
-      (n2 := dimacs_start.toNat - aig_ptr.toNat)
-      (n := dimacs_start.toNat - (work_base.toNat + 128))
-      (by omega) (by omega)
-    rw [haig_bv] at hmerge
-    exact hmerge
-  have hm_hdr : (region work_base 128 ⋆
-      region (work_base + 128) (dimacs_start.toNat - (work_base.toNat + 128))) =
-      region work_base (dimacs_start.toNat - work_base.toNat) :=
-    region_merge_eq (n := dimacs_start.toNat - work_base.toNat) (by omega) (by omega)
-  have h1' : (region work_base 128 ⋆
-      (region (work_base + 128) (aig_ptr.toNat - (work_base.toNat + 128)) ⋆
-        (region aig_ptr (8 * aigUsed.length) ⋆
-          (region marks_ptr marks.length ⋆
-            region (marks_ptr + BitVec.ofNat 64 marks.length)
-              (dimacs_start.toNat - (marks_ptr.toNat + marks.length))))) ⋆
-      bytes dimacs_start dimacsBytes) m := sep_ac h1
-  rw [hm_gap, hm_aig, hm_pre] at h1'
-  have h1'' : ((region work_base 128 ⋆
-      region (work_base + 128) (dimacs_start.toNat - (work_base.toNat + 128))) ⋆
-      bytes dimacs_start dimacsBytes) m := sep_ac h1'
-  rw [hm_hdr] at h1''
-  exact h1''
+  obtain ⟨haig_bv, hm_bv⟩ := coi_prefix_addrs hwb_lt haig_lt haig (by omega) haig_eq
+  let segs :=
+    [ bvHdrSeg hdr,
+      SlabSeg.ofRegion (aig_ptr.toNat - (work_base.toNat + 128)),
+      SlabSeg.ofArray64 aigUsed aigUsed.length rfl,
+      SlabSeg.ofBytes marks marks.length rfl,
+      SlabSeg.ofRegion (dimacs_start.toNat - (marks_ptr.toNat + marks.length)) ]
+  have hslab : (SlabChain.eval work_base segs ⋆ bytes dimacs_start dimacsBytes) m := by
+    simp only [segs, SlabChain.eval, bvHdrSeg, SlabSeg.ofRegion, SlabSeg.ofArray64,
+      SlabSeg.ofBytes, haig_bv, hm_bv, sep_emp]
+    exact sep_ac hm
+  exact SlabChain.to_region_frame (by
+    simp [segs, SlabChain.totalBytes, bvHdrSeg, SlabSeg.ofRegion, SlabSeg.ofArray64,
+      SlabSeg.ofBytes]; omega) (by omega) hslab
 
 /-- Collapse `bvDimacsMem` (`region work_base kcap ⋆ bytes dimacs_start dimacsBytes`) back into
 `region work_base avail` after `kissat_solve_bytes` returns. -/
@@ -1167,19 +1000,15 @@ theorem bvDimacsMem_to_region {work_base dimacs_start : BitVec 64} {avail : Nat}
   unfold bvDimacsMem at hm
   have hwb_lt : work_base.toNat < 2 ^ 64 := work_base.isLt
   have hds_lt : dimacs_start.toNat < 2 ^ 64 := dimacs_start.isLt
-  have h1 : (region work_base (dimacs_start.toNat - work_base.toNat) ⋆
-      region dimacs_start dimacsBytes.length) m :=
-    sep_mono_r (fun _ => bytes_to_region) hm
   have hds : work_base + BitVec.ofNat 64 (dimacs_start.toNat - work_base.toNat) = dimacs_start := by
     apply BitVec.eq_of_toNat_eq
     simp only [BitVec.toNat_add, BitVec.toNat_ofNat]
-    rw [Nat.mod_eq_of_lt (by omega), Nat.mod_eq_of_lt (by omega)]
-    omega
+    rw [Nat.mod_eq_of_lt (by omega), Nat.mod_eq_of_lt (by omega)]; omega
   have hm_eq := region_merge_eq (a := work_base)
     (n1 := dimacs_start.toNat - work_base.toNat) (n2 := dimacsBytes.length) (n := avail)
     (by omega) (by omega)
   rw [hds] at hm_eq
-  exact (congrFun hm_eq m).mp h1
+  exact (congrFun hm_eq m).mp (sep_mono_r (fun _ => bytes_to_region) hm)
 
 /-- Split `region work_ptr wlen` into leading 8-byte alignment pad + `region work_base avail`. -/
 theorem region_work_split_pad {work_ptr : BitVec 64} {wlen : Nat} {m : Mem 64}
@@ -1295,63 +1124,24 @@ theorem bvCoiMem_to_hdrRegion {work_base aig_ptr marks_ptr : BitVec 64} {avail :
     (haig_ub : aig_ptr.toNat + 8 * aigUsed.length ≤ work_base.toNat + avail)
     (hm : bvCoiMem work_base aig_ptr marks_ptr avail hdr aigUsed marks m) :
     (bvHdrMem work_base hdr ⋆ region (work_base + 128) (avail - 128)) m := by
-  have hwb_lt : work_base.toNat < 2 ^ 64 := work_base.isLt
-  have haig_lt : aig_ptr.toNat < 2 ^ 64 := aig_ptr.isLt
+  have hwb_lt := work_base.isLt; have haig_lt := aig_ptr.isLt
   have hmptr : marks_ptr.toNat = aig_ptr.toNat + 8 * aigUsed.length := by
     rw [haig_eq, BitVec.toNat_add, BitVec.toNat_ofNat]
     rw [Nat.mod_eq_of_lt (by omega), Nat.mod_eq_of_lt (by omega)]
-  have g1 : ∀ f, array64 aig_ptr aigUsed f → region aig_ptr (8 * aigUsed.length) f :=
-    fun _ h => array64_to_region (by omega) h
-  have g2 : ∀ f, bytes marks_ptr marks f → region marks_ptr marks.length f :=
-    fun _ h => bytes_to_region h
-  unfold bvCoiMem at hm
-  have h1 : (bvHdrMem work_base hdr ⋆
-      region (work_base + 128) (aig_ptr.toNat - (work_base.toNat + 128)) ⋆
-      region aig_ptr (8 * aigUsed.length) ⋆
-      region marks_ptr marks.length ⋆
-      region (marks_ptr + BitVec.ofNat 64 marks.length)
-        (work_base.toNat + avail - (marks_ptr.toNat + marks.length))) m :=
-    sep_lift_l (sep_mono2 (sep_mono2 (fun _ h => h) g1) g2) m hm
-  have hm_m : (region marks_ptr marks.length ⋆
-      region (marks_ptr + BitVec.ofNat 64 marks.length)
-        (work_base.toNat + avail - (marks_ptr.toNat + marks.length))) =
-      region marks_ptr (work_base.toNat + avail - marks_ptr.toNat) :=
-    region_merge_eq (n := work_base.toNat + avail - marks_ptr.toNat) (by omega) (by omega)
-  have hm_a : (region aig_ptr (8 * aigUsed.length) ⋆
-      region marks_ptr (work_base.toNat + avail - marks_ptr.toNat)) =
-      region aig_ptr (work_base.toNat + avail - aig_ptr.toNat) := by
-    have hmerge := region_merge_eq (a := aig_ptr) (n1 := 8 * aigUsed.length)
-      (n2 := work_base.toNat + avail - marks_ptr.toNat)
-      (n := work_base.toNat + avail - aig_ptr.toNat) (by omega) (by omega)
-    rw [← haig_eq] at hmerge
-    exact hmerge
-  have hm_p : (region (work_base + 128) (aig_ptr.toNat - (work_base.toNat + 128)) ⋆
-      region aig_ptr (work_base.toNat + avail - aig_ptr.toNat)) =
-      region (work_base + 128) (avail - 128) := by
-    have h128 : (128 : BitVec 64).toNat = 128 := rfl
-    have hadd_toNat : (work_base + 128).toNat = work_base.toNat + 128 := by
-      rw [BitVec.toNat_add, h128, Nat.mod_eq_of_lt (by omega)]
-    have haig_bv :
-        (work_base + 128) + BitVec.ofNat 64 (aig_ptr.toNat - (work_base.toNat + 128)) =
-        aig_ptr := by
-      apply BitVec.eq_of_toNat_eq
-      rw [BitVec.toNat_add, hadd_toNat, BitVec.toNat_ofNat]
-      rw [Nat.mod_eq_of_lt (by omega), Nat.mod_eq_of_lt (by omega)]
-      omega
-    have hmerge := region_merge_eq (a := work_base + 128)
-      (n1 := aig_ptr.toNat - (work_base.toNat + 128))
-      (n2 := work_base.toNat + avail - aig_ptr.toNat)
-      (n := avail - 128) (by omega) (by omega)
-    rw [haig_bv] at hmerge
-    exact hmerge
-  have h2 : (bvHdrMem work_base hdr ⋆
-      (region (work_base + 128) (aig_ptr.toNat - (work_base.toNat + 128)) ⋆
-        (region aig_ptr (8 * aigUsed.length) ⋆
-          (region marks_ptr marks.length ⋆
-            region (marks_ptr + BitVec.ofNat 64 marks.length)
-              (work_base.toNat + avail - (marks_ptr.toNat + marks.length)))))) m := sep_ac h1
-  rw [hm_m, hm_a, hm_p] at h2
-  exact h2
+  obtain ⟨haig_bv, hm_bv⟩ := coi_prefix_addrs hwb_lt haig_lt haig (by omega) haig_eq
+  let segs :=
+    [ SlabSeg.ofRegion (aig_ptr.toNat - (work_base.toNat + 128)),
+      SlabSeg.ofArray64 aigUsed aigUsed.length rfl,
+      SlabSeg.ofBytes marks marks.length rfl,
+      SlabSeg.ofRegion (work_base.toNat + avail - (marks_ptr.toNat + marks.length)) ]
+  have hslab : (bvHdrMem work_base hdr ⋆ SlabChain.eval (work_base + 128#64) segs) m := by
+    simp only [segs, SlabChain.eval, SlabSeg.ofRegion, SlabSeg.ofArray64, SlabSeg.ofBytes,
+      haig_bv, hm_bv, sep_emp]
+    unfold bvCoiMem at hm
+    exact sep_ac hm
+  exact sep_mono_r (fun _ => SlabChain.to_region_eq (by
+    simp [segs, SlabChain.totalBytes, SlabSeg.ofRegion, SlabSeg.ofArray64, SlabSeg.ofBytes]
+    omega) (by omega)) hslab
 
 end
 
