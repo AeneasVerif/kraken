@@ -183,6 +183,7 @@ public import LeanQbe.T.Examples.Kissat.FullWalkExtLemmas1
 public import LeanQbe.T.Examples.Kissat.FullWalkExtLemmas2
 public import LeanQbe.T.Examples.Kissat.KissatCertCommon
 public import LeanQbe.T.Examples.Kissat.KissatCertParamCommon
+public import LeanQbe.T.Examples.Kissat.KissatPlainCertCommon
 public import LeanQbe.T.Examples.Kissat.LayerABve
 public import LeanQbe.T.Examples.Kissat.LayerABve1
 public import LeanQbe.T.Examples.Kissat.LayerACollect

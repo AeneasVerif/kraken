@@ -1,91 +1,45 @@
 module
 
-public import LeanQbe.T.MainCertProof
-public import LeanQbe.T.Arm64.TargLemmas
-public import LeanQbe.T.Examples.Kissat.Plain
+public import LeanQbe.T.Arm64.KissatAbi
+public import LeanQbe.T.Examples.Kissat.KissatPlainCertCommon
 public import LeanQbe.T.Arm64.KissatPlainCert1
 public import LeanQbe.T.Arm64.KissatPlainCert2
 public import LeanQbe.T.Arm64.KissatPlainCert3
 public import LeanQbe.T.Arm64.KissatPlainCert4
 public import LeanQbe.T.Arm64.KissatPlainCert5
 public import LeanQbe.T.Arm64.KissatPlainCert6
-import all Kraken.Mem
-import all Kraken.Separation
 meta import Lean
 meta import LeanQbe.T.Arm64.Targ
 meta import LeanQbe.T.Examples.Kissat.Plain
 
 /-!
 # Kissat `D-Plain` (`plainModule`) Compilation Certificate on AAPCS64 Arm64
-
-Combines the 6 parallel kernel-checked slices (`KissatPlainCert1`..`KissatPlainCert6`) via
-`LinkedCert.append` into `plainCert` over `LeanQbe.T.Examples.Kissat.Plain.plainModule` (`59`
-functions) on `armTarget` (`armLegalTarget`, `armLayout`, `armLabelClean`):
-* `plainCert : LinkedCert armTarget ... plainModule [] [] 0 2048`;
-* `plain_legalSig : LegalSigAll armLegalTarget plainModule.fns`;
-* `mk_module_fnspec`: generic `(Γ : Env)` `Defined` + `FnSpec` over arbitrary `Host`;
-* `solve_arm64_of_fnspec`: lifts `"kissat_solve_bytes"` `FnSpec` to Kraken AArch64 `Eventually`.
 -/
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Arm64.KissatPlainCert
 
 open Std Std.ExtHashMap
 open LeanQbe.T LeanQbe.T.Examples.Kissat LeanQbe.T.Examples.Kissat.Plain
+open LeanQbe.T.Examples.Kissat.KissatCertCommon
+open LeanQbe.T.Examples.Kissat.KissatPlainCertCommon
 open LeanQbe.T.Arm64 Kraken
 open LeanQbe.T.Arm64.KissatPlainCert1 LeanQbe.T.Arm64.KissatPlainCert2
 open LeanQbe.T.Arm64.KissatPlainCert3 LeanQbe.T.Arm64.KissatPlainCert4
 open LeanQbe.T.Arm64.KissatPlainCert5 LeanQbe.T.Arm64.KissatPlainCert6
 
-/-- Prefix sub-module `[0, 29)`. -/
-def pref2Mod : Module := { fns := plainFns.take 29 }
-
-/-- Prefix sub-module `[0, 40)`. -/
-def pref3Mod : Module := { fns := plainFns.take 40 }
-
-/-- Prefix sub-module `[0, 47)`. -/
-def pref4Mod : Module := { fns := plainFns.take 47 }
-
-/-- Prefix sub-module `[0, 52)`. -/
-def pref5Mod : Module := { fns := plainFns.take 52 }
-
-/-- Linked certificate for prefix `[0, 29)`. -/
-noncomputable def pref2Cert :
-    LinkedCert armTarget armLayout armLegalTarget armLabelClean pref2Mod [] [] 0 2048 :=
-  cert1.append cert2 (by exact List.take_add (l := plainFns) (i := 15) (j := 14))
-    (by t_kernel_rfl)
-
-/-- Linked certificate for prefix `[0, 40)`. -/
-noncomputable def pref3Cert :
-    LinkedCert armTarget armLayout armLegalTarget armLabelClean pref3Mod [] [] 0 2048 :=
-  pref2Cert.append cert3 (by exact List.take_add (l := plainFns) (i := 29) (j := 11))
-    (by t_kernel_rfl)
-
-/-- Linked certificate for prefix `[0, 47)`. -/
-noncomputable def pref4Cert :
-    LinkedCert armTarget armLayout armLegalTarget armLabelClean pref4Mod [] [] 0 2048 :=
-  pref3Cert.append cert4 (by exact List.take_add (l := plainFns) (i := 40) (j := 7))
-    (by t_kernel_rfl)
-
-/-- Linked certificate for prefix `[0, 52)`. -/
-noncomputable def pref5Cert :
-    LinkedCert armTarget armLayout armLegalTarget armLabelClean pref5Mod [] [] 0 2048 :=
-  pref4Cert.append cert5 (by exact List.take_add (l := plainFns) (i := 47) (j := 5))
-    (by t_kernel_rfl)
-
 /-- Full 59-function kernel-checked native AArch64 compilation certificate for `plainModule`. -/
-noncomputable def plainCert :
+@[expose] noncomputable def plainCert :
     LinkedCert armTarget armLayout armLegalTarget armLabelClean
       plainModule [] [] 0 2048 :=
-  pref5Cert.append cert6 (by exact (List.take_append_drop 52 plainFns).symm)
-    (by t_kernel_rfl)
+  mkPlainCertTree rfl rfl rfl rfl rfl rfl cert1 cert2 cert3 cert4 cert5 cert6
+    (by t_kernel_rfl) (by t_kernel_rfl) (by t_kernel_rfl) (by t_kernel_rfl) (by t_kernel_rfl)
 
 private theorem plain_legalSig_check :
-    checkLegalSigAll armLegalTarget plainModule.fns = true := by
-  t_kernel_rfl
+    checkLegalSigAll armLegalTarget plainModule.fns = true := by t_kernel_rfl
 
 /-- Every function in `plainModule` has identity legalization on `armLegalTarget`. -/
 theorem plain_legalSig : LegalSigAll armLegalTarget plainModule.fns :=
@@ -94,8 +48,7 @@ theorem plain_legalSig : LegalSigAll armLegalTarget plainModule.fns :=
 section Generic
 variable [hh : Host]
 
-/-- Generic `FnSpec` for every function in `plainModule` on `armTarget`, parameterized
-over a sound environment `Γ` whose contracts ignore exit continuations. -/
+/-- Generic `FnSpec` for every function in `plainModule` on `armTarget`. -/
 theorem mk_module_fnspec (Γ : Env)
     (hsound : ∀ f ∈ plainFns, ∀ args m Q X,
       Γ f.name f.as f.rs args m Q X → Func.wp Γ f.body args m Q X)
@@ -105,11 +58,9 @@ theorem mk_module_fnspec (Γ : Env)
     {f : Fn} (hf : f ∈ plainModule.fns) :
     armTarget.Defined hh f.name ∧
       armTarget.FnSpec hh f.name (Γ f.name f.as f.rs) (plainCert.bound f.name) 0 :=
-  plainCert.fnSpec_noExit_of_legalSigAll hh Γ k₀ hc hu
-    plain_acyclic plainFns_wf plain_legalSig hsound hf (hnoex f hf)
+  plain_mk_module_fnspec plainCert plain_legalSig hh Γ hsound hnoex k₀ hc hu hf
 
-/-- Lifting any `FnSpec` for `"kissat_solve_bytes"` at stack bound `b` and abstract contract
-`spec` to a concrete Kraken-AArch64 `Eventually` statement via `arm64_of_returns`. -/
+/-- Lifting any `FnSpec` for `"kissat_solve_bytes"` to Kraken-AArch64 `Eventually`. -/
 theorem solve_arm64_of_fnspec {b : Nat}
     {spec : Spec [i64, i64, i64, i64, i64] [i64]}
     (hfnspec : armTarget.FnSpec hh "kissat_solve_bytes" spec b 0)
@@ -135,29 +86,14 @@ theorem solve_arm64_of_fnspec {b : Nat}
           (st.data.dmem =⋆ Eq m' ⋆
             region (s.regs.SP.toBitVec - BitVec.ofNat 64 b) b ⋆ R))
       ⟨s, Labels.label "kissat_solve_bytes"⟩ := by
-  have hargs : armTarget.ArgsIn (as := [i64, i64, i64, i64, i64])
-      (cnf_ptr, cnf_len, work_ptr, work_len, fuel, ()) s :=
-    ⟨_, rfl,
-      .cons ⟨by decide, by simpa [get_reg] using hx0⟩
-        (.cons ⟨by decide, by simpa [get_reg] using hx1⟩
-          (.cons ⟨by decide, by simpa [get_reg] using hx2⟩
-            (.cons ⟨by decide, by simpa [get_reg] using hx3⟩
-              (.cons ⟨by decide, by simpa [get_reg] using hx4⟩ .nil))))⟩
-  refine eventually_weaken _ _ _ _ ?_ (arm64_of_returns hfnspec hspec s ra R hargs hra hsp hmem)
-  rintro st ⟨hpc, hcs, hsp', rets, m', hQ, hrets, hm'⟩
-  rcases rets with ⟨r, ⟨⟩⟩
-  have hx0' : (st.data.regs.getXReg .X0).toBitVec = r := by
-    simpa [armInit, get_reg] using armInit.retsIn_singleton r st.data hrets
-  rw [hx0']
-  exact ⟨hpc, hcs, hsp', m', hQ, hm'⟩
+  refine eventually_weaken _ _ _ _ (fun _ ⟨hpc, ⟨hcs, hsp'⟩, m', hQ, hm'⟩ =>
+      ⟨hpc, hcs, hsp', m', hQ, hm'⟩)
+    (solve_of_abi_fnspec arm64KissatAbi hh "kissat_solve_bytes" hfnspec
+      cnf_ptr cnf_len work_ptr work_len fuel hspec s ra R
+      ⟨hx0, hx1, hx2, hx3, hx4⟩ ⟨hra, hsp⟩ hmem)
 
 end Generic
 
 #guard plainFns.length == 59
-
-#print axioms plainCert
-#print axioms plain_legalSig
-#print axioms mk_module_fnspec
-#print axioms solve_arm64_of_fnspec
 
 end LeanQbe.T.Arm64.KissatPlainCert
