@@ -630,7 +630,7 @@ private theorem deferLeaNextFlat_eq {rs : List Ty} (I : Isa) (h : I.Hints)
     (k : TFlat rs) (hwf : k.wfCheck Γ Δ = true) :
     deferLeaNextFlat I h vd' ve' nv ip st1 op k =
       deferLeaNext I h nv ip st1 op (denote VNat LNat k vs ls) := by
-  by_cases hcand : isLeaDeferCand I.gpr.deferShiftAlu op.code = true
+  by_cases hcand : isLeaDeferCand I.gpr.deferShiftAlu I.gpr.selectNeg?.isSome op.code = true
   · dsimp only [deferLeaNextFlat, deferLeaNext]
     simp only [hcand, Bool.not_true, Bool.false_eq_true, ↓reduceIte]
     cases ts with
@@ -747,6 +747,185 @@ private theorem findGroupFwdsFlat_eq {rs : List Ty} (I : Isa) (h : I.Hints) (st 
   rw [hk] at hc
   rw [hk, hc]
   rfl
+
+private theorem ccmpStepArm?Flat_eq {rs : List Ty} (I : Isa) (h : I.Hints) (ipJump : Nat)
+    (st : SymState I) (targetJ : Nat) (brCond : I.Cond) (coStep : CmpOp)
+    {w : Nat} (a b : Arg VNat (.bits w))
+    {Γ : List Ty} {Δ : List (List Ty)}
+    {vs : List ((t : Ty) × VNat t)} {ls : List ((ts : List Ty) × LNat ts)}
+    {vDepth : Nat} {vEnv : Trie Nat} {lEnv : List Nat}
+    (hΓ : CtxTypes Γ vs) (hΔ : CtxTypes Δ ls)
+    (hvm : TrieProjMatch (fun _ x => x) vDepth vEnv vs) (hlm : ListLblMatch lEnv ls)
+    (jumpArm : TFlat rs) (hwf : jumpArm.wfCheck Γ Δ = true) :
+    ccmpStepArm?Flat I h ipJump st targetJ brCond coStep a b vDepth vEnv lEnv jumpArm =
+      ccmpStepArm? I h ipJump st targetJ brCond coStep a b (denote VNat LNat jumpArm vs ls) := by
+  dsimp only [ccmpStepArm?Flat, ccmpStepArm?]
+  cases !preEmpty h ipJump with
+  | true => rfl
+  | false =>
+    simp only [Bool.false_eq_true, ↓reduceIte]
+    cases hpk : ccmpPickStep I st brCond coStep a b with
+    | none => rfl
+    | some p =>
+      dsimp only [Option.bind]
+      rw [zeroMoveJump?Flat_eq I h ipJump _ hΓ hΔ hvm hlm jumpArm hwf]
+      rfl
+
+private theorem ccmpPickArms?Flat_eq {rs : List Ty} (I : Isa) (h : I.Hints) (nv nl ipJnz : Nat)
+    (st : SymState I) (targetJ : Nat) (brCond : I.Cond) (co : CmpOp)
+    {w : Nat} (a b : Arg VNat (.bits w))
+    {Γ : List Ty} {Δ : List (List Ty)}
+    {vs : List ((t : Ty) × VNat t)} {ls : List ((ts : List Ty) × LNat ts)}
+    {vDepth : Nat} {vEnv : Trie Nat} {lEnv : List Nat}
+    (hΓ : CtxTypes Γ vs) (hΔ : CtxTypes Δ ls)
+    (hvm : TrieProjMatch (fun _ x => x) vDepth vEnv vs) (hlm : ListLblMatch lEnv ls)
+    (t e : TFlat rs) (hwt : t.wfCheck Γ Δ = true) (hwe : e.wfCheck Γ Δ = true) :
+    ccmpPickArms?Flat I h nv nl ipJnz st targetJ brCond co a b vDepth vEnv lEnv t e =
+      ccmpPickArms? I h nv nl ipJnz st targetJ brCond co a b
+        (denote VNat LNat t vs ls) (denote VNat LNat e vs ls) := by
+  dsimp only [ccmpPickArms?Flat, ccmpPickArms?]
+  rw [jnzIpTFlat_eq hΓ hΔ nv nl ipJnz t e hwt hwe,
+    ccmpStepArm?Flat_eq I h _ st targetJ brCond co a b hΓ hΔ hvm hlm t hwt,
+    ccmpStepArm?Flat_eq I h (ipJnz + 1) st targetJ brCond co.neg a b hΓ hΔ hvm hlm e hwe]
+
+private theorem ccmpCanStep?Flat_eq {rs : List Ty} (I : Isa) (h : I.Hints) (nv nl ip : Nat)
+    (st : SymState I) {targetJ : Nat} {brCond : I.Cond} {reqNonCb : Bool}
+    {Γ : List Ty} {Δ : List (List Ty)}
+    {vs : List ((t : Ty) × VNat t)} {ls : List ((ts : List Ty) × LNat ts)}
+    {vDepth : Nat} {vEnv : Trie Nat} {lEnv : List Nat}
+    (hΓ : CtxTypes Γ vs) (hΔ : CtxTypes Δ ls)
+    (hvm : TrieProjMatch (fun _ x => x) vDepth vEnv vs) (hlm : ListLblMatch lEnv ls)
+    (tf : TFlat rs) (hwf : tf.wfCheck Γ Δ = true) :
+    ccmpCanStep?Flat I h nv nl ip st targetJ brCond reqNonCb vDepth vEnv lEnv tf =
+      ccmpCanStep? I h nv nl ip st targetJ brCond reqNonCb (denote VNat LNat tf vs ls) := by
+  cases tf with
+  | let_ op k =>
+    rename_i ts
+    dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
+    dsimp only [denote]
+    rw [denoteArgs_eq_flatArgs hΓ hvm op.args hwf.1]
+    cases ts with
+    | nil => rfl
+    | cons t0 ts0 =>
+      cases t0 <;> try rfl
+      cases ts0 with
+      | cons _ _ => rfl
+      | nil =>
+        have hΓ' := CtxTypes.push (Tup.levels [.bool] nv) hΓ
+        have hvm' := trieProjMatch_insertVLevels (ts := [.bool]) (nv := nv) hvm
+        dsimp only [List.length_cons, List.length_nil, Nat.zero_add, insertVLevels,
+          Tup.levels, pushTup] at hΓ' hvm'
+        cases k with
+        | jnz c t e =>
+          have hwf2 := hwf.2
+          dsimp only [TFlat.wfCheck] at hwf2; simp only [Bool.and_eq_true] at hwf2
+          cases c with
+          | imm _ =>
+            dsimp only [ccmpCanStep?Flat, ccmpCanStep?, denote, denoteArg, Tup.levels, pushTup]
+          | var cx =>
+            dsimp only [ccmpCanStep?Flat, ccmpCanStep?, flatOp, denote, Tup.levels, pushTup]
+            rw [denoteArg_eq_flatArg hΓ' hvm' (.var cx) hwf2.1.1]
+            dsimp only [flatArg]
+            cases ccmpAsCmp? op.code (flatArgs vDepth vEnv op.args) with
+            | none => rfl
+            | some p =>
+              dsimp only
+              rw [ccmpPickArms?Flat_eq I h (nv + 1) nl (ip + 1) st targetJ brCond p.2.1
+                p.2.2.1 p.2.2.2 hΓ' hΔ hvm' hlm t e hwf2.1.2 hwf2.2]
+              rfl
+        | let_ op2 _ =>
+          dsimp only [ccmpCanStep?Flat, ccmpCanStep?, denote, Tup.levels, pushTup]
+          cases denoteArgs (⟨.bool, nv⟩ :: vs) op2.args <;> rfl
+        | load _ a _ =>
+          dsimp only [ccmpCanStep?Flat, ccmpCanStep?, denote, Tup.levels, pushTup]
+          cases denoteArg (⟨.bool, nv⟩ :: vs) a <;> rfl
+        | store v a _ =>
+          dsimp only [ccmpCanStep?Flat, ccmpCanStep?, denote, Tup.levels, pushTup]
+          cases denoteArg (⟨.bool, nv⟩ :: vs) v <;> cases denoteArg (⟨.bool, nv⟩ :: vs) a <;> rfl
+        | call _ _ args _ =>
+          dsimp only [ccmpCanStep?Flat, ccmpCanStep?, denote, Tup.levels, pushTup]
+          cases denoteArgs (⟨.bool, nv⟩ :: vs) args <;> rfl
+        | jump j args =>
+          rename_i tsj
+          dsimp only [ccmpCanStep?Flat, ccmpCanStep?, denote, Tup.levels, pushTup]
+          cases lookupL ls tsj j <;> cases denoteArgs (⟨.bool, nv⟩ :: vs) args <;> rfl
+        | ret vs' =>
+          dsimp only [ccmpCanStep?Flat, ccmpCanStep?, denote, Tup.levels, pushTup]
+          cases denoteArgs (⟨.bool, nv⟩ :: vs) vs' <;> rfl
+        | exit _ args =>
+          dsimp only [ccmpCanStep?Flat, ccmpCanStep?, denote, Tup.levels, pushTup]
+          cases denoteArgs (⟨.bool, nv⟩ :: vs) args <;> rfl
+        | hlt | group _ _ => rfl
+  | jnz c t e =>
+    dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
+    cases c with
+    | imm _ => dsimp only [denote, denoteArg]; rfl
+    | var cx =>
+      dsimp only [ccmpCanStep?Flat, ccmpCanStep?, denote]
+      rw [denoteArg_eq_flatArg hΓ hvm (.var cx) hwf.1.1]
+      dsimp only [flatArg]
+      cases st.defs.find? (flatVar vDepth vEnv cx) with
+      | none => rfl
+      | some df =>
+        cases df with
+        | cmpZeroVar co w y =>
+          dsimp only
+          rw [ccmpPickArms?Flat_eq I h nv nl ip st targetJ brCond co (.var y) (.imm 0#w)
+            hΓ hΔ hvm hlm t e hwf.1.2 hwf.2]
+          rfl
+        | _ => rfl
+  | load _ a _ => dsimp only [denote]; cases denoteArg vs a <;> rfl
+  | store v a _ => dsimp only [denote]; cases denoteArg vs v <;> cases denoteArg vs a <;> rfl
+  | call _ _ args _ => dsimp only [denote]; cases denoteArgs vs args <;> rfl
+  | jump j args =>
+    rename_i tsj; dsimp only [denote]
+    cases lookupL ls tsj j <;> cases denoteArgs vs args <;> rfl
+  | ret vs' => dsimp only [denote]; cases denoteArgs vs vs' <;> rfl
+  | exit _ args => dsimp only [denote]; cases denoteArgs vs args <;> rfl
+  | hlt | group _ _ => rfl
+
+private theorem ccmpStart?Flat_eq {rs : List Ty} (I : Isa) (h : I.Hints) (nv nl ip : Nat)
+    (st1 : SymState I) (cond : JnzCond I)
+    {Γ : List Ty} {Δ : List (List Ty)}
+    {vs : List ((t : Ty) × VNat t)} {ls : List ((ts : List Ty) × LNat ts)}
+    {vDepth : Nat} {vEnv : Trie Nat} {lEnv : List Nat}
+    (hΓ : CtxTypes Γ vs) (hΔ : CtxTypes Δ ls)
+    (hvm : TrieProjMatch (fun _ x => x) vDepth vEnv vs) (hlm : ListLblMatch lEnv ls)
+    (t e : TFlat rs) (hwt : t.wfCheck Γ Δ = true) (hwe : e.wfCheck Γ Δ = true) :
+    ccmpStart?Flat I h nv nl ip st1 cond vDepth vEnv lEnv t e =
+      ccmpStart? I h nv nl ip st1 cond (denote VNat LNat t vs ls) (denote VNat LNat e vs ls) := by
+  dsimp only [ccmpStart?Flat, ccmpStart?]
+  cases I.gpr.ccmp?.isNone with
+  | true => rfl
+  | false =>
+    simp only [Bool.false_eq_true, ↓reduceIte]
+    cases ccmpStartCond? I cond with
+    | none => rfl
+    | some p =>
+      dsimp only [Option.bind]
+      rw [jnzIpTFlat_eq hΓ hΔ nv nl ip t e hwt hwe]
+      simp only [
+        zeroMoveJump?Flat_eq I h _ (ccmpKillState I st1 p.2.2.1) hΓ hΔ hvm hlm t hwt,
+        ccmpCanStep?Flat_eq I h nv (nl + 1) (ip + 1) (ccmpKillState I st1 p.2.2.1)
+          hΓ hΔ hvm hlm e hwe,
+        zeroMoveJump?Flat_eq I h (ip + 1) (ccmpKillState I st1 p.2.2.1) hΓ hΔ hvm hlm e hwe,
+        ccmpCanStep?Flat_eq I h nv (nl + 1) (ip + 2) (ccmpKillState I st1 p.2.2.1)
+          hΓ hΔ hvm hlm t hwt]
+      rfl
+
+private theorem ccmpTailJcc?Flat_eq {rs : List Ty} (I : Isa) (h : I.Hints) (fn : Sym)
+    (nv nl ip ipEx : Nat) (st1 : SymState I) (br1 : I.Cond) (targetJ : Nat)
+    (ft : Option Nat) (fwd : Trie Nat)
+    {Γ : List Ty} {Δ : List (List Ty)}
+    {vs : List ((t : Ty) × VNat t)} {ls : List ((ts : List Ty) × LNat ts)}
+    {vDepth : Nat} {vEnv : Trie Nat} {lEnv : List Nat}
+    (hΓ : CtxTypes Γ vs) (hΔ : CtxTypes Δ ls)
+    (hvm : TrieProjMatch (fun _ x => x) vDepth vEnv vs) (hlm : ListLblMatch lEnv ls)
+    (rest : TFlat rs) (hwf : rest.wfCheck Γ Δ = true) :
+    ccmpTailJcc?Flat I h fn nv nl ip ipEx st1 br1 targetJ ft fwd vDepth vEnv lEnv rest =
+      ccmpTailJcc? I h fn nv nl ip ipEx st1 br1 targetJ ft fwd (denote VNat LNat rest vs ls) := by
+  dsimp only [ccmpTailJcc?Flat, ccmpTailJcc?]
+  rw [zeroMoveJump?Flat_eq I h ip st1 hΓ hΔ hvm hlm rest hwf]
 
 /-! ## 3. Core Mutual Simulation & `Rega.lowerFlatFn_eq_lowerFn` -/
 
@@ -880,40 +1059,55 @@ theorem lowerFlatExpr_eq (I : Isa) (h : I.Hints) (E : Ext) (fn : Sym) {rs : List
         | none => rfl
         | some cond =>
           dsimp only
-          rw [jnzIpTFlat_eq hΓ hΔ nv nl ip t e hwf.1.2 hwf.2,
-            jnzSetupFlat_eq I h fn nl (jnzIpT nv nl ip (denote VNat LNat t vs ls)
-              (denote VNat LNat e vs ls)) (ip + 1) p.2 hΓ hΔ hvm hlm t e hwf.1.2 hwf.2
-              ft cond fwd]
-          cases jnzSetup I h fn nl _ (ip + 1) p.2 _ _ ft cond fwd with
-          | none => rfl
-          | some s =>
-            rcases s with ⟨inv, tgt?, br, stBr⟩
+          rw [ccmpStart?Flat_eq I h nv nl ip p.2 cond hΓ hΔ hvm hlm t e hwf.1.2 hwf.2]
+          cases ccmpStart? I h nv nl ip p.2 cond (denote VNat LNat t vs ls)
+              (denote VNat LNat e vs ls) with
+          | some q =>
+            rcases q with ⟨c0, st0, br0, targetJ, wantTrue, ipRest, ipEx0⟩
             dsimp only
-            rw [lowerFlatExpr_eq I h E fn e hΓ hΔ hvm hlm hwf.2 nv (nl + 1) (ip + 1) stBr _
-              fwd fwdTgts]
-            cases lowerExpr I h E fn (denote VNat LNat e vs ls) nv (nl + 1) (ip + 1) stBr _
-                fwd fwdTgts with
-            | error err => rfl
-            | ok pe =>
-              rcases pe with ⟨ce, nv1, nl1, ip1⟩
+            cases wantTrue
+            · simp only [Bool.false_eq_true, ↓reduceIte]
+              rw [lowerCcmpChainFlat_eq I h E fn t hΓ hΔ hvm hlm hwf.1.2 nv (nl + 1) ipRest st0
+                br0 targetJ ipEx0 ft fwd fwdTgts]
+            · simp only [↓reduceIte]
+              rw [lowerCcmpChainFlat_eq I h E fn e hΓ hΔ hvm hlm hwf.2 nv (nl + 1) ipRest st0
+                br0 targetJ ipEx0 ft fwd fwdTgts]
+          | none =>
+            dsimp only
+            rw [jnzIpTFlat_eq hΓ hΔ nv nl ip t e hwf.1.2 hwf.2,
+              jnzSetupFlat_eq I h fn nl (jnzIpT nv nl ip (denote VNat LNat t vs ls)
+                (denote VNat LNat e vs ls)) (ip + 1) p.2 hΓ hΔ hvm hlm t e hwf.1.2 hwf.2
+                ft cond fwd]
+            cases jnzSetup I h fn nl _ (ip + 1) p.2 _ _ ft cond fwd with
+            | none => rfl
+            | some s =>
+              rcases s with ⟨inv, tgt?, br, stBr⟩
               dsimp only
-              rw [lowerFlatExpr_eq I h E fn t hΓ hΔ hvm hlm hwf.1.2 nv1 nl1 ip1 stBr _
+              rw [lowerFlatExpr_eq I h E fn e hΓ hΔ hvm hlm hwf.2 nv (nl + 1) (ip + 1) stBr _
                 fwd fwdTgts]
-              cases lowerExpr I h E fn (denote VNat LNat t vs ls) nv1 nl1 ip1 stBr _
+              cases lowerExpr I h E fn (denote VNat LNat e vs ls) nv (nl + 1) (ip + 1) stBr _
                   fwd fwdTgts with
               | error err => rfl
-              | ok pt =>
-                rcases pt with ⟨ct, nv2, nl2, ip2⟩
+              | ok pe =>
+                rcases pe with ⟨ce, nv1, nl1, ip1⟩
                 dsimp only
-                cases inv with
-                | true =>
-                  simp only [↓reduceIte]
-                  rw [finishJnzBranchFlat_eq I fn hΓ hΔ hvm hlm nl tgt? e hwf.2 br ct ce
-                    nv2 nl2 ip2]
-                | false =>
-                  simp only [Bool.false_eq_true, ↓reduceIte]
-                  rw [finishJnzBranchFlat_eq I fn hΓ hΔ hvm hlm nl tgt? t hwf.1.2 br ce ct
-                    nv2 nl2 ip2]
+                rw [lowerFlatExpr_eq I h E fn t hΓ hΔ hvm hlm hwf.1.2 nv1 nl1 ip1 stBr _
+                  fwd fwdTgts]
+                cases lowerExpr I h E fn (denote VNat LNat t vs ls) nv1 nl1 ip1 stBr _
+                    fwd fwdTgts with
+                | error err => rfl
+                | ok pt =>
+                  rcases pt with ⟨ct, nv2, nl2, ip2⟩
+                  dsimp only
+                  cases inv with
+                  | true =>
+                    simp only [↓reduceIte]
+                    rw [finishJnzBranchFlat_eq I fn hΓ hΔ hvm hlm nl tgt? e hwf.2 br ct ce
+                      nv2 nl2 ip2]
+                  | false =>
+                    simp only [Bool.false_eq_true, ↓reduceIte]
+                    rw [finishJnzBranchFlat_eq I fn hΓ hΔ hvm hlm nl tgt? t hwf.1.2 br ce ct
+                      nv2 nl2 ip2]
   | .jump j args, Γ, Δ, vs, ls, vDepth, vEnv, lEnv, hΓ, hΔ, hvm, hlm, hwf,
       nv, nl, ip, st, ft, fwd, fwdTgts => by
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
@@ -1012,6 +1206,234 @@ theorem lowerFlatBlocks_eq (I : Isa) (h : I.Hints) (E : Ext) (fn : Sym) {rs : Li
                 dsimp only
                 rw [lowerFlatBlocks_eq I h E fn bs hΓ hΔ hvm hlm hwf.2
                   (lid + 1) nv1 nl1 ip1 defs vw ft fwd fwdTgts]
+
+theorem lowerCcmpChainFlat_eq (I : Isa) (h : I.Hints) (E : Ext) (fn : Sym) {rs : List Ty} :
+    (tf : TFlat rs) → {Γ : List Ty} → {Δ : List (List Ty)} →
+    {vs : List ((t : Ty) × VNat t)} → {ls : List ((ts : List Ty) × LNat ts)} →
+    {vDepth : Nat} → {vEnv : Trie Nat} → {lEnv : List Nat} →
+    CtxTypes Γ vs → CtxTypes Δ ls →
+    TrieProjMatch (fun _ x => x) vDepth vEnv vs → ListLblMatch lEnv ls →
+    tf.wfCheck Γ Δ = true →
+    ∀ nv nl ip st brCond targetJ ipExtra ft fwd fwdTgts,
+      lowerCcmpChainFlat I h E fn tf vDepth vEnv lEnv nv nl ip st brCond targetJ ipExtra ft fwd
+          fwdTgts =
+        lowerCcmpChain I h E fn (denote VNat LNat tf vs ls) nv nl ip st brCond targetJ ipExtra
+          ft fwd fwdTgts
+  | .let_ (ts := [.bool]) op k, Γ, Δ, vs, ls, vDepth, vEnv, lEnv, hΓ, hΔ, hvm, hlm, hwf,
+      nv, nl, ip, st, brCond, targetJ, ipExtra, ft, fwd, fwdTgts => by
+    dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
+    dsimp only [lowerCcmpChainFlat, denote]
+    rw [denoteArgs_eq_flatArgs hΓ hvm op.args hwf.1]
+    dsimp only [flatOp]
+    unfold lowerCcmpChain
+    cases ccmpAsCmp? op.code (flatArgs vDepth vEnv op.args) with
+    | none => rfl
+    | some p =>
+      rcases p with ⟨w, co, a, b⟩
+      dsimp only
+      split
+      · rfl
+      · have hΓ' := CtxTypes.push (Tup.levels [.bool] nv) hΓ
+        have hvm' := trieProjMatch_insertVLevels (ts := [.bool]) (nv := nv) hvm
+        dsimp only [List.length_cons, List.length_nil, Nat.zero_add, insertVLevels,
+          Tup.levels, pushTup] at hΓ' hvm'
+        exact lowerCcmpJnzFlat_eq I h E fn k hΓ' hΔ hvm' hlm hwf.2 (nv + 1) nl (ip + 1) st
+          brCond targetJ ipExtra ft fwd fwdTgts nv co a b
+  | .let_ (ts := []) op _, _, _, vs, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ => by
+    dsimp only [lowerCcmpChainFlat, denote]; cases denoteArgs vs op.args <;> rfl
+  | .let_ (ts := .bits _ :: _) op _, _, _, vs, _, _, _, _, _, _, _, _, _,
+      _, _, _, _, _, _, _, _, _, _ => by
+    dsimp only [lowerCcmpChainFlat, denote]; cases denoteArgs vs op.args <;> rfl
+  | .let_ (ts := .float _ :: _) op _, _, _, vs, _, _, _, _, _, _, _, _, _,
+      _, _, _, _, _, _, _, _, _, _ => by
+    dsimp only [lowerCcmpChainFlat, denote]; cases denoteArgs vs op.args <;> rfl
+  | .let_ (ts := .pair _ _ :: _) op _, _, _, vs, _, _, _, _, _, _, _, _, _,
+      _, _, _, _, _, _, _, _, _, _ => by
+    dsimp only [lowerCcmpChainFlat, denote]; cases denoteArgs vs op.args <;> rfl
+  | .let_ (ts := .bool :: _ :: _) op _, _, _, vs, _, _, _, _, _, _, _, _, _,
+      _, _, _, _, _, _, _, _, _, _ => by
+    dsimp only [lowerCcmpChainFlat, denote]; cases denoteArgs vs op.args <;> rfl
+  | .jnz (.var cx) t eArm, Γ, Δ, vs, ls, vDepth, vEnv, lEnv, hΓ, hΔ, hvm, hlm, hwf,
+      nv, nl, ip, st, brCond, targetJ, ipExtra, ft, fwd, fwdTgts => by
+    dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
+    dsimp only [lowerCcmpChainFlat, denote]
+    rw [denoteArg_eq_flatArg hΓ hvm (.var cx) hwf.1.1]
+    dsimp only [flatArg, lowerCcmpChain]
+    split
+    · rfl
+    · cases hdf : st.defs.find? (flatVar vDepth vEnv cx) with
+      | none => rfl
+      | some df =>
+        cases df with
+        | cmpZeroVar co w y =>
+          dsimp only
+          rw [ccmpPickArms?Flat_eq I h nv nl ip st targetJ brCond co (.var y) (.imm 0#w)
+            hΓ hΔ hvm hlm t eArm hwf.1.2 hwf.2]
+          cases ccmpPickArms? I h nv nl ip st targetJ brCond co (.var y) (.imm 0#w)
+              (denote VNat LNat t vs ls) (denote VNat LNat eArm vs ls) with
+          | none => rfl
+          | some p =>
+            rcases p with ⟨code, st1, br1, _, wantTrue, ipRest, ipEx1⟩
+            dsimp only
+            cases wantTrue with
+            | false =>
+              simp only [Bool.false_eq_true, ↓reduceIte]
+              rw [ccmpCanStep?Flat_eq I h nv (nl + 1) ipRest st1 hΓ hΔ hvm hlm t hwf.1.2]
+              cases ccmpCanStep? I h nv (nl + 1) ipRest st1 targetJ br1 false
+                  (denote VNat LNat t vs ls) with
+              | true =>
+                simp only [↓reduceIte]
+                rw [lowerCcmpChainFlat_eq I h E fn t hΓ hΔ hvm hlm hwf.1.2 nv (nl + 1) ipRest st1
+                  br1 targetJ (ipExtra + ipEx1) ft fwd fwdTgts]
+              | false =>
+                simp only [Bool.false_eq_true, ↓reduceIte]
+                rw [ccmpTailJcc?Flat_eq I h fn nv (nl + 1) ipRest (ipExtra + ipEx1) st1 br1
+                  targetJ ft fwd hΓ hΔ hvm hlm t hwf.1.2]
+                cases ccmpTailJcc? I h fn nv (nl + 1) ipRest (ipExtra + ipEx1) st1 br1 targetJ ft
+                    fwd (denote VNat LNat t vs ls) with
+                | some _ => rfl
+                | none =>
+                  rw [lowerFlatExpr_eq I h E fn t hΓ hΔ hvm hlm hwf.1.2 nv (nl + 1) ipRest st1
+                    ft fwd fwdTgts]
+            | true =>
+              simp only [↓reduceIte]
+              rw [ccmpCanStep?Flat_eq I h nv (nl + 1) ipRest st1 hΓ hΔ hvm hlm eArm hwf.2]
+              cases ccmpCanStep? I h nv (nl + 1) ipRest st1 targetJ br1 false
+                  (denote VNat LNat eArm vs ls) with
+              | true =>
+                simp only [↓reduceIte]
+                rw [lowerCcmpChainFlat_eq I h E fn eArm hΓ hΔ hvm hlm hwf.2 nv (nl + 1) ipRest st1
+                  br1 targetJ (ipExtra + ipEx1) ft fwd fwdTgts]
+              | false =>
+                simp only [Bool.false_eq_true, ↓reduceIte]
+                rw [ccmpTailJcc?Flat_eq I h fn nv (nl + 1) ipRest (ipExtra + ipEx1) st1 br1
+                  targetJ ft fwd hΓ hΔ hvm hlm eArm hwf.2]
+                cases ccmpTailJcc? I h fn nv (nl + 1) ipRest (ipExtra + ipEx1) st1 br1 targetJ ft
+                    fwd (denote VNat LNat eArm vs ls) with
+                | some _ => rfl
+                | none =>
+                  rw [lowerFlatExpr_eq I h E fn eArm hΓ hΔ hvm hlm hwf.2 nv (nl + 1) ipRest st1
+                    ft fwd fwdTgts]
+        | _ => rfl
+  | .jnz (.imm _) _ _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ => rfl
+  | .load _ a _, _, _, vs, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ => by
+    dsimp only [lowerCcmpChainFlat, denote]; cases denoteArg vs a <;> rfl
+  | .store v a _, _, _, vs, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ => by
+    dsimp only [lowerCcmpChainFlat, denote]
+    cases denoteArg vs v <;> cases denoteArg vs a <;> rfl
+  | .call _ _ args _, _, _, vs, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ => by
+    dsimp only [lowerCcmpChainFlat, denote]; cases denoteArgs vs args <;> rfl
+  | .jump (ts := tsj) j args, _, _, vs, ls, _, _, _, _, _, _, _, _,
+      _, _, _, _, _, _, _, _, _, _ => by
+    dsimp only [lowerCcmpChainFlat, denote]
+    cases lookupL ls tsj j <;> cases denoteArgs vs args <;> rfl
+  | .ret vs', _, _, vs, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ => by
+    dsimp only [lowerCcmpChainFlat, denote]; cases denoteArgs vs vs' <;> rfl
+  | .exit _ args, _, _, vs, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ => by
+    dsimp only [lowerCcmpChainFlat, denote]; cases denoteArgs vs args <;> rfl
+  | .hlt, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ => rfl
+  | .group _ _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ => rfl
+
+theorem lowerCcmpJnzFlat_eq (I : Isa) (h : I.Hints) (E : Ext) (fn : Sym) {rs : List Ty} :
+    (tf : TFlat rs) → {Γ : List Ty} → {Δ : List (List Ty)} →
+    {vs : List ((t : Ty) × VNat t)} → {ls : List ((ts : List Ty) × LNat ts)} →
+    {vDepth : Nat} → {vEnv : Trie Nat} → {lEnv : List Nat} →
+    CtxTypes Γ vs → CtxTypes Δ ls →
+    TrieProjMatch (fun _ x => x) vDepth vEnv vs → ListLblMatch lEnv ls →
+    tf.wfCheck Γ Δ = true →
+    ∀ nv nl ipJnz st brCond targetJ ipExtra ft fwd fwdTgts reqCx co {w}
+      (a b : Arg VNat (.bits w)),
+      lowerCcmpJnzFlat I h E fn tf vDepth vEnv lEnv nv nl ipJnz st brCond targetJ ipExtra ft fwd
+          fwdTgts reqCx co a b =
+        lowerCcmpJnz I h E fn (denote VNat LNat tf vs ls) nv nl ipJnz st brCond targetJ ipExtra
+          ft fwd fwdTgts reqCx co a b
+  | .jnz (.var cx) t eArm, Γ, Δ, vs, ls, vDepth, vEnv, lEnv, hΓ, hΔ, hvm, hlm, hwf,
+      nv, nl, ipJnz, st, brCond, targetJ, ipExtra, ft, fwd, fwdTgts, reqCx, co, w, a, b => by
+    dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
+    dsimp only [lowerCcmpJnzFlat, denote]
+    rw [denoteArg_eq_flatArg hΓ hvm (.var cx) hwf.1.1]
+    dsimp only [flatArg, lowerCcmpJnz]
+    split
+    · rfl
+    · rw [ccmpPickArms?Flat_eq I h nv nl ipJnz st targetJ brCond co a b
+        hΓ hΔ hvm hlm t eArm hwf.1.2 hwf.2]
+      cases ccmpPickArms? I h nv nl ipJnz st targetJ brCond co a b
+          (denote VNat LNat t vs ls) (denote VNat LNat eArm vs ls) with
+      | none => rfl
+      | some p =>
+        rcases p with ⟨code, st1, br1, _, wantTrue, ipRest, ipEx1⟩
+        dsimp only
+        cases wantTrue with
+        | false =>
+          simp only [Bool.false_eq_true, ↓reduceIte]
+          rw [ccmpCanStep?Flat_eq I h nv (nl + 1) ipRest st1 hΓ hΔ hvm hlm t hwf.1.2]
+          cases ccmpCanStep? I h nv (nl + 1) ipRest st1 targetJ br1 false
+              (denote VNat LNat t vs ls) with
+          | true =>
+            simp only [↓reduceIte]
+            rw [lowerCcmpChainFlat_eq I h E fn t hΓ hΔ hvm hlm hwf.1.2 nv (nl + 1) ipRest st1
+              br1 targetJ (ipExtra + ipEx1) ft fwd fwdTgts]
+          | false =>
+            simp only [Bool.false_eq_true, ↓reduceIte]
+            rw [ccmpTailJcc?Flat_eq I h fn nv (nl + 1) ipRest (ipExtra + ipEx1) st1 br1
+              targetJ ft fwd hΓ hΔ hvm hlm t hwf.1.2]
+            cases ccmpTailJcc? I h fn nv (nl + 1) ipRest (ipExtra + ipEx1) st1 br1 targetJ ft
+                fwd (denote VNat LNat t vs ls) with
+            | some _ => rfl
+            | none =>
+              rw [lowerFlatExpr_eq I h E fn t hΓ hΔ hvm hlm hwf.1.2 nv (nl + 1) ipRest st1
+                ft fwd fwdTgts]
+        | true =>
+          simp only [↓reduceIte]
+          rw [ccmpCanStep?Flat_eq I h nv (nl + 1) ipRest st1 hΓ hΔ hvm hlm eArm hwf.2]
+          cases ccmpCanStep? I h nv (nl + 1) ipRest st1 targetJ br1 false
+              (denote VNat LNat eArm vs ls) with
+          | true =>
+            simp only [↓reduceIte]
+            rw [lowerCcmpChainFlat_eq I h E fn eArm hΓ hΔ hvm hlm hwf.2 nv (nl + 1) ipRest st1
+              br1 targetJ (ipExtra + ipEx1) ft fwd fwdTgts]
+          | false =>
+            simp only [Bool.false_eq_true, ↓reduceIte]
+            rw [ccmpTailJcc?Flat_eq I h fn nv (nl + 1) ipRest (ipExtra + ipEx1) st1 br1
+              targetJ ft fwd hΓ hΔ hvm hlm eArm hwf.2]
+            cases ccmpTailJcc? I h fn nv (nl + 1) ipRest (ipExtra + ipEx1) st1 br1 targetJ ft
+                fwd (denote VNat LNat eArm vs ls) with
+            | some _ => rfl
+            | none =>
+              rw [lowerFlatExpr_eq I h E fn eArm hΓ hΔ hvm hlm hwf.2 nv (nl + 1) ipRest st1
+                ft fwd fwdTgts]
+  | .jnz (.imm _) _ _, _, _, _, _, _, _, _, _, _, _, _, _,
+      _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ => rfl
+  | .let_ (ts := []) op _, _, _, vs, _, _, _, _, _, _, _, _, _,
+      _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ => by
+    dsimp only [lowerCcmpJnzFlat, denote]; cases denoteArgs vs op.args <;> rfl
+  | .let_ (ts := _ :: _) op _, _, _, vs, _, _, _, _, _, _, _, _, _,
+      _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ => by
+    dsimp only [lowerCcmpJnzFlat, denote]; cases denoteArgs vs op.args <;> rfl
+  | .load _ a _, _, _, vs, _, _, _, _, _, _, _, _, _,
+      _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ => by
+    dsimp only [lowerCcmpJnzFlat, denote]; cases denoteArg vs a <;> rfl
+  | .store v a _, _, _, vs, _, _, _, _, _, _, _, _, _,
+      _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ => by
+    dsimp only [lowerCcmpJnzFlat, denote]
+    cases denoteArg vs v <;> cases denoteArg vs a <;> rfl
+  | .call _ _ args _, _, _, vs, _, _, _, _, _, _, _, _, _,
+      _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ => by
+    dsimp only [lowerCcmpJnzFlat, denote]; cases denoteArgs vs args <;> rfl
+  | .jump (ts := tsj) j args, _, _, vs, ls, _, _, _, _, _, _, _, _,
+      _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ => by
+    dsimp only [lowerCcmpJnzFlat, denote]
+    cases lookupL ls tsj j <;> cases denoteArgs vs args <;> rfl
+  | .ret vs', _, _, vs, _, _, _, _, _, _, _, _, _,
+      _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ => by
+    dsimp only [lowerCcmpJnzFlat, denote]; cases denoteArgs vs vs' <;> rfl
+  | .exit _ args, _, _, vs, _, _, _, _, _, _, _, _, _,
+      _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ => by
+    dsimp only [lowerCcmpJnzFlat, denote]; cases denoteArgs vs args <;> rfl
+  | .hlt, _, _, _, _, _, _, _, _, _, _, _, _,
+      _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ => rfl
+  | .group _ _, _, _, _, _, _, _, _, _, _, _, _, _,
+      _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ => rfl
 end
 
 /-- `Rega.lowerFlatFn` produces the exact same machine code (or error) as `Rega.lowerFn f.toFn`

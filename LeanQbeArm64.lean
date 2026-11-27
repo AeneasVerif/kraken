@@ -11,6 +11,8 @@ public import LeanQbe.T.Arm64.Frame
 public import LeanQbe.T.Arm64.FrameLemmas
 public import LeanQbe.T.Arm64.Isa
 public import LeanQbe.T.Arm64.Isel
+public import LeanQbe.T.Arm64.IselCcmp
+public import LeanQbe.T.Arm64.IselCcmpLemmas
 public import LeanQbe.T.Arm64.IselCore
 public import LeanQbe.T.Arm64.IselFlagHooks
 public import LeanQbe.T.Arm64.IselFlagHooksLemmas

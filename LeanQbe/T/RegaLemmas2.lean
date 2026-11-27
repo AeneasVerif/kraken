@@ -1209,7 +1209,7 @@ private theorem extractLea64_addImm {G : VCtx} {defs : Trie DefFact}
     cases d with
     | imm64 _ | addImm64 _ _ | andVarVar _ _ _ | andVarImm _ _ _ | binVarVar _ _ _ _
     | binVarImm _ _ _ _ | shlVarImm _ _ _ | sextVar _ _ _ | zextVar _ _ _
-    | cmpZeroVar _ _ _ | testBitVar _ _ _ _ | shiftVarImm _ _ _ _ =>
+    | cmpZeroVar _ _ _ | testBitVar _ _ _ _ | shiftVarImm _ _ _ _ | negVar _ _ =>
       simp [recordAddVarImm, hdx] at h
     | scaleOff idx0 sh0 d0 =>
       simp only [recordAddVarImm, hdx] at h
@@ -1435,7 +1435,7 @@ private theorem extractLea64_recAddVarImm {G : VCtx} {defs : Trie DefFact}
     cases d with
     | imm64 _ | addImm64 _ _ | andVarVar _ _ _ | andVarImm _ _ _ | binVarVar _ _ _ _
     | binVarImm _ _ _ _ | shlVarImm _ _ _ | sextVar _ _ _ | zextVar _ _ _
-    | cmpZeroVar _ _ _ | testBitVar _ _ _ _ | shiftVarImm _ _ _ _ =>
+    | cmpZeroVar _ _ _ | testBitVar _ _ _ _ | shiftVarImm _ _ _ _ | negVar _ _ =>
       simp [recordAddVarImm, hdx] at h
     | scaleOff idx0 sh0 d0 =>
       simp only [recordAddVarImm, hdx] at h

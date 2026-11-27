@@ -279,6 +279,8 @@ def DefOk (G : VCtx) (x : Nat) : DefFact → Prop
   | .testBitVar neg w a c => w ≤ 64 ∧ ∀ cv : Bool, ⟨.bool, cv, x⟩ ∈ G →
     ∃ va : BitVec w, ⟨.bits w, va, a⟩ ∈ G ∧
       cv = (if neg then CmpOp.ne else CmpOp.eq).evalBits (va &&& c.setWidth w) 0#w
+  | .negVar w a => w ≤ 64 ∧ ∀ v : BitVec w, ⟨.bits w, v, x⟩ ∈ G →
+    ∃ va : BitVec w, ⟨.bits w, va, a⟩ ∈ G ∧ v = -va
 
 theorem scope_lt {nv x : Nat} (h : symArgScopeOk nv (.var x) = true) : x < nv := by
   simp only [symArgScopeOk, Nat.ble_eq] at h; omega
@@ -328,6 +330,9 @@ theorem DefOk.grow {G G' : VCtx} {nv x : Nat} {d : DefFact} (hG : ∀ p ∈ G', 
   | testBitVar neg w a c =>
     refine ⟨h.1, fun cv hcv => ?_⟩
     obtain ⟨va, h1, h2⟩ := h.2 cv (hm _ _ hcv); exact ⟨va, hsub _ h1, h2⟩
+  | negVar w a =>
+    refine ⟨h.1, fun v hv => ?_⟩
+    obtain ⟨va, h1, h2⟩ := h.2 v (hm _ _ hv); exact ⟨va, hsub _ h1, h2⟩
 
 theorem orElse_eq_some {α : Type} {a b : Option α} {r : α} (h : (a <|> b) = some r) :
     a = some r ∨ b = some r := by
@@ -392,7 +397,7 @@ private theorem defOk_addVarImm {G : VCtx} {nv x : Nat} {vx c : BitVec 64}
           by simp [hvx, BitVec.add_assoc]⟩
     | andVarVar _ _ _ | andVarImm _ _ _ | binVarVar _ _ _ _ | binVarImm _ _ _ _
     | shlVarImm _ _ _ | sextVar _ _ _ | zextVar _ _ _ | cmpZeroVar _ _ _
-    | testBitVar _ _ _ _ | shiftVarImm _ _ _ _ =>
+    | testBitVar _ _ _ _ | shiftVarImm _ _ _ _ | negVar _ _ =>
       refine ⟨fun t v hv => by cases mem_cons_top hlt hv; rfl, fun v hv => ?_⟩
       cases mem_cons_top hlt hv
       exact ⟨vx, List.mem_cons_of_mem _ hm, rfl⟩
@@ -568,7 +573,7 @@ private theorem recordDef_rs {defs : Trie DefFact} {sig rs : List Ty} {code : Op
     {args : Tup (Arg VNat) sig} {df : DefFact} (hd : recordDef defs code args = some df) :
     ∃ w, rs = [.bits w] := by
   cases code with
-  | add t | sub t | shl t | copy t | and t | or t | xor t | lshr t | ashr t =>
+  | add t | sub t | neg t | shl t | copy t | and t | or t | xor t | lshr t | ashr t =>
     cases t with
     | bits n => exact ⟨n, rfl⟩
     | _ => simp [recordDef] at hd
@@ -723,7 +728,8 @@ theorem wp_recordDef {G : VCtx} {nv : Nat} {defs : Trie DefFact}
                 · cases hd
               | addrSum _ _ _ _ | andVarVar _ _ _ | andVarImm _ _ _ | binVarVar _ _ _ _
               | binVarImm _ _ _ _ | shlVarImm _ _ _ | sextVar _ _ _ | zextVar _ _ _
-              | cmpZeroVar _ _ _ | testBitVar _ _ _ _ | shiftVarImm _ _ _ _ =>
+              | cmpZeroVar _ _ _ | testBitVar _ _ _ _ | shiftVarImm _ _ _ _
+              | negVar _ _ =>
                 cases hd; intro v hv; simp only [Tup.zip, Tup.levels] at hv
                 cases mem_cons_top hlt hv
                 exact ⟨_, List.mem_cons_of_mem _ hm, by simp⟩
@@ -826,7 +832,7 @@ theorem wp_recordDef {G : VCtx} {nv : Nat} {defs : Trie DefFact}
             exact ⟨vb, vi, List.mem_cons_of_mem _ hb, List.mem_cons_of_mem _ hi, hvx⟩
           | andVarVar _ _ _ | andVarImm _ _ _ | binVarVar _ _ _ _ | binVarImm _ _ _ _
           | shlVarImm _ _ _ | sextVar _ _ _ | zextVar _ _ _ | cmpZeroVar _ _ _
-          | testBitVar _ _ _ _ | shiftVarImm _ _ _ _ =>
+          | testBitVar _ _ _ _ | shiftVarImm _ _ _ _ | negVar _ _ =>
             simp only [DefFact.isAddr, Bool.false_eq_true, ↓reduceIte, Option.some.injEq] at hd
             subst hd
             refine ⟨fun t v hv => by
@@ -910,6 +916,27 @@ theorem wp_recordDef {G : VCtx} {nv : Nat} {defs : Trie DefFact}
         cases mem_cons_top hlt hv
         exact ⟨_, List.mem_cons_of_mem _ hmx, rfl⟩
       · cases hd
+  | neg t =>
+    cases t with
+    | bits n =>
+      rcases args with ⟨a, ⟨⟩⟩
+      cases a with
+      | imm _ => simp [recordDef] at hd
+      | var x =>
+        simp only [recordDef] at hd
+        split at hd
+        · rename_i hn
+          simp only [Nat.ble_eq] at hn
+          cases hd
+          rcases hrel with _ | ⟨h1, -⟩
+          cases h1 with | var hmx =>
+          simp only [OpCode.wp_neg, vals, Arg.val, lift1, Ty.hasFloat, Bool.false_eq_true,
+            ite_false, Tup.zip, Tup.levels] at hwp ⊢
+          refine ⟨hwp, by simp, hn, fun v hv => ?_⟩
+          cases mem_cons_top hlt hv
+          exact ⟨_, List.mem_cons_of_mem _ hmx, rfl⟩
+        · cases hd
+    | _ => simp [recordDef] at hd
   | _ => simp [recordDef] at hd
 
 theorem recordDef_elide_ok {G : VCtx} {nv : Nat} {defs : Trie DefFact}
@@ -942,6 +969,9 @@ theorem recordDef_elide_ok {G : VCtx} {nv : Nat} {defs : Trie DefFact}
   | and _ => simp only [OpCode.wp_and] at hwp'; exact ⟨w, rfl, _, hwp'.1, hwp'.2.2⟩
   | sext _ _ => simp only [OpCode.wp_sext] at hwp'; exact ⟨w, rfl, _, hwp'.2.1, hwp'.2.2.2⟩
   | zext _ _ => simp only [OpCode.wp_zext] at hwp'; exact ⟨w, rfl, _, hwp'.2.1, hwp'.2.2.2⟩
+  | neg _ =>
+    simp only [OpCode.wp_neg, Ty.hasFloat, Bool.false_eq_true, ite_false] at hwp'
+    exact ⟨w, rfl, _, hwp'.1, hwp'.2.2⟩
   | _ => simp [recordDef] at hd
 
 /-- `addrDefOf` (the `GprIsa.addrCse` address view) preserves `DefOk`. -/

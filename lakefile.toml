@@ -80,6 +80,8 @@ globs = [
   "LeanQbe.T.Arm64.FrameLemmas",
   "LeanQbe.T.Arm64.Isa",
   "LeanQbe.T.Arm64.Isel",
+  "LeanQbe.T.Arm64.IselCcmp",
+  "LeanQbe.T.Arm64.IselCcmpLemmas",
   "LeanQbe.T.Arm64.IselFlagHooks",
   "LeanQbe.T.Arm64.IselFlagHooksLemmas",
   "LeanQbe.T.Arm64.IselLemmas1",

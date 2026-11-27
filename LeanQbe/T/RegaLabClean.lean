@@ -607,6 +607,27 @@ private theorem tryReuseFlagCmp_clean {st : SymState I} {sig ts : List Ty}
       obtain ⟨⟨_, _, _⟩, hop, he⟩ := Option.map_eq_some_iff.mp h
       simp only [Prod.mk.injEq] at he; rw [← he.1]; exact lowerOpScr_clean hcl hop
 
+private theorem trySelectNeg_clean {st : SymState I} {sig ts : List Ty}
+    {code : OpCode sig ts} {args : Tup (Arg VNat) sig}
+    {dsts : Tup (PDst I.Reg I.VReg I.Cond) ts} {c : List I.Directive} {cl : FlagMask} {z32 : Bool}
+    (h : trySelectNeg I st code args dsts = some (c, cl, z32)) : NoLab I c := by
+  unfold trySelectNeg at h
+  cases hfns : I.gpr.selectNeg? with
+  | none => simp [hfns] at h
+  | some fn =>
+    rw [hfns] at h
+    cases code <;> try (dsimp only at h; cases h; done)
+    rename_i t
+    rcases args with ⟨ca, aa, ba, ⟨⟩⟩; rcases dsts with ⟨d0, ⟨⟩⟩
+    cases t <;> try (dsimp only at h; cases h; done)
+    cases d0 <;> try (dsimp only at h; cases h; done)
+    dsimp only at h; split at h; · simp at h
+    obtain ⟨_, -, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨_, -, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨_, hk⟩ := tryArg_some h
+    obtain ⟨⟨_, _⟩, hs, he'⟩ := Option.map_eq_some_iff.mp hk; cases he'
+    exact hcl.selectNeg _ _ _ _ _ _ _ _ hfns hs
+
 private theorem lowerOpBody_clean {h : I.Hints} {nv ip : Nat} {st st' : SymState I} {ts : List Ty}
     {op : Op VNat ts} {dsts : Tup (PDst I.Reg I.VReg I.Cond) ts} {c : List I.Directive}
     (hl : lowerOpBody I h nv ip st op dsts = some (c, st')) :
@@ -635,6 +656,9 @@ private theorem lowerOpBody_clean {h : I.Hints} {nv ip : Nat} {st st' : SymState
   rcases orElse_eq_some hp with hzero | hp
   · obtain ⟨⟨_, _, _⟩, htz, he⟩ := Option.map_eq_some_iff.mp hzero; cases he
     exact tryMoviZero_clean hcl htz
+  rcases orElse_eq_some hp with hsneg | hp
+  · obtain ⟨⟨_, _, _⟩, hsn, he⟩ := Option.map_eq_some_iff.mp hsneg; cases he
+    exact trySelectNeg_clean hcl hsn
   rcases orElse_eq_some hp with hp | hp
   · obtain ⟨pas, hk⟩ := pickPArgsCode_some hp
     have hv : ((I.vec.vop (normCmpOp op dsts).code pas dsts (h.variant.getD ip .default)).map
@@ -929,6 +953,85 @@ private theorem jnzSetup_clean (hcl : LabelClean I) {h : I.Hints} {fn : Sym} {nl
     dsimp only [jnzSetup] at hj
     exact fuseJnzChoice_clean (fun _ _ _ _ he => hcl.testJcc _ _ _ _ _ _ _ he) hj
 
+private theorem ccmpStartCond_clean (hcl : LabelClean I) {cond : JnzCond I}
+    {cc0 : I.Cond} {c0 : List I.Directive} {cl0 : FlagMask} {reqNonCb : Bool}
+    (h : ccmpStartCond? I cond = some (cc0, c0, cl0, reqNonCb)) : NoLab I c0 := by
+  cases cond <;> simp only [ccmpStartCond?] at h <;> try (cases h; done)
+  · simp only [Option.some.injEq, Prod.mk.injEq] at h; rw [← h.2.1]; exact NoLab.nil
+  · obtain ⟨_, -, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨⟨_, _⟩, hop, he⟩ := Option.map_eq_some_iff.mp h; cases he
+    exact hcl.op _ _ _ _ _ _ hop
+  · obtain ⟨_, -, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨⟨_, _⟩, hop, he⟩ := Option.map_eq_some_iff.mp h; cases he
+    exact hcl.op _ _ _ _ _ _ hop
+
+private theorem ccmpStepArm_clean (hcl : LabelClean I) {rs : List Ty} {h : I.Hints}
+    {ipJump : Nat} {st st1 : SymState I} {targetJ : Nat} {brCond dstCond : I.Cond}
+    {coStep : CmpOp} {w : Nat} {a b : Arg VNat (.bits w)} {jumpArm : Expr VNat LNat rs}
+    {c : List I.Directive} {isNonCb : Bool}
+    (hs : ccmpStepArm? I h ipJump st targetJ brCond coStep a b jumpArm =
+      some (c, st1, dstCond, isNonCb)) : NoLab I c := by
+  unfold ccmpStepArm? at hs
+  split at hs; · simp at hs
+  obtain ⟨⟨d0, c0, cl0, ncb0⟩, hp, hs⟩ := Option.bind_eq_some_iff.mp hs
+  dsimp only at hs; split at hs <;> simp at hs
+  rcases hs with ⟨_, rfl, _, rfl, rfl⟩
+  unfold ccmpPickStep at hp
+  obtain ⟨ccmpFn, hccmp, hp⟩ := Option.bind_eq_some_iff.mp hp
+  split at hp
+  · obtain ⟨_, hp⟩ := tryArg_some hp
+    obtain ⟨_, hp⟩ := tryArg_some hp
+    obtain ⟨⟨_, _, _⟩, hc, he⟩ := Option.map_eq_some_iff.mp hp; cases he
+    exact hcl.ccmp _ _ _ _ _ _ _ _ _ _ hccmp hc
+  · split at hp
+    · obtain ⟨_, -, hp⟩ := Option.bind_eq_some_iff.mp hp
+      obtain ⟨_, -, hp⟩ := Option.bind_eq_some_iff.mp hp
+      obtain ⟨⟨_, _, _⟩, hc, he⟩ := Option.map_eq_some_iff.mp hp; cases he
+      exact hcl.ccmp _ _ _ _ _ _ _ _ _ _ hccmp hc
+    · simp at hp
+
+private theorem ccmpPickArms_clean (hcl : LabelClean I) {rs : List Ty} {h : I.Hints}
+    {nv nl ipJnz : Nat} {st st1 : SymState I} {targetJ : Nat} {brCond dstCond : I.Cond}
+    {co : CmpOp} {w : Nat} {a b : Arg VNat (.bits w)} {t e : Expr VNat LNat rs}
+    {c : List I.Directive} {isNonCb wantTrue : Bool} {ipRest ipEx1 : Nat}
+    (hs : ccmpPickArms? I h nv nl ipJnz st targetJ brCond co a b t e =
+      some (c, st1, dstCond, isNonCb, wantTrue, ipRest, ipEx1)) : NoLab I c := by
+  unfold ccmpPickArms? at hs
+  rcases orElse_eq_some hs with h1 | h2
+  · obtain ⟨⟨_, _, _, _⟩, ha, he⟩ := Option.map_eq_some_iff.mp h1
+    cases he; exact ccmpStepArm_clean hcl ha
+  · obtain ⟨⟨_, _, _, _⟩, ha, he⟩ := Option.map_eq_some_iff.mp h2
+    cases he; exact ccmpStepArm_clean hcl ha
+
+private theorem ccmpStart_clean (hcl : LabelClean I) {rs : List Ty} {h : I.Hints}
+    {nv nl ip : Nat} {st1 st0 : SymState I} {cond : JnzCond I} {t e : Expr VNat LNat rs}
+    {c0 : List I.Directive} {br0 : I.Cond} {targetJ : Nat} {wantTrue : Bool}
+    {ipRest ipEx0 : Nat}
+    (hs : ccmpStart? I h nv nl ip st1 cond t e =
+      some (c0, st0, br0, targetJ, wantTrue, ipRest, ipEx0)) : NoLab I c0 := by
+  unfold ccmpStart? at hs
+  split at hs; · simp at hs
+  obtain ⟨⟨cc0, c0', cl0, reqNonCb⟩, hsc, hs⟩ := Option.bind_eq_some_iff.mp hs
+  rcases orElse_eq_some hs with h1 | h2
+  · dsimp only at h1; split at h1; · simp at h1
+    cases hzm : zeroMoveJump? I h (jnzIpT nv nl ip t e) (ccmpKillState I st1 cl0) t with
+    | none => simp [hzm] at h1
+    | some targetJ =>
+      simp only [hzm] at h1
+      cases hnt : ccmpTargetNoFlag I h targetJ <;> simp [hnt] at h1
+      cases hcs : ccmpCanStep? I h nv (nl + 1) (ip + 1) (ccmpKillState I st1 cl0) targetJ
+          cc0 reqNonCb e <;> simp [hcs] at h1
+      rcases h1 with ⟨rfl, -⟩; exact ccmpStartCond_clean hcl hsc
+  · dsimp only at h2; split at h2; · simp at h2
+    cases hzm : zeroMoveJump? I h (ip + 1) (ccmpKillState I st1 cl0) e with
+    | none => simp [hzm] at h2
+    | some targetJ =>
+      simp only [hzm] at h2
+      cases hnt : ccmpTargetNoFlag I h targetJ <;> simp [hnt] at h2
+      cases hcs : ccmpCanStep? I h nv (nl + 1) (ip + 2) (ccmpKillState I st1 cl0) targetJ
+          (I.gpr.negCond cc0) reqNonCb t <;> simp [hcs] at h2
+      rcases h2 with ⟨rfl, -⟩; exact ccmpStartCond_clean hcl hsc
+
 mutual
 /-- `lowerExpr` is monotone in `nv`/`nl`, and (for a `LabelClean` ISA) its labels are distinct
 `lname fn j` with `nl ≤ j < nl'`. -/
@@ -970,24 +1073,46 @@ theorem lowerExpr_labels {h : I.Hints} {E : Ext} {fn : Sym} {rs : List Ty} :
   | .jnz (.var cx) t e, nv, nl, ip, st, ft, fwd, fwdTgts, c, nv', nl', ip', he => by
     simp only [lowerExpr] at he
     split at he <;> try (simp at he; done)
+    rename_i mc st1 hpre
     split at he <;> try (simp at he; done)
-    split at he <;> try (simp at he; done)
-    rename_i inv tgt br stBr hs
-    split at he <;> try (simp at he; done)
-    rename_i ce nv₁ nl₁ ip₁ he₁
-    split at he <;> try (simp at he; done)
-    rename_i ct nv₂ nl₂ ip₂ he₂
-    obtain ⟨c0, hr, rfl⟩ := prepend_ok he
-    obtain ⟨a1, a2, a3⟩ := lowerExpr_labels _ _ _ _ _ _ _ _ _ _ _ _ he₁
-    obtain ⟨b1, b2, b3⟩ := lowerExpr_labels _ _ _ _ _ _ _ _ _ _ _ _ he₂
-    rcases ite_cases hr with hr | hr <;> obtain ⟨rfl, rfl, hc⟩ := finishJnz_ok hr
-    · refine ⟨by omega, by omega, fun hcl => (LabOk.jnz hcl (jnzSetup_clean hcl hs)
-        ⟨Nat.lt_succ_self _, a2, b2⟩ (a3 hcl) (b3 hcl)
-        (hc.elim (fun h => Or.inr (Or.inr (Or.inl h)))
-          fun h => Or.inr (Or.inr (Or.inr h)))).pre (stepPre_clean hcl ‹_›)⟩
-    · refine ⟨by omega, by omega, fun hcl => (LabOk.jnz hcl (jnzSetup_clean hcl hs)
-        ⟨Nat.lt_succ_self _, a2, b2⟩ (a3 hcl) (b3 hcl)
-        (hc.elim Or.inl fun h => Or.inr (Or.inl h))).pre (stepPre_clean hcl ‹_›)⟩
+    rename_i cond hfc
+    cases hstC : ccmpStart? I h nv nl ip st1 cond t e with
+    | some q =>
+      rcases q with ⟨c0, st0, br0, targetJ, wantTrue, ipRest, ipEx0⟩
+      rw [hstC] at he; dsimp only at he
+      obtain ⟨cR, hr, rfl⟩ := prepend_ok he
+      cases wantTrue with
+      | true =>
+        simp only [ite_true] at hr
+        obtain ⟨h1, h2, h3⟩ := lowerCcmpChain_labels _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ hr
+        exact ⟨h1, by omega, fun hcl =>
+          ((h3 hcl).mono fun l hl => lrange_mono hl (by omega) (Nat.le_refl _)).pre
+            ((stepPre_clean hcl hpre).append (ccmpStart_clean hcl hstC))⟩
+      | false =>
+        simp only [Bool.false_eq_true, ite_false] at hr
+        obtain ⟨h1, h2, h3⟩ := lowerCcmpChain_labels _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ hr
+        exact ⟨h1, by omega, fun hcl =>
+          ((h3 hcl).mono fun l hl => lrange_mono hl (by omega) (Nat.le_refl _)).pre
+            ((stepPre_clean hcl hpre).append (ccmpStart_clean hcl hstC))⟩
+    | none =>
+      rw [hstC] at he; dsimp only at he
+      split at he <;> try (simp at he; done)
+      rename_i inv tgt br stBr hs
+      split at he <;> try (simp at he; done)
+      rename_i ce nv₁ nl₁ ip₁ he₁
+      split at he <;> try (simp at he; done)
+      rename_i ct nv₂ nl₂ ip₂ he₂
+      obtain ⟨c0, hr, rfl⟩ := prepend_ok he
+      obtain ⟨a1, a2, a3⟩ := lowerExpr_labels _ _ _ _ _ _ _ _ _ _ _ _ he₁
+      obtain ⟨b1, b2, b3⟩ := lowerExpr_labels _ _ _ _ _ _ _ _ _ _ _ _ he₂
+      rcases ite_cases hr with hr | hr <;> obtain ⟨rfl, rfl, hc⟩ := finishJnz_ok hr
+      · refine ⟨by omega, by omega, fun hcl => (LabOk.jnz hcl (jnzSetup_clean hcl hs)
+          ⟨Nat.lt_succ_self _, a2, b2⟩ (a3 hcl) (b3 hcl)
+          (hc.elim (fun h => Or.inr (Or.inr (Or.inl h)))
+            fun h => Or.inr (Or.inr (Or.inr h)))).pre (stepPre_clean hcl hpre)⟩
+      · refine ⟨by omega, by omega, fun hcl => (LabOk.jnz hcl (jnzSetup_clean hcl hs)
+          ⟨Nat.lt_succ_self _, a2, b2⟩ (a3 hcl) (b3 hcl)
+          (hc.elim Or.inl fun h => Or.inr (Or.inl h))).pre (stepPre_clean hcl hpre)⟩
   | .jump j args, nv, nl, ip, st, ft, fwd, fwdTgts, c, nv', nl', ip', he => by
     simp only [lowerExpr] at he
     repeat' (split at he <;> try (simp at he; done))
@@ -1021,6 +1146,7 @@ theorem lowerExpr_labels {h : I.Hints} {E : Ext} {fn : Sym} {rs : List Ty} :
       ?_) (fun l h => ?_)⟩
     · rcases h2 with h2 | h2 <;> exact lrange_disj h1 h2 (by omega)
     · rcases h with h | h | h <;> exact lrange_mono h (by omega) (by omega)
+termination_by structural e _ _ _ _ _ _ _ _ _ _ _ _ => e
 
 /-- `lowerBlocks` analogue: block labels `lname fn j` for `lid ≤ j < lid + sig.length`, plus body
 labels in `[nl, nl')`. -/
@@ -1066,6 +1192,220 @@ theorem lowerBlocks_labels {h : I.Hints} {E : Ext} {fn : Sym} {rs : List Ty} :
       · rcases h with h | h | h | h <;> first
           | exact Or.inl (lrange_mono h (by omega) (by omega))
           | exact Or.inr (lrange_mono h (by omega) (by omega))
+termination_by structural _ bs _ _ _ _ _ _ _ _ _ _ _ _ _ => bs
+
+theorem lowerCcmpChain_labels {h : I.Hints} {E : Ext} {fn : Sym} {rs : List Ty} :
+    ∀ (e : Expr VNat LNat rs) (nv nl ip : Nat) (st : SymState I) (brCond : I.Cond)
+      (targetJ ipExtra : Nat) (ft : Option Nat) (fwd : Trie Nat) (fwdTgts : Trie Bool)
+      (c : List I.Directive) (nv' nl' ip' : Nat),
+    lowerCcmpChain I h E fn e nv nl ip st brCond targetJ ipExtra ft fwd fwdTgts =
+      .ok (c, nv', nl', ip') →
+    nv ≤ nv' ∧ nl ≤ nl' ∧ (LabelClean I → LabOk I (lrange fn nl nl') c)
+  | .let_ (ts := [.bool]) op k, nv, nl, ip, st, brCond, targetJ, ipExtra, ft, fwd, fwdTgts,
+      c, nv', nl', ip', he => by
+    dsimp only [lowerCcmpChain] at he
+    cases hc : ccmpAsCmp? op.code op.args with
+    | none => rw [hc] at he; cases he
+    | some p =>
+      rw [hc] at he; dsimp only at he
+      cases hres : lowerCcmpJnz I h E fn (k (Tup.levels [.bool] nv)) (nv + 1) nl (ip + 1) st
+          brCond targetJ ipExtra ft fwd fwdTgts nv p.2.1 p.2.2.1 p.2.2.2 with
+      | error _ => rw [hres] at he; split at he <;> cases he
+      | ok res =>
+        rcases res with ⟨cR, nvR, nlR, ipR⟩
+        have heq : (cR, nvR, nlR, ipR) = (c, nv', nl', ip') := by
+          rw [hres] at he; split at he; · cases he
+          simpa using he
+        rcases heq with ⟨rfl, rfl, rfl, rfl⟩
+        obtain ⟨h1, h2, h3⟩ := lowerCcmpJnz_labels _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ hres
+        exact ⟨by omega, h2, h3⟩
+  | .let_ (ts := []) _ _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, he
+  | .let_ (ts := .bits _ :: _) _ _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, he
+  | .let_ (ts := .float _ :: _) _ _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, he
+  | .let_ (ts := .pair _ _ :: _) _ _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, he
+  | .let_ (ts := .bool :: _ :: _) _ _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, he => by
+    dsimp only [lowerCcmpChain] at he; cases he
+  | .jnz (.var cx) t eArm, nv, nl, ip, st, brCond, targetJ, ipExtra, ft, fwd, fwdTgts,
+      c, nv', nl', ip', he => by
+    dsimp only [lowerCcmpChain] at he
+    split at he; · cases he
+    cases hd : st.defs.find? cx with
+    | none => rw [hd] at he; cases he
+    | some df =>
+      rw [hd] at he
+      cases df <;> try (dsimp only at he; cases he; done)
+      rename_i co w y
+      dsimp only at he
+      cases hpk : ccmpPickArms? I h nv nl ip st targetJ brCond co (.var y) (.imm 0#w) t eArm with
+      | none => rw [hpk] at he; cases he
+      | some p =>
+        rw [hpk] at he
+        rcases p with ⟨code, st1, br1, ncb, wantTrue, ipRest, ipEx1⟩
+        obtain ⟨c0, hr, rfl⟩ := prepend_ok he
+        cases wantTrue with
+        | true =>
+          simp only [ite_true] at hr
+          split at hr
+          · obtain ⟨h1, h2, h3⟩ := lowerCcmpChain_labels _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ hr
+            exact ⟨h1, by omega, fun hcl =>
+              ((h3 hcl).mono fun l hl => lrange_mono hl (by omega) (Nat.le_refl _)).pre
+                (ccmpPickArms_clean hcl hpk)⟩
+          · split at hr
+            · rename_i res heq
+              unfold ccmpTailJcc? at heq
+              split at heq
+              · obtain ⟨j', -, hmeq⟩ := Option.map_eq_some_iff.mp heq
+                rw [← hmeq] at hr
+                simp only [Except.ok.injEq, Prod.mk.injEq] at hr
+                rcases hr with ⟨rfl, rfl, rfl, rfl⟩
+                exact ⟨Nat.le_refl _, by omega,
+                  fun hcl => LabOk.clean ((ccmpPickArms_clean hcl hpk).append (hcl.jcc _ _))⟩
+              · cases heq
+            · cases hre : lowerExpr I h E fn eArm nv (nl + 1) ipRest st1 ft fwd fwdTgts with
+              | error _ => rw [hre] at hr; simp [finishCcmpTail] at hr
+              | ok pR =>
+                rcases pR with ⟨cR, nvR, nlR, ipR⟩
+                rw [hre] at hr
+                simp only [finishCcmpTail, Except.ok.injEq, Prod.mk.injEq] at hr
+                rcases hr with ⟨rfl, rfl, rfl, rfl⟩
+                have hres := lowerExpr_labels _ _ _ _ _ _ _ _ _ _ _ _ hre
+                exact ⟨hres.1, by omega, fun hcl =>
+                  (((hres.2.2 hcl).pre (hcl.jcc _ _)).mono
+                    fun l hl => lrange_mono hl (by omega) (Nat.le_refl _)).pre
+                    (ccmpPickArms_clean hcl hpk)⟩
+        | false =>
+          simp only [Bool.false_eq_true, ite_false] at hr
+          split at hr
+          · obtain ⟨h1, h2, h3⟩ := lowerCcmpChain_labels _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ hr
+            exact ⟨h1, by omega, fun hcl =>
+              ((h3 hcl).mono fun l hl => lrange_mono hl (by omega) (Nat.le_refl _)).pre
+                (ccmpPickArms_clean hcl hpk)⟩
+          · split at hr
+            · rename_i res heq
+              unfold ccmpTailJcc? at heq
+              split at heq
+              · obtain ⟨j', -, hmeq⟩ := Option.map_eq_some_iff.mp heq
+                rw [← hmeq] at hr
+                simp only [Except.ok.injEq, Prod.mk.injEq] at hr
+                rcases hr with ⟨rfl, rfl, rfl, rfl⟩
+                exact ⟨Nat.le_refl _, by omega,
+                  fun hcl => LabOk.clean ((ccmpPickArms_clean hcl hpk).append (hcl.jcc _ _))⟩
+              · cases heq
+            · cases hre : lowerExpr I h E fn t nv (nl + 1) ipRest st1 ft fwd fwdTgts with
+              | error _ => rw [hre] at hr; simp [finishCcmpTail] at hr
+              | ok pR =>
+                rcases pR with ⟨cR, nvR, nlR, ipR⟩
+                rw [hre] at hr
+                simp only [finishCcmpTail, Except.ok.injEq, Prod.mk.injEq] at hr
+                rcases hr with ⟨rfl, rfl, rfl, rfl⟩
+                have hres := lowerExpr_labels _ _ _ _ _ _ _ _ _ _ _ _ hre
+                exact ⟨hres.1, by omega, fun hcl =>
+                  (((hres.2.2 hcl).pre (hcl.jcc _ _)).mono
+                    fun l hl => lrange_mono hl (by omega) (Nat.le_refl _)).pre
+                    (ccmpPickArms_clean hcl hpk)⟩
+  | .load _ _ _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, he
+  | .store _ _ _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, he
+  | .call _ _ _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, he
+  | .jnz (.imm _) _ _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, he
+  | .jump _ _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, he
+  | .ret _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, he
+  | .exit _ _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, he
+  | .hlt, _, _, _, _, _, _, _, _, _, _, _, _, _, _, he
+  | .group _ _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, he => by
+    dsimp only [lowerCcmpChain] at he; cases he
+termination_by structural e _ _ _ _ _ _ _ _ _ _ _ _ _ _ => e
+
+theorem lowerCcmpJnz_labels {h : I.Hints} {E : Ext} {fn : Sym} {rs : List Ty} :
+    ∀ (e : Expr VNat LNat rs) (nv nl ipJnz : Nat) (st : SymState I) (brCond : I.Cond)
+      (targetJ ipExtra : Nat) (ft : Option Nat) (fwd : Trie Nat) (fwdTgts : Trie Bool)
+      (reqCx : Nat) (co : CmpOp) {w : Nat} (a b : Arg VNat (.bits w))
+      (c : List I.Directive) (nv' nl' ip' : Nat),
+    lowerCcmpJnz I h E fn e nv nl ipJnz st brCond targetJ ipExtra ft fwd fwdTgts reqCx co a b =
+      .ok (c, nv', nl', ip') →
+    nv ≤ nv' ∧ nl ≤ nl' ∧ (LabelClean I → LabOk I (lrange fn nl nl') c)
+  | .jnz (.var cx) t eArm, nv, nl, ipJnz, st, brCond, targetJ, ipExtra, ft, fwd, fwdTgts,
+      reqCx, co, w, a, b, c, nv', nl', ip', he => by
+    dsimp only [lowerCcmpJnz] at he
+    split at he; · cases he
+    cases hpk : ccmpPickArms? I h nv nl ipJnz st targetJ brCond co a b t eArm with
+    | none => rw [hpk] at he; cases he
+    | some p =>
+      rw [hpk] at he
+      rcases p with ⟨code, st1, br1, ncb, wantTrue, ipRest, ipEx1⟩
+      obtain ⟨c0, hr, rfl⟩ := prepend_ok he
+      cases wantTrue with
+      | true =>
+        simp only [ite_true] at hr
+        split at hr
+        · obtain ⟨h1, h2, h3⟩ := lowerCcmpChain_labels _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ hr
+          exact ⟨h1, by omega, fun hcl =>
+            ((h3 hcl).mono fun l hl => lrange_mono hl (by omega) (Nat.le_refl _)).pre
+              (ccmpPickArms_clean hcl hpk)⟩
+        · split at hr
+          · rename_i res heq
+            unfold ccmpTailJcc? at heq
+            split at heq
+            · obtain ⟨j', -, hmeq⟩ := Option.map_eq_some_iff.mp heq
+              rw [← hmeq] at hr
+              simp only [Except.ok.injEq, Prod.mk.injEq] at hr
+              rcases hr with ⟨rfl, rfl, rfl, rfl⟩
+              exact ⟨Nat.le_refl _, by omega,
+                fun hcl => LabOk.clean ((ccmpPickArms_clean hcl hpk).append (hcl.jcc _ _))⟩
+            · cases heq
+          · cases hre : lowerExpr I h E fn eArm nv (nl + 1) ipRest st1 ft fwd fwdTgts with
+            | error _ => rw [hre] at hr; simp [finishCcmpTail] at hr
+            | ok pR =>
+              rcases pR with ⟨cR, nvR, nlR, ipR⟩
+              rw [hre] at hr
+              simp only [finishCcmpTail, Except.ok.injEq, Prod.mk.injEq] at hr
+              rcases hr with ⟨rfl, rfl, rfl, rfl⟩
+              have hres := lowerExpr_labels _ _ _ _ _ _ _ _ _ _ _ _ hre
+              exact ⟨hres.1, by omega, fun hcl =>
+                (((hres.2.2 hcl).pre (hcl.jcc _ _)).mono
+                  fun l hl => lrange_mono hl (by omega) (Nat.le_refl _)).pre
+                  (ccmpPickArms_clean hcl hpk)⟩
+      | false =>
+        simp only [Bool.false_eq_true, ite_false] at hr
+        split at hr
+        · obtain ⟨h1, h2, h3⟩ := lowerCcmpChain_labels _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ hr
+          exact ⟨h1, by omega, fun hcl =>
+            ((h3 hcl).mono fun l hl => lrange_mono hl (by omega) (Nat.le_refl _)).pre
+              (ccmpPickArms_clean hcl hpk)⟩
+        · split at hr
+          · rename_i res heq
+            unfold ccmpTailJcc? at heq
+            split at heq
+            · obtain ⟨j', -, hmeq⟩ := Option.map_eq_some_iff.mp heq
+              rw [← hmeq] at hr
+              simp only [Except.ok.injEq, Prod.mk.injEq] at hr
+              rcases hr with ⟨rfl, rfl, rfl, rfl⟩
+              exact ⟨Nat.le_refl _, by omega,
+                fun hcl => LabOk.clean ((ccmpPickArms_clean hcl hpk).append (hcl.jcc _ _))⟩
+            · cases heq
+          · cases hre : lowerExpr I h E fn t nv (nl + 1) ipRest st1 ft fwd fwdTgts with
+            | error _ => rw [hre] at hr; simp [finishCcmpTail] at hr
+            | ok pR =>
+              rcases pR with ⟨cR, nvR, nlR, ipR⟩
+              rw [hre] at hr
+              simp only [finishCcmpTail, Except.ok.injEq, Prod.mk.injEq] at hr
+              rcases hr with ⟨rfl, rfl, rfl, rfl⟩
+              have hres := lowerExpr_labels _ _ _ _ _ _ _ _ _ _ _ _ hre
+              exact ⟨hres.1, by omega, fun hcl =>
+                (((hres.2.2 hcl).pre (hcl.jcc _ _)).mono
+                  fun l hl => lrange_mono hl (by omega) (Nat.le_refl _)).pre
+                  (ccmpPickArms_clean hcl hpk)⟩
+  | .let_ _ _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, he
+  | .load _ _ _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, he
+  | .store _ _ _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, he
+  | .call _ _ _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, he
+  | .jnz (.imm _) _ _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, he
+  | .jump _ _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, he
+  | .ret _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, he
+  | .exit _ _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, he
+  | .hlt, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, he
+  | .group _ _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, he => by
+    dsimp only [lowerCcmpJnz] at he; cases he
+termination_by structural e _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ => e
 end
 
 theorem lowerExpr_nv_le {h : I.Hints} {E : Ext} {fn : Sym} {rs : List Ty} {e : Expr VNat LNat rs}

@@ -941,7 +941,7 @@ private theorem symBits_imm64 {G : VCtx} {w : Nat} (hw : w ≤ 64) (v : BitVec w
   ⟨rfl, BitVec.eq_of_getLsbD_eq fun j hj => by
     simp [hj, show j < 64 by omega]⟩
 
-private theorem cmpOp_evalBits_zeroExtend_both {m n : Nat} (hmn : m < n)
+theorem cmpOp_evalBits_zeroExtend_both {m n : Nat} (hmn : m < n)
     {co : CmpOp} (hco : cmpIsUnsignedOrEq co = true) (a b : BitVec m) :
     co.evalBits (a.zeroExtend n) (b.zeroExtend n) = co.evalBits a b := by
   have hle : m ≤ n := Nat.le_of_lt hmn
@@ -975,7 +975,7 @@ private theorem tryGprZ_ok {G : VCtx} {nv : Nat} {st : SymState T.toIsa} {s : T.
     · simp at hk
   | _ => simp at hk
 
-private theorem widenZextArg32_ok {G : VCtx} {nv w : Nat} (_hw : w < 32) {st : SymState T.toIsa}
+theorem widenZextArg32_ok {G : VCtx} {nv w : Nat} (_hw : w < 32) {st : SymState T.toIsa}
     {s : T.mach.MData} {σ : List (BitVec 64)} (hA : Agree T G nv st s σ)
     {a₁ : Arg Val (.bits w)} {a : Arg VNat (.bits w)} {pa : PArg T.Reg T.VReg T.Cond (.bits 32)}
     (hrel : ArgRel G (.bits w) a₁ a) (h : widenZextArg32 T.toIsa st.regs a = some pa) :
