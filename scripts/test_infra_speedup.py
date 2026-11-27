@@ -25,7 +25,7 @@ import sync_hubs as sh  # noqa: E402
 
 class TestHubIsolationAndNoLegacy(unittest.TestCase):
     def test_no_legacy_libs_or_imports(self) -> None:
-        self.assertEqual(len(sh.ALL_HUBS), 17)
+        self.assertEqual(len(sh.ALL_HUBS), 20)
         for hub in sh.ALL_HUBS:
             self.assertNotIn("Legacy", hub)
         self.assertFalse((REPO_ROOT / "LeanQbeLegacyTest").exists())
@@ -406,10 +406,50 @@ class TestP1DecouplingAndHubs(unittest.TestCase):
         ):
             cl = local_closure(test_mod)
             # CoreHub includes pure decoupling helpers (`CompileGuard`, `MainCertInlineProof`),
-            # N5 `OptFlat*`/`MainFlat*`, and split lemma modules (still decoupled from Kissat).
-            self.assertLess(len(cl), 350, f"{test_mod} closure too large: {len(cl)}")
+            # N5 `OptFlat*`/`MainFlat*`, and split lemma modules (still decoupled from Kissat,
+            # Unified, Wasm, and non-core Logic helpers).
+            self.assertLess(len(cl), 320, f"{test_mod} closure too large: {len(cl)}")
             kissat = [m for m in cl if "Examples.Kissat" in m]
             self.assertEqual(kissat, [], f"{test_mod} leaked Kissat modules: {kissat[:5]}")
+            trimmed = [
+                m
+                for m in cl
+                if m.startswith(("LeanQbe.T.Unified.", "LeanQbe.T.Wasm."))
+                or m
+                in {
+                    "LeanQbe.T.Logic.CanonicalEnv",
+                    "LeanQbe.T.Logic.MemAlgebra",
+                    "LeanQbe.T.Logic.SlabLayoutElab",
+                    "LeanQbe.T.Logic.U32",
+                }
+            ]
+            self.assertEqual(trimmed, [], f"{test_mod} leaked trimmed modules: {trimmed[:5]}")
+
+    def test_trimmed_hub_classification_and_corehub_separation(self) -> None:
+        self.assertEqual(sh.classify_module("LeanQbe.T.Unified.Ssa"), "LeanQbe.T.Unified.Hub")
+        self.assertEqual(sh.classify_module("LeanQbe.T.Wasm.Ast"), "LeanQbe.T.Wasm.Hub")
+        for mod in (
+            "LeanQbe.T.Logic.CanonicalEnv",
+            "LeanQbe.T.Logic.MemAlgebra",
+            "LeanQbe.T.Logic.SlabLayoutElab",
+            "LeanQbe.T.Logic.U32",
+        ):
+            self.assertEqual(sh.classify_module(mod), "LeanQbe.T.Logic.ExtraHub")
+        for hub in ("LeanQbe.T.Unified.Hub", "LeanQbe.T.Wasm.Hub", "LeanQbe.T.Logic.ExtraHub"):
+            self.assertIn(hub, sh.ALL_HUBS)
+            self.assertIn(hub, rs.BARRELS)
+        core_cl = li.compute_import_closure(["LeanQbe.T.CoreHub"], REPO_ROOT)
+        for mod in core_cl:
+            self.assertFalse(mod.startswith(("LeanQbe.T.Unified.", "LeanQbe.T.Wasm.")), mod)
+            self.assertNotIn(
+                mod,
+                {
+                    "LeanQbe.T.Logic.CanonicalEnv",
+                    "LeanQbe.T.Logic.MemAlgebra",
+                    "LeanQbe.T.Logic.SlabLayoutElab",
+                    "LeanQbe.T.Logic.U32",
+                },
+            )
 
     def test_optional_lakefile_targets_preserve_defaults(self) -> None:
         data = tomllib.loads((REPO_ROOT / "lakefile.toml").read_text(encoding="utf-8"))
