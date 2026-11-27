@@ -131,6 +131,32 @@ theorem thm_grind_basic (x y : BitVec 64) (h : x = y) :
     bv_decide_qbe_push
     bv_decide_qbe
 
+/-! ## 1c. `*`-Gated Automatic `acNf` Tests (`E0 / H1`) -/
+
+theorem thm_acnf_mul_comm_64 (a b : BitVec 64) : a * b = b * a := by
+  bv_decide_qbe
+
+theorem thm_acnf_mul_comm_add_64 (a b c : BitVec 64) : a * b + c = b * a + c := by
+  bv_decide_qbe
+
+theorem thm_acnf_bitvec_mul_64 (a b : BitVec 64) : BitVec.mul a b = BitVec.mul b a := by
+  bv_decide_qbe
+
+theorem thm_acnf_uint64_mul_comm (a b : UInt64) : a * b = b * a := by
+  bv_decide_qbe
+
+theorem thm_acnf_sym_mul_comm_64 (a b : BitVec 64) : a * b = b * a := by
+  sym =>
+    bv_decide_qbe
+
+theorem thm_acnf_sym_push_mul_comm_64 (a b : BitVec 64) : a * b = b * a := by
+  sym =>
+    bv_decide_qbe_push
+    bv_decide_qbe
+
+theorem thm_acnf_disabled_4 (a b : BitVec 4) : a * b = b * a := by
+  bv_decide_qbe -acNf
+
 #print axioms thm_a1
 #print axioms thm_a2
 #print axioms thm_b4
@@ -240,8 +266,12 @@ private def runAllCore : CoreM Unit := do
   for thm in [``thm_a1, ``thm_a2, ``thm_a3, ``thm_a5, ``thm_b1, ``thm_b2,
               ``thm_b4, ``thm_b5, ``thm_d6, ``thm_uint32, ``thm_cegar_e1,
               ``thm_cegar_multi, ``thm_cegar_bool, ``thm_cegar_chain,
-              ``thm_sym_basic] do
+              ``thm_sym_basic, ``thm_acnf_disabled_4] do
     checkTheoremAxioms thm true
+  for thm in [``thm_acnf_mul_comm_64, ``thm_acnf_mul_comm_add_64,
+              ``thm_acnf_bitvec_mul_64, ``thm_acnf_uint64_mul_comm,
+              ``thm_acnf_sym_mul_comm_64, ``thm_acnf_sym_push_mul_comm_64] do
+    checkTheoremAxioms thm false
   for thm in [``thm_preproc_only, ``thm_sym_push, ``thm_sym_std_push,
               ``thm_sym_types, ``thm_grind_basic] do
     let axs ← collectAxioms thm
@@ -256,7 +286,7 @@ private def runAllCore : CoreM Unit := do
      ``thm_b4, ``thm_b5, ``thm_d6, ``thm_uint32, ``thm_cegar_e1,
      ``thm_cegar_multi, ``thm_cegar_bool, ``thm_cegar_chain,
      ``thm_sym_basic, ``thm_sym_push, ``thm_sym_std_push,
-     ``thm_sym_types, ``thm_grind_basic]
+     ``thm_sym_types, ``thm_grind_basic, ``thm_acnf_disabled_4]
   for (name, _) in env.constants do
     let s := name.toString
     if (s.startsWith "BvDecideQbe." || s.startsWith "BvDecideQbeTest.") &&
@@ -393,10 +423,17 @@ private def runAllCore : CoreM Unit := do
     | .ok _ => throwError "corrupt SAT model was not rejected"
 
     -- 10. Real `bv_solve_bytes` `.timeout` (`fuel := 0`, `fuel := 1`) and `.workTooSmall` (`4096 B`)
-    match ← runMetaGoal propUnsat cfgNoPre { fuel := 0 } with
+    match ← runMetaGoal propUnsat cfgNoPre { fuel := 0, acNf := false } with
     | .error msg =>
-      assertTrue s!"timeout(0) message: {msg}" (msg.contains "timed out")
+      assertTrue s!"timeout(0, acNf=false) message: {msg}" (msg.contains "timed out")
+      assertTrue s!"timeout(0, acNf=false) suggests acNf: {msg}" (msg.contains "acNf")
     | .ok _ => throwError "fuel=0 should fail with timeout"
+
+    match ← runMetaGoal propUnsat cfgNoPre { fuel := 0, acNf := true } with
+    | .error msg =>
+      assertTrue s!"timeout(0, acNf=true) message: {msg}" (msg.contains "timed out")
+      assertTrue s!"timeout(0, acNf=true) omits acNf hint: {msg}" (!msg.contains "acNf")
+    | .ok _ => throwError "fuel=0 with acNf=true should fail with timeout"
 
     match ← runMetaGoal propUnsat cfgNoPre { fuel := 1 } with
     | .error msg =>
@@ -412,8 +449,121 @@ private def runAllCore : CoreM Unit := do
       assertTrue s!"oom message: {msg}" (msg.contains "workspace limit")
     | .ok _ => throwError "exhausted workspace should fail"
 
+    -- 11. `*`-gated automatic `acNf` config detection & `Expr` gating
+    let stxEmpty ← `(Lean.Parser.Tactic.optConfig| )
+    let stxPos ← `(Lean.Parser.Tactic.optConfig| +acNf)
+    let stxNeg ← `(Lean.Parser.Tactic.optConfig| -acNf)
+    let stxAssignFalse ← `(Lean.Parser.Tactic.optConfig| (acNf := false))
+    let stxAssignTrue ← `(Lean.Parser.Tactic.optConfig| (acNf := true))
+    let stxOther ← `(Lean.Parser.Tactic.optConfig| +uf (timeout := 5))
+    let stxCfgNoAcNf ← `(Lean.Parser.Tactic.optConfig| (config := { timeout := 1 }))
+    let stxCfgFalse ← `(Lean.Parser.Tactic.optConfig| (config := { acNf := false }))
+    let stxCfgWith ← `(Lean.Parser.Tactic.optConfig| (config := { base with timeout := 1 }))
+    let stxCfgOpaque ← `(Lean.Parser.Tactic.optConfig| (config := myCfg))
+
+    assertTrue "hasExplicitAcNf empty == false" (!hasExplicitAcNf stxEmpty)
+    assertTrue "hasExplicitAcNf +acNf == true" (hasExplicitAcNf stxPos)
+    assertTrue "hasExplicitAcNf -acNf == true" (hasExplicitAcNf stxNeg)
+    assertTrue "hasExplicitAcNf (acNf := false) == true" (hasExplicitAcNf stxAssignFalse)
+    assertTrue "hasExplicitAcNf (acNf := true) == true" (hasExplicitAcNf stxAssignTrue)
+    assertTrue "hasExplicitAcNf +uf (timeout := 5) == false" (!hasExplicitAcNf stxOther)
+    assertTrue "hasExplicitAcNf (config := { timeout := 1 }) == false"
+      (!hasExplicitAcNf stxCfgNoAcNf)
+    assertTrue "hasExplicitAcNf (config := { acNf := false }) == true"
+      (hasExplicitAcNf stxCfgFalse)
+    assertTrue "hasExplicitAcNf (config := { base with timeout := 1 }) == true"
+      (hasExplicitAcNf stxCfgWith)
+    assertTrue "hasExplicitAcNf (config := myCfg) == true" (hasExplicitAcNf stxCfgOpaque)
+
+    let bv64Ty := mkApp (mkConst ``BitVec) (mkNatLit 64)
+    let propMul ← withLocalDeclD `a bv64Ty fun a =>
+      withLocalDeclD `b bv64Ty fun b => do
+        let ab ← mkAppM ``HMul.hMul #[a, b]
+        let ba ← mkAppM ``HMul.hMul #[b, a]
+        mkForallFVars #[a, b] (← mkEq ab ba)
+    let mvarMul ← mkFreshExprMVar propMul
+    assertTrue "resolveAutoAcNf default on BitVec * => true"
+      ((← resolveAutoAcNf stxEmpty {} mvarMul.mvarId!).acNf)
+    assertTrue "resolveAutoAcNf -acNf on BitVec * => false"
+      (!(← resolveAutoAcNf stxNeg { acNf := false } mvarMul.mvarId!).acNf)
+    assertTrue "resolveAutoAcNf (acNf := false) on BitVec * => false"
+      (!(← resolveAutoAcNf stxAssignFalse { acNf := false } mvarMul.mvarId!).acNf)
+    assertTrue "resolveAutoAcNf (config := { acNf := false }) on BitVec * => false"
+      (!(← resolveAutoAcNf stxCfgFalse { acNf := false } mvarMul.mvarId!).acNf)
+    assertTrue "resolveAutoAcNf (config := { timeout := 1 }) on BitVec * => true"
+      ((← resolveAutoAcNf stxCfgNoAcNf { timeout := 1 } mvarMul.mvarId!).acNf)
+    assertTrue "resolveAutoAcNf (config := myCfg) on BitVec * => false"
+      (!(← resolveAutoAcNf stxCfgOpaque { acNf := false } mvarMul.mvarId!).acNf)
+
+    let propBvMul ← withLocalDeclD `a bv64Ty fun a =>
+      withLocalDeclD `b bv64Ty fun b => do
+        let ab := mkApp3 (mkConst ``BitVec.mul) (mkNatLit 64) a b
+        let ba := mkApp3 (mkConst ``BitVec.mul) (mkNatLit 64) b a
+        mkForallFVars #[a, b] (← mkEq ab ba)
+    let mvarBvMul ← mkFreshExprMVar propBvMul
+    assertTrue "resolveAutoAcNf default on BitVec.mul => true"
+      ((← resolveAutoAcNf stxEmpty {} mvarBvMul.mvarId!).acNf)
+
+    let propU64Mul ← withLocalDeclD `a (mkConst ``UInt64) fun a =>
+      withLocalDeclD `b (mkConst ``UInt64) fun b => do
+        let ab ← mkAppM ``HMul.hMul #[a, b]
+        let ba ← mkAppM ``HMul.hMul #[b, a]
+        mkForallFVars #[a, b] (← mkEq ab ba)
+    let mvarU64Mul ← mkFreshExprMVar propU64Mul
+    assertTrue "resolveAutoAcNf default on UInt64 * => true"
+      ((← resolveAutoAcNf stxEmpty {} mvarU64Mul.mvarId!).acNf)
+    assertTrue "resolveAutoAcNf -fixedInt on UInt64 * => false"
+      (!(← resolveAutoAcNf stxEmpty { fixedInt := false } mvarU64Mul.mvarId!).acNf)
+
+    let propNoMul ← withLocalDeclD `a bv64Ty fun a =>
+      withLocalDeclD `b bv64Ty fun b => do
+        let cond ← mkAppM ``BEq.beq #[a, b]
+        let sum ← mkAppM ``HAdd.hAdd #[a, b]
+        let xored ← mkAppM ``HXor.hXor #[a, b]
+        let mux ← mkAppM ``cond #[cond, sum, xored]
+        mkForallFVars #[a, b] (← mkEq mux mux)
+    let mvarNoMul ← mkFreshExprMVar propNoMul
+    assertTrue "resolveAutoAcNf default on non-* mux/add/xor => false"
+      (!(← resolveAutoAcNf stxEmpty {} mvarNoMul.mvarId!).acNf)
+    assertTrue "resolveAutoAcNf +acNf on non-* => true"
+      ((← resolveAutoAcNf stxPos { acNf := true } mvarNoMul.mvarId!).acNf)
+
+    let propNatMul ← withLocalDeclD `x (mkConst ``Nat) fun x =>
+      withLocalDeclD `y (mkConst ``Nat) fun y => do
+        let xy ← mkAppM ``HMul.hMul #[x, y]
+        let yx ← mkAppM ``HMul.hMul #[y, x]
+        mkForallFVars #[x, y] (← mkEq xy yx)
+    let mvarNatMul ← mkFreshExprMVar propNatMul
+    assertTrue "resolveAutoAcNf default on Nat * => false"
+      (!(← resolveAutoAcNf stxEmpty {} mvarNatMul.mvarId!).acNf)
+
+    let mulWidth ← mkAppM ``HMul.hMul #[mkNatLit 2, mkNatLit 32]
+    let bvMulW := mkApp (mkConst ``BitVec) mulWidth
+    let propWidthMul ← withLocalDeclD `x bvMulW fun x => do
+      mkForallFVars #[x] (← mkEq x x)
+    let mvarWidthMul ← mkFreshExprMVar propWidthMul
+    assertTrue "resolveAutoAcNf default on BitVec (2 * 32) without BV * => false"
+      (!(← resolveAutoAcNf stxEmpty {} mvarWidthMul.mvarId!).acNf)
+
+    let hypMulOk ← withLocalDeclD `a bv64Ty fun a =>
+      withLocalDeclD `b bv64Ty fun b =>
+      withLocalDeclD `c bv64Ty fun c => do
+        let ab ← mkAppM ``HMul.hMul #[a, b]
+        withLocalDeclD `h (← mkEq ab c) fun _ => do
+          let mvarHyp ← mkFreshExprMVar (← mkEq c c)
+          return (← resolveAutoAcNf stxEmpty {} mvarHyp.mvarId!).acNf
+    assertTrue "resolveAutoAcNf detects BitVec * in local hypothesis => true" hypMulOk
+
+    let letMulOk ← withLocalDeclD `a bv64Ty fun a =>
+      withLocalDeclD `b bv64Ty fun b => do
+        let ab ← mkAppM ``HMul.hMul #[a, b]
+        withLetDecl `p bv64Ty ab fun p => do
+          let mvarLet ← mkFreshExprMVar (← mkEq p p)
+          return (← resolveAutoAcNf stxEmpty {} mvarLet.mvarId!).acNf
+    assertTrue "resolveAutoAcNf detects BitVec * in local let binding => true" letMulOk
+
   IO.println
-    "UnitTest: ALL PASSED (+uf CEGAR, sym/grind, timeout, axioms, rfl <5ms, CEX, real retry, evalEff)"
+    "UnitTest: ALL PASSED (+uf, sym/grind, *-gated acNf, timeout, axioms, rfl, CEX, retry, evalEff)"
 
 def runAll : IO Unit := do
   let opts : Options := {}
