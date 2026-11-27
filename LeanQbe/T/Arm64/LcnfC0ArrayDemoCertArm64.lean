@@ -16,8 +16,8 @@ meta import LeanQbe.T.LeanLCNF.LcnfC0ArrayDemo
 # AAPCS64 AArch64 `LinkedCert` & Execution Witnesses for `ArrayDemo` (`LcnfC0ArrayDemoCertArm64`)
 
 Acyclically compiles `arrayDemoProgMod` (`ArrayDemo.{arrayPushSetGet, baPushSetGet, baCowSetGet}`,
-`3` fns) via `compile_linked_chunks!`, appends onto `rtC0CoreArm64Cert` (`86` pure-C0 runtime fns,
-`0` externs, `0` C runtime) via `LcnfC0LinkKit.linkRtC0Cert` (`89` fns total, `maxBound = 2048`),
+`3` fns) via `compile_linked_chunks!`, appends onto `rtC0CoreArm64Cert` (`80` pure-C0 runtime fns,
+`0` externs, `0` C runtime) via `LcnfC0LinkKit.linkRtC0Cert` (`83` fns total, `maxBound = 2048`),
 bridges `arrayDemoLinkedMod_moduleOk` to `armTarget.Defined` + `armTarget.FnSpec`, and proves
 closed concrete AAPCS64 AArch64 `Eventually` execution witnesses (`0` `import all`):
 
@@ -42,14 +42,14 @@ compile_linked_chunks! arrayDemoArm64ProgCert armTarget armLayout armLegalTarget
   arrayDemoProgMod 3 (ext := rtC0CoreArm64AllExt) (exits := rtExitSyms) (nX := 64)
   (maxDirs := 600) (flat := true)
 
-/-- Full `89`-function AAPCS64 AArch64 `LinkedCert` combining `rtC0CoreArm64Cert` (`86` fns) and
+/-- Full `83`-function AAPCS64 AArch64 `LinkedCert` combining `rtC0CoreArm64Cert` (`80` fns) and
 `arrayDemoArm64ProgCert` (`3` R2 container client fns, `maxBound = 2048`, `0` externs). -/
 @[expose] noncomputable def arrayDemoArm64Cert :
     LinkedCert armTarget armLayout armLegalTarget armLabelClean
       arrayDemoLinkedMod [] rtExitSyms 64 (Nat.max 2048 2048) :=
   linkRtC0Cert rtC0CoreArm64Cert arrayDemoArm64ProgCert (by t_kernel_rfl)
 
-theorem arrayDemoArm64Cert_bounds_len : arrayDemoArm64Cert.bounds.length = 89 :=
+theorem arrayDemoArm64Cert_bounds_len : arrayDemoArm64Cert.bounds.length = 83 :=
   arrayDemoArm64Cert.bounds_length.trans (by decide)
 
 theorem arrayDemoArm64Cert_bounds_le :

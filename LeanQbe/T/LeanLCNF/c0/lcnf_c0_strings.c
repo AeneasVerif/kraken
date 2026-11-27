@@ -8,113 +8,12 @@ extern void lcnf_dec_ref_cold(u64 rt, u64 o);
 extern void lcnf_mark_persistent(u64 rt, u64 o);
 extern void lcnf_panic(u64 rt, u64 code);
 
-void r2b_inc_obj(u64 o) {
-  if (o != 0ULL) {
-    if ((o & 1ULL) == 0ULL) {
-      u64 hdr = *(u64 *)o;
-      u64 rc = hdr & 0xffffffffULL;
-      if (rc != 0ULL) {
-        if (rc < 0x7fffffffULL) {
-          *(u64 *)o = hdr + 1ULL;
-        }
-      }
-    }
-  }
-}
-
-void r2b_dec_obj(u64 rt, u64 o) {
-  if (o != 0ULL) {
-    if ((o & 1ULL) == 0ULL) {
-      u64 hdr = *(u64 *)o;
-      u64 rc = hdr & 0xffffffffULL;
-      if (rc == 1ULL) {
-        lcnf_dec_ref_cold(rt, o);
-      } else {
-        if (rc != 0ULL) {
-          *(u64 *)o = hdr - 1ULL;
-        }
-      }
-    }
-  }
-}
-
-void r2b_mem_copy_bytes(u64 dst, u64 src, u64 len) {
-  u64 i = 0ULL;
-  while (i < len) {
-    u8 b = *(u8 *)(src + i);
-    *(u8 *)(dst + i) = b;
-    i = i + 1ULL;
-  }
-}
-
-u64 r2b_cmp_byte_slices(u64 a, u64 n, u64 b, u64 m) {
-  u64 min_len = n;
-  if (m < n) {
-    min_len = m;
-  }
-  u64 i = 0ULL;
-  u64 res = 1ULL;
-  u64 go = 1ULL;
-  while (go != 0ULL) {
-    if (i < min_len) {
-      u64 x = (u64)(*(u8 *)(a + i));
-      u64 y = (u64)(*(u8 *)(b + i));
-      if (x < y) {
-        res = 0ULL;
-        go = 0ULL;
-      } else {
-        if (x > y) {
-          res = 2ULL;
-          go = 0ULL;
-        } else {
-          i = i + 1ULL;
-        }
-      }
-    } else {
-      go = 0ULL;
-    }
-  }
-  if (res == 1ULL) {
-    if (n < m) {
-      res = 0ULL;
-    } else {
-      if (n > m) {
-        res = 2ULL;
-      }
-    }
-  }
-  return res;
-}
-
-u64 r2b_alloc_sarray(u64 rt, u64 cap) {
-  if (cap > 268435416ULL) {
-    lcnf_panic(rt, 2ULL);
-    return 0ULL;
-  }
-  u64 bytes = (24ULL + cap + 7ULL) & (~7ULL);
-  u64 p = lcnf_alloc(rt, bytes);
-  *(u64 *)p = 0xf801000000000001ULL;
-  *(u64 *)(p + 8ULL) = 0ULL;
-  *(u64 *)(p + 16ULL) = cap;
-  return p;
-}
-
-u64 r2b_alloc_array(u64 rt, u64 sz, u64 cap) {
-  if (cap > 33554428ULL) {
-    lcnf_panic(rt, 2ULL);
-    return 0ULL;
-  }
-  if (sz > cap) {
-    lcnf_panic(rt, 2ULL);
-    return 0ULL;
-  }
-  u64 bytes = 24ULL + 8ULL * cap;
-  u64 p = lcnf_alloc(rt, bytes);
-  *(u64 *)p = 0xf600000000000001ULL;
-  *(u64 *)(p + 8ULL) = sz;
-  *(u64 *)(p + 16ULL) = cap;
-  return p;
-}
+extern void r2_inc_obj(u64 o);
+extern void r2_dec_obj(u64 rt, u64 o);
+extern void r2_mem_copy_bytes(u64 dst, u64 src, u64 len);
+extern u64 r2_cmp_byte_slices(u64 ap, u64 la, u64 bp, u64 lb);
+extern u64 r2_alloc_sarray(u64 rt, u64 size, u64 cap);
+extern u64 r2_alloc_array(u64 rt, u64 size, u64 cap);
 
 u64 r2b_alloc_mpz(u64 rt, u64 cap, u64 sz) {
   if (cap > 33554429ULL) {
@@ -324,9 +223,9 @@ u64 lcnf_string_push(u64 rt, u64 s, u64 c) {
     }
   }
   u64 dst = r2b_str_alloc_cap(rt, new_cap, new_sz, len + 1ULL);
-  r2b_mem_copy_bytes(dst + 32ULL, s + 32ULL, sz);
+  r2_mem_copy_bytes(dst + 32ULL, s + 32ULL, sz);
   r2b_utf8_write(dst + 32ULL + sz, cp);
-  r2b_dec_obj(rt, s);
+  r2_dec_obj(rt, s);
   return dst;
 }
 
@@ -353,7 +252,7 @@ u64 lcnf_string_append(u64 rt, u64 s1, u64 s2) {
   u64 rc1 = hdr1 & 0xffffffffULL;
   if (rc1 == 1ULL) {
     if (new_sz + 1ULL <= cap1) {
-      r2b_mem_copy_bytes(s1 + 32ULL + sz1, s2 + 32ULL, sz2);
+      r2_mem_copy_bytes(s1 + 32ULL + sz1, s2 + 32ULL, sz2);
       *(u8 *)(s1 + 32ULL + new_sz) = (u8)0ULL;
       *(u64 *)(s1 + 8ULL) = new_sz + 1ULL;
       *(u64 *)(s1 + 24ULL) = len1 + len2;
@@ -371,9 +270,9 @@ u64 lcnf_string_append(u64 rt, u64 s1, u64 s2) {
     }
   }
   u64 dst = r2b_str_alloc_cap(rt, new_cap, new_sz, len1 + len2);
-  r2b_mem_copy_bytes(dst + 32ULL, s1 + 32ULL, sz1);
-  r2b_mem_copy_bytes(dst + 32ULL + sz1, s2 + 32ULL, sz2);
-  r2b_dec_obj(rt, s1);
+  r2_mem_copy_bytes(dst + 32ULL, s1 + 32ULL, sz1);
+  r2_mem_copy_bytes(dst + 32ULL + sz1, s2 + 32ULL, sz2);
+  r2_dec_obj(rt, s1);
   return dst;
 }
 
@@ -401,21 +300,21 @@ u64 lcnf_string_cmp_op(u64 rt, u64 op, u64 s1, u64 s2) {
     if (sz1 != sz2) {
       return 0ULL;
     }
-    u64 ord0 = r2b_cmp_byte_slices(s1 + 32ULL, sz1, s2 + 32ULL, sz2);
+    u64 ord0 = r2_cmp_byte_slices(s1 + 32ULL, sz1, s2 + 32ULL, sz2);
     if (ord0 == 1ULL) {
       return 1ULL;
     }
     return 0ULL;
   }
   if (op == 1ULL) {
-    u64 ord1 = r2b_cmp_byte_slices(s1 + 32ULL, sz1, s2 + 32ULL, sz2);
+    u64 ord1 = r2_cmp_byte_slices(s1 + 32ULL, sz1, s2 + 32ULL, sz2);
     if (ord1 == 0ULL) {
       return 1ULL;
     }
     return 0ULL;
   }
   if (op == 2ULL) {
-    return r2b_cmp_byte_slices(s1 + 32ULL, sz1, s2 + 32ULL, sz2);
+    return r2_cmp_byte_slices(s1 + 32ULL, sz1, s2 + 32ULL, sz2);
   }
   lcnf_panic(rt, 1ULL);
   return 0ULL;
@@ -435,7 +334,7 @@ u64 lcnf_string_pos_op(u64 rt, u64 op, u64 s, u64 idx_v, u64 end_v) {
   }
   if (op == 1ULL) {
     if ((idx_v & 1ULL) == 0ULL) {
-      r2b_inc_obj(idx_v);
+      r2_inc_obj(idx_v);
       return idx_v;
     }
     u64 idx1 = idx_v >> 1;
@@ -482,7 +381,7 @@ u64 lcnf_string_pos_op(u64 rt, u64 op, u64 s, u64 idx_v, u64 end_v) {
       new_len = new_len + 1ULL;
     }
     u64 dst = r2b_str_alloc_cap(rt, new_sz + 1ULL, new_sz, new_len);
-    r2b_mem_copy_bytes(dst + 32ULL, s + 32ULL + b, new_sz);
+    r2_mem_copy_bytes(dst + 32ULL, s + 32ULL + b, new_sz);
     return dst;
   }
   if (op == 4ULL) {
@@ -530,7 +429,7 @@ u64 lcnf_string_to_list(u64 rt, u64 s) {
     rev = node;
     pos = pos + step;
   }
-  r2b_dec_obj(rt, s);
+  r2_dec_obj(rt, s);
   u64 res = 1ULL;
   while ((rev & 1ULL) == 0ULL) {
     u64 next = *(u64 *)(rev + 16ULL);
@@ -567,7 +466,7 @@ u64 lcnf_string_mk(u64 rt, u64 cs) {
     pos = pos + bw;
     cur = *(u64 *)(cur + 16ULL);
   }
-  r2b_dec_obj(rt, cs);
+  r2_dec_obj(rt, cs);
   return dst;
 }
 
@@ -577,14 +476,14 @@ u64 lcnf_ba_data(u64 rt, u64 ba) {
     lcnf_panic(rt, 2ULL);
     return 0ULL;
   }
-  u64 arr = r2b_alloc_array(rt, sz, sz);
+  u64 arr = r2_alloc_array(rt, sz, sz);
   u64 i = 0ULL;
   while (i < sz) {
     u64 b = (u64)(*(u8 *)(ba + 24ULL + i));
     *(u64 *)(arr + 24ULL + 8ULL * i) = (b << 1) | 1ULL;
     i = i + 1ULL;
   }
-  r2b_dec_obj(rt, ba);
+  r2_dec_obj(rt, ba);
   return arr;
 }
 
@@ -599,17 +498,17 @@ u64 lcnf_array_mk(u64 rt, u64 list) {
     n = n + 1ULL;
     cur = *(u64 *)(cur + 16ULL);
   }
-  u64 arr = r2b_alloc_array(rt, n, n);
+  u64 arr = r2_alloc_array(rt, n, n);
   u64 i = 0ULL;
   cur = list;
   while ((cur & 1ULL) == 0ULL) {
     u64 v = *(u64 *)(cur + 8ULL);
-    r2b_inc_obj(v);
+    r2_inc_obj(v);
     *(u64 *)(arr + 24ULL + 8ULL * i) = v;
     i = i + 1ULL;
     cur = *(u64 *)(cur + 16ULL);
   }
-  r2b_dec_obj(rt, list);
+  r2_dec_obj(rt, list);
   return arr;
 }
 
@@ -620,14 +519,14 @@ u64 lcnf_array_to_list(u64 rt, u64 arr) {
   while (i > 0ULL) {
     i = i - 1ULL;
     u64 v = *(u64 *)(arr + 24ULL + 8ULL * i);
-    r2b_inc_obj(v);
+    r2_inc_obj(v);
     u64 node = lcnf_alloc(rt, 24ULL);
     *(u64 *)node = 0x0102001800000001ULL;
     *(u64 *)(node + 8ULL) = v;
     *(u64 *)(node + 16ULL) = res;
     res = node;
   }
-  r2b_dec_obj(rt, arr);
+  r2_dec_obj(rt, arr);
   return res;
 }
 
@@ -641,9 +540,9 @@ u64 lcnf_array_replicate(u64 rt, u64 n, u64 v) {
     lcnf_panic(rt, 2ULL);
     return 0ULL;
   }
-  u64 arr = r2b_alloc_array(rt, cnt, cnt);
+  u64 arr = r2_alloc_array(rt, cnt, cnt);
   if (cnt == 0ULL) {
-    r2b_dec_obj(rt, v);
+    r2_dec_obj(rt, v);
     return arr;
   }
   if (cnt > 1ULL) {
@@ -713,7 +612,7 @@ u64 lcnf_nat_to_str(u64 rt, u64 n) {
   if (cn == 0ULL) {
     u64 szero = r2b_str_alloc_cap(rt, 2ULL, 1ULL, 1ULL);
     *(u8 *)(szero + 32ULL) = (u8)48ULL;
-    r2b_dec_obj(rt, n);
+    r2_dec_obj(rt, n);
     return szero;
   }
   if (cn > 13421770ULL) {
@@ -726,9 +625,9 @@ u64 lcnf_nat_to_str(u64 rt, u64 n) {
     *(u64 *)(tmp_mpz + 16ULL + 8ULL * k) = *(u64 *)(n + 16ULL + 8ULL * k);
     k = k + 1ULL;
   }
-  r2b_dec_obj(rt, n);
+  r2_dec_obj(rt, n);
   u64 max_digits = 20ULL * cn;
-  u64 rev = r2b_alloc_sarray(rt, max_digits);
+  u64 rev = r2_alloc_sarray(rt, 0ULL, max_digits);
   u64 dlen = 0ULL;
   u64 cur_cn = cn;
   while (cur_cn > 0ULL) {

@@ -128,7 +128,7 @@ theorem lcnf_string_pos_op_wp :
                 show (1 : BitVec 64) = 1#64 from rfl] at hc
               exact hc
             by_cases h0 : idxV = 0#64
-            · r2b_call rtR2bEnv_r2b_inc_obj
+            · r2b_call rtR2bEnv_r2_inc_obj
               dsimp only [r2IncObjSpec, vals, Tup.map, Arg.val]
               rw [ite_eq_left (Or.inl h0)]
               r2b_steps
@@ -149,7 +149,7 @@ theorem lcnf_string_pos_op_wp :
               have hmI : (lcnfObjMem iObj ⋆ (lcnfHeap (objs.eraseIdx k) ⋆
                   rtC0Inv rt st ⋆ lcnfObjMem sObj ⋆ R)) m := by
                 rw [hfocus] at hm; exact sep_cast hm (by ac_rfl)
-              r2b_call rtR2bEnv_r2b_inc_obj
+              r2b_call rtR2bEnv_r2_inc_obj
               dsimp only [r2IncObjSpec, vals, Tup.map, Arg.val]
               rw [ite_eq_right (by simp [h0, ha0])]
               refine ⟨iObj, _, hiAddr, hiWf, hmI, fun m1 hm1 => ?_⟩
@@ -539,7 +539,7 @@ theorem lcnf_string_pos_op_wp :
                                 rw [happ1, htakeB, happ2, hsubLen] at hmA
                                 dsimp only [restOuter]
                                 exact sep_cast hmA (by ac_rfl)
-                              r2b_call rtR2bEnv_r2b_mem_copy_bytes
+                              r2b_call rtR2bEnv_r2_mem_copy_bytes
                               dsimp only [r2MemCopyBytesSpec, vals, Tup.map, Arg.val]
                               try rw [hnewSub]
                               try simp only [show (32 : BitVec 64) = 32#64 from rfl]

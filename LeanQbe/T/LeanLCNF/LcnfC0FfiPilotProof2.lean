@@ -13,9 +13,9 @@ import LeanQbe.T.Logic.ControlComb
 /-!
 # Shard `F3` Pilot Lowered-Module `ModuleOk` & Per-Function WP Proofs (`LcnfC0FfiPilotProof2`)
 
-Composes the full `171`-function closed module
+Composes the full `165`-function closed module
 `pilotLinkedMod :=`
-`  plainModule (59) ++ rtC0CoreMod (86) ++ ffiMod (15) ++ pilotC0 (6) ++ pilotProg (5)`
+`  plainModule (59) ++ rtC0CoreMod (80) ++ ffiMod (15) ++ pilotC0 (6) ++ pilotProg (5)`
 with `0` externs (`exits := ["lcnf_panic"]`), proves `Func.wp pilotLinkedEnv` for all `5` lowered
 Lean pilot functions (`checkSatBA`, `checkSatNat`, `xorBA`, `xorNat`, `solveXorBA`), and
 establishes whole-module `pilotLinkedMod_moduleOk`.
@@ -55,11 +55,11 @@ public section
       (fun f => ({ name := f.name, as := f.as, rs := f.rs } : Extern))
     exits := rtExitSyms }
 
-/-- Canonical `171`-function linked function list (`59 + 101 + 6 + 5`). -/
+/-- Canonical `165`-function linked function list (`59 + 95 + 6 + 5`). -/
 @[expose] def pilotLinkedFns : List Fn :=
   plainModule.fns ++ rtC0WithFfiMod.fns ++ pilotC0_fns ++ pilotProgMod.fns
 
-/-- Closed `171`-function verified FFI pilot `Module` (`0` externs, `exits := ["lcnf_panic"]`). -/
+/-- Closed `165`-function verified FFI pilot `Module` (`0` externs, `exits := ["lcnf_panic"]`). -/
 @[expose] def pilotLinkedMod : Module :=
   { fns := pilotLinkedFns, externs := [], exits := rtExitSyms }
 
@@ -138,7 +138,7 @@ theorem pilotProgSpecEntries_nodup : (pilotProgSpecEntries.map SpecEntry.name).N
 /-- Specification environment for `pilotProgMod` (`5` lowered Lean pilot callers). -/
 @[expose] def pilotProgEnv : Env := Env.ofTable pilotProgSpecEntries
 
-/-- Closed `171`-function specification environment covering `plainModule`, `rtC0CoreMod`,
+/-- Closed `165`-function specification environment covering `plainModule`, `rtC0CoreMod`,
 `ffiMod`, `pilotC0_module`, and `pilotProgMod`. -/
 @[expose] def pilotLinkedEnv : Env := fun f as bs xs m Q X =>
   pilotC0Env f as bs xs m Q X ∨

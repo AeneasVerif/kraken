@@ -35,7 +35,7 @@ open LeanQbe.T LeanQbe.T.LeanLCNF LeanQbe.T.Amd64
 
 #guard treeDemoLcMod.decls.length == 2
 #guard treeDemoTfs.length == 2
-#guard treeDemoLinkedMod.fns.length == 88
+#guard treeDemoLinkedMod.fns.length == 82
 #guard treeDemoLinkedMod.externs.isEmpty
 #guard treeDemoLinkedMod.exits == ["lcnf_panic"]
 #guard !(hasSelfTail "LeanQbe.T.LeanLCNF.TreeDemo.treeSum" 1 treeDemoLcMod.decls[0]!.body)

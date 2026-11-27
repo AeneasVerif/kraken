@@ -163,7 +163,7 @@ chunk for `compile_linked_budget_scc!`. -/
 @[expose] def mutRecDemoProgMod : Module :=
   { fns := Frontend.C0.tflatFnsToFns mutRecDemoTfs, externs := [], exits := rtExitSyms }
 
-/-- Full `88`-function linked `Module`: `rtC0CoreMod` (`86` fns) ++ `mutRecDemoProgMod` (`2` fns).
+/-- Full `82`-function linked `Module`: `rtC0CoreMod` (`80` fns) ++ `mutRecDemoProgMod` (`2` fns).
 -/
 @[expose] def mutRecDemoLinkedMod : Module :=
   linkLcnfWithRtC0 mutRecDemoTfs false

@@ -13,9 +13,9 @@ meta import LeanQbe.T.LeanLCNF.LcnfC0Full
 meta import LeanQbe.T.Arm64.LcnfC0FullCertArm64Bounds
 
 /-!
-# `rtC0CoreMod` AAPCS64 Arm64 Certificate Slice 6/7 (`[61, 78)`)
+# `rtC0CoreMod` AAPCS64 Arm64 Certificate Slice 6/7 (`[61, 72)`)
 
-Kernel-checked native compilation certificate (`rtC0Arm64CertS6`) for `[61, 78)` (`17` functions)
+Kernel-checked native compilation certificate (`rtC0Arm64CertS6`) for `[61, 72)` (`11` functions)
 of `LeanQbe.T.LeanLCNF.rtC0CoreMod.fns` on `armTarget`.
 -/
 
@@ -27,9 +27,9 @@ namespace LeanQbe.T.Arm64
 
 open LeanQbe.T LeanQbe.T.LeanLCNF
 
-/-- Slice 6 sub-module (`[61, 78)`, `17` functions). -/
+/-- Slice 6 sub-module (`[61, 72)`, `11` functions). -/
 @[expose] noncomputable def rtC0Arm64Slice6Mod : Module :=
-  { fns := (rtC0CoreFlatMod.fns.drop 61).take 17, exits := rtExitSyms }
+  { fns := (rtC0CoreFlatMod.fns.drop 61).take 11, exits := rtExitSyms }
 
 compile_linked_chunks! rtC0Arm64CertS6 armTarget armLayout armLegalTarget armLabelClean
   rtC0Arm64Slice6Mod 9 (ext := rtC0Arm64ExtBefore 61) (exits := rtExitSyms) (nX := 64)

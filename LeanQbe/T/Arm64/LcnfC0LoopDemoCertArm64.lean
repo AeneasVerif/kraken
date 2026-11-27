@@ -18,7 +18,7 @@ public meta import Kraken.AArch64.Syntax
 /-!
 # AAPCS64 AArch64 Closed Linked Certificate for `FactLoop` (`LcnfC0LoopDemoCertArm64`)
 
-Links `factLoopProgMod` (`FactLoop.factAcc`, `FactLoop.factStr`) onto the verified 86-function
+Links `factLoopProgMod` (`FactLoop.factAcc`, `FactLoop.factStr`) onto the verified 80-function
 pure-C0 runtime certificate `rtC0CoreArm64Cert`, producing closed `factLoopArm64Cert`,
 `Defined`/`FnSpec` bridges for `factLoopEnv`, and a closed `Eventually` machine-execution witness
 computing `25!` and formatting `"15511210043330985984000000"`.
@@ -37,7 +37,7 @@ compile_linked_chunks! factLoopArm64ProgCert armTarget armLayout armLegalTarget 
   (lcnfProgMod factLoopTfs) 1 (ext := rtC0CoreArm64AllExt) (exits := rtExitSyms) (nX := 64)
   (maxBound := 2048) (maxDirs := 600) (flat := true)
 
-/-- Closed 88-function AAPCS64 AArch64 linked certificate (`rtC0CoreMod ++ factLoopProgMod`). -/
+/-- Closed 82-function AAPCS64 AArch64 linked certificate (`rtC0CoreMod ++ factLoopProgMod`). -/
 noncomputable def factLoopArm64Cert :
     LinkedCert armTarget armLayout armLegalTarget armLabelClean
       factLoopLinkedMod [] rtExitSyms 64 2048 :=

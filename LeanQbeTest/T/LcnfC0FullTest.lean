@@ -18,7 +18,7 @@ meta import LeanQbe.T.PrintCpp
 /-!
 # Verification & Integration Tests for `LcnfC0Full` (Unified R0 + R1 + R2 + R2b Pure-C0 Runtime)
 
-* Structural `#guard`s on `rtC0CoreMod`: `86` functions, `0` externs, `exits = ["lcnf_panic"]`,
+* Structural `#guard`s on `rtC0CoreMod`: `80` functions, `0` externs, `exits = ["lcnf_panic"]`,
   `35/38` `Lower.rtCalls` coverage, `LcnfC0FullRt.sizeof == 33688`, `checkAcyclic`, `symsNodup`.
 * Linked `Demo` (`0` externs) and `Coverage` (`3` float externs) `PrintCpp` emission checks.
 * Cross-module `interpModule rtC0CoreMod` chains exercising R0 + R1 + R2 + R2b together.
@@ -49,7 +49,7 @@ def modSyms (m : Module) : List String :=
   m.fns.map (·.name) ++ m.externs.map (·.name) ++ m.exits
 
 #guard LcnfC0FullRt.sizeof == 33688
-#guard rtC0CoreMod.fns.length == 86
+#guard rtC0CoreMod.fns.length == 80
 #guard rtC0CoreMod.externs.isEmpty
 #guard rtC0CoreMod.exits == ["lcnf_panic"]
 #guard rtC0CoreMod.checkAcyclic

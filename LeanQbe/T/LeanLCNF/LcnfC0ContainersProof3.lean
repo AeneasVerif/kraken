@@ -488,16 +488,16 @@ theorem r2_alloc_array_wp :
       arr_align8_allocBytes cap.toNat
     r2_steps
     r2_call rtR2Env_lcnf_alloc
-    dsimp only [lcnfAllocSpec, vals, Tup.map, Arg.val]
+    dsimp only [lcnfAllocRemSpec, vals, Tup.map, Arg.val]
     have hszEq' : ((24 : BitVec 64) + 8 * cap).toNat = arrAllocBytes cap.toNat := hszEq
     rw [hszEq']
     refine ⟨st, R, hszLe, ?_, ?_, ?_, hm, ?_⟩
     · rw [hid]; unfold rtMinObjBytes arrAllocBytes; omega
     · rw [hid]; unfold rtMaxObjBytes; omega
     · rwa [hid]
-    · intro p st' m1 hp0 hp8 hpr hrem hm1
+    · intro p st' m1 hp0 hp8 hpr hrem hrem2 hm1
       change LeanQbe.T.wp _ _ _ _ _
-      rw [hid] at hm1
+      rw [hid] at hm1 hrem2
       have hm1' : (region p (arrAllocBytes cap.toNat) ⋆ (rtC0Inv rt st' ⋆ R)) m1 :=
         sep_cast hm1 (by ac_rfl)
       have hge24 : 24 ≤ arrAllocBytes cap.toNat := by unfold arrAllocBytes; omega
@@ -539,7 +539,7 @@ theorem r2_alloc_array_wp :
       have hremEq : arrAllocBytes cap.toNat - 24 = 8 * cap.toNat := by
         unfold arrAllocBytes; omega
       rw [hremEq] at hm4
-      exact hk p st' m4 hp0 hp8 hpr hrem (sep_cast hm4 (by ac_rfl))
+      exact hk p st' m4 hp0 hp8 hpr hrem hrem2 (sep_cast hm4 (by ac_rfl))
   · rw [ite_eq_right_of_eq_false _ _ (eq_false hvalid)] at hSpec
     r2_steps <;> first
       | exact hSpec
@@ -806,7 +806,7 @@ theorem r2_ensure_excl_array_wp :
           rw [hszTo, hncTo]; exact ⟨hlenLe, hcapMax⟩
         rw [ite_eq_left_of_eq_true _ _ (eq_true hvalidA)]
         refine ⟨st, lcnfObjMem arrObj ⋆ lcnfHeap childObjs ⋆ R, ?_, sep_cast hm (by ac_rfl),
-          fun r st1 m1 hr0 hr8 hpr1 hrem1 hm1 => ?_⟩
+          fun r st1 m1 hr0 hr8 hpr1 hrem1 _ hm1 => ?_⟩
         · rw [hncTo]; exact hav hslow
         · rw [hncTo] at hm1
           change LeanQbe.T.wp _ _ _ _ _
@@ -1272,7 +1272,7 @@ theorem lcnf_array_mk_empty_wp :
       have h0c : (0 : BitVec 64).toNat ≤ c64.toNat ∧ c64.toNat ≤ arrMaxCap := by
         rw [hcEq]; exact ⟨Nat.zero_le _, hvalid⟩
       rw [ite_eq_left_of_eq_true _ _ (eq_true h0c)]
-      refine ⟨st, R, by rw [hcEq]; exact hav, hm, fun p st' m1 hp0 hp8 hpr hrem hm1 => ?_⟩
+      refine ⟨st, R, by rw [hcEq]; exact hav, hm, fun p st' m1 hp0 hp8 hpr hrem _ hm1 => ?_⟩
       r2_steps
       have hmObj : (rtC0Inv rt st' ⋆
           lcnfObjMem (mkArrObj p 1#32 (if (cap &&& 1#64) ≠ 0#64 then (cap >>> 1).toNat else 0) []) ⋆

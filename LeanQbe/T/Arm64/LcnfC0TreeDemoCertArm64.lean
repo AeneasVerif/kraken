@@ -17,12 +17,12 @@ meta import LeanQbe.T.LeanLCNF.LcnfC0TreeDemo
 First AAPCS64 AArch64 (`armTarget`) non-linear (two-branch) structurally recursive Lean `LCNF`
 program certified through `compile_linked_budget_scc!` (`maxFrame = 48`, `minEntry = 272`,
 depth `D = 16`, `exportBound = 1040 ≤ 2048`) and compositionally appended onto
-`LinkedCertScc.ofLinkedCert rtC0CoreArm64Cert` (`86` pure-C0 runtime functions,
+`LinkedCertScc.ofLinkedCert rtC0CoreArm64Cert` (`80` pure-C0 runtime functions,
 `exits = ["lcnf_panic"]`, `nX = 64`, `0` externs):
 
 1. `treeDemoArm64ProgCert`: `2`-chunk `.recBudgetSCC` user certificate (`treeSum`, `treeSize`)
    with `ext := rtC0CoreArm64AllExt`.
-2. `treeDemoArm64Cert`: closed `88`-function `LinkedCertScc` (`maxBound = 2048`,
+2. `treeDemoArm64Cert`: closed `82`-function `LinkedCertScc` (`maxBound = 2048`,
    `bound treeDemoSumName = 1040`, `bound treeDemoSizeName = 1040`).
 3. `treeDemoArm64_treeSum_fnSpec` & `treeDemoArm64_treeSize_fnSpec`: source-level
    `armTarget.Defined` + `armTarget.FnSpec` via `LinkedCertScc.fnSpec_host_src_of_le`.
@@ -47,13 +47,13 @@ compile_linked_budget_scc! treeDemoArm64ProgCert armTarget armLayout armLegalTar
   (ext := rtC0CoreArm64AllExt) (extSigs := rtC0CoreMod.fns.map Fn.sig)
   (exits := rtExitSyms) (nX := 64) (flat := true)
 
-/-- Lift of the `86`-function acyclic runtime `rtC0CoreArm64Cert` into `LinkedCertScc`. -/
+/-- Lift of the `80`-function acyclic runtime `rtC0CoreArm64Cert` into `LinkedCertScc`. -/
 @[expose] noncomputable def treeDemoRtSccCertArm64 :
     LinkedCertScc armTarget armLayout armLegalTarget armLabelClean
       rtC0CoreMod [] rtExitSyms 64 2048 [] :=
   LinkedCertScc.ofLinkedCert rtC0CoreArm64Cert rfl (by t_kernel_rfl)
 
-/-- Full `88`-function AAPCS64 AArch64 `LinkedCertScc` combining `rtC0CoreArm64Cert` (`86` fns)
+/-- Full `82`-function AAPCS64 AArch64 `LinkedCertScc` combining `rtC0CoreArm64Cert` (`80` fns)
 and `treeDemoArm64ProgCert` (`2` `.recBudgetSCC` fns, `bound = 1040`, `maxBound = 2048`). -/
 @[expose] noncomputable def treeDemoArm64Cert :
     LinkedCertScc armTarget armLayout armLegalTarget armLabelClean

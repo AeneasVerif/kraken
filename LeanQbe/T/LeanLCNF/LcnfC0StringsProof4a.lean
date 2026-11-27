@@ -1234,8 +1234,8 @@ theorem nat_to_str_copy_loop_wp {Q : Post [i64]} {X : XPost} {R : Mem 64 → Pro
 
 @[expose] def afterDecExpr (rt tmp cnBv : Val i64) : Expr Val Cont [i64] :=
   Expr.let_ (Op.mk (OpCode.mul i64) (Arg.imm 20, Arg.var cnBv, ())) fun p_14 =>
-  Expr.call (as := [i64, i64]) (bs := [i64]) "r2b_alloc_sarray"
-    (Arg.var rt, Arg.var p_14.fst, ()) fun p_15 =>
+  Expr.call (as := [i64, i64, i64]) (bs := [i64]) "r2_alloc_sarray"
+    (Arg.var rt, Arg.imm 0, Arg.var p_14.fst, ()) fun p_15 =>
   outerDivExpr tmp p_15.fst cnBv p_14.fst fun dlen =>
   Expr.let_ (Op.mk (OpCode.add i64) (Arg.var p_15.fst, Arg.imm 8, ())) fun p_18 =>
   Expr.store (Arg.var dlen) (Arg.var p_18.fst)
@@ -1252,7 +1252,7 @@ theorem nat_to_str_copy_loop_wp {Q : Post [i64]} {X : XPost} {R : Mem 64 → Pro
      Expr.let_ (Op.mk (OpCode.add i64) (Arg.var p.fst, Arg.imm 32, ())) fun p_10 =>
      Expr.let_ (Op.mk (OpCode.trunc 64 8) (Arg.imm (t := i64) 48, ())) fun p_11 =>
      Expr.store (Arg.var p_11.fst) (Arg.var p_10.fst)
-       (Expr.call (as := [i64, i64]) (bs := []) "r2b_dec_obj" (Arg.var rt, Arg.var n, ())
+       (Expr.call (as := [i64, i64]) (bs := []) "r2_dec_obj" (Arg.var rt, Arg.var n, ())
          fun _p_9 => Expr.ret (Arg.var p.fst, ())))
     (Expr.let_ (Op.mk (OpCode.cmp CmpOp.ugt i64 Ty.bool) (Arg.var cnBv, Arg.imm 13421770, ()))
        fun p_9 =>
@@ -1261,7 +1261,7 @@ theorem nat_to_str_copy_loop_wp {Q : Post [i64]} {X : XPost} {R : Mem 64 → Pro
        (Expr.call (as := [i64, i64, i64]) (bs := [i64]) "r2b_alloc_mpz"
           (Arg.var rt, Arg.var cnBv, Arg.var cnBv, ()) fun p_10 =>
         copyLoopExpr p_10.fst n cnBv
-          (Expr.call (as := [i64, i64]) (bs := []) "r2b_dec_obj" (Arg.var rt, Arg.var n, ())
+          (Expr.call (as := [i64, i64]) (bs := []) "r2_dec_obj" (Arg.var rt, Arg.var n, ())
              fun _p_13 => afterDecExpr rt p_10.fst cnBv)))
 
 end

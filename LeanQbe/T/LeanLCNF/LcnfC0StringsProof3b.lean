@@ -224,15 +224,15 @@ private theorem isListInHeap_incObjList (w : BitVec 64) {objs : List LcnfObj}
     exact .cons hmem' (by simpa [LcnfObj.withRc] using ha)
       (listConsCanon_withRc hcan hrc') (by simpa [LcnfObj.withRc] using hf) heven ih
 
-private theorem wp_call_r2b_inc_obj {rs : List Ty} {Q : Post rs} {X : XPost}
+private theorem wp_call_r2_inc_obj {rs : List Ty} {Q : Post rs} {X : XPost}
     (v : BitVec 64) {objs : List LcnfObj} (hwf : ∀ o ∈ objs, o.Wf)
     (hv : v = 0#64 ∨ v &&& 1#64 ≠ 0#64 ∨ ∃ o ∈ objs, o.addr = v)
     {R : Mem 64 → Prop} {m : Mem 64} {k : Tup Val [] → Expr Val Cont rs}
     (hm : (lcnfHeap objs ⋆ R) m)
     (hcont : ∀ m', (lcnfHeap (incObjList v objs) ⋆ R) m' → wp rtR2bEnv Q X (k ()) m') :
-    wp rtR2bEnv Q X (@Expr.call Val Cont rs "r2b_inc_obj" [i64] [] (Arg.var v, ()) k) m := by
+    wp rtR2bEnv Q X (@Expr.call Val Cont rs "r2_inc_obj" [i64] [] (Arg.var v, ()) k) m := by
   apply @wp_call_of_spec _ _ _ _ _ _ [i64] []
-  apply rtR2bEnv_r2b_inc_obj
+  apply rtR2bEnv_r2_inc_obj
   dsimp only [r2IncObjSpec, vals, Arg.val_var]
   by_cases himm : v = 0#64 ∨ v &&& 1#64 ≠ 0#64
   · rw [ite_eq_left himm]
@@ -265,7 +265,7 @@ private theorem wp_call_r2b_inc_obj {rs : List Ty} {Q : Post rs} {X : XPost}
       simpa using hsub
     exact hcont m' (hinc ▸ hm1)
 
-private theorem wp_call_r2b_dec_obj {rs : List Ty} {Q : Post rs} {X : XPost}
+private theorem wp_call_r2_dec_obj {rs : List Ty} {Q : Post rs} {X : XPost}
     (rt o : BitVec 64) {st : RtC0State} {objs : List LcnfObj}
     (hwf : ∀ x ∈ objs, x.Wf)
     (hpre : ¬ (o = 0#64 ∨ o &&& 1#64 ≠ 0#64) →
@@ -276,10 +276,10 @@ private theorem wp_call_r2b_dec_obj {rs : List Ty} {Q : Post rs} {X : XPost}
     (hcont : ∀ st' objs' m', st'.PreservesMeta st → st'.rem = st.rem →
       DecObjRel o objs objs' → (rtC0Inv rt st' ⋆ lcnfHeap objs' ⋆ R) m' →
       wp rtR2bEnv Q X (k ()) m') :
-    wp rtR2bEnv Q X (@Expr.call Val Cont rs "r2b_dec_obj" [i64, i64] []
+    wp rtR2bEnv Q X (@Expr.call Val Cont rs "r2_dec_obj" [i64, i64] []
       (Arg.var rt, Arg.var o, ()) k) m := by
   apply @wp_call_of_spec _ _ _ _ _ _ [i64, i64] []
-  apply rtR2bEnv_r2b_dec_obj
+  apply rtR2bEnv_r2_dec_obj
   dsimp only [r2DecObjSpec, vals, Arg.val_var]
   by_cases himm : o = 0#64 ∨ o &&& 1#64 ≠ 0#64
   · rw [ite_eq_left himm]
@@ -534,8 +534,8 @@ theorem lcnf_array_mk_wp (xs : Tup Val [i64, i64]) (m : Mem 64)
       rw [ite_eq_right hnotGt] at hspec
       rcases hspec with ⟨hclosedSpec, hfreeSpec, hpostSpec⟩
       apply wp_call_of_spec
-      apply rtR2bEnv_r2b_alloc_array
-      dsimp only [r2bAllocArraySpec, vals, Arg.val_var]
+      apply rtR2bEnv_r2_alloc_array
+      dsimp only [r2AllocArraySpec, vals, Arg.val_var]
       simp only [List.length_nil, Nat.sub_zero]
       have hcapCheck : (BitVec.ofNat 64 elems.length).toNat ≤
             (BitVec.ofNat 64 elems.length).toNat ∧
@@ -613,7 +613,7 @@ theorem lcnf_array_mk_wp (xs : Tup Val [i64, i64]) (m : Mem 64)
                 region ((arr + 24#64) + BitVec.ofNat 64 (8 * filled.length))
                   (8 * (elems.length - filled.length)) ⋆ R)) m2 :=
             sep_cast hm2 (by ac_rfl)
-          refine wp_call_r2b_inc_obj hd hwf2 (hev2 hd hhdMem) hmIncPre fun m3 hm3 => ?_
+          refine wp_call_r2_inc_obj hd hwf2 (hev2 hd hhdMem) hmIncPre fun m3 hm3 => ?_
           c0_steps
           have hltLen : filled.length < elems.length := by
             have : elems.length = filled.length + remElems2.length := by rw [hsplit]; simp
@@ -707,7 +707,7 @@ theorem lcnf_array_mk_wp (xs : Tup Val [i64, i64]) (m : Mem 64)
               sep_cast hm2 (by ac_rfl)
             have hm'' := mkArrObj_mem_of_filled rfl hm'
             exact sep_cast hm'' (by ac_rfl)
-          refine wp_call_r2b_dec_obj rt list hwf2
+          refine wp_call_r2_dec_obj rt list hwf2
             (fun hn => by
               have hne1 : list ≠ 1#64 := fun h1 => hn (Or.inr (h1 ▸ bv64_one_and1_ne_zero))
               obtain ⟨o, ho, hoa, hcls⟩ := hclosedSpec hne1
@@ -842,7 +842,7 @@ theorem lcnf_array_to_list_wp (xs : Tup Val [i64, i64]) (m : Mem 64)
       have hvMem : v ∈ arrObj.fields := List.getElem_mem hk'In
       have hmIncPre : (lcnfHeap (incElemsList (arrObj.fields.drop k).reverse objs) ⋆
           (rtC0Inv rt st1 ⋆ lcnfHeap resObjs ⋆ R)) m1 := sep_cast hm1 (by ac_rfl)
-      refine wp_call_r2b_inc_obj v hwf1 (hev1 v hvMem) hmIncPre fun m2 hm2 => ?_
+      refine wp_call_r2_inc_obj v hwf1 (hev1 v hvMem) hmIncPre fun m2 hm2 => ?_
       c0_steps
       let objs2 := incObjList v (incElemsList (arrObj.fields.drop k).reverse objs)
       apply wp_call_of_spec
@@ -937,7 +937,7 @@ theorem lcnf_array_to_list_wp (xs : Tup Val [i64, i64]) (m : Mem 64)
           (lcnfHeap resObjs ⋆ R)) m1 := by
         simp only [List.drop_zero] at hm1
         exact sep_cast hm1 (by ac_rfl)
-      refine wp_call_r2b_dec_obj rt arr hwf1
+      refine wp_call_r2_dec_obj rt arr hwf1
         (fun _ => by
           obtain ⟨o, ho, hoa, hcls⟩ := hclosedSpec
           refine ⟨o, ho, hoa, fun hrc1 => ?_⟩
@@ -1135,8 +1135,8 @@ theorem lcnf_array_replicate_wp (xs : Tup Val [i64, i64, i64]) (m : Mem 64)
         ArrCanon (mkArrObj arr (1#32) cnt (List.replicate cnt v)) :=
       fun arr ha0 ha8 => mkArrObj_canon ha0 ha8 (by decide) (by simp) hleCap
     apply wp_call_of_spec
-    apply rtR2bEnv_r2b_alloc_array
-    dsimp only [r2bAllocArraySpec, vals, Arg.val_var]
+    apply rtR2bEnv_r2_alloc_array
+    dsimp only [r2AllocArraySpec, vals, Arg.val_var]
     rw [show (n >>> 1).toNat = cnt from rfl]
     rw [ite_eq_left ⟨Nat.le_refl _, hleCap⟩]
     refine ⟨st, lcnfHeap objs ⋆ R, hfree, sep_cast hm0 (by ac_rfl),
@@ -1170,7 +1170,7 @@ theorem lcnf_array_replicate_wp (xs : Tup Val [i64, i64, i64]) (m : Mem 64)
         have hmObj := mkArrObj_mem_of_filled (List.length_replicate) hm1'
         exact sep_cast hmObj (by ac_rfl)
       c0_steps
-      refine wp_call_r2b_dec_obj rt v hwf
+      refine wp_call_r2_dec_obj rt v hwf
         (fun himm => by
           have hv0 : v ≠ 0#64 := fun h => himm (Or.inl h)
           have hve : v &&& 1#64 = 0#64 := Classical.byContradiction fun hne => himm (Or.inr hne)

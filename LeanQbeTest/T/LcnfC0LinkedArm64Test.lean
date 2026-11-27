@@ -16,7 +16,7 @@ meta import LeanQbe.T.LeanLCNF.LcnfC0Demo
 # End-to-End AAPCS64 AArch64 Linked Certificate & Execution Suite (`demoNatStrLinkedMod`)
 
 Links `demoNatStrProgMod` (`DemoNatStr.{addNat, addToStr, fmtSumTagged}`, `3` fns) onto the
-pre-verified `86`-function `rtC0CoreArm64Cert` (`LcnfC0FullCertArm64`) via `LcnfC0LinkKit`, checks
+pre-verified `80`-function `rtC0CoreArm64Cert` (`LcnfC0FullCertArm64`) via `LcnfC0LinkKit`, checks
 architecture isolation (`0` X64/Amd64 imports), bridges `demoNatStrLinkedMod_moduleOk` to
 `armTarget.Defined` + `armTarget.FnSpec`, and proves closed concrete AArch64 `Eventually`
 (`step1 demoNatStrArm64Cert.host.exe`, `XPost := False`) execution witnesses for all three
@@ -47,7 +47,7 @@ open LeanQbe.T LeanQbe.T.LeanLCNF LeanQbe.T.Arm64 Kraken
   if !x64.isEmpty then
     throwError "LcnfC0LinkedArm64Test leaked X64/Amd64 imports: {x64.toList}"
 
-#guard demoNatStrLinkedMod.fns.length == 89
+#guard demoNatStrLinkedMod.fns.length == 83
 #guard demoNatStrLinkedMod.externs.isEmpty
 #guard demoNatStrLinkedMod.exits == ["lcnf_panic"]
 #guard demoNatStrLinkedMod.checkAcyclic
@@ -57,14 +57,14 @@ compile_linked_chunks! demoNatStrArm64ProgCert armTarget armLayout armLegalTarge
   demoNatStrProgMod 2 (ext := rtC0CoreArm64AllExt) (exits := rtExitSyms) (nX := 64)
   (maxDirs := 600)
 
-/-- Full `89`-function AAPCS64 AArch64 linked certificate combining `rtC0CoreArm64Cert` (`86` fns)
+/-- Full `83`-function AAPCS64 AArch64 linked certificate combining `rtC0CoreArm64Cert` (`80` fns)
 and `demoNatStrArm64ProgCert` (`3` fns) via `LcnfC0LinkKit.linkRtC0Cert`. -/
 @[expose] noncomputable def demoNatStrArm64Cert :
     LinkedCert armTarget armLayout armLegalTarget armLabelClean
       demoNatStrLinkedMod [] rtExitSyms 64 (Nat.max 2048 2048) :=
   linkRtC0Cert rtC0CoreArm64Cert demoNatStrArm64ProgCert (by t_kernel_rfl)
 
-theorem demoNatStrArm64Cert_bounds_len : demoNatStrArm64Cert.bounds.length = 89 := by
+theorem demoNatStrArm64Cert_bounds_len : demoNatStrArm64Cert.bounds.length = 83 := by
   exact demoNatStrArm64Cert.bounds_length.trans (by decide)
 
 theorem demoNatStrArm64Cert_bounds_le :

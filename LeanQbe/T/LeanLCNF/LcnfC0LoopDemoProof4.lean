@@ -247,7 +247,7 @@ theorem rtC0CoreMod_loop_wp {fn : Fn} (hfn : fn ∈ rtC0CoreMod.fns)
     have hSlowMem : lcnf_nat_slow ∈ rtC0CoreMod.fns :=
       List.mem_of_getElem? (by rfl : rtC0CoreMod.fns[34]? = some lcnf_nat_slow)
     have hStrMem : lcnf_nat_to_str ∈ rtC0CoreMod.fns :=
-      List.mem_of_getElem? (by rfl : rtC0CoreMod.fns[85]? = some lcnf_nat_to_str)
+      List.mem_of_getElem? (by rfl : rtC0CoreMod.fns[79]? = some lcnf_nat_to_str)
     rcases hextra with ⟨⟨has, hrs⟩, hnm, hsp⟩ | ⟨⟨has, hrs⟩, hnm, hsp⟩ |
       ⟨⟨has, hrs⟩, hnm, hsp⟩ | ⟨⟨has, hrs⟩, hnm, hsp⟩ | ⟨⟨has, hrs⟩, hnm, hsp⟩
     · have heq := fn_eq_of_name_mem hnd hfn hAllocMem hnm; subst heq; cases has; cases hrs

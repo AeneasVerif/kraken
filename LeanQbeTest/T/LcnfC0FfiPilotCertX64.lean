@@ -17,10 +17,10 @@ public meta import LeanQbe.T.LeanLCNF.LcnfC0FfiPilotProof2
 # Shard `F3` SysV x86-64 Linked Certificate & Machine `Eventually` Witnesses
   (`LcnfC0FfiPilotCertX64`)
 
-Zero-recompilation composition of the `171`-function closed SysV x86-64 binary:
+Zero-recompilation composition of the `165`-function closed SysV x86-64 binary:
 1. `KissatPlainCert.plainCert.weakenNoExit rtExitSyms 64` (`59` Kissat fns, **FIRST** so
    `extListBeq` fast path hits without recompiling Kissat).
-2. `.append rtC0CoreCert` (`86` pure-C0 runtime fns, zero recompilation).
+2. `.append rtC0CoreCert` (`80` pure-C0 runtime fns, zero recompilation).
 3. `.append pilotTailX64Cert` (`26` fns: `ffiMod` + C0 pilot wrappers + `5` lowered Lean callers,
    compiled in `3` acyclic chunks via `compile_linked_chunks!`).
 
@@ -45,7 +45,7 @@ open LeanQbe.T.Examples.Kissat.Plain
 
 public section
 
-/-! ## 1. Zero-Recompilation Cert Composition (`59 + 86 + 26 = 171` fns) -/
+/-! ## 1. Zero-Recompilation Cert Composition (`59 + 80 + 26 = 165` fns) -/
 
 /-- `59`-function `Kissat.Plain` X64 cert weakened with `rtExitSyms` (`64` exit syms), keeping
 all existing compiled chunks intact without recompiling Kissat. -/
@@ -54,11 +54,11 @@ all existing compiled chunks intact without recompiling Kissat. -/
       plainModule [] rtExitSyms 64 2048 :=
   KissatPlainCert.plainCert.weakenNoExit rtExitSyms 64 (by t_kernel_rfl) (by t_kernel_rfl)
 
-/-- Combined `145`-function Kissat + `rtC0Core` X64 module (`plainModule ++ rtC0CoreMod`). -/
+/-- Combined `139`-function Kissat + `rtC0Core` X64 module (`plainModule ++ rtC0CoreMod`). -/
 @[expose] def pilotPlainRtModX64 : Module :=
   { fns := plainModule.fns ++ rtC0CoreMod.fns, externs := [] }
 
-/-- Zero-recompilation `145`-function X64 cert putting `pilotPlainWeakX64Cert` before
+/-- Zero-recompilation `139`-function X64 cert putting `pilotPlainWeakX64Cert` before
 `rtC0CoreCert`. -/
 @[expose] noncomputable def pilotPlainRtX64Cert :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean
@@ -69,13 +69,13 @@ compile_linked_chunks! pilotTailX64Cert x64Target x64Layout x64LegalTarget x64La
   pilotTailMod 9 (ext := rtC0CoreAllExt ++ KissatPlainBounds.plainAllExt)
   (exits := rtExitSyms) (nX := 64) (maxDirs := 1500)
 
-/-- Full `171`-function closed SysV x86-64 `LinkedCert` (`maxBound = 2048`, `0` externs). -/
+/-- Full `165`-function closed SysV x86-64 `LinkedCert` (`maxBound = 2048`, `0` externs). -/
 @[expose] noncomputable def pilotX64Cert :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean
       pilotLinkedMod [] rtExitSyms 64 2048 :=
   pilotPlainRtX64Cert.append pilotTailX64Cert pilotLinkedMod_fns_tail_eq (by t_kernel_rfl)
 
-theorem pilotX64Cert_bounds_len : pilotX64Cert.bounds.length = 171 :=
+theorem pilotX64Cert_bounds_len : pilotX64Cert.bounds.length = 165 :=
   pilotX64Cert.bounds_length.trans (by t_kernel_rfl)
 
 theorem pilotX64_legalSigAll : LegalSigAll x64LegalTarget pilotLinkedMod.fns := by

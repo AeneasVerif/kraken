@@ -2,7 +2,7 @@
 # Compiled-C0-Runtime Differential Lane for LeanQbe.T.LeanLCNF (`rtC0CoreMod`).
 #
 # Unlike the Tier-0 C runtime lane (`test/lcnf/lcnf_rt.c`), this lane:
-#   1. Compiles the verified 86-function pure-C0 runtime (`rtC0CoreMod` from
+#   1. Compiles the verified 80-function pure-C0 runtime (`rtC0CoreMod` from
 #      `LeanQbe.T.LeanLCNF.LcnfC0Full`) to native x86-64 and AArch64 `.s` / `.o` via
 #      `LeanQbe.T.compile` (zero `lcnf_rt.c` runtime functions in the binary; only the
 #      5-function host slab/panic shim `test/lcnf/lcnf_c0rt_shim.c` is linked).
@@ -247,8 +247,8 @@ if [ "$shim_syms" != "$expected_shim_syms" ]; then
 fi
 rt_x64_cnt="$(nm -g --defined-only "$OUT/rt_c0_x64.o" | wc -l)"
 rt_arm64_cnt="$(aarch64-linux-gnu-nm -g --defined-only "$OUT/rt_c0_arm64.o" | wc -l)"
-if [ "$rt_x64_cnt" -ne 86 ] || [ "$rt_arm64_cnt" -ne 86 ]; then
-  echo "FAIL: expected 86 exported rtC0CoreMod fns (got x64=$rt_x64_cnt arm64=$rt_arm64_cnt)" >&2
+if [ "$rt_x64_cnt" -ne 80 ] || [ "$rt_arm64_cnt" -ne 80 ]; then
+  echo "FAIL: expected 80 exported rtC0CoreMod fns (got x64=$rt_x64_cnt arm64=$rt_arm64_cnt)" >&2
   exit 1
 fi
 rt_x64_undef="$(nm -u "$OUT/rt_c0_x64.o" | awk '{print $NF}' | tr '\n' ' ')"
@@ -257,7 +257,7 @@ if [ "$rt_x64_undef" != "lcnf_panic " ] || [ "$rt_arm64_undef" != "lcnf_panic " 
   echo "FAIL: unexpected rtC0CoreMod undefs (x64='$rt_x64_undef' arm64='$rt_arm64_undef')" >&2
   exit 1
 fi
-echo "symbol check OK: shim=5 host symbols (0 lcnf_rt.c runtime fns); rt_c0_x64.o=86 fns; rt_c0_arm64.o=86 fns"
+echo "symbol check OK: shim=5 host symbols (0 lcnf_rt.c runtime fns); rt_c0_x64.o=80 fns; rt_c0_arm64.o=80 fns"
 
 echo "== c0rt 4. parallel native x64 + Arm64 QEMU differential runs =="
 job_names=()

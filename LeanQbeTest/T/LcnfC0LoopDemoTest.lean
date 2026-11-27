@@ -36,7 +36,7 @@ open LeanQbe.T LeanQbe.T.LeanLCNF
 #guard factLoopProgMod.fns.length == 2
 #guard factLoopProgMod.externs.isEmpty
 #guard factLoopProgMod.exits == rtExitSyms
-#guard factLoopLinkedMod.fns.length == 88
+#guard factLoopLinkedMod.fns.length == 82
 #guard factLoopLinkedMod.externs.isEmpty
 #guard factLoopLinkedMod.exits == rtExitSyms
 #guard factLoopLinkedMod.checkAcyclic

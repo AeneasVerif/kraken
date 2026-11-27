@@ -278,12 +278,12 @@ theorem r2_alloc_sarray_wp :
       have hszLe : ((24 + cap + 7 &&& 18446744073709551608 : BitVec 64)).toNat ≤ 268435448 := by
         rw [hszEq]; unfold baAllocBytes align8 baMaxCap at *; omega
       r2_call rtR2Env_lcnf_alloc
-      dsimp only [lcnfAllocSpec, vals, Tup.map, Arg.val]
+      dsimp only [lcnfAllocRemSpec, vals, Tup.map, Arg.val]
       have hid : align8 (baAllocBytes cap.toNat) = baAllocBytes cap.toNat :=
         align8_idemp (24 + cap.toNat)
       rw [hszEq, hid]
       refine ⟨st, R, by rw [← hszEq]; exact hszLe, ?_, ?_, hav, hm,
-        fun p st' m1 hp0 hp8 hpr hrem hm1 => ?_⟩
+        fun p st' m1 hp0 hp8 hpr hrem hrem2 hm1 => ?_⟩
       · have := baAllocBytes_ge cap.toNat; unfold rtMinObjBytes; omega
       · unfold baAllocBytes align8 rtMaxObjBytes baMaxCap at *; omega
       · have hm1' : (region p (baAllocBytes cap.toNat) ⋆ (rtC0Inv rt st' ⋆ R)) m1 :=
@@ -317,7 +317,7 @@ theorem r2_alloc_sarray_wp :
               r2_steps
               dsimp only [Arg.val] at hm4
               rw [show (16 : BitVec 64) = 16#64 from rfl] at hm4
-              exact hk p st' m4 hp0 hp8 hpr hrem (sep_cast hm4 (by ac_rfl))
+              exact hk p st' m4 hp0 hp8 hpr hrem hrem2 (sep_cast hm4 (by ac_rfl))
   · rw [ite_eq_right_of_eq_false _ _ (eq_false hvalid)] at hPre
     r2_steps <;> first
       | exact hPre
@@ -473,7 +473,7 @@ theorem r2_ensure_excl_ba_wp :
           rw [hszTo, hncTo]; exact ⟨hszLe, hcapMax⟩
         rw [ite_eq_left_of_eq_true _ _ (eq_true hvalidA)]
         refine ⟨st, lcnfObjMem baObj ⋆ R, ?_, sep_cast hm (by ac_rfl),
-          fun r st1 m1 hr0 hr8 hpr1 hrem1 hm1 => ?_⟩
+          fun r st1 m1 hr0 hr8 hpr1 hrem1 _ hm1 => ?_⟩
         · rw [hncTo]; exact hav hslow
         · rw [hncTo] at hm1
           change LeanQbe.T.wp _ _ _ _ _
@@ -835,7 +835,7 @@ theorem lcnf_ba_empty_wp :
     have hba24 : baAllocBytes (0 : BitVec 64).toNat = 24 := by
       simp [baAllocBytes, align8]
     rw [hba24]
-    refine ⟨st, R, hav, hm, fun p st1 m1 hp0 hp8 hpr1 hrem1 hm1 => ?_⟩
+    refine ⟨st, R, hav, hm, fun p st1 m1 hp0 hp8 hpr1 hrem1 _ hm1 => ?_⟩
     change LeanQbe.T.wp _ _ _ _ _
     have hmObj1 : (rtC0Inv rt st1 ⋆ lcnfObjMem (mkBaObj p 1#32 0 []) ⋆ R) m1 := by
       have hpParts : (cell64 p baHeaderWord ⋆
@@ -917,7 +917,7 @@ theorem lcnf_ba_mk_empty_wp :
       have h0c : (0 : BitVec 64).toNat ≤ c64.toNat ∧ c64.toNat ≤ baMaxCap := by
         rw [hcEq]; exact ⟨Nat.zero_le _, hvalid⟩
       rw [ite_eq_left_of_eq_true _ _ (eq_true h0c)]
-      refine ⟨st, R, by rw [hcEq]; exact hav, hm, fun p st' m1 hp0 hp8 hpr hrem hm1 => ?_⟩
+      refine ⟨st, R, by rw [hcEq]; exact hav, hm, fun p st' m1 hp0 hp8 hpr hrem _ hm1 => ?_⟩
       r2_steps
       have hmObj : (rtC0Inv rt st' ⋆
           lcnfObjMem (mkBaObj p 1#32 (if (cap &&& 1#64) ≠ 0#64 then (cap >>> 1).toNat else 0) []) ⋆
@@ -994,7 +994,7 @@ theorem lcnf_ba_mk_wp :
       (BitVec.ofNat 64 n).toNat ≤ baMaxCap := by rw [hnTo]; exact ⟨Nat.le_refl _, hnMax⟩
   rw [ite_eq_left_of_eq_true _ _ (eq_true hnn)]
   refine ⟨st, lcnfObjMem objs[k] ⋆ (rest ⋆ R), by rw [hnTo]; exact hav,
-    sep_cast hmSplit (by ac_rfl), fun ba st1 m1 hba0 hba8 hpr1 hrem1 hm1 => ?_⟩
+    sep_cast hmSplit (by ac_rfl), fun ba st1 m1 hba0 hba8 hpr1 hrem1 _ hm1 => ?_⟩
   rw [hnTo] at hm1
   change LeanQbe.T.wp _ _ _ _ _
   let Inv : Tup Val [i64] → Mem 64 → Prop := fun xs m' => match xs with

@@ -22,7 +22,7 @@ open LeanQbe.T.Arm64
 open LeanQbe.T.LeanLCNF.LcnfC0FfiPilot
 
 #guard pilotTailMod.fns.length == 26 && !pilotTailMod.externs.isEmpty
-#guard pilotLinkedMod.fns.length == 171 && pilotLinkedMod.externs.isEmpty
+#guard pilotLinkedMod.fns.length == 165 && pilotLinkedMod.externs.isEmpty
 
 #print axioms pilotArm64Cert_bounds_len
 #print axioms pilotArm64_legalSigAll

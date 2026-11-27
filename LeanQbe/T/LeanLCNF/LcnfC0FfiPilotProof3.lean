@@ -11,7 +11,7 @@ import LeanQbe.T.Logic.ProofKit
 /-!
 # Shard `F3` End-to-End Target-Generic Pilot Proofs (`LcnfC0FfiPilotProof3`)
 
-Packages target-generic end-to-end WP proofs (`XPost := False`, `<= std3`) over the `171`-function
+Packages target-generic end-to-end WP proofs (`XPost := False`, `<= std3`) over the `165`-function
 closed module `pilotLinkedMod` for all `5` lowered Lean pilot callers:
 
 1. `checkSatBA` (`pilotTfs.tf_0`): UNSAT (`20#64 => ∃ cnf, parseDimacs bs = some cnf ∧ cnf.Unsat`),

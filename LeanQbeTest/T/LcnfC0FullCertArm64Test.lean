@@ -11,7 +11,7 @@ meta import LeanQbe.T.Arm64.LcnfC0FullCertArm64
 # Verification Suite for AAPCS64 Arm64 `rtC0CoreMod` Linked Certificate (`LcnfC0FullCertArm64`)
 
 1. Architecture-isolation `#eval` audit (zero `Kraken.X64` / `LeanQbe.T.Amd64` imports).
-2. Kernel `#guard` and structural certificate checks across all `86` pure-C0 runtime functions
+2. Kernel `#guard` and structural certificate checks across all `80` pure-C0 runtime functions
    (`exits = ["lcnf_panic"]`, `nX = 64`, max stack bound `≤ 272`).
 3. Closed concrete AArch64 machine execution (`Eventually (step1 rtC0CoreArm64Cert.host.exe)`)
    witnesses (`XPost := False`):
@@ -41,12 +41,12 @@ open LeanQbe.T LeanQbe.T.LeanLCNF LeanQbe.T.Arm64 Kraken
   if !x64.isEmpty then
     throwError "LcnfC0FullCertArm64Test leaked X64 imports: {x64.toList}"
 
-#guard rtC0CoreMod.fns.length == 86
+#guard rtC0CoreMod.fns.length == 80
 #guard rtC0CoreMod.externs.isEmpty
 #guard rtC0CoreMod.exits == ["lcnf_panic"]
 #guard rtC0CoreMod.checkAcyclic
 #guard checkLegalSigAll armLegalTarget rtC0CoreMod.fns
-#guard rtC0CoreArm64AllExt.length == 86
+#guard rtC0CoreArm64AllExt.length == 80
 
 /-! ## 2. Closed Concrete AArch64 Machine Execution Witnesses -/
 

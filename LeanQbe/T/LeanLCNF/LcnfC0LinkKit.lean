@@ -10,7 +10,7 @@ public import LeanQbe.T.AbiLemmas
 
 Architecture-free (`0` `Amd64`/`Arm64`/`Kraken.X64`/`Kraken.AArch64` imports) compositional
 linking harness connecting any Lean `LCNF` program lowered via `lcnf_of_lean!` +
-`splice_lcnf_tflat!` with the unified 86-function pure-C0 runtime (`rtC0CoreMod`):
+`splice_lcnf_tflat!` with the unified 80-function pure-C0 runtime (`rtC0CoreMod`):
 
 1. **Module & signature helpers**: `lcnfProgMod`, `linkLcnfWithRtC0_fns_eq`,
    `linkLcnfWithRtC0_fns_wf`, `linkLcnfWithRtC0_legalSigAll`, and
@@ -33,7 +33,7 @@ open LeanQbe.T
 
 /-! ## 1. Linked Module Shape, Well-Formedness, & Signature Legality -/
 
-/-- Canonical list of all `86` runtime symbol names provided by `rtC0CoreMod`. -/
+/-- Canonical list of all `80` runtime symbol names provided by `rtC0CoreMod`. -/
 @[expose] def rtCoreFnNames : List Sym :=
   rtC0CoreMod.fns.map Fn.name
 

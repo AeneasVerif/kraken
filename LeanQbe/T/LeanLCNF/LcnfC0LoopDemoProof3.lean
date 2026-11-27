@@ -724,7 +724,7 @@ theorem lcnf_nat_to_str_two_limb_wp (xs : Tup Val [i64, i64]) (m : Mem 64)
         dsimp only [vals, Arg.val]
         apply rtC0CoreEnv_le_loopRtEnv
         apply rtR2bEnv_le_rtC0CoreEnv
-        apply rtR2bEnv_r2b_dec_obj
+        apply rtR2bEnv_r2_dec_obj
         dsimp only [r2DecObjSpec, vals, Arg.val]
         have hnoNull : ¬ (n = 0#64 ∨ n &&& 1#64 ≠ 0#64) := by
           intro h
@@ -748,10 +748,13 @@ theorem lcnf_nat_to_str_two_limb_wp (xs : Tup Val [i64, i64]) (m : Mem 64)
         dsimp only [vals, Arg.val]
         apply rtC0CoreEnv_le_loopRtEnv
         apply rtR2bEnv_le_rtC0CoreEnv
-        apply rtR2bEnv_r2b_alloc_sarray
-        dsimp only [r2bAllocSarraySpec, vals, Arg.val]
-        have h40le : ¬ baMaxCap < (20 * 2#64 : BitVec 64).toNat := by dsimp only [baMaxCap]; decide
-        rw [ite_eq_right h40le]
+        apply rtR2bEnv_r2_alloc_sarray
+        dsimp only [r2AllocSarraySpec, vals, Arg.val]
+        have h40le : (0 : BitVec 64).toNat ≤ (20 * 2#64 : BitVec 64).toNat ∧
+            (20 * 2#64 : BitVec 64).toNat ≤ baMaxCap := by dsimp only [baMaxCap]; decide
+        split
+        case isFalse hc => exact absurd h40le hc
+        rw [show baAllocBytes = sarrayAllocBytes from rfl]
         have hs40_eq : sarrayAllocBytes (20 * 2#64 : BitVec 64).toNat = sarrayAllocBytes 40 := by
           rw [show (20 * 2#64 : BitVec 64).toNat = 40 from by decide]
         have hst2_rem : sarrayAllocBytes 40 + strAllocBytes 41 ≤ st2.rem := by

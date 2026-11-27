@@ -14,7 +14,7 @@ meta import LeanQbe.T.MainCertInline
 /-!
 # Materialized `TFlatFn` Data Leaf for `rtC0CoreMod` (`LcnfC0FullFlat`)
 
-Proof-free data leaf materializing all `86` pure-C0 runtime functions of `rtC0CoreMod` into
+Proof-free data leaf materializing all `80` pure-C0 runtime functions of `rtC0CoreMod` into
 exposed, noncomputable (`compile := false`) `TFlatFn` definitions (`rtC0CoreFlatFns` and
 `rtC0CoreFlatMod`) with kernel-checked `rfl` bridges (`rtC0CoreFlatMod_fns_flat_eq`,
 `rtC0CoreFlatMod_fns_eq`, `rtC0CoreFlatMod_eq`) matching `rtC0CoreMod`.

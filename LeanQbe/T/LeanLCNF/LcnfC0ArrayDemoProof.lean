@@ -836,7 +836,7 @@ theorem arrayDemoProgMod_wp :
     have hpre' := (Env.ofTable_cons_ne h2 _ _ _ _).mp ((Env.ofTable_cons_ne h1 _ _ _ _).mp hpre)
     exact arrayDemo_baCowSetGet_wp xs m Q X ((Env.ofTable_cons_self _ _ _ _ _ _).mp hpre')
 
-/-- Whole-module `ModuleOk` composition combining `rtC0CoreMod` (`86` fns) and `arrayDemoProgMod`
+/-- Whole-module `ModuleOk` composition combining `rtC0CoreMod` (`80` fns) and `arrayDemoProgMod`
 (`3` fns) under `arrayDemoLinkedEnv` via `linkLcnfWithRtC0_moduleOk`. -/
 theorem arrayDemoLinkedMod_moduleOk :
     ModuleOk arrayDemoLinkedEnv arrayDemoLinkedMod :=

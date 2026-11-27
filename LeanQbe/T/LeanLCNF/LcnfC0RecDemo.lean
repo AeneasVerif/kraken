@@ -112,7 +112,7 @@ lcnf_lower_thm! recDemoTfs recDemoLcMod
 @[expose] def recDemoProgMod : Module :=
   { fns := Frontend.C0.tflatFnsToFns recDemoTfs, externs := [], exits := rtExitSyms }
 
-/-- Full `87`-function linked `Module`: `rtC0CoreMod` (`86` fns) ++ `recDemoProgMod` (`1` fn). -/
+/-- Full `81`-function linked `Module`: `rtC0CoreMod` (`80` fns) ++ `recDemoProgMod` (`1` fn). -/
 @[expose] def recDemoLinkedMod : Module :=
   linkLcnfWithRtC0 recDemoTfs false
 

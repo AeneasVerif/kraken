@@ -49,7 +49,7 @@ splice_lcnf_tflat! demoNatStrTfs demoNatStrLcMod
 @[expose] def demoNatStrProgMod : Module :=
   { fns := Frontend.C0.tflatFnsToFns demoNatStrTfs, externs := [], exits := rtExitSyms }
 
-/-- Full `89`-function linked `Module`: `rtC0CoreMod` (`86` fns) ++
+/-- Full `83`-function linked `Module`: `rtC0CoreMod` (`80` fns) ++
 `demoNatStrProgMod` (`3` fns). -/
 @[expose] def demoNatStrLinkedMod : Module :=
   linkLcnfWithRtC0 demoNatStrTfs false

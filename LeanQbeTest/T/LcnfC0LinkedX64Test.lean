@@ -16,7 +16,7 @@ meta import LeanQbe.T.LeanLCNF.LcnfC0Demo
 # End-to-End SysV x86-64 Linked Certificate & Execution Suite (`demoNatStrLinkedMod`)
 
 Links `demoNatStrProgMod` (`DemoNatStr.{addNat, addToStr, fmtSumTagged}`, `3` fns) onto the
-pre-verified `86`-function `rtC0CoreCert` (`LcnfC0FullCertX64`) via `LcnfC0LinkKit`, checks
+pre-verified `80`-function `rtC0CoreCert` (`LcnfC0FullCertX64`) via `LcnfC0LinkKit`, checks
 architecture isolation (`0` Arm64 imports), bridges `demoNatStrLinkedMod_moduleOk` to
 `x64Target.Defined` + `x64Target.FnSpec`, and proves closed concrete x86-64 `Eventually`
 (`step1 demoNatStrX64Cert.host.exe`, `XPost := False`) execution witnesses for all three
@@ -47,7 +47,7 @@ open LeanQbe.T LeanQbe.T.LeanLCNF LeanQbe.T.Amd64 Kraken
   if !arm.isEmpty then
     throwError "LcnfC0LinkedX64Test leaked Arm64 imports: {arm.toList}"
 
-#guard demoNatStrLinkedMod.fns.length == 89
+#guard demoNatStrLinkedMod.fns.length == 83
 #guard demoNatStrLinkedMod.externs.isEmpty
 #guard demoNatStrLinkedMod.exits == ["lcnf_panic"]
 #guard demoNatStrLinkedMod.checkAcyclic
@@ -57,14 +57,14 @@ compile_linked_chunks! demoNatStrX64ProgCert x64Target x64Layout x64LegalTarget 
   demoNatStrProgMod 2 (ext := rtC0CoreAllExt) (exits := rtExitSyms) (nX := 64)
   (maxDirs := 600)
 
-/-- Full `89`-function SysV x86-64 linked certificate combining `rtC0CoreCert` (`86` fns) and
+/-- Full `83`-function SysV x86-64 linked certificate combining `rtC0CoreCert` (`80` fns) and
 `demoNatStrX64ProgCert` (`3` fns) via `LcnfC0LinkKit.linkRtC0Cert`. -/
 @[expose] noncomputable def demoNatStrX64Cert :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean
       demoNatStrLinkedMod [] rtExitSyms 64 (Nat.max 2048 2048) :=
   linkRtC0Cert rtC0CoreCert demoNatStrX64ProgCert (by t_kernel_rfl)
 
-theorem demoNatStrX64Cert_bounds_len : demoNatStrX64Cert.bounds.length = 89 := by
+theorem demoNatStrX64Cert_bounds_len : demoNatStrX64Cert.bounds.length = 83 := by
   exact demoNatStrX64Cert.bounds_length.trans (by decide)
 
 theorem demoNatStrX64Cert_bounds_le :

@@ -272,6 +272,22 @@ def EnsureExclArrayOutcome (arrObj : LcnfObj) (expand : BitVec 64) (r : BitVec 6
 
 /-! ## 3. Function `Spec` Contracts (`rtR2SpecEntries`) -/
 
+/-- Progress-aware `lcnf_alloc` contract: like R0's `lcnfAllocSpec`, plus the lower bound
+`st.rem - bytes ≤ st'.rem` on the remaining bump capacity. -/
+def lcnfAllocRemSpec : Spec [i64, i64] [i64] := fun (rt, sz, ()) m Q _ =>
+  let bytes := align8 sz.toNat
+  ∃ (st : RtC0State) (R : Mem 64 → Prop),
+    sz.toNat ≤ 268435448 ∧
+      rtMinObjBytes ≤ bytes ∧
+      bytes < rtMaxObjBytes ∧
+      (st.hasFree bytes ∨ bytes ≤ st.rem) ∧
+      (rtC0Inv rt st ⋆ R) m ∧
+      ∀ p st' m',
+        p ≠ 0#64 → p.toNat % 8 = 0 → st'.PreservesMeta st →
+        st'.rem ≤ st.rem → st.rem - bytes ≤ st'.rem →
+        (rtC0Inv rt st' ⋆ region p bytes ⋆ R) m' → Q (p, ()) m'
+
+
 /-- `r2_inc_obj(o) -> ()`: increments non-zero, unsaturated `m_rc`; no-op on 0 or scalar. -/
 def r2IncObjSpec : Spec [i64] [] := fun (o, ()) m Q _ =>
   if o = 0#64 ∨ (o &&& 1#64) ≠ 0#64 then
@@ -332,7 +348,7 @@ def r2AllocSarraySpec : Spec [i64, i64, i64] [i64] := fun (rt, size, cap, ()) m 
       (rtC0Inv rt st ⋆ R) m ∧
       ∀ p st' m',
         p ≠ 0#64 → p.toNat % 8 = 0 →
-        st'.PreservesMeta st → st'.rem ≤ st.rem →
+        st'.PreservesMeta st → st'.rem ≤ st.rem → st.rem - bytes ≤ st'.rem →
         (rtC0Inv rt st' ⋆ cell64 p baHeaderWord ⋆
           cell64 (p + 8#64) size ⋆ cell64 (p + 16#64) cap ⋆
           region (p + 24#64) (bytes - 24) ⋆ R) m' →
@@ -494,7 +510,7 @@ def r2AllocArraySpec : Spec [i64, i64, i64] [i64] := fun (rt, size, cap, ()) m Q
       (rtC0Inv rt st ⋆ R) m ∧
       ∀ p st' m',
         p ≠ 0#64 → p.toNat % 8 = 0 →
-        st'.PreservesMeta st → st'.rem ≤ st.rem →
+        st'.PreservesMeta st → st'.rem ≤ st.rem → st.rem - bytes ≤ st'.rem →
         (rtC0Inv rt st' ⋆ cell64 p arrHeaderWord ⋆
           cell64 (p + 8#64) size ⋆ cell64 (p + 16#64) cap ⋆
           region (p + 24#64) (8 * cap.toNat) ⋆ R) m' →
@@ -774,8 +790,8 @@ theorem r2AllocSarraySpec_mono : r2AllocSarraySpec.Mono := by
   by_cases hc : sz.toNat ≤ cap.toNat ∧ cap.toNat ≤ baMaxCap
   · rw [ite_eq_left_of_eq_true _ _ (eq_true hc)] at h ⊢
     rcases h with ⟨st, R, hfr, hm, hk⟩
-    exact ⟨st, R, hfr, hm, fun p st' m' hp1 hp2 hpr hr hm' =>
-      hQ _ m' (hk p st' m' hp1 hp2 hpr hr hm')⟩
+    exact ⟨st, R, hfr, hm, fun p st' m' hp1 hp2 hpr hr hr2 hm' =>
+      hQ _ m' (hk p st' m' hp1 hp2 hpr hr hr2 hm')⟩
   · rw [ite_eq_right_of_eq_false _ _ (eq_false hc)] at h ⊢
     exact hX _ _ _ m h
 
@@ -861,8 +877,8 @@ theorem r2AllocArraySpec_mono : r2AllocArraySpec.Mono := by
   by_cases hc : sz.toNat ≤ cap.toNat ∧ cap.toNat ≤ arrMaxCap
   · rw [ite_eq_left_of_eq_true _ _ (eq_true hc)] at h ⊢
     rcases h with ⟨st, R, hfr, hm, hk⟩
-    exact ⟨st, R, hfr, hm, fun p st' m' hp1 hp2 hpr hr hm' =>
-      hQ _ m' (hk p st' m' hp1 hp2 hpr hr hm')⟩
+    exact ⟨st, R, hfr, hm, fun p st' m' hp1 hp2 hpr hr hr2 hm' =>
+      hQ _ m' (hk p st' m' hp1 hp2 hpr hr hr2 hm')⟩
   · rw [ite_eq_right_of_eq_false _ _ (eq_false hc)] at h ⊢
     exact hX _ _ _ m h
 
@@ -977,7 +993,7 @@ def rtR2SpecEntries : List SpecEntry :=
   , ⟨"lcnf_array_push", [i64, i64, i64], [i64], lcnfArrayPushSpec, false⟩
   , ⟨"lcnf_array_pop", [i64, i64], [i64], lcnfArrayPopSpec, false⟩
   , ⟨"lcnf_array_swap", [i64, i64, i64, i64, i64], [i64], lcnfArraySwapSpec, false⟩
-  , ⟨"lcnf_alloc", [i64, i64], [i64], lcnfAllocSpec, false⟩
+  , ⟨"lcnf_alloc", [i64, i64], [i64], lcnfAllocRemSpec, false⟩
   , ⟨"lcnf_free_obj", [i64, i64], [], lcnfFreeObjSpec, false⟩
   , ⟨"lcnf_dec_ref_cold", [i64, i64], [], lcnfDecRefColdSpec, false⟩
   , ⟨"lcnf_mark_persistent", [i64, i64], [], lcnfMarkPersistentSpec, false⟩ ]
@@ -1104,7 +1120,7 @@ theorem rtR2Env_lcnf_array_swap {xs : Tup Val [i64, i64, i64, i64, i64]} {m : Me
   env_lookup_at 21 (by decide) rfl h
 
 theorem rtR2Env_lcnf_alloc {xs : Tup Val [i64, i64]} {m : Mem 64} {Q : Post [i64]} {X : XPost}
-    (h : lcnfAllocSpec xs m Q X) : rtR2Env "lcnf_alloc" [i64, i64] [i64] xs m Q X :=
+    (h : lcnfAllocRemSpec xs m Q X) : rtR2Env "lcnf_alloc" [i64, i64] [i64] xs m Q X :=
   env_lookup_at 22 (by decide) rfl h
 
 theorem rtR2Env_lcnf_free_obj {xs : Tup Val [i64, i64]} {m : Mem 64} {Q : Post []} {X : XPost}

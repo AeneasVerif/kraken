@@ -13,7 +13,7 @@ import all Kraken.Separation
 # Composed `ModuleOk`, `TableImpl`, `LcnfC0FullInv`, and Non-Vacuity (`LcnfC0FullProof`)
 
 Composes the four verified pure-C0 runtime modules (`R0`, `R1`, `R2`, `R2b`) into a single closed
-specification table `rtC0CoreSpecEntries` (86 entries) and environment `rtC0CoreEnv`:
+specification table `rtC0CoreSpecEntries` (80 entries) and environment `rtC0CoreEnv`:
 
 1. **Cross-module spec alignment:**
    - Bridges `LcnfC0BigNumSpec.BigNumRt` ↔ `LcnfC0RtSpec` via exact bijections on headers,
@@ -59,14 +59,15 @@ def rtC0R1SpecEntries : List SpecEntry := rtR1SpecEntries.take 34
 /-- The 22 defined-function rows from `rtR2SpecEntries` (dropping its 4 R0 extern rows). -/
 def rtC0R2SpecEntries : List SpecEntry := rtR2SpecEntries.take 22
 
-/-- The 25 defined-function rows from `rtR2bSpecEntries` (dropping its 4 R0 extern rows). -/
-def rtC0R2bSpecEntries : List SpecEntry := rtR2bSpecEntries.take 25
+/-- The 19 defined-function rows from `rtR2bSpecEntries` (dropping its 4 R0 + 6 R2 extern rows).
+-/
+def rtC0R2bSpecEntries : List SpecEntry := rtR2bSpecEntries.take 19
 
-/-- Unified 86-row specification table aligned row-by-row with `rtC0CoreMod.fns`. -/
+/-- Unified 80-row specification table aligned row-by-row with `rtC0CoreMod.fns`. -/
 def rtC0CoreSpecEntries : List SpecEntry :=
   rtC0R0SpecEntries ++ rtC0R1SpecEntries ++ rtC0R2SpecEntries ++ rtC0R2bSpecEntries
 
-/-- Closed specification environment of the unified 86-function pure-C0 runtime. -/
+/-- Closed specification environment of the unified 80-function pure-C0 runtime. -/
 def rtC0CoreEnv : Env := Env.ofTable rtC0CoreSpecEntries
 
 /-! ## 2. Exact Bijection Between `BigNumRt` and `LcnfC0RtSpec` -/
@@ -518,25 +519,6 @@ theorem rtR2Env_le_rtC0CoreEnv :
     ∀ f as bs xs m Q X, rtR2Env f as bs xs m Q X → rtC0CoreEnv f as bs xs m Q X := by
   refine env_ofTable_sub fun e he xs m Q X hs => ?_
   have hsplit : rtR2SpecEntries = rtC0R2SpecEntries ++
-      [ ⟨"lcnf_alloc", [i64, i64], [i64], lcnfAllocSpec, false⟩
-      , ⟨"lcnf_free_obj", [i64, i64], [], lcnfFreeObjSpec, false⟩
-      , ⟨"lcnf_dec_ref_cold", [i64, i64], [], lcnfDecRefColdSpec, false⟩
-      , ⟨"lcnf_mark_persistent", [i64, i64], [], lcnfMarkPersistentSpec, false⟩ ] := rfl
-  rw [hsplit, List.mem_append] at he
-  rcases he with hfn | hext
-  · exact rtC0CoreEnv_of_mem (by simp [rtC0CoreSpecEntries, hfn]) hs
-  · simp only [List.mem_cons, List.not_mem_nil, or_false] at hext
-    rcases hext with rfl | rfl | rfl | rfl
-    · exact rtC0CoreEnv_lcnf_alloc (lcnfAllocSpec_to_rem hs)
-    · exact rtC0CoreEnv_lcnf_free_obj hs
-    · exact rtC0CoreEnv_lcnf_dec_ref_cold hs
-    · exact rtC0CoreEnv_lcnf_mark_persistent hs
-
-/-- Every R2b contract in `rtR2bEnv` implies its corresponding contract in `rtC0CoreEnv`. -/
-theorem rtR2bEnv_le_rtC0CoreEnv :
-    ∀ f as bs xs m Q X, rtR2bEnv f as bs xs m Q X → rtC0CoreEnv f as bs xs m Q X := by
-  refine env_ofTable_sub fun e he xs m Q X hs => ?_
-  have hsplit : rtR2bSpecEntries = rtC0R2bSpecEntries ++
       [ ⟨"lcnf_alloc", [i64, i64], [i64], lcnfAllocRemSpec, false⟩
       , ⟨"lcnf_free_obj", [i64, i64], [], lcnfFreeObjSpec, false⟩
       , ⟨"lcnf_dec_ref_cold", [i64, i64], [], lcnfDecRefColdSpec, false⟩
@@ -550,6 +532,45 @@ theorem rtR2bEnv_le_rtC0CoreEnv :
     · exact rtC0CoreEnv_lcnf_free_obj hs
     · exact rtC0CoreEnv_lcnf_dec_ref_cold hs
     · exact rtC0CoreEnv_lcnf_mark_persistent hs
+
+/-- R2 rows of `rtC0CoreSpecEntries` (used for R2b's `r2_*` extern rows). -/
+private theorem rtC0CoreEnv_of_r2 (i : Nat) (hi : i < rtC0R2SpecEntries.length)
+    {xs : Tup Val rtC0R2SpecEntries[i].as} {m : Mem 64} {Q : Post rtC0R2SpecEntries[i].rs}
+    {X : XPost} (h : rtC0R2SpecEntries[i].eff xs m Q X) :
+    rtC0CoreEnv rtC0R2SpecEntries[i].name rtC0R2SpecEntries[i].as rtC0R2SpecEntries[i].rs
+      xs m Q X :=
+  rtC0CoreEnv_of_mem (by simp [rtC0CoreSpecEntries, List.getElem_mem]) h
+
+/-- Every R2b contract in `rtR2bEnv` implies its corresponding contract in `rtC0CoreEnv`. -/
+theorem rtR2bEnv_le_rtC0CoreEnv :
+    ∀ f as bs xs m Q X, rtR2bEnv f as bs xs m Q X → rtC0CoreEnv f as bs xs m Q X := by
+  refine env_ofTable_sub fun e he xs m Q X hs => ?_
+  have hsplit : rtR2bSpecEntries = rtC0R2bSpecEntries ++
+      [ ⟨"lcnf_alloc", [i64, i64], [i64], lcnfAllocRemSpec, false⟩
+      , ⟨"lcnf_free_obj", [i64, i64], [], lcnfFreeObjSpec, false⟩
+      , ⟨"lcnf_dec_ref_cold", [i64, i64], [], lcnfDecRefColdSpec, false⟩
+      , ⟨"lcnf_mark_persistent", [i64, i64], [], lcnfMarkPersistentSpec, false⟩
+      , ⟨"r2_inc_obj", [i64], [], r2IncObjSpec, false⟩
+      , ⟨"r2_dec_obj", [i64, i64], [], r2DecObjSpec, false⟩
+      , ⟨"r2_mem_copy_bytes", [i64, i64, i64], [], r2MemCopyBytesSpec, false⟩
+      , ⟨"r2_cmp_byte_slices", [i64, i64, i64, i64], [i64], r2CmpByteSlicesSpec, false⟩
+      , ⟨"r2_alloc_sarray", [i64, i64, i64], [i64], r2AllocSarraySpec, false⟩
+      , ⟨"r2_alloc_array", [i64, i64, i64], [i64], r2AllocArraySpec, false⟩ ] := rfl
+  rw [hsplit, List.mem_append] at he
+  rcases he with hfn | hext
+  · exact rtC0CoreEnv_of_mem (by simp [rtC0CoreSpecEntries, hfn]) hs
+  · simp only [List.mem_cons, List.not_mem_nil, or_false] at hext
+    rcases hext with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+    · exact rtC0CoreEnv_lcnf_alloc hs
+    · exact rtC0CoreEnv_lcnf_free_obj hs
+    · exact rtC0CoreEnv_lcnf_dec_ref_cold hs
+    · exact rtC0CoreEnv_lcnf_mark_persistent hs
+    · exact rtC0CoreEnv_of_r2 0 (by decide) hs
+    · exact rtC0CoreEnv_of_r2 1 (by decide) hs
+    · exact rtC0CoreEnv_of_r2 2 (by decide) hs
+    · exact rtC0CoreEnv_of_r2 3 (by decide) hs
+    · exact rtC0CoreEnv_of_r2 5 (by decide) hs
+    · exact rtC0CoreEnv_of_r2 14 (by decide) hs
 
 private theorem wp_lift_of_moduleOk {Γ Γ' : Env} {M : Module} (hM : ModuleOk Γ M)
     (hΓ : ∀ f as bs xs m P E, Γ f as bs xs m P E → Γ' f as bs xs m P E)
@@ -621,7 +642,7 @@ private theorem rtC0R1_tableImpl : TableImpl rtC0CoreEnv rtR1Mod.fns rtC0R1SpecE
 
 private theorem rtC0R2_tableImpl : TableImpl rtC0CoreEnv rtR2Mod.fns rtC0R2SpecEntries := by
   have hsplit : rtR2SpecEntries = rtC0R2SpecEntries ++
-      [ ⟨"lcnf_alloc", [i64, i64], [i64], lcnfAllocSpec, false⟩
+      [ ⟨"lcnf_alloc", [i64, i64], [i64], lcnfAllocRemSpec, false⟩
       , ⟨"lcnf_free_obj", [i64, i64], [], lcnfFreeObjSpec, false⟩
       , ⟨"lcnf_dec_ref_cold", [i64, i64], [], lcnfDecRefColdSpec, false⟩
       , ⟨"lcnf_mark_persistent", [i64, i64], [], lcnfMarkPersistentSpec, false⟩ ] := rfl
@@ -634,12 +655,18 @@ private theorem rtC0R2b_tableImpl : TableImpl rtC0CoreEnv rtR2bMod.fns rtC0R2bSp
       [ ⟨"lcnf_alloc", [i64, i64], [i64], lcnfAllocRemSpec, false⟩
       , ⟨"lcnf_free_obj", [i64, i64], [], lcnfFreeObjSpec, false⟩
       , ⟨"lcnf_dec_ref_cold", [i64, i64], [], lcnfDecRefColdSpec, false⟩
-      , ⟨"lcnf_mark_persistent", [i64, i64], [], lcnfMarkPersistentSpec, false⟩ ] := rfl
+      , ⟨"lcnf_mark_persistent", [i64, i64], [], lcnfMarkPersistentSpec, false⟩
+      , ⟨"r2_inc_obj", [i64], [], r2IncObjSpec, false⟩
+      , ⟨"r2_dec_obj", [i64, i64], [], r2DecObjSpec, false⟩
+      , ⟨"r2_mem_copy_bytes", [i64, i64, i64], [], r2MemCopyBytesSpec, false⟩
+      , ⟨"r2_cmp_byte_slices", [i64, i64, i64, i64], [i64], r2CmpByteSlicesSpec, false⟩
+      , ⟨"r2_alloc_sarray", [i64, i64, i64], [i64], r2AllocSarraySpec, false⟩
+      , ⟨"r2_alloc_array", [i64, i64, i64], [i64], r2AllocArraySpec, false⟩ ] := rfl
   refine tableImpl_take_lift (by decide) (hsplit ▸ rtR2bMod_tableImpl) ?_
   intro fn hfn xs m Q X hwp
   exact wp_lift_of_moduleOk rtR2bMod_moduleOk rtR2bEnv_le_rtC0CoreEnv hfn hwp
 
-/-- All 86 functions in `rtC0CoreMod` conform row-by-row to `rtC0CoreSpecEntries` under
+/-- All 80 functions in `rtC0CoreMod` conform row-by-row to `rtC0CoreSpecEntries` under
 `rtC0CoreEnv` (internalizing all cross-module R0/R1/R2/R2b calls). -/
 theorem rtC0CoreMod_tableImpl : TableImpl rtC0CoreEnv rtC0CoreMod.fns rtC0CoreSpecEntries := by
   have h01 := tableImpl_append (by decide : rtR0Mod.fns.length = rtC0R0SpecEntries.length)
@@ -653,12 +680,12 @@ theorem rtC0CoreMod_tableImpl : TableImpl rtC0CoreEnv rtC0CoreMod.fns rtC0CoreSp
       (rtC0R0SpecEntries ++ rtC0R1SpecEntries ++ rtC0R2SpecEntries).length)
     h012 rtC0R2b_tableImpl
 
-/-- Headline unified `ModuleOk`: the closed 86-function pure-C0 runtime (`35/38 Lower.rtCalls`,
+/-- Headline unified `ModuleOk`: the closed 80-function pure-C0 runtime (`35/38 Lower.rtCalls`,
 `0` externs, `exits = ["lcnf_panic"]`) is acyclic, `Func.Wf`, and verified under `rtC0CoreEnv`. -/
 theorem rtC0CoreMod_moduleOk : ModuleOk rtC0CoreEnv rtC0CoreMod :=
   Env.ofTable_moduleOk rtC0CoreMod_checkAcyclic rtC0CoreMod_allFns_wf rtC0CoreMod_tableImpl
 
-/-- Universal lookup-indexed soundness corollary for every one of the 86 functions in `rtC0CoreMod`.
+/-- Universal lookup-indexed soundness corollary for every one of the 80 functions in `rtC0CoreMod`.
 -/
 theorem rtC0CoreMod_fn_sound {fn : Fn} (hfn : fn ∈ rtC0CoreMod.fns)
     {xs : Tup Val fn.as} {m : Mem 64} {Q : Post fn.rs} {X : XPost}
@@ -754,7 +781,7 @@ theorem nv_full_nat_to_str_boxed :
 `nvBnMem` (`LcnfC0FullInv`):
 1. `lcnf_str_alloc(rt, 0, 0)` (R2b → `r2b_str_alloc_cap` → R0 `lcnf_alloc`) allocates empty `String`
    `s` with `rc = 1` and exact arena progress (`st'.rem ≥ 216`).
-2. `lcnf_array_replicate(rt, boxNat 3, s)` (R2b → `r2b_alloc_array` → R0 `lcnf_alloc`) allocates a
+2. `lcnf_array_replicate(rt, boxNat 3, s)` (R2b → R2 `r2_alloc_array` → R0 `lcnf_alloc`) allocates a
    3-element `Array` `[s, s, s]` and increments `s`'s refcount `1 → 3`. -/
 theorem nv_full_str_alloc_then_array_replicate :
     Func.wp rtC0CoreEnv lcnf_str_alloc.body (nvBnRtBase, 0#64, 0#64, ()) nvBnMem

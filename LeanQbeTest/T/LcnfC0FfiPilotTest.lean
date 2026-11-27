@@ -14,7 +14,7 @@ public meta import LeanQbe.T.PrintCpp
 # Shard `F3` SysV x86-64 + Generic Verification & Axiom Audit (`LcnfC0FfiPilotTest`)
 
 Validates:
-1. `@&` borrow descriptors in `pilotC0Externs`, `26`-fn `pilotTailMod`, and `171`-fn closed
+1. `@&` borrow descriptors in `pilotC0Externs`, `26`-fn `pilotTailMod`, and `165`-fn closed
    `pilotLinkedMod` (`0` C files, `0` externs).
 2. Stock-QBE `.ssa` and C++20 emitted-code sanity for `pilotTailMod` (`0` `$abort`/`$exit` calls).
 3. Executable `interpModule` end-to-end runtime sanity across all `12` pilot scenarios over
@@ -69,7 +69,7 @@ private meta def getEnd (m : Mem 64) : Option (BitVec 64) :=
 #guard pilotC0_fns.length == 6
 #guard pilotTailFns.length == 26
 #guard pilotTailMod.fns.length == 26 && !pilotTailMod.externs.isEmpty
-#guard pilotLinkedMod.fns.length == 171 && pilotLinkedMod.externs.isEmpty
+#guard pilotLinkedMod.fns.length == 165 && pilotLinkedMod.externs.isEmpty
 
 #guard
   match PrintQbe.module pilotTailMod with
@@ -96,7 +96,7 @@ private meta def getEnd (m : Mem 64) : Option (BitVec 64) :=
     hasSub s "l_LeanQbe_T_LeanLCNF_LcnfC0FfiPilot_solveXorBA"
   | .error _ => false
 
-/-! ## 2. Executable Interpreter End-to-End Sanity (`pilotLinkedMod`, `171` fns) -/
+/-! ## 2. Executable Interpreter End-to-End Sanity (`pilotLinkedMod`, `165` fns) -/
 
 #guard
   match interpModule pilotLinkedMod 200000 "l_LeanQbe_T_LeanLCNF_LcnfC0FfiPilot_checkSatBA"

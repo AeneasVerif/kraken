@@ -9,8 +9,8 @@ import all Kraken.Separation
 Defines canonical object predicates (`StrCanon`, `ListConsCanon`, `ExclListMem`, `IsListInHeap`,
 `MpzCanon`), pure UTF-8 / Char / decimal formatting semantics, `lcnfAllocRemSpec` (tracking
 arena progress `st.rem - bytes ≤ st'.rem` for multi-allocation routines), `Spec` contracts
-for all 12 `r2b_*` helpers and 13 exported `lcnf_*` runtime functions, `Spec.Mono` proofs,
-and the closed specification table `rtR2bSpecEntries` / `rtR2bEnv`.
+for the 6 `r2b_*` helpers, the 6 R2 `r2_*` externs, and 13 exported `lcnf_*` runtime functions,
+`Spec.Mono` proofs, and the closed specification table `rtR2bSpecEntries` / `rtR2bEnv`.
 -/
 
 set_option autoImplicit false
@@ -364,49 +364,6 @@ theorem natToDecimalBytes_pos (n : Nat) : 1 ≤ (natToDecimalBytes n).length := 
 
 /-! ## 3. Allocator Progress Contract (`lcnfAllocRemSpec`) & Helper `Spec`s -/
 
-def lcnfAllocRemSpec : Spec [i64, i64] [i64] := fun (rt, sz, ()) m Q _ =>
-  let bytes := align8 sz.toNat
-  ∃ (st : RtC0State) (R : Mem 64 → Prop),
-    sz.toNat ≤ 268435448 ∧
-      rtMinObjBytes ≤ bytes ∧
-      bytes < rtMaxObjBytes ∧
-      (st.hasFree bytes ∨ bytes ≤ st.rem) ∧
-      (rtC0Inv rt st ⋆ R) m ∧
-      ∀ p st' m',
-        p ≠ 0#64 → p.toNat % 8 = 0 → st'.PreservesMeta st →
-        st'.rem ≤ st.rem → st.rem - bytes ≤ st'.rem →
-        (rtC0Inv rt st' ⋆ region p bytes ⋆ R) m' → Q (p, ()) m'
-
-def r2bAllocSarraySpec : Spec [i64, i64] [i64] := fun (rt, cap, ()) m Q X =>
-  if baMaxCap < cap.toNat then
-    X "lcnf_panic" [i64, i64] (rt, panicCapCode, ()) m
-  else
-    let bytes := sarrayAllocBytes cap.toNat
-    ∃ (st : RtC0State) (R : Mem 64 → Prop),
-      (st.hasFree bytes ∨ bytes ≤ st.rem) ∧
-      (rtC0Inv rt st ⋆ R) m ∧
-      ∀ p st' m',
-        p ≠ 0#64 → p.toNat % 8 = 0 → st'.PreservesMeta st →
-        st'.rem ≤ st.rem → st.rem - bytes ≤ st'.rem →
-        (rtC0Inv rt st' ⋆ cell64 p baHeaderWord ⋆ cell64 (p + 8#64) 0#64 ⋆
-          cell64 (p + 16#64) cap ⋆ region (p + 24#64) (bytes - 24) ⋆ R) m' →
-        Q (p, ()) m'
-
-def r2bAllocArraySpec : Spec [i64, i64, i64] [i64] := fun (rt, sz, cap, ()) m Q X =>
-  if sz.toNat ≤ cap.toNat ∧ cap.toNat ≤ arrMaxCap then
-    let bytes := arrAllocBytes cap.toNat
-    ∃ (st : RtC0State) (R : Mem 64 → Prop),
-      (st.hasFree bytes ∨ bytes ≤ st.rem) ∧
-      (rtC0Inv rt st ⋆ R) m ∧
-      ∀ p st' m',
-        p ≠ 0#64 → p.toNat % 8 = 0 → st'.PreservesMeta st →
-        st'.rem ≤ st.rem → st.rem - bytes ≤ st'.rem →
-        (rtC0Inv rt st' ⋆ cell64 p arrHeaderWord ⋆ cell64 (p + 8#64) sz ⋆
-          cell64 (p + 16#64) cap ⋆ region (p + 24#64) (8 * cap.toNat) ⋆ R) m' →
-        Q (p, ()) m'
-  else
-    X "lcnf_panic" [i64, i64] (rt, panicCapCode, ()) m
-
 def r2bAllocMpzSpec : Spec [i64, i64, i64] [i64] := fun (rt, cap, sz, ()) m Q X =>
   if sz.toNat ≤ cap.toNat ∧ cap.toNat ≤ 33554429 then
     let bytes := mpzAllocBytes cap.toNat
@@ -747,14 +704,7 @@ def lcnfNatToStrSpec : Spec [i64, i64] [i64] := fun (rt, n, ()) m Q X =>
 /-! ## 5. Closed Specification Table (`rtR2bEnv`) and `Spec.Mono` Proofs -/
 
 def rtR2bSpecEntries : List SpecEntry :=
-  [ { name := "r2b_inc_obj", as := [i64], rs := [], spec := r2IncObjSpec }
-  , { name := "r2b_dec_obj", as := [i64, i64], rs := [], spec := r2DecObjSpec }
-  , { name := "r2b_mem_copy_bytes", as := [i64, i64, i64], rs := [], spec := r2MemCopyBytesSpec }
-  , { name := "r2b_cmp_byte_slices", as := [i64, i64, i64, i64], rs := [i64],
-      spec := r2CmpByteSlicesSpec }
-  , { name := "r2b_alloc_sarray", as := [i64, i64], rs := [i64], spec := r2bAllocSarraySpec }
-  , { name := "r2b_alloc_array", as := [i64, i64, i64], rs := [i64], spec := r2bAllocArraySpec }
-  , { name := "r2b_alloc_mpz", as := [i64, i64, i64], rs := [i64], spec := r2bAllocMpzSpec }
+  [ { name := "r2b_alloc_mpz", as := [i64, i64, i64], rs := [i64], spec := r2bAllocMpzSpec }
   , { name := "r2b_str_alloc_cap", as := [i64, i64, i64, i64], rs := [i64],
       spec := r2bStrAllocCapSpec }
   , { name := "r2b_utf8_len", as := [i64], rs := [i64], spec := r2bUtf8LenSpec }
@@ -784,6 +734,13 @@ def rtR2bSpecEntries : List SpecEntry :=
   , { name := "lcnf_free_obj", as := [i64, i64], rs := [], spec := lcnfFreeObjSpec }
   , { name := "lcnf_dec_ref_cold", as := [i64, i64], rs := [], spec := lcnfDecRefColdSpec }
   , { name := "lcnf_mark_persistent", as := [i64, i64], rs := [], spec := lcnfMarkPersistentSpec }
+  , { name := "r2_inc_obj", as := [i64], rs := [], spec := r2IncObjSpec }
+  , { name := "r2_dec_obj", as := [i64, i64], rs := [], spec := r2DecObjSpec }
+  , { name := "r2_mem_copy_bytes", as := [i64, i64, i64], rs := [], spec := r2MemCopyBytesSpec }
+  , { name := "r2_cmp_byte_slices", as := [i64, i64, i64, i64], rs := [i64],
+      spec := r2CmpByteSlicesSpec }
+  , { name := "r2_alloc_sarray", as := [i64, i64, i64], rs := [i64], spec := r2AllocSarraySpec }
+  , { name := "r2_alloc_array", as := [i64, i64, i64], rs := [i64], spec := r2AllocArraySpec }
   ]
 
 def rtR2bEnv : Env := Env.ofTable rtR2bSpecEntries
@@ -793,36 +750,36 @@ theorem rtR2bSpecEntries_nodup : (rtR2bSpecEntries.map SpecEntry.name).Nodup := 
 
 section EnvLookups
 
-theorem rtR2bEnv_r2b_inc_obj {xs m Q X} :
-    r2IncObjSpec xs m Q X → rtR2bEnv "r2b_inc_obj" [i64] [] xs m Q X :=
-  Env.ofTable_of_mem (e := ⟨"r2b_inc_obj", [i64], [], r2IncObjSpec, false⟩)
+theorem rtR2bEnv_r2_inc_obj {xs m Q X} :
+    r2IncObjSpec xs m Q X → rtR2bEnv "r2_inc_obj" [i64] [] xs m Q X :=
+  Env.ofTable_of_mem (e := ⟨"r2_inc_obj", [i64], [], r2IncObjSpec, false⟩)
     (by simp [rtR2bSpecEntries]) rtR2bSpecEntries_nodup
 
-theorem rtR2bEnv_r2b_dec_obj {xs m Q X} :
-    r2DecObjSpec xs m Q X → rtR2bEnv "r2b_dec_obj" [i64, i64] [] xs m Q X :=
-  Env.ofTable_of_mem (e := ⟨"r2b_dec_obj", [i64, i64], [], r2DecObjSpec, false⟩)
+theorem rtR2bEnv_r2_dec_obj {xs m Q X} :
+    r2DecObjSpec xs m Q X → rtR2bEnv "r2_dec_obj" [i64, i64] [] xs m Q X :=
+  Env.ofTable_of_mem (e := ⟨"r2_dec_obj", [i64, i64], [], r2DecObjSpec, false⟩)
     (by simp [rtR2bSpecEntries]) rtR2bSpecEntries_nodup
 
-theorem rtR2bEnv_r2b_mem_copy_bytes {xs m Q X} :
-    r2MemCopyBytesSpec xs m Q X → rtR2bEnv "r2b_mem_copy_bytes" [i64, i64, i64] [] xs m Q X :=
-  Env.ofTable_of_mem (e := ⟨"r2b_mem_copy_bytes", [i64, i64, i64], [], r2MemCopyBytesSpec, false⟩)
+theorem rtR2bEnv_r2_mem_copy_bytes {xs m Q X} :
+    r2MemCopyBytesSpec xs m Q X → rtR2bEnv "r2_mem_copy_bytes" [i64, i64, i64] [] xs m Q X :=
+  Env.ofTable_of_mem (e := ⟨"r2_mem_copy_bytes", [i64, i64, i64], [], r2MemCopyBytesSpec, false⟩)
     (by simp [rtR2bSpecEntries]) rtR2bSpecEntries_nodup
 
-theorem rtR2bEnv_r2b_cmp_byte_slices {xs m Q X} :
+theorem rtR2bEnv_r2_cmp_byte_slices {xs m Q X} :
     r2CmpByteSlicesSpec xs m Q X →
-      rtR2bEnv "r2b_cmp_byte_slices" [i64, i64, i64, i64] [i64] xs m Q X :=
+      rtR2bEnv "r2_cmp_byte_slices" [i64, i64, i64, i64] [i64] xs m Q X :=
   Env.ofTable_of_mem
-    (e := ⟨"r2b_cmp_byte_slices", [i64, i64, i64, i64], [i64], r2CmpByteSlicesSpec, false⟩)
+    (e := ⟨"r2_cmp_byte_slices", [i64, i64, i64, i64], [i64], r2CmpByteSlicesSpec, false⟩)
     (by simp [rtR2bSpecEntries]) rtR2bSpecEntries_nodup
 
-theorem rtR2bEnv_r2b_alloc_sarray {xs m Q X} :
-    r2bAllocSarraySpec xs m Q X → rtR2bEnv "r2b_alloc_sarray" [i64, i64] [i64] xs m Q X :=
-  Env.ofTable_of_mem (e := ⟨"r2b_alloc_sarray", [i64, i64], [i64], r2bAllocSarraySpec, false⟩)
+theorem rtR2bEnv_r2_alloc_sarray {xs m Q X} :
+    r2AllocSarraySpec xs m Q X → rtR2bEnv "r2_alloc_sarray" [i64, i64, i64] [i64] xs m Q X :=
+  Env.ofTable_of_mem (e := ⟨"r2_alloc_sarray", [i64, i64, i64], [i64], r2AllocSarraySpec, false⟩)
     (by simp [rtR2bSpecEntries]) rtR2bSpecEntries_nodup
 
-theorem rtR2bEnv_r2b_alloc_array {xs m Q X} :
-    r2bAllocArraySpec xs m Q X → rtR2bEnv "r2b_alloc_array" [i64, i64, i64] [i64] xs m Q X :=
-  Env.ofTable_of_mem (e := ⟨"r2b_alloc_array", [i64, i64, i64], [i64], r2bAllocArraySpec, false⟩)
+theorem rtR2bEnv_r2_alloc_array {xs m Q X} :
+    r2AllocArraySpec xs m Q X → rtR2bEnv "r2_alloc_array" [i64, i64, i64] [i64] xs m Q X :=
+  Env.ofTable_of_mem (e := ⟨"r2_alloc_array", [i64, i64, i64], [i64], r2AllocArraySpec, false⟩)
     (by simp [rtR2bSpecEntries]) rtR2bSpecEntries_nodup
 
 theorem rtR2bEnv_r2b_alloc_mpz {xs m Q X} :
@@ -965,26 +922,6 @@ theorem lcnfAllocRemSpec_mono : Spec.Mono lcnfAllocRemSpec := by
   intro ⟨rt, sz, ⟨⟩⟩ m Q₁ Q₂ X₁ X₂ hQ _ ⟨st, R, h1, h2, h3, h4, hm, hk⟩
   exact ⟨st, R, h1, h2, h3, h4, hm, fun p st' m' hp0 hp8 hpr hr1 hr2 hm' =>
     hQ _ _ (hk p st' m' hp0 hp8 hpr hr1 hr2 hm')⟩
-
-theorem r2bAllocSarraySpec_mono : Spec.Mono r2bAllocSarraySpec := by
-  intro ⟨rt, cap, ⟨⟩⟩ m Q₁ Q₂ X₁ X₂ hQ hX h
-  dsimp only [r2bAllocSarraySpec] at h ⊢
-  by_cases hc : baMaxCap < cap.toNat
-  · rw [ite_eq_left_of_eq_true _ _ (eq_true hc)] at h ⊢; exact hX _ _ _ _ h
-  · rw [ite_eq_right_of_eq_false _ _ (eq_false hc)] at h ⊢
-    rcases h with ⟨st, R, h1, hm, hk⟩
-    exact ⟨st, R, h1, hm, fun p st' m' hp0 hp8 hpr hr1 hr2 hm' =>
-      hQ _ _ (hk p st' m' hp0 hp8 hpr hr1 hr2 hm')⟩
-
-theorem r2bAllocArraySpec_mono : Spec.Mono r2bAllocArraySpec := by
-  intro ⟨rt, sz, cap, ⟨⟩⟩ m Q₁ Q₂ X₁ X₂ hQ hX h
-  dsimp only [r2bAllocArraySpec] at h ⊢
-  by_cases hc : sz.toNat ≤ cap.toNat ∧ cap.toNat ≤ arrMaxCap
-  · rw [ite_eq_left_of_eq_true _ _ (eq_true hc)] at h ⊢
-    rcases h with ⟨st, R, h1, hm, hk⟩
-    exact ⟨st, R, h1, hm, fun p st' m' hp0 hp8 hpr hr1 hr2 hm' =>
-      hQ _ _ (hk p st' m' hp0 hp8 hpr hr1 hr2 hm')⟩
-  · rw [ite_eq_right_of_eq_false _ _ (eq_false hc)] at h ⊢; exact hX _ _ _ _ h
 
 theorem r2bAllocMpzSpec_mono : Spec.Mono r2bAllocMpzSpec := by
   intro ⟨rt, cap, sz, ⟨⟩⟩ m Q₁ Q₂ X₁ X₂ hQ hX h
