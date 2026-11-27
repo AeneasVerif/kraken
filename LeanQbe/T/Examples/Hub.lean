@@ -13,6 +13,16 @@ public import LeanQbe.T.Examples.Bitblast.Proof.Driver1
 public import LeanQbe.T.Examples.Bitblast.Proof.DriverHelpers
 public import LeanQbe.T.Examples.Bitblast.Proof.DriverInit
 public import LeanQbe.T.Examples.Bitblast.Proof.Full
+public import LeanQbe.T.Examples.Bitblast.Proof.OpsShiftMul
+public import LeanQbe.T.Examples.Bitblast.Proof.OpsShiftMul0
+public import LeanQbe.T.Examples.Bitblast.Proof.OpsShiftMul1
+public import LeanQbe.T.Examples.Bitblast.Proof.OpsShiftMul1Helpers
+public import LeanQbe.T.Examples.Bitblast.Proof.OpsShiftMul1Stages
+public import LeanQbe.T.Examples.Bitblast.Proof.OpsShiftMul2
+public import LeanQbe.T.Examples.Bitblast.Proof.OpsShiftMul2Helpers
+public import LeanQbe.T.Examples.Bitblast.Proof.OpsShiftMul2Stages
+public import LeanQbe.T.Examples.Bitblast.Proof.OpsShiftMulHelpers
+public import LeanQbe.T.Examples.Bitblast.Proof.OpsShiftMulSpecs
 public import LeanQbe.T.Examples.Bitblast.Proof.Specs
 public import LeanQbe.T.Examples.Bitblast.Proof.Tseitin
 public import LeanQbe.T.Examples.Bitblast.Proof.Tseitin0
