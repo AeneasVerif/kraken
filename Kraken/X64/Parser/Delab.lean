@@ -973,7 +973,7 @@ open ShowProgSyntax in
 @[delab mdata.Kraken.showProgram]
 def delabShowProgram : Delab := do
   if ← getPPOption getPPExplicit then failure
-  unless ← getPPOption (fun o => Kraken.pp.kraken.program.get o) do failure
+  unless ← getPPOption (fun o => Kraken.getShowProgramMode? o |>.isEqSome .delab) do failure
   let .mdata d inner ← getExpr | failure
   let some m := Kraken.getShowProgramMData? d | failure
   let some (instrType, progExpr, pcIdx?) := Kraken.extractEventuallyProgramAndPc? inner | failure

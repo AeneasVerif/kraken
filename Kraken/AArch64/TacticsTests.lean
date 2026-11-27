@@ -1,5 +1,6 @@
 module
 
+public meta import Lean
 import Kraken.AArch64.OmniSemantics
 import Kraken.AArch64.Parser
 import Kraken.AArch64.Semantics
@@ -129,6 +130,45 @@ Eventually (step1 (Layout.apply kstepJumpProgram layout)) (fun x => True)
     pc := (Layout.apply kstepJumpProgram layout).addrOf 3 }
 -/
 #guard_msgs in
+example (layout : Layout) [kstepJumpProgram.AssemblableWith layout] (s : MachineData) :
+    Eventually (step1 (layout.apply kstepJumpProgram)) (fun _ => True) ⟨s, layout.start⟩ := by
+  kprologue kstepJumpProgram with s
+  run_tac Lean.Elab.Tactic.withMainContext do Lean.logInfo m!"{← (← Lean.Elab.Tactic.getMainGoal).getType}"
+  sym => kstep 1; tactic =>
+  run_tac Lean.Elab.Tactic.withMainContext do Lean.logInfo m!"{← (← Lean.Elab.Tactic.getMainGoal).getType}"
+  sym => kstep 1; tactic =>
+  run_tac Lean.Elab.Tactic.withMainContext do Lean.logInfo m!"{← (← Lean.Elab.Tactic.getMainGoal).getType}"
+  exact .done _ trivial
+
+local elab "#inspect_widgets " cmd:command : command => do
+  let nBefore := (← Lean.Elab.getInfoTrees).size
+  Lean.Elab.Command.elabCommand cmd
+  let trees := (← Lean.Elab.getInfoTrees).toArray[nBefore:]
+  let widgets := trees.foldl (init := #[]) fun acc t =>
+    Lean.Elab.InfoTree.foldInfo (init := acc) (fun _ info ws =>
+      match info with
+      | .ofUserWidgetInfo uwi => ws.push (uwi.id, (uwi.props.run {}).1.compress)
+      | _ => ws) t
+  Lean.logInfo m!"widgets: {widgets.size}"
+  for (id, payload) in widgets do
+    Lean.logInfo m!"widget: {id} {payload}"
+
+/--
+info: END KSTEP: 0 sub-goals left
+---
+info: END KSTEP: 0 sub-goals left
+---
+info: widgets: 3
+---
+info: widget: Kraken.krakenProgramWidget {"after":5,"before":2,"curr":0,"directives":["movz x0, #1, lsl #0","b done","movz x0, #99, lsl #0","done:","movz x0, #42, lsl #0"],"name":"kstepJumpProgram","prev":null}
+---
+info: widget: Kraken.krakenProgramWidget {"after":5,"before":2,"curr":1,"directives":["movz x0, #1, lsl #0","b done","movz x0, #99, lsl #0","done:","movz x0, #42, lsl #0"],"name":"kstepJumpProgram","prev":0}
+---
+info: widget: Kraken.krakenProgramWidget {"after":5,"before":2,"curr":3,"directives":["movz x0, #1, lsl #0","b done","movz x0, #99, lsl #0","done:","movz x0, #42, lsl #0"],"name":"kstepJumpProgram","prev":1}
+-/
+#guard_msgs in
+set_option pp.kraken.program "widget" in
+#inspect_widgets
 example (layout : Layout) [kstepJumpProgram.AssemblableWith layout] (s : MachineData) :
     Eventually (step1 (layout.apply kstepJumpProgram)) (fun _ => True) ⟨s, layout.start⟩ := by
   kprologue kstepJumpProgram with s

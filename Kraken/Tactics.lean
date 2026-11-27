@@ -8,7 +8,9 @@ Core tactics and theorems for stepping through Kraken assembly proofs.
 
 public import Kraken.Attribute
 public import Kraken.ShowProgram
+public import Kraken.ProgramWidget
 public meta import Kraken.ShowProgram
+public meta import Kraken.ProgramWidget
 import Kraken.Layout
 import Kraken.OmniSemantics
 
@@ -103,7 +105,9 @@ elab_rules : tactic
       let mvarId ← getMainGoal
       let target ← mvarId.getType
       let m : ShowProgramMeta := { idx := 0, prev? := none, before := config.before, after := config.after }
-      replaceMainGoal [← mvarId.replaceTargetDefEq (attachShowProgramMData m target)]
+      let newMVarId ← mvarId.replaceTargetDefEq (attachShowProgramMData m target)
+      replaceMainGoal [newMVarId]
+      saveProgramWidgetIfEnabled newMVarId m (← getRef)
 
 --------------------------------------------------------------------------------
 
@@ -612,6 +616,7 @@ partial def evalSymKStep : Grind.GrindTactic :=
           | _ => lastSteppedIdx.get
         let m' : ShowProgramMeta := { m with idx := newIdx, prev? := some entryIdx }
         let mvarId ← goal.mvarId.replaceTargetDefEq (attachShowProgramMData m' t)
+        saveProgramWidgetIfEnabled mvarId m' stx
         pure { goal with mvarId }
     | none => pure goal
 

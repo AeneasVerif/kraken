@@ -17,10 +17,33 @@ open Lean Meta
 
 public meta section
 
-register_option pp.kraken.program : Bool := {
-  defValue := true
-  descr := "Render the program listing with directive cursors above tagged `Eventually` goals."
+/-- Rendering mode for tagged `Eventually` program listings. -/
+inductive ShowProgramMode where
+  | none
+  | delab
+  | widget
+  deriving Repr, BEq
+
+register_option pp.kraken.program : String := {
+  defValue := "delab"
+  descr := "How to render the program listing with directive cursors on tagged `Eventually` goals: \"delab\" (inline in the goal), \"widget\" (separate Infoview panel), or \"none\" (disabled)."
 }
+
+def parseShowProgramMode (s : String) : Except String ShowProgramMode :=
+  match s with
+  | "none" => .ok .none
+  | "delab" => .ok .delab
+  | "widget" => .ok .widget
+  | _ => .error s!"invalid value '{s}' for option 'pp.kraken.program'; expected one of: \"delab\", \"widget\", \"none\""
+
+def getShowProgramMode? (o : Options) : Option ShowProgramMode :=
+  (parseShowProgramMode (pp.kraken.program.get o)).toOption
+
+def getShowProgramModeM {m : Type → Type} [Monad m] [MonadOptions m] [MonadError m] : m ShowProgramMode := do
+  let val := pp.kraken.program.get (← getOptions)
+  match parseShowProgramMode val with
+  | .ok mode => return mode
+  | .error msg => throwError "{msg}"
 
 /-- `MData` key used to tag `Eventually` goals for program-cursor delaboration. -/
 def showProgramMDataKey : Name := `Kraken.showProgram
@@ -169,6 +192,43 @@ def computeProgramWindow (numDirs curr : Nat) (prev? : Option Nat) (before after
     if hi + 1 < numDirs then lines := lines.push .ellipsis
 
   return lines
+
+/-- Render a single `Kraken.Directive` expression into clean assembly text by invoking whichever
+    architecture-specific directive delaborator is imported, stripping outer `⸨dir| ... ⸩`
+    delimiters when present. -/
+def renderDirectiveText (d : Expr) : MetaM String := do
+  let fmt ← withOptions (fun o => o.set `pp.explicit false) (Meta.ppExpr d)
+  let s := fmt.pretty.trimAscii.toString
+  let s :=
+    if s.startsWith "⸨dir|" && s.endsWith "⸩" then
+      ((s.dropPrefix "⸨dir|").dropSuffix "⸩").trimAscii.toString
+    else
+      s
+  return s
+
+/-- Derive a short display name for a program expression. -/
+def programDisplayName (progExpr : Expr) : String :=
+  match progExpr.getAppFn.constName? with
+  | some n =>
+    if n == ``List.cons || n == ``List.nil then "<program>"
+    else (Lean.privateToUserName n).toString
+  | none => "<program>"
+
+/-- Build the JSON props payload for the Infoview program widget. -/
+def buildProgramWidgetJson (progExpr : Expr) (m : ShowProgramMeta) : MetaM (Option Json) := do
+  let some dirs ← unfoldDirectiveList? progExpr | return none
+  let dirTexts ← dirs.mapM renderDirectiveText
+  let prevJson : Json := match m.prev? with
+    | some p => Json.num p
+    | none => Json.null
+  return some <| Json.mkObj [
+    ("name", Json.str (programDisplayName progExpr)),
+    ("directives", Json.arr (dirTexts.map Json.str)),
+    ("curr", Json.num m.idx),
+    ("prev", prevJson),
+    ("before", Json.num m.before),
+    ("after", Json.num m.after)
+  ]
 
 end
 

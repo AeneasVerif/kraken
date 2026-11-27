@@ -1,5 +1,6 @@
 module
 
+public meta import Lean
 import Kraken.Tactics
 import Kraken.X64.OmniSemantics
 import Kraken.X64.Parser
@@ -201,18 +202,75 @@ example (layout : Layout) (s : MachineData)
   run_tac Lean.Elab.Tactic.withMainContext do Lean.logInfo m!"{← (← Lean.Elab.Tactic.getMainGoal).getType}"
   exact .done _ trivial
 
--- `pp.kraken.program false` disables the program header; untagged goals are also unaffected.
+local elab "#inspect_widgets " cmd:command : command => do
+  let nBefore := (← Lean.Elab.getInfoTrees).size
+  Lean.Elab.Command.elabCommand cmd
+  let trees := (← Lean.Elab.getInfoTrees).toArray[nBefore:]
+  let widgets := trees.foldl (init := #[]) fun acc t =>
+    Lean.Elab.InfoTree.foldInfo (init := acc) (fun _ info ws =>
+      match info with
+      | .ofUserWidgetInfo uwi => ws.push (uwi.id, (uwi.props.run {}).1.compress)
+      | _ => ws) t
+  Lean.logInfo m!"widgets: {widgets.size}"
+  for (id, payload) in widgets do
+    Lean.logInfo m!"widget: {id} {payload}"
+
+-- `pp.kraken.program "none"` disables the program header; untagged goals are also unaffected,
+-- and neither `"delab"` nor `"none"` emits any user widget info.
 /--
 info: Eventually (step1 (Layout.apply kstepJumpProgram layout)) (fun x => True) { data := s, pc := layout.start }
 ---
 info: Eventually (step1 (Layout.apply kstepJumpProgram layout)) (fun x => True)
   { data := ss✝, pc := (Layout.apply kstepJumpProgram layout).addrOf 0 }
+---
+info: widgets: 0
 -/
 #guard_msgs in
+#inspect_widgets
 example (layout : Layout) (s : MachineData) :
     Eventually (step1 (layout.apply kstepJumpProgram)) (fun _ => True) ⟨s, layout.start⟩ := by
   run_tac Lean.Elab.Tactic.withMainContext do Lean.logInfo m!"{← (← Lean.Elab.Tactic.getMainGoal).getType}"
   kprologue kstepJumpProgram with s
-  set_option pp.kraken.program false in
+  set_option pp.kraken.program "none" in
   run_tac Lean.Elab.Tactic.withMainContext do Lean.logInfo m!"{← (← Lean.Elab.Tactic.getMainGoal).getType}"
+  exact .done _ trivial
+
+-- `pp.kraken.program "widget"` omits the inline delaborator header and emits panel widget JSON
+-- on `kprologue` and each `kstep`.
+/--
+info: Eventually (step1 (Layout.apply kstepJumpProgram layout)) (fun x => True)
+  { data := ss✝, pc := (Layout.apply kstepJumpProgram layout).addrOf 0 }
+---
+info: END KSTEP: 0 sub-goals left
+---
+info: END KSTEP: 0 sub-goals left
+---
+info: widgets: 3
+---
+info: widget: Kraken.krakenProgramWidget {"after":2,"before":1,"curr":0,"directives":["movq $1, %rax","jmp done","movq $99, %rax","done:","movq $42, %rax"],"name":"kstepJumpProgram","prev":null}
+---
+info: widget: Kraken.krakenProgramWidget {"after":2,"before":1,"curr":1,"directives":["movq $1, %rax","jmp done","movq $99, %rax","done:","movq $42, %rax"],"name":"kstepJumpProgram","prev":0}
+---
+info: widget: Kraken.krakenProgramWidget {"after":2,"before":1,"curr":3,"directives":["movq $1, %rax","jmp done","movq $99, %rax","done:","movq $42, %rax"],"name":"kstepJumpProgram","prev":1}
+-/
+#guard_msgs in
+set_option pp.kraken.program "widget" in
+#inspect_widgets
+example (layout : Layout) [kstepJumpProgram.AssemblableWith layout] (s : MachineData) :
+    Eventually (step1 (layout.apply kstepJumpProgram)) (fun _ => True) ⟨s, layout.start⟩ := by
+  kprologue (before := 1) (after := 2) kstepJumpProgram with s
+  run_tac Lean.Elab.Tactic.withMainContext do Lean.logInfo m!"{← (← Lean.Elab.Tactic.getMainGoal).getType}"
+  sym => kstep 1; tactic =>
+  sym => kstep 1; tactic =>
+  exact .done _ trivial
+
+-- Unrecognized `pp.kraken.program` values produce a clear error.
+/--
+error: invalid value 'bogus' for option 'pp.kraken.program'; expected one of: "delab", "widget", "none"
+-/
+#guard_msgs in
+set_option pp.kraken.program "bogus" in
+example (layout : Layout) (s : MachineData) :
+    Eventually (step1 (layout.apply kstepJumpProgram)) (fun _ => True) ⟨s, layout.start⟩ := by
+  kprologue kstepJumpProgram with s
   exact .done _ trivial
