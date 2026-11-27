@@ -22,17 +22,17 @@ import Kraken.X64.Semantics
 meta import Kraken.X64.Semantics
 import Kraken.X64.Sep
 
-open Kraken (Layout WellFormedLayout)
+open Kraken (Layout)
 open Kraken.X64.Parser
 
 --------------------------------------------------------------------------------
 
-def p1 := ⸨prog| start: mov $1, %rax ⸩
+def p1 : Program := ⸨prog| start: mov $1, %rax ⸩
 
 -- Super-simple example to debug tactics
-example [layout : WellFormedLayout p1] s :
-    Eventually (step1 p1.toExecutable)
-      (fun s => s.pc = p1.toExecutable.addrOf p1.length ∧ s.1.regs.rax = 1) ⟨s, layout.start⟩ := by
+example (layout : Layout) [p1.AssemblableWith layout] s :
+    Eventually (step1 (layout.apply p1))
+      (fun s => s.pc = (layout.apply p1).addrOf p1.length ∧ s.1.regs.rax = 1) ⟨s, layout.start⟩ := by
   kprologue p1 with s
   sym => kstep; tactic =>
   exact .done _ ⟨rfl, rfl⟩
@@ -46,10 +46,10 @@ def swap : Program := ⸨prog|
   xor %rax, %rbx
   xor %rbx, %rax⸩
 
-theorem swap_correct [layout : WellFormedLayout swap] (d : MachineData) :
-    Eventually (step1 swap.toExecutable)
+theorem swap_correct (layout : Layout) [swap.AssemblableWith layout] (d : MachineData) :
+    Eventually (step1 (layout.apply swap))
       (fun s' =>
-        s'.pc = swap.toExecutable.addrOf swap.length ∧
+        s'.pc = (layout.apply swap).addrOf swap.length ∧
         s'.1.regs.get Reg.rax = d.regs.get Reg.rbx ∧
         s'.1.regs.get Reg.rbx = d.regs.get Reg.rax)
       ⟨d, layout.start⟩ := by
@@ -67,9 +67,9 @@ start:
   mov $2, %rax⸩
 
 -- Example 2: stepping through both straightline and control instructions
-example [layout : WellFormedLayout p2] (s : MachineData) :
-    Eventually (step1 p2.toExecutable)
-      (fun s => s.pc = p2.toExecutable.addrOf p2.length ∧ s.1.regs.rax = 2) ⟨s, layout.start⟩ := by
+example (layout : Layout) [p2.AssemblableWith layout] (s : MachineData) :
+    Eventually (step1 (layout.apply p2))
+      (fun s => s.pc = (layout.apply p2).addrOf p2.length ∧ s.1.regs.rax = 2) ⟨s, layout.start⟩ := by
   kprologue p2 with s
   sym =>
   kstep
@@ -93,9 +93,9 @@ loop:
   mov $42, %rax⸩
 
 -- Example 2b: taking a jump to an internal label once, then falling through
-example [layout : WellFormedLayout p2_jump] (s : MachineData) :
-    Eventually (step1 p2_jump.toExecutable)
-      (fun s => s.pc = p2_jump.toExecutable.addrOf p2_jump.length ∧ s.1.regs.rax = 42)
+example (layout : Layout) [p2_jump.AssemblableWith layout] (s : MachineData) :
+    Eventually (step1 (layout.apply p2_jump))
+      (fun s => s.pc = (layout.apply p2_jump).addrOf p2_jump.length ∧ s.1.regs.rax = 42)
       ⟨s, layout.start⟩ := by
   kprologue p2_jump with s
   sym => kstep; tactic =>
@@ -127,27 +127,27 @@ _end:
 
 def p3_spec (s: MachineData): Nat := 2^(2^s.regs.rbx.toNat)
 
-theorem p3_correct [layout : WellFormedLayout p3] (s : MachineData) :
+theorem p3_correct (layout : Layout) [p3.AssemblableWith layout] (s : MachineData) :
     p3_spec s < 2 ^ 64 →
-    Eventually (step1 p3.toExecutable)
-      (fun s' => s'.pc = p3.toExecutable.addrOf p3.length ∧
+    Eventually (step1 (layout.apply p3))
+      (fun s' => s'.pc = (layout.apply p3).addrOf p3.length ∧
         s'.1.regs.rdx.toNat = p3_spec s ∧
         (0 < s.regs.rbx.toNat → s'.1.regs.rax = 0))
       ⟨s, layout.start⟩ := by
   intro h_bounds
   unfold p3_spec at h_bounds ⊢
-  change Eventually (step1 p3.toExecutable) _ ⟨s, p3.toExecutable.startAddr⟩
+  change Eventually (step1 (layout.apply p3)) _ ⟨s, (layout.apply p3).startAddr⟩
   rw [← Kraken.Executable.addrOf_zero]
   sym => kstep 1; tactic =>
   refine tailrec_loop
     (onLoop := fun i st =>
-      st.pc = p3.toExecutable.addrOf 2 ∧
+      st.pc = (layout.apply p3).addrOf 2 ∧
       st.1.regs.rbx.toNat = i ∧
       i ≤ s.regs.rbx.toNat ∧
       st.1.regs.rdx.toNat = 2 ^ (2 ^ (s.regs.rbx.toNat - i)) ∧
       (i < s.regs.rbx.toNat → st.1.regs.rax = 0))
     (onExit := fun _ st =>
-      st.pc = p3.toExecutable.addrOf p3.length ∧
+      st.pc = (layout.apply p3).addrOf p3.length ∧
       st.1.regs.rdx.toNat = 2 ^ 2 ^ s.regs.rbx.toNat ∧
       (0 < s.regs.rbx.toNat → st.1.regs.rax = 0))
     (· < ·) Nat.lt_wfRel.wf s.regs.rbx.toNat ?_ ?_ (fun _ h => h)
@@ -196,13 +196,13 @@ theorem p3_correct [layout : WellFormedLayout p3] (s : MachineData) :
         rw [h_shr]
         rfl
 
-def p4 := eval% ⸨prog|start: mov $2, %rax
+def p4 : Program := eval% ⸨prog|start: mov $2, %rax
 dec %rax⸩
 
 -- Super-simple example to debug tactics
-example [layout : WellFormedLayout p4] s :
-    Eventually (step1 p4.toExecutable)
-      (fun s => s.pc = p4.toExecutable.addrOf p4.length ∧ s.1.regs.rax = 1) ⟨s, layout.start⟩ := by
+example (layout : Layout) [p4.AssemblableWith layout] s :
+    Eventually (step1 (layout.apply p4))
+      (fun s => s.pc = (layout.apply p4).addrOf p4.length ∧ s.1.regs.rax = 1) ⟨s, layout.start⟩ := by
   kprologue p4 with s
   sym =>
   kstep
@@ -212,7 +212,7 @@ example [layout : WellFormedLayout p4] s :
 
 /- Examples -/
 
-def p5 := ⸨prog|start: mov $2, %rax
+def p5 : Program := ⸨prog|start: mov $2, %rax
 dec %rax
 start2:
 dec %rax⸩
@@ -221,16 +221,16 @@ set_option maxHeartbeats 1000000
 set_option pp.rawOnError true
 /- set_option pp.all true -/
 
-example [layout : WellFormedLayout p5] s :
-    Eventually (step1 p5.toExecutable)
-      (fun s => s.pc = p5.toExecutable.addrOf p5.length ∧ s.1.regs.rax = 0) ⟨s, layout.start⟩ := by
+example (layout : Layout) [p5.AssemblableWith layout] s :
+    Eventually (step1 (layout.apply p5))
+      (fun s => s.pc = (layout.apply p5).addrOf p5.length ∧ s.1.regs.rax = 0) ⟨s, layout.start⟩ := by
   kprologue p5 with s
   sym => kstep; tactic =>
   refine .done _ ⟨rfl, ?_⟩
   dsimp only
   bv_decide
 
-def p6 := ⸨prog|push %rax
+def p6 : Program := ⸨prog|push %rax
 mov $0, %rax
 pop %rax⸩
 
@@ -259,11 +259,11 @@ attribute [ksimp]
   UInt64.toBitVec_sub
   UInt64.toNat_toBitVec
 
-theorem p6_correct [layout : WellFormedLayout p6] (s₀ : MachineData)
+theorem p6_correct (layout : Layout) [p6.AssemblableWith layout] (s₀ : MachineData)
     (stack : List UInt8) (h_len : stack.length = 8) (R : DataMem → Prop)
     (h_mem : s₀.dmem =⋆ Eq (stack.At (s₀.regs.rsp.toBitVec - 8#64)) ⋆ R) :
-    Eventually (step1 p6.toExecutable)
-      (fun s' => s'.pc = p6.toExecutable.addrOf p6.length ∧
+    Eventually (step1 (layout.apply p6))
+      (fun s' => s'.pc = (layout.apply p6).addrOf p6.length ∧
         s'.1.regs.rax = s₀.regs.rax ∧ s'.1.regs.rsp = s₀.regs.rsp)
       ⟨s₀, layout.start⟩ := by
   kprologue p6 with s₀
@@ -295,12 +295,12 @@ done:
 The hypothesis `h_mem` says the loader put that value in memory: nothing in this framework links
 the program text to memory yet, so it is assumed.
 -/
-theorem p7_correct [layout : WellFormedLayout p7] (s₀ : MachineData) (R : DataMem → Prop)
-    (h_mem : let := Executable.labels p7.toExecutable
+theorem p7_correct (layout : Layout) [p7.AssemblableWith layout] (s₀ : MachineData) (R : DataMem → Prop)
+    (h_mem : let := Executable.labels (layout.apply p7)
       s₀.dmem =⋆ Eq ((Int.toBytes 4 (label! "end" - label! "start").toInt).At (label! "size").toBitVec) ⋆ R) :
-    Eventually (step1 p7.toExecutable)
-      (fun s' => let := Executable.labels p7.toExecutable
-        s'.pc = p7.toExecutable.addrOf p7.length ∧
+    Eventually (step1 (layout.apply p7))
+      (fun s' => let := Executable.labels (layout.apply p7)
+        s'.pc = (layout.apply p7).addrOf p7.length ∧
         s'.1.regs.rax = UInt64.ofBitVec (((label! "end" - label! "start").toBitVec.setWidth 32).setWidth 64))
       ⟨s₀, layout.start⟩ := by
   have h_addr (X Y : Int64) :
@@ -313,8 +313,8 @@ theorem p7_correct [layout : WellFormedLayout p7] (s₀ : MachineData) (R : Data
     rw [ofBytes_toBytes, Int.take, show 8 * 4 = 32 from rfl, Int64.toInt,
       ← BitVec.signExtend_eq_setWidth_of_le _ (by decide)]
     simp [BitVec.ofInt, BitVec.signExtend]
-  have h_size : @Labels.label? (Executable.labels p7.toExecutable) "size" = some (p7.toExecutable.addrOf 6) :=
-    label?_eq_some_addrOf (p := p7) rfl
+  have h_size : @Labels.label? (Executable.labels (layout.apply p7)) "size" = some ((layout.apply p7).addrOf 6) :=
+    label?_eq_some_addrOf (p := p7) (l := layout) rfl
   kprologue p7 with s₀
   sym =>
   kstep
@@ -324,8 +324,8 @@ theorem p7_correct [layout : WellFormedLayout p7] (s₀ : MachineData) (R : Data
   tactic =>
   refine .done _ ⟨rfl, ?_⟩
   simp only [h_val, Int64.toBitVec_sub,
-    Labels.label!_of_label? (label?_eq_some_addrOf (p := p7) (lbl := "end") rfl),
-    Labels.label!_of_label? (label?_eq_some_addrOf (p := p7) (lbl := "start") rfl)]
+    Labels.label!_of_label? (label?_eq_some_addrOf (p := p7) (l := layout) (lbl := "end") rfl),
+    Labels.label!_of_label? (label?_eq_some_addrOf (p := p7) (l := layout) (lbl := "start") rfl)]
 
 -- The same run under `fakeLayout`, where the nops take 5 + 3 bytes. The eval plays the loader: it
 -- stores the word's value at `size`.
@@ -357,20 +357,20 @@ theorem p7_correct [layout : WellFormedLayout p7] (s₀ : MachineData) (R : Data
 open Std
 open Std.ExtHashMap
 
-def move_2_regs_to_heap := ⸨prog|
+def move_2_regs_to_heap : Program := ⸨prog|
     movq %rax, (%rdi)
     movq %rcx, 8(%rdi)
     movq (%rdi), %r12
     movq 8(%rdi), %r13
 ⸩
 
-theorem move_2_regs_to_heap_correct [layout : WellFormedLayout move_2_regs_to_heap]
+theorem move_2_regs_to_heap_correct (layout : Layout) [move_2_regs_to_heap.AssemblableWith layout]
     (s₀ : MachineData) (v1 v2 : UInt64) (R : DataMem → Prop)
     (h_mem : s₀.dmem =⋆ Eq (v1.At s₀.regs.rdi.toBitVec) ⋆
       Eq (v2.At (s₀.regs.rdi.toBitVec + 8#64)) ⋆ R) :
-    Eventually (step1 move_2_regs_to_heap.toExecutable)
+    Eventually (step1 (layout.apply move_2_regs_to_heap))
       (fun s' =>
-        s'.pc = move_2_regs_to_heap.toExecutable.addrOf move_2_regs_to_heap.length ∧
+        s'.pc = (layout.apply move_2_regs_to_heap).addrOf move_2_regs_to_heap.length ∧
         s'.1.regs.r12 = s₀.regs.rax ∧
         s'.1.regs.r13 = s₀.regs.rcx ∧
         s'.1.regs.rdi = s₀.regs.rdi)
@@ -407,7 +407,7 @@ theorem move_2_regs_to_heap_correct [layout : WellFormedLayout move_2_regs_to_he
   rw [BitVec.ofInt_ofBytes_toBytes 64 8 rfl, BitVec.ofInt_ofBytes_toBytes 64 8 rfl]
   exact ⟨rfl, rfl, rfl, rfl⟩
 
-def sib_example := ⸨prog|
+def sib_example : Program := ⸨prog|
     movq $42, %rax
     movq %rax, (%rdi, %r15, 8)
     movq $0, %rax
@@ -415,11 +415,11 @@ def sib_example := ⸨prog|
 
 -- FIXME: I had to replace `s₀.regs.r15.toBitVec * 8#64` with `BitVec.ofInt 64
 -- (s₀.regs.r15.toBitVec.toInt * 8)` to make the example go through. Why?
-theorem sib_example_correct [layout : WellFormedLayout sib_example] (s₀ : MachineData)
+theorem sib_example_correct (layout : Layout) [sib_example.AssemblableWith layout] (s₀ : MachineData)
     (v : UInt64) (R : DataMem → Prop)
     (h_mem : s₀.dmem =⋆ Eq (v.At (s₀.regs.rdi.toBitVec + BitVec.ofInt 64 (s₀.regs.r15.toBitVec.toInt * 8))) ⋆ R) :
-    Eventually (step1 sib_example.toExecutable)
-      (fun s' => s'.pc = sib_example.toExecutable.addrOf sib_example.length ∧ s'.1.regs.rax = 42)
+    Eventually (step1 (layout.apply sib_example))
+      (fun s' => s'.pc = (layout.apply sib_example).addrOf sib_example.length ∧ s'.1.regs.rax = 42)
       ⟨s₀, layout.start⟩ := by
   kprologue sib_example with s₀
   have h_bs : v.toBytes.length = 8 := UInt64.toBytes_length v
@@ -436,17 +436,17 @@ theorem sib_example_correct [layout : WellFormedLayout sib_example] (s₀ : Mach
   tactic =>
   exact .done _ ⟨rfl, rfl⟩
 
-def alu_mem_example := ⸨prog|
+def alu_mem_example : Program := ⸨prog|
     movq $42, %rax
     movq %rax, 136(%rdx)
     movq $100, %rcx
     addq 136(%rdx), %rcx⸩
 
-theorem alu_mem_example_correct [layout : WellFormedLayout alu_mem_example] (s₀ : MachineData)
+theorem alu_mem_example_correct (layout : Layout) [alu_mem_example.AssemblableWith layout] (s₀ : MachineData)
     (v : UInt64) (R : DataMem → Prop)
     (h_mem : s₀.dmem =⋆ Eq (v.At (s₀.regs.rdx.toBitVec + 136#64)) ⋆ R) :
-    Eventually (step1 alu_mem_example.toExecutable)
-      (fun s' => s'.pc = alu_mem_example.toExecutable.addrOf alu_mem_example.length ∧
+    Eventually (step1 (layout.apply alu_mem_example))
+      (fun s' => s'.pc = (layout.apply alu_mem_example).addrOf alu_mem_example.length ∧
         s'.1.regs.rcx = 142)
       ⟨s₀, layout.start⟩ := by
   kprologue alu_mem_example with s₀
@@ -467,7 +467,7 @@ theorem alu_mem_example_correct [layout : WellFormedLayout alu_mem_example] (s�
   rw [BitVec.ofInt_ofBytes_toBytes 64 8 rfl]
   rfl
 
-def dynamic_stack_example := ⸨prog|
+def dynamic_stack_example : Program := ⸨prog|
     movq $99, -8(%rsp)
     movq %rsp, %rbp
     leaq -1024(%rsp, %r9, 8), %rsp
@@ -478,13 +478,13 @@ def dynamic_stack_example := ⸨prog|
     movq %rbp, %rsp
     movq -8(%rsp), %rbx⸩
 
-theorem dynamic_stack_example_correct [layout : WellFormedLayout dynamic_stack_example]
+theorem dynamic_stack_example_correct (layout : Layout) [dynamic_stack_example.AssemblableWith layout]
     (s₀ : MachineData)
     (stack : List UInt8) (lstack : stack.length = 1024) R
     (h : s₀.regs.r9.toNat + s₀.regs.r15.toNat < 125)
     (h_mem : s₀.dmem =⋆ Eq (stack.At (s₀.regs.rsp.toBitVec - 1024)) ⋆ R) :
-    Eventually (step1 dynamic_stack_example.toExecutable)
-      (fun s' => s'.pc = dynamic_stack_example.toExecutable.addrOf dynamic_stack_example.length ∧
+    Eventually (step1 (layout.apply dynamic_stack_example))
+      (fun s' => s'.pc = (layout.apply dynamic_stack_example).addrOf dynamic_stack_example.length ∧
         s'.1.regs.rax = 42 ∧ s'.1.regs.rbx = 99 ∧ s'.1.regs.rsp = s₀.regs.rsp)
       ⟨s₀, layout.start⟩ := by
   kprologue dynamic_stack_example with s₀

@@ -399,7 +399,7 @@ partial def evalSymKStep : Grind.GrindTactic :=
     let_expr Eventually _ trans post state := goalT' | return none
     unless trans.isAppOfArity `step1 1 do return none
     let exe := trans.getArg! 0
-    let_expr Kraken.Layout.apply _ _ p _ := exe | return none
+    let_expr Kraken.Layout.apply _ _ p l := exe | return none
     unless state.isAppOfArity `MachineState.mk 2 do return none
     let s := state.getArg! 0
     let pc := state.getArg! 1
@@ -418,7 +418,7 @@ partial def evalSymKStep : Grind.GrindTactic :=
       let hdType ← mkEq getElemExpr someD
       let hdProof ← mkExpectedTypeHint (← mkEqRefl someD) hdType
       let stepFn ← mkAppOptM `step_at
-        #[some p, none, some (mkNatLit k), some d, some hdProof, some post, some s]
+        #[some p, some l, none, some (mkNatLit k), some d, some hdProof, some post, some s]
       let .forallE _ hType _ _ ← inferType stepFn | throwError "kstep: unexpected step_at type"
       let hType' ← Grind.liftSymM <| Sym.preprocessExpr hType
       let mvarNew ← mkFreshExprMVar hType'

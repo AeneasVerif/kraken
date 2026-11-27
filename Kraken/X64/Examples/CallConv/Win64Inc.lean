@@ -14,7 +14,7 @@ The same procedures as `CallConv.SysVInc`, but under `Kraken.X64.Win64`: the arg
 before reading it back.
 -/
 
-open Kraken (WellFormedLayout)
+open Kraken (Layout)
 open Kraken.X64
 open Kraken.X64.Parser
 open Kraken.X64.Stack
@@ -38,18 +38,18 @@ win64_caller:
   addq $40, %rsp
   ret⸩
 
-variable [WellFormedLayout prog]
+variable (layout : Layout) [prog.AssemblableWith layout]
 
 /-- The address of label `l` in `prog`. -/
-abbrev lbl (l : String) : Int64 := @Labels.label! (Executable.labels prog.toExecutable) l
+abbrev lbl (l : String) : Int64 := @Labels.label! (Executable.labels (layout.apply prog)) l
 
-private theorem lbl_inc : lbl "win64_inc" = prog.toExecutable.addrOf 0 :=
+private theorem lbl_inc : lbl layout "win64_inc" = (layout.apply prog).addrOf 0 :=
   Labels.label!_of_label? (label?_eq_some_addrOf rfl)
 
-private theorem lbl_caller : lbl "win64_caller" = prog.toExecutable.addrOf 5 :=
+private theorem lbl_caller : lbl layout "win64_caller" = (layout.apply prog).addrOf 5 :=
   Labels.label!_of_label? (label?_eq_some_addrOf rfl)
 
-omit [WellFormedLayout prog] in
+omit [prog.AssemblableWith layout] in
 private theorem shadow_split (r : BitVec 64) : Shadow r = Owned 8 (r + 8) ⋆ Owned 24 (r + 16) := by
   rw [Shadow, show (32 : Nat) = 8 + 24 from rfl, Owned.split 8 24 _ (by omega)]
   congr 2
@@ -57,11 +57,11 @@ private theorem shadow_split (r : BitVec 64) : Shadow r = Owned 8 (r + 8) ⋆ Ow
 
 abbrev IncSpec (d : Nat) (entry : Int64) : Prop :=
   ∀ (n : BitVec 64) (R : Mem 64 → Prop) (ra : Int64),
-    prog.toExecutable.ProcSpec entry ra
+    (layout.apply prog).ProcSpec entry ra
       (fun t => Win64.Call d R ra t ∧ ArgU64 t n)
       (fun t s => Win64.Ret d R ra t s ∧ RetU64 s (n + 1))
 
-theorem inc_spec : IncSpec 0 (lbl "win64_inc") := by
+theorem inc_spec : IncSpec layout 0 (lbl layout "win64_inc") := by
   rw [lbl_inc]
   rintro n R ra t ⟨⟨-, hdf, hmem⟩, harg⟩
   rw [shadow_split, sep_assoc, sep_comm_l] at hmem
@@ -98,7 +98,7 @@ theorem inc_spec : IncSpec 0 (lbl "win64_inc") := by
   · simp (config := { zetaDelta := true }) [BitVec.ofInt_ofBytes_toBytes 64 8 rfl, harg,
       BitVec.add_comm]
 
-omit [WellFormedLayout prog] in
+omit [prog.AssemblableWith layout] in
 /-- The caller's 48-byte reservation: the callee's return-address slot, its shadow space, and the padding. -/
 private theorem frame_eq (r : BitVec 64) :
     Reserve 48 r = Owned 8 (r - 40 - 8) ⋆ (Shadow (r - 40 - 8) ⋆ Owned 8 (r - 8)) := by
@@ -106,7 +106,7 @@ private theorem frame_eq (r : BitVec 64) :
     Owned.split 32 8 _ (by omega), show r - 40 - 8 = r - BitVec.ofNat 64 48 by bv_omega]
   congr 3 <;> bv_omega
 
-theorem caller_spec (hinc : IncSpec 0 (lbl "win64_inc")) : IncSpec 48 (lbl "win64_caller") := by
+theorem caller_spec (hinc : IncSpec layout 0 (lbl layout "win64_inc")) : IncSpec layout 48 (lbl layout "win64_caller") := by
   rw [lbl_inc] at hinc
   rw [lbl_caller]
   rintro n R ra t ⟨⟨hal, hdf, hmem⟩, harg⟩
@@ -126,11 +126,11 @@ theorem caller_spec (hinc : IncSpec 0 (lbl "win64_inc")) : IncSpec 48 (lbl "win6
   have hr : r = t.regs.rsp.toBitVec - 40 - 8 := by simp (config := { zetaDelta := true })
   clear_value v st r
   subst hr
-  have hpush := Mem.storeInt_sep _ 8 bs _ _ ⟨hmem, hbs⟩ (prog.toExecutable.addrOf 8).toBitVec.toInt
+  have hpush := Mem.storeInt_sep _ 8 bs _ _ ⟨hmem, hbs⟩ ((layout.apply prog).addrOf 8).toBitVec.toInt
   refine eventually_trans _ _ _ _
     (hinc n (RetCell ra t.regs.rsp.toBitVec ⋆ (Shadow t.regs.rsp.toBitVec
         ⋆ (Owned 8 (t.regs.rsp.toBitVec - 8) ⋆ R)))
-      (prog.toExecutable.addrOf 8) _ ⟨⟨?_, hdf, ?_⟩, harg⟩) ?_
+      ((layout.apply prog).addrOf 8) _ ⟨⟨?_, hdf, ?_⟩, harg⟩) ?_
   · dsimp only at hal ⊢
     bv_omega
   · simp only [Owned.zero, emp_sep]

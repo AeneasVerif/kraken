@@ -10,7 +10,7 @@ public import Kraken.OmniSemantics
 
 @[expose] public section
 
-open Kraken (Layout WellFormedLayout)
+open Kraken (Layout)
 
 @[kstep] def Effects.All [Labels] (post : MachineState → Prop) : Effects → Prop
   | .done a => post a
@@ -38,10 +38,10 @@ def step1 (e : Executable) (s : MachineState) (post : @Post MachineState) : Prop
   (Executable.step e s .done).All post
 
 theorem Directives.interp_directivesAtAddress_of_zeroSizePrefix
-    {p : Program} [l : Layout p] {pc : Int64} {rest : List (Kraken.Sized Directive)}
-    (h : Kraken.ZeroSizePrefix (p.toExecutable.directivesAtAddress pc) rest)
+    {p : Program} {l : Layout} {pc : Int64} {rest : List (Kraken.Sized Directive)}
+    (h : Kraken.ZeroSizePrefix ((l.apply p).directivesAtAddress pc) rest)
     (s : MachineData) (ret : Int64 → MachineData → Effects) :
-    Directives.interp (p.toExecutable.directivesAtAddress pc) s pc ret =
+    Directives.interp ((l.apply p).directivesAtAddress pc) s pc ret =
       Directives.interp rest s pc ret := by
   obtain ⟨pre, hpre, hz⟩ := h
   rw [hpre]
@@ -56,19 +56,19 @@ theorem Directives.interp_directivesAtAddress_of_zeroSizePrefix
     exact ih s (fun c' hc' => hmem c' (List.mem_cons_of_mem _ hc'))
 
 /- More general version of `step_at` theorem which does not constrain the shape of the postcondition. -/
-theorem eventually_of_interp {p : Program} [l : WellFormedLayout p]
+theorem eventually_of_interp {p : Program} {l : Layout} (hl : p.AssemblableWith l)
     {k : Nat} {d : Directive} (hd : p[k]? = some d) {post : @Post MachineState} {s : MachineData}
-    (h : letI := Executable.labels p.toExecutable
+    (h : letI := Executable.labels (l.apply p)
       (d.interp s
-        ⟨p.toExecutable.addrOf k, p.toExecutable.addrOf (k + 1)⟩
-        (fun s' => .done ⟨s', p.toExecutable.addrOf (k + 1)⟩)
+        ⟨(l.apply p).addrOf k, (l.apply p).addrOf (k + 1)⟩
+        (fun s' => .done ⟨s', (l.apply p).addrOf (k + 1)⟩)
         (fun a s' => .done ⟨s', a⟩)).All post) :
-    Eventually (step1 p.toExecutable) post ⟨s, p.toExecutable.addrOf k⟩ := by
-  have hc : p.toExecutable.program[k]? = some {directive := d, size := l.size k} := by
+    Eventually (step1 (l.apply p)) post ⟨s, (l.apply p).addrOf k⟩ := by
+  have hc : (l.apply p).program[k]? = some {directive := d, size := l.dirSize p k} := by
     simp [Kraken.Layout.apply_getElem?, hd]
-  have hsucc := p.toExecutable.addrOf_succ hc
-  letI : Labels := Executable.labels p.toExecutable
-  match hsize : l.size k with
+  have hsucc := (l.apply p).addrOf_succ hc
+  letI : Labels := Executable.labels (l.apply p)
+  match hsize : l.dirSize p k with
   | 0 =>
     apply Eventually.done
     simpa [hsucc, hsize, inert_of_size_zero hd hsize, Effects.All] using h
@@ -77,22 +77,22 @@ theorem eventually_of_interp {p : Program} [l : WellFormedLayout p]
     unfold step1 Executable.step
     dsimp only
     rw [Directives.interp_directivesAtAddress_of_zeroSizePrefix
-      (Kraken.Program.directivesAtAddress_addrOf p hd (by grind only))]
+      (Kraken.Program.directivesAtAddress_addrOf hl hd (by grind only))]
     simpa [Directives.interp, hsucc, hsize] using h
 
 /- This theorem is meant to be used when the user is doing a proof over `Eventually` and wants to keep the
    state of the goal as an `Eventually` -/
-theorem step_at {p : Program} [WellFormedLayout p] {k : Nat} {d : Directive}
+theorem step_at {p : Program} {l : Layout} [hl : p.AssemblableWith l] {k : Nat} {d : Directive}
     (hd : p[k]? = some d) {post : @Post MachineState} {s : MachineData}
-    (h : letI := Executable.labels p.toExecutable
+    (h : letI := Executable.labels (l.apply p)
       (d.interp s
-        ⟨p.toExecutable.addrOf k, p.toExecutable.addrOf (k + 1)⟩
-        (fun s' => .done ⟨s', p.toExecutable.addrOf (k + 1)⟩)
-        (fun a s' => .done ⟨s', a⟩)).All (Eventually (step1 p.toExecutable) post)) :
-    Eventually (step1 p.toExecutable) post ⟨s, p.toExecutable.addrOf k⟩ :=
-  eventually_trans _ _ _ _ (eventually_of_interp hd h) fun _ => id
+        ⟨(l.apply p).addrOf k, (l.apply p).addrOf (k + 1)⟩
+        (fun s' => .done ⟨s', (l.apply p).addrOf (k + 1)⟩)
+        (fun a s' => .done ⟨s', a⟩)).All (Eventually (step1 (l.apply p)) post)) :
+    Eventually (step1 (l.apply p)) post ⟨s, (l.apply p).addrOf k⟩ :=
+  eventually_trans _ _ _ _ (eventually_of_interp hl hd h) fun _ => id
 
-theorem label?_eq_some_addrOf {p : Program} [l : Layout p] {lbl : Label} {k : Nat}
+theorem label?_eq_some_addrOf {p : Program} {l : Layout} {lbl : Label} {k : Nat}
     (hk : p.findIdx? (·.isLabel lbl) = some k) :
-    @Labels.label? (Executable.labels p.toExecutable) lbl = some (p.toExecutable.addrOf k) :=
-  Kraken.Layout.withAddresses_findSome?_label p lbl hk
+    @Labels.label? (Executable.labels (l.apply p)) lbl = some ((l.apply p).addrOf k) :=
+  Kraken.Layout.withAddresses_findSome?_label p l lbl hk

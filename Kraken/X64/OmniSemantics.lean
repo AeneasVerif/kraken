@@ -10,7 +10,7 @@ public import Kraken.X64.Semantics
 
 @[expose] public section
 
-open Kraken (Layout WellFormedLayout)
+open Kraken (Layout)
 
 @[kstep] def Effects.All [Labels] (post : MachineState → Prop) : Effects → Prop
   | .done a => post a
@@ -76,10 +76,10 @@ def step1 (e : Executable) (s : MachineState) (post : @Post MachineState) : Prop
   (Executable.step e s .done).All post
 
 theorem Directives.interp_directivesAtAddress_of_zeroSizePrefix
-    {p : Program} [l : Layout p] {pc : Int64} {rest : List (Kraken.Sized Directive)}
-    (h : Kraken.ZeroSizePrefix (p.toExecutable.directivesAtAddress pc) rest)
+    {p : Program} {l : Layout} {pc : Int64} {rest : List (Kraken.Sized Directive)}
+    (h : Kraken.ZeroSizePrefix ((l.apply p).directivesAtAddress pc) rest)
     (s : MachineData) (ret : Int64 → MachineData → Effects) :
-    Directives.interp (p.toExecutable.directivesAtAddress pc) s pc ret =
+    Directives.interp ((l.apply p).directivesAtAddress pc) s pc ret =
       Directives.interp rest s pc ret := by
   obtain ⟨pre, hpre, hz⟩ := h
   rw [hpre]
@@ -93,19 +93,19 @@ theorem Directives.interp_directivesAtAddress_of_zeroSizePrefix
       inert_of_size_zero hd' hz0]
     exact ih s (fun c' hc' => hmem c' (List.mem_cons_of_mem _ hc'))
 
-theorem eventually_of_interp {p : Program} [l : WellFormedLayout p]
+theorem eventually_of_interp {p : Program} {l : Layout} (hl : p.AssemblableWith l)
     {k : Nat} {d : Directive} (hd : p[k]? = some d) {post : @Post MachineState} {s : MachineData}
-    (h : letI := Executable.labels p.toExecutable
+    (h : letI := Executable.labels (l.apply p)
       (d.interp s
-        ⟨p.toExecutable.addrOf k, p.toExecutable.addrOf (k + 1)⟩
-        (fun s' => .done ⟨s', p.toExecutable.addrOf (k + 1)⟩)
+        ⟨(l.apply p).addrOf k, (l.apply p).addrOf (k + 1)⟩
+        (fun s' => .done ⟨s', (l.apply p).addrOf (k + 1)⟩)
         (fun a s' => .done ⟨s', a⟩)).All post) :
-    Eventually (step1 p.toExecutable) post ⟨s, p.toExecutable.addrOf k⟩ := by
-  have hc : p.toExecutable.program[k]? = some {directive := d, size := l.size k} := by
+    Eventually (step1 (l.apply p)) post ⟨s, (l.apply p).addrOf k⟩ := by
+  have hc : (l.apply p).program[k]? = some {directive := d, size := l.dirSize p k} := by
     simp [Kraken.Layout.apply_getElem?, hd]
-  have hsucc := p.toExecutable.addrOf_succ hc
-  letI : Labels := Executable.labels p.toExecutable
-  match hsize : l.size k with
+  have hsucc := (l.apply p).addrOf_succ hc
+  letI : Labels := Executable.labels (l.apply p)
+  match hsize : l.dirSize p k with
   | 0 =>
     apply Eventually.done
     simpa [hsucc, hsize, inert_of_size_zero hd hsize, Effects.All] using h
@@ -114,27 +114,27 @@ theorem eventually_of_interp {p : Program} [l : WellFormedLayout p]
     unfold step1 Executable.step
     dsimp only
     rw [Directives.interp_directivesAtAddress_of_zeroSizePrefix
-      (Kraken.Program.directivesAtAddress_addrOf p hd (by grind only))]
+      (Kraken.Program.directivesAtAddress_addrOf hl hd (by grind only))]
     simpa [Directives.interp, hsucc, hsize] using h
 
 @[ksimp] theorem Int64.add_sub_cancel_left (a b : Int64) : a + (b - a) = b := by grind
 @[ksimp] theorem Int64.ofBitVec_toBitVec_ksimp (a : Int64) : Int64.ofBitVec a.toBitVec = a :=
   Int64.ofBitVec_toBitVec a
 
-theorem step_at {p : Program} [WellFormedLayout p] {k : Nat} {d : Directive}
+theorem step_at {p : Program} {l : Layout} [hl : p.AssemblableWith l] {k : Nat} {d : Directive}
     (hd : p[k]? = some d) {post : @Post MachineState} {s : MachineData}
-    (h : letI := Executable.labels p.toExecutable
+    (h : letI := Executable.labels (l.apply p)
       (d.interp s
-        ⟨p.toExecutable.addrOf k, p.toExecutable.addrOf (k + 1)⟩
-        (fun s' => .done ⟨s', p.toExecutable.addrOf (k + 1)⟩)
-        (fun a s' => .done ⟨s', a⟩)).All (Eventually (step1 p.toExecutable) post)) :
-    Eventually (step1 p.toExecutable) post ⟨s, p.toExecutable.addrOf k⟩ :=
-  eventually_trans _ _ _ _ (eventually_of_interp hd h) fun _ => id
+        ⟨(l.apply p).addrOf k, (l.apply p).addrOf (k + 1)⟩
+        (fun s' => .done ⟨s', (l.apply p).addrOf (k + 1)⟩)
+        (fun a s' => .done ⟨s', a⟩)).All (Eventually (step1 (l.apply p)) post)) :
+    Eventually (step1 (l.apply p)) post ⟨s, (l.apply p).addrOf k⟩ :=
+  eventually_trans _ _ _ _ (eventually_of_interp hl hd h) fun _ => id
 
-theorem label?_eq_some_addrOf {p : Program} [l : Layout p] {lbl : Label} {k : Nat}
+theorem label?_eq_some_addrOf {p : Program} {l : Layout} {lbl : Label} {k : Nat}
     (hk : p.findIdx? (·.isLabel lbl) = some k) :
-    @Labels.label? (Executable.labels p.toExecutable) lbl = some (p.toExecutable.addrOf k) :=
-  Kraken.Layout.withAddresses_findSome?_label p lbl hk
+    @Labels.label? (Executable.labels (l.apply p)) lbl = some ((l.apply p).addrOf k) :=
+  Kraken.Layout.withAddresses_findSome?_label p l lbl hk
 
 /-- `L₁ ⊆ L₂` means every label resolved by `L₁` resolves to the same address in `L₂`. -/
 instance : HasSubset Labels where
@@ -154,80 +154,79 @@ theorem Effects.All_mono_labels {L₁ L₂ : Labels} (hL : L₁ ⊆ L₂)
   | .require_read_access _ cont | .require_write_access _ cont | .require_exec_access _ cont =>
     exact All_mono_labels hL (cont ()) h
 
-theorem label?_eq_some_mem {p : Program} [Kraken.Layout p] {l : Label} {a : Int64}
-    (h : (Executable.labels p.toExecutable).label? l = some a) : l ∈ Kraken.Program.labels p := by
+theorem label?_eq_some_mem {p : Program} {layout : Layout} {l : Label} {a : Int64}
+    (h : (Executable.labels (layout.apply p)).label? l = some a) : l ∈ Kraken.Program.labels p := by
   obtain ⟨x, hx, hfx⟩ := List.exists_of_findSome?_eq_some h
   have hd : x.directive = .label l := by rcases x with ⟨d, _, _⟩; dsimp only at hfx; split at hfx <;> simp_all
   have hmem : Kraken.Directive.label l ∈ p :=
-    Kraken.Program.map_directive_withAddresses p ▸ hd ▸ List.mem_map_of_mem (f := (·.directive)) hx
+    Kraken.Program.map_directive_withAddresses p layout ▸ hd ▸ List.mem_map_of_mem (f := (·.directive)) hx
   exact List.mem_filterMap.mpr ⟨.label l, hmem, rfl⟩
 
-theorem labels_append_left_subset (p₁ p₂ : Program) [layout : Kraken.Layout (p₁ ++ p₂)] :
-    letI := layout.take p₁
-    Executable.labels p₁.toExecutable ⊆ Executable.labels (p₁ ++ p₂).toExecutable := by
+theorem labels_append_left_subset (p₁ p₂ : Program) (l : Layout) :
+    Executable.labels (l.apply p₁) ⊆ Executable.labels (l.apply (p₁ ++ p₂)) := by
   intro lbl a ha
   change List.findSome? _ _ = some a at ha ⊢
-  rw [Kraken.Program.toExecutable_append_withAddresses p₁ p₂ (l := layout), List.findSome?_append, ha]
+  rw [Kraken.Program.apply_append_withAddresses p₁ p₂ l, List.findSome?_append, ha]
   rfl
 
-theorem labels_append_right_subset (p₁ p₂ : Program) [layout : Kraken.WellFormedLayout (p₁ ++ p₂)] :
-    letI := layout.drop p₁
-    Executable.labels p₂.toExecutable ⊆ Executable.labels (p₁ ++ p₂).toExecutable := by
+theorem labels_append_right_subset {p₁ p₂ : Program} {l : Layout} (hl : Kraken.Program.AssemblableWith (p₁ ++ p₂) l) :
+    Executable.labels ((l.offset p₁).apply p₂) ⊆ Executable.labels (l.apply (p₁ ++ p₂)) := by
   intro lbl a ha
   change List.findSome? _ _ = some a at ha ⊢
-  rw [Kraken.Program.toExecutable_append_withAddresses p₁ p₂ (l := layout.toLayout),
-    List.findSome?_append]
-  cases h₁ : List.findSome? _ (letI := layout.toLayout.take p₁; p₁.toExecutable).withAddresses with
+  rw [Kraken.Program.apply_append_withAddresses p₁ p₂ l, List.findSome?_append]
+  cases h₁ : List.findSome? _ (l.apply p₁).withAddresses with
   | none => exact ha
   | some _ =>
-    have hmem₁ : lbl ∈ Kraken.Program.labels p₁ := by
-      letI := layout.toLayout.take p₁; exact label?_eq_some_mem h₁
-    have hmem₂ : lbl ∈ Kraken.Program.labels p₂ := by
-      letI := layout.toLayout.drop p₁; exact label?_eq_some_mem ha
+    have hmem₁ : lbl ∈ Kraken.Program.labels p₁ := label?_eq_some_mem h₁
+    have hmem₂ : lbl ∈ Kraken.Program.labels p₂ := label?_eq_some_mem ha
     have hnodup : (Kraken.Program.labels p₁ ++ Kraken.Program.labels p₂).Nodup := by
-      simpa [Kraken.Program.labels, List.filterMap_append] using layout.unique_labels
+      simpa [Kraken.Program.labels, List.filterMap_append] using hl.unique_labels
     exact absurd rfl ((List.nodup_append.mp hnodup).2.2 lbl hmem₁ lbl hmem₂)
 
-theorem Eventually.mono_of_zeroSizePrefix {p q : Program} [Kraken.Layout p] [Kraken.Layout q]
-    (hlabels : Executable.labels p.toExecutable ⊆ Executable.labels q.toExecutable)
-    (hdirs : ∀ pc, Kraken.Program.ContainsAddr p pc →
-      Kraken.ZeroSizePrefix (q.toExecutable.directivesAtAddress pc)
-        (p.toExecutable.directivesAtAddress pc))
+theorem Eventually.mono_of_zeroSizePrefix {p q : Program} {lp lq : Layout}
+    (hlabels : Executable.labels (lp.apply p) ⊆ Executable.labels (lq.apply q))
+    (hdirs : ∀ pc, Kraken.Program.ContainsAddr p lp pc →
+      Kraken.ZeroSizePrefix ((lq.apply q).directivesAtAddress pc)
+        ((lp.apply p).directivesAtAddress pc))
     {post : MachineState → Prop} {init : MachineState}
-    (h : Eventually (step1 p.toExecutable) post init) :
-    Eventually (step1 q.toExecutable) post init := by
+    (h : Eventually (step1 (lp.apply p)) post init) :
+    Eventually (step1 (lq.apply q)) post init := by
   induction h with
   | done s hp => exact .done s hp
   | step s mid_p hstep _ ih =>
-    by_cases hpc : Kraken.Program.ContainsAddr p s.pc
+    by_cases hpc : Kraken.Program.ContainsAddr p lp s.pc
     · refine .step s mid_p ?_ ih
       dsimp only [step1, Executable.step] at hstep ⊢
       rw [Directives.interp_directivesAtAddress_of_zeroSizePrefix (hdirs s.pc hpc)]
       exact Effects.All_mono_labels hlabels _ hstep
-    · have hall0 : Kraken.ZeroSizePrefix (p.toExecutable.directivesAtAddress s.pc) [] :=
-        ⟨p.toExecutable.directivesAtAddress s.pc, by simp,
+    · have hall0 : Kraken.ZeroSizePrefix ((lp.apply p).directivesAtAddress s.pc) [] :=
+        ⟨(lp.apply p).directivesAtAddress s.pc, by simp,
           fun c hc => Classical.byContradiction fun hz =>
-            hpc (Kraken.Program.containsAddr_of_mem_directivesAtAddress p hc (Nat.pos_of_ne_zero hz))⟩
+            hpc (Kraken.Program.containsAddr_of_mem_directivesAtAddress p lp hc (Nat.pos_of_ne_zero hz))⟩
       dsimp only [step1, Executable.step] at hstep
-      letI := Executable.labels p.toExecutable
+      letI := Executable.labels (lp.apply p)
       rw [Directives.interp_directivesAtAddress_of_zeroSizePrefix hall0,
           Directives.interp, Effects.All] at hstep
       exact ih ⟨s.data, s.pc⟩ hstep
 
-theorem Eventually.append_left (p₁ p₂ : Program) [layout : Kraken.WellFormedLayout (p₁ ++ p₂)]
-    (post : MachineState → Prop) (init : MachineState)
-    (h : letI := layout.take p₁
-         Eventually (step1 p₁.toExecutable) post init) :
-    Eventually (step1 (p₁ ++ p₂).toExecutable) post init :=
-  letI := layout.take p₁
-  Eventually.mono_of_zeroSizePrefix (labels_append_left_subset p₁ p₂)
-    (fun pc hpc => ⟨[], by rw [Kraken.Program.directivesAtAddress_append_left p₁ p₂ pc hpc]; rfl, by simp⟩) h
+theorem Eventually.append_left {p₁ p₂ : Program} {l : Layout} (hl : Kraken.Program.AssemblableWith (p₁ ++ p₂) l)
+    {post : MachineState → Prop} {init : MachineState}
+    (h : Eventually (step1 (l.apply p₁)) post init) :
+    Eventually (step1 (l.apply (p₁ ++ p₂))) post init :=
+  Eventually.mono_of_zeroSizePrefix (labels_append_left_subset p₁ p₂ l)
+    (fun pc hpc => ⟨[], by simp [Kraken.Program.directivesAtAddress_append_left hl pc hpc], by simp⟩) h
 
-theorem Eventually.append_right (p₁ p₂ : Program) [layout : Kraken.WellFormedLayout (p₁ ++ p₂)]
-    (post : MachineState → Prop) (init : MachineState)
-    (h : letI := layout.drop p₁
-         Eventually (step1 p₂.toExecutable) post init) :
-    Eventually (step1 (p₁ ++ p₂).toExecutable) post init :=
-  letI := layout.drop p₁
-  Eventually.mono_of_zeroSizePrefix (labels_append_right_subset p₁ p₂)
-    (Kraken.Program.directivesAtAddress_append_right p₁ p₂) h
+theorem Eventually.append_right {p₁ p₂ : Program} {l : Layout} (hl : Kraken.Program.AssemblableWith (p₁ ++ p₂) l)
+    {post : MachineState → Prop} {init : MachineState}
+    (h : Eventually (step1 ((l.offset p₁).apply p₂)) post init) :
+    Eventually (step1 (l.apply (p₁ ++ p₂))) post init :=
+  Eventually.mono_of_zeroSizePrefix (labels_append_right_subset hl)
+    (Kraken.Program.directivesAtAddress_append_right hl) h
+
+
+/-
+theorem Directives.mono {L₁ L₂ : Labels} (hL : L₁ ⊆ L₂)
+  {ret₁ ret₂ : MachineState → Effects }  (hret : ∀ ms, (ret₁ ms).CompatibleWith (ret₂ ms))
+  {ds : List (Sized Directive)} :
+    ()
+-/
