@@ -77,9 +77,9 @@ def runKraken (asmCode : String)
   try
     let prog ← Kraken.X64.Parser.parse (_start ++ ":" ++ asmCode ++ "\n" ++ _end ++ ":")
     let exe := prog.fakeLayout
-    let some start := exe.labels.label? _start
+    let some start := Executable.label? exe _start
       | return .error s!"Missing start label {_start}"
-    let endPc := exe.labels.label? _end
+    let endPc := Executable.label? exe _end
     let initState : MachineState := ⟨initData, start⟩
     return exe.eval initState (fun s => some s.pc == endPc)
   catch e =>
@@ -161,7 +161,7 @@ def fuzzConfig : FuzzConfig MachineData StatusFlags StateSummary where
   parseSteps asmCode := do
     let .ok prog ← (Kraken.X64.Parser.parse asmCode).toBaseIO | failure
     let exe := prog.fakeLayout
-    let := exe.labels
+    let := Labels.ofExecutable exe
     return exe.withAddresses.map fun d : Kraken.Addressable Directive =>
       { d with directive := fun s p h => evalEffects h false (d.directive.interp s p (fun s => .done ⟨s, p.upper⟩) (fun _ _ => .unimplemented "jump")) }
   summarize := summarize

@@ -12,7 +12,7 @@ entered at `entry` in a state `t` with `Pre t` reaches the address `ra` in a sta
 
 public section
 
-@[expose] def Kraken.Executable.ProcSpec (e : _root_.Executable) (entry ra : Int64)
+@[expose] def Kraken.Executable.ProcSpec [Labels] (e : _root_.Executable) (entry ra : Int64)
     (Pre : MachineData → Prop) (Post : MachineData → MachineData → Prop) : Prop :=
   ∀ t : MachineData, Pre t →
     Eventually (step1 e) (fun st => st.pc = ra ∧ Post t st.data) ⟨t, entry⟩

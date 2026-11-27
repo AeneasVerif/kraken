@@ -18,7 +18,7 @@ public instance [Host] : Host.prog.AssemblableWith Host.layout := Host.wf
 
 public abbrev Host.size [Host] (i : Nat) : Nat := Host.layout.dirSize Host.prog i
 
-public instance [Host] : Labels := Executable.labels Host.exe
+public instance [Host] : Labels := Labels.ofExecutable Host.exe
 
 public theorem Host.sizeBefore_eq_of_addrOf_eq [Host] {j k : Nat} (h : Host.addrOf j = Host.addrOf k) :
     Host.exe.sizeBefore j = Host.exe.sizeBefore k :=

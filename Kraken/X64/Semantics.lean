@@ -378,7 +378,6 @@ abbrev AddressBound := Fin (UInt64.size + 1)
 inductive Effects
   | done (a : MachineState)
   | unimplemented (msg : String)
-  | resolve_label (lbl : Label) (k : Int64 → Effects)
   | gp_unaligned (addr : BitVec 64) (w : Nat)
   -- loads and stores *outside* the data memory, eg. MMIO, might still affect the data memory:
   -- for instance, MMIO reads/writes at certain device register addresses might change what
@@ -389,7 +388,7 @@ inductive Effects
   | require_read_access (span : Std.Rco AddressBound) (ok : Unit → Effects)
   | require_write_access (span : Std.Rco AddressBound) (ok : Unit → Effects)
   | require_exec_access (p: Std.Rco Int64) (ok : Unit → Effects)
-export Effects (unimplemented resolve_label nonmem_load nonmem_store undefined require_read_access require_write_access require_exec_access)
+export Effects (unimplemented nonmem_load nonmem_store undefined require_read_access require_write_access require_exec_access)
 
 -- Splits the interval in two halves in case of overflow
 def require_access (access : Std.Rco AddressBound → (Unit → Effects) → Effects)
@@ -465,48 +464,49 @@ def MachineData.storeAvx (s : MachineData) (addr : BitVec 64) {w : AvxWidth} (v 
           ret { s with dmem := Mem.storeInt s.dmem addr w.bytes v.toInt }
       | .none => unimplemented "AVX nonmem store not supported")
 
-class Labels where label? : Label → Option Int64
-export Labels (label?)
+class Labels where
+  label : Label → Int64
+export Labels (label)
 
-def Labels.label! [Labels] (l : Label) : Int64 :=
-  match label? l with
-  | .some a => a
-  | .none => panic! s!"unresolved label: {l}"
-export Labels (label!)
+@[ext]
+theorem Labels.ext {L₁ L₂ : Labels} (h : ∀ l, L₁.label l = L₂.label l) : L₁ = L₂ := by
+  cases L₁; cases L₂; congr; exact funext h
 
-@[grind =]
-theorem Labels.label!_eq_get!_label? {_ : Labels} (l : Label) :
-    label! l = (label? l).get! := by
-  simp only [label!, Option.get!]
-  cases label? l <;> rfl
+def Labels.missingImpl (l : Label) : Int64 :=
+  panic! s!"unresolved label: {l}"
 
-@[simp]
-theorem Labels.label!_of_label? {_ : Labels} {l : Label} {a : Int64} (h : label? l = some a) :
-    label! l = a := by
-  simp [label!, h]
+@[implemented_by Labels.missingImpl]
+opaque Labels.missing (l : Label) : Int64 := 0
 
-@[kstep] def ConstExpr.interp (e : ConstExpr) (p : Std.Rco _root_.Int64)
-    (ret : _root_.Int64 → Effects) : Effects :=
+@[instance_reducible]
+def Labels.empty : Labels where
+  label := Labels.missing
+
+open Kraken (Layout)
+
+section
+variable [Labels]
+
+@[kstep] def ConstExpr.interp (e : ConstExpr) (p : Std.Rco _root_.Int64) : _root_.Int64 :=
   match e with
-  | .label l => .resolve_label l ret
-  | .int64 i => ret i
-  | .before_current_instruction => ret p.lower
-  | .after_current_instruction => ret p.upper
-  | .add e1 e2 => e1.interp p (fun v1 => e2.interp p (fun v2 => ret (v1 + v2)))
-  | .sub e1 e2 => e1.interp p (fun v1 => e2.interp p (fun v2 => ret (v1 - v2)))
+  | .label l => Labels.label l
+  | .int64 i => i
+  | .before_current_instruction => p.lower
+  | .after_current_instruction => p.upper
+  | .add e1 e2 => e1.interp p + e2.interp p
+  | .sub e1 e2 => e1.interp p - e2.interp p
 
 @[kstep] def AddrExpr.interp [address_size : AddressSize] (a : AddrExpr) (s : Reg64s) (p : Std.Rco Int64)
     (ret : BitVec address_size.address_size.bits → Effects) : Effects :=
-  a.disp.interp p (fun disp =>
-    ret <| BitVec.ofInt address_size.address_size.bits (
-      (match a.base with
-       | .some (.reg r) => (s.get64 r).toAddressSize.signed
-       | .some .rip => p.upper.toInt
-       | .none => 0) +
-      (match a.idx with
-       | .some ⟨r, c⟩ => (s.get64 r).toAddressSize.signed * c.bytes
-       | .none => 0) +
-      disp.toInt))
+  ret <| BitVec.ofInt address_size.address_size.bits (
+    (match a.base with
+     | .some (.reg r) => (s.get64 r).toAddressSize.signed
+     | .some .rip => p.upper.toInt
+     | .none => 0) +
+    (match a.idx with
+     | .some ⟨r, c⟩ => (s.get64 r).toAddressSize.signed * c.bytes
+     | .none => 0) +
+    (a.disp.interp p).toInt)
 
 @[kstep] def RegOrMem.interp {w} [AddressSize]
   (o : RegOrMem w) (s : MachineData) (p : Std.Rco Int64)
@@ -553,7 +553,7 @@ match d with
   (ret : w.type → MachineData → Effects) :=
   match o with
   | regOrMem rm => rm.interp s p ret
-  | .imm v => v.interp p (fun v => ret (v.toBitVec.truncate _) s)
+  | .imm v => ret ((v.interp p).toBitVec.truncate _) s
   -- we rely on assemblers erroring out on too-large immediates in uniform ops
 
 def AvxOperand.interp {aw} [AddressSize]
@@ -577,7 +577,7 @@ def CondCode.interp (cc : CondCode) (s : StatusFlags) : Bool := match cc with
     (ret : BitVec 8 → Effects) : Effects :=
   match c with
   | .cl => ret (s.regs.rcx.toBitVec.take 8)
-  | .imm8 v => v.interp p (fun v => ret (v.toBitVec.take _))
+  | .imm8 v => ret ((v.interp p).toBitVec.take _)
 @[kstep] def ShiftCountExpr.interpMasked (c : ShiftCountExpr) (s : MachineData) (p : Std.Rco Int64) (w : Width)
     (ret : Nat → Effects) : Effects :=
   -- "masked to 5 bits (or 6 bits with a 64-bit operand)"
@@ -587,7 +587,7 @@ def CondCode.interp (cc : CondCode) (s : StatusFlags) : Bool := match cc with
   (o : RelRegOrMem) (s : MachineData) (p : Std.Rco Int64)
   (ret : BitVec 64 → MachineData → Effects) :=
   match o with
-  | .rel c => c.interp p (fun c => ret (p.upper + c).toBitVec s)
+  | .rel c => ret (p.upper + c.interp p).toBitVec s
   | .reg r => ret (s.regs.get r) s
   | .mem a => a.interp s.regs p (fun addr => s.load (addr.zeroExtend _) .W64 ret)
 
@@ -929,7 +929,7 @@ set_option maxHeartbeats 1000000
     | _ => undefined (fun v => next (s.setReg dst v))
   | .jcc cc l =>
     if cc.interp s.status
-    then .resolve_label l (jmp · s)
+    then jmp (label l) s
     else next s
   | .jmp tgt =>
     tgt.interp s p (fun a s =>
@@ -980,18 +980,15 @@ match i with
       s.setAvxLegacy dst (a.shuffleBytes m) p next))
   | .pshufd dst src imm =>
     src.interp s p (checkAlign := true) (fun a s =>
-    imm.interp p (fun imm =>
-      s.setAvxLegacy dst (a.shuffleDwords (imm.toBitVec.take 8)) p next))
+      s.setAvxLegacy dst (a.shuffleDwords ((imm.interp p).toBitVec.take 8)) p next)
   | .palignr dst src imm =>
     src.interp s p (checkAlign := true) (fun lo s =>
     dst.interp s p (fun hi s =>
-    imm.interp p (fun imm =>
-      s.setAvxLegacy dst (hi.alignBytes lo (imm.toBitVec.take 8)) p next)))
+      s.setAvxLegacy dst (hi.alignBytes lo ((imm.interp p).toBitVec.take 8)) p next))
   | .pblendw dst src imm =>
     src.interp s p (checkAlign := true) (fun b s =>
     dst.interp s p (fun a s =>
-    imm.interp p (fun imm =>
-      s.setAvxLegacy dst (a.blendWords b (imm.toBitVec.take 8)) p next)))
+      s.setAvxLegacy dst (a.blendWords b ((imm.interp p).toBitVec.take 8)) p next))
   | .vmovdqu dst src => src.interp s p (fun val s => s.setAvx dst val p next)
   | .vmovIn _ dst src => src.interp s p (fun v s => next (s.setAvxReg dst (v.zeroExtend _)))
   | .vmovOut n dst src => s.set dst ((s.zmms.get src).take n.bits) p next
@@ -1023,20 +1020,17 @@ match i with
       s.setAvx dst (BitVec.packedBinOp 32 (· + ·) a b) p next))
   | .vprord dst src imm =>
     src.interp s p (fun a s =>
-    imm.interp p (fun imm =>
-      let count := (imm.toBitVec.take 8).toNat % 32
-      s.setAvx dst (a.mapLanes 32 (·.rotateRight count)) p next))
+      let count := ((imm.interp p).toBitVec.take 8).toNat % 32
+      s.setAvx dst (a.mapLanes 32 (·.rotateRight count)) p next)
   | .vpsrld dst src imm =>
     src.interp s p (fun a s =>
-    imm.interp p (fun imm =>
-      let count := (imm.toBitVec.take 8).toNat
-      s.setAvx dst (a.mapLanes 32 (fun x => if count < 32 then x >>> count else 0#32)) p next))
+      let count := ((imm.interp p).toBitVec.take 8).toNat
+      s.setAvx dst (a.mapLanes 32 (fun x => if count < 32 then x >>> count else 0#32)) p next)
   | .vpternlogd dst src2 src3 imm =>
     src3.interp s p (fun c s =>
     src2.interp s p (fun b s =>
     dst.interp s p (fun a s =>
-    imm.interp p (fun imm =>
-      s.setAvx dst (BitVec.ternaryLogic a b c (imm.toBitVec.take 8)) p next))))
+      s.setAvx dst (BitVec.ternaryLogic a b c ((imm.interp p).toBitVec.take 8)) p next)))
 
 @[kstep]
 def Instr.interp
@@ -1071,8 +1065,6 @@ def Directives.interp
     directive.interp s (.mk pc (pc+.ofNat sz)) (jmp:=ret) (next := (fun s =>
     interp ds s (pc+.ofNat sz) ret))
 
-open Kraken (Layout)
-
 theorem inert_of_size_zero {prog : Program} {layout : Layout} {i : Nat} {d : Directive}
     (hd : prog[i]? = some d) (hz : layout.dirSize prog i = 0) (s : MachineData) (p : Std.Rco Int64)
     (next : MachineData → Effects) (jmp : Int64 → MachineData → Effects) :
@@ -1085,30 +1077,35 @@ theorem inert_of_size_zero {prog : Program} {layout : Layout} {i : Nat} {d : Dir
   | byteArray bs => simp [Directive.interp, ByteArray.isEmpty, show bs.size = 0 from hz]
   | word bytes _ => simp [Directive.interp, show bytes = 0 from hz]
 
+def Executable.step (e : Executable) (s : MachineState) (ret : MachineState → Effects) : Effects :=
+  Directives.interp (e.directivesAtAddress s.pc) s.data s.pc (fun pc s => ret ⟨s, pc⟩)
+
+end
+
+def Executable.label? (e : Executable) (l : Label) : Option Int64 :=
+  e.withAddresses.findSome?
+    (fun {directive, addr, ..} => if directive = .label l then .some addr else .none)
+
 @[instance_reducible]
-def Executable.labels (e : Executable) : Labels :=
-  { label? l := e.withAddresses.findSome?
-      (fun {directive, addr, ..} => if directive = .label l then .some addr else .none) }
+def Labels.update (fallback : Labels) (e : Executable) : Labels where
+  label l := (e.label? l).getD (fallback.label l)
+
+abbrev Labels.ofExecutable (e : Executable) : Labels :=
+  Labels.empty.update e
 
 def Executable.directivesFromLabel (e : Executable) (l : Label) : List (Kraken.Sized Directive) :=
   e.program.dropWhile (·.directive != .label l)
 
-def Executable.step (e : Executable) (s : MachineState) (ret : MachineState → Effects) : Effects :=
-  Directives.interp (e.directivesAtAddress s.pc) s.data s.pc (fun pc s => ret ⟨s, pc⟩)
-
 -- -- Concrete evaluators for expedient testing
 
 partial def Executable.eval (e : Executable) (s : MachineState) (until_ : MachineState → Bool) : Except String (MachineState) :=
+  letI := Labels.ofExecutable e
   if until_ s then .ok s else handleEffects (Executable.step e s .done)
 where
   handleEffects es :=
     match es with
     | .done s => eval e s until_
     | .unimplemented msg => .error msg
-    | .resolve_label lbl k =>
-      match e.labels.label? lbl with
-      | .some a => handleEffects (k a)
-      | .none => .error s!"unresolved label: {lbl}"
     | .gp_unaligned addr w => .error s!"#GP: Memory op at {repr addr} did not have mandatory alignment of {w}"
     | .require_read_access _ ok => handleEffects (ok ())
     | .require_write_access _ ok => handleEffects (ok ())
@@ -1154,7 +1151,7 @@ abbrev eval (prog : Program) (layout : Layout) := Executable.eval (layout.apply 
     .instr (.regular .W64 .W64 (.lea (.low .rax .W64) (.mk .none .none (.int64 41)))),
     .instr (.regular .W64 .W64 (.inc (.reg (.low .rax .W64)))),
     .instr (.regular .W64 .W64 .ret) ]
-  let := exe.labels
-  let start := label! "main"
+  let := Labels.ofExecutable exe
+  let start := label "main"
   let data : MachineData := { dmem := Mem.storeInt {} 0x100 8 0x1337, regs := {rsp := 0x100} }
   (Executable.eval exe {data, pc := start} (fun st => st.pc = 0x1337)).bind (fun s => .ok s.1.regs.rax)

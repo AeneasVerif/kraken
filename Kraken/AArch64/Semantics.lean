@@ -171,7 +171,6 @@ structure MachineState where
 inductive Effects
   | done (a : MachineState)
   | unimplemented (msg : String)
-  | resolve_label (lbl : Label) (k : Int64 → Effects)
   -- loads and stores *outside* the data memory, eg. MMIO, might still affect the data memory:
   -- for instance, MMIO reads/writes at certain device register addresses might change what
   -- data memory the process logically owns vs what memory is owned by devices
@@ -182,7 +181,7 @@ inductive Effects
   | require_write_access (addr : BitVec 64) (w : MemWidth) (ok : Unit → Effects)
   | require_exec_access (p: Std.Rco Int64) (ok : Unit → Effects)
   | unaligned_sp {w : RegWidth} (sp : w.type)
-export Effects (unimplemented resolve_label nonmem_load nonmem_store undefined require_read_access require_write_access require_exec_access)
+export Effects (unimplemented nonmem_load nonmem_store undefined require_read_access require_write_access require_exec_access)
 
 -- the unused `Std.Rco Int64` argument and the unmodified `MachineData` return
 -- value are present for uniformity with RegOrMem.interp
@@ -221,49 +220,50 @@ def MachineData.store (s : MachineData) (addr : BitVec 64) {w : MemWidth} (v : w
         ret { s with dmem := Mem.storeInt s.dmem addr w.bytes v.toInt }
     | .none => nonmem_store s.dmem addr v (fun dmem' => ret { s with dmem := dmem' }))
 
-class Labels where label? : Label → Option Int64
-export Labels (label?)
+class Labels where
+  label : Label → Int64
+export Labels (label)
 
-def Labels.label! [Labels] (l : Label) : Int64 :=
-  match label? l with
-  | .some a => a
-  | .none => panic! s!"unresolved label: {l}"
-export Labels (label!)
+@[ext]
+theorem Labels.ext {L₁ L₂ : Labels} (h : ∀ l, L₁.label l = L₂.label l) : L₁ = L₂ := by
+  cases L₁; cases L₂; congr; exact funext h
 
-@[grind =]
-theorem Labels.label!_eq_get!_label? {_ : Labels} (l : Label) :
-    label! l = (label? l).get! := by
-  simp only [label!, Option.get!]
-  cases label? l <;> rfl
+def Labels.missingImpl (l : Label) : Int64 :=
+  panic! s!"unresolved label: {l}"
 
-@[simp]
-theorem Labels.label!_of_label? {_ : Labels} {l : Label} {a : Int64} (h : label? l = some a) :
-    label! l = a := by
-  simp [label!, h]
+@[implemented_by Labels.missingImpl]
+opaque Labels.missing (l : Label) : Int64 := 0
 
-@[kstep] def ConstExpr.interp (e : ConstExpr) (p : Std.Rco Int64)
-    (ret : Int64 → Effects) : Effects :=
+@[instance_reducible]
+def Labels.empty : Labels where
+  label := Labels.missing
+
+open Kraken (Layout)
+
+section
+variable [Labels]
+
+@[kstep] def ConstExpr.interp (e : ConstExpr) (p : Std.Rco Int64) : Int64 :=
   match e with
-  | .label l => .resolve_label l ret
-  | .int64 i => ret i
-  | .before_current_instruction => ret p.lower
-  | .after_current_instruction => ret p.upper
-  | .add e1 e2 => e1.interp p (fun v1 => e2.interp p (fun v2 => ret (v1 + v2)))
-  | .sub e1 e2 => e1.interp p (fun v1 => e2.interp p (fun v2 => ret (v1 - v2)))
-  | .pg_hi21 e => e.interp p (fun v =>
-    let val := BitVec.ofInt 64 (Int64.toInt v)
+  | .label l => Labels.label l
+  | .int64 i => i
+  | .before_current_instruction => p.lower
+  | .after_current_instruction => p.upper
+  | .add e1 e2 => e1.interp p + e2.interp p
+  | .sub e1 e2 => e1.interp p - e2.interp p
+  | .pg_hi21 e =>
+    let val := BitVec.ofInt 64 (Int64.toInt (e.interp p))
     let page := val &&& ~~~0xFFF#64
-    ret (Int64.ofNat page.toNat))
-  | .lo12 e => e.interp p (fun v =>
-    let val := BitVec.ofInt 64 (Int64.toInt v)
+    Int64.ofNat page.toNat
+  | .lo12 e =>
+    let val := BitVec.ofInt 64 (Int64.toInt (e.interp p))
     let lo := val &&& 0xFFF#64
-    ret (Int64.ofNat lo.toNat))
+    Int64.ofNat lo.toNat
 
-@[kstep] def ConstExpr.evalBranchTarget (target : ConstExpr) (p : Std.Rco Int64)
-    (ret : Int64 → Effects) : Effects :=
+@[kstep] def ConstExpr.evalBranchTarget (target : ConstExpr) (p : Std.Rco Int64) : Int64 :=
   match target with
-  | .int64 imm => ret (p.lower + imm)
-  | _ => target.interp p ret
+  | .int64 imm => p.lower + imm
+  | _ => target.interp p
 
 @[kstep] def BitVec.apply_extend (v : BitVec 64) (ext : Extend) :=
   let extended := match ext.type with
@@ -308,11 +308,10 @@ theorem Labels.label!_of_label? {_ : Labels} {l : Label} {a : Int64} (h : label?
   | .ext e =>
     ret (BitVec.ofInt w.bits (e.interp s p))
   | .imm i =>
-    i.imm.interp p (fun imm =>
-      let imm := Int64.toInt imm
-      match i.shift with
-      | .S0 => ret (BitVec.ofInt w.bits imm)
-      | .S12 => ret (BitVec.ofInt w.bits (imm <<< 12)))
+    let imm := Int64.toInt (i.imm.interp p)
+    match i.shift with
+    | .S0 => ret (BitVec.ofInt w.bits imm)
+    | .S12 => ret (BitVec.ofInt w.bits (imm <<< 12))
 
 @[kstep] def ShiftRegExpr.interp {w} (expr : ShiftRegExpr w) (s : Reg64s) (_ : Std.Rco Int64) : w.type :=
   let base := s.getRegOrZr expr.reg
@@ -329,14 +328,13 @@ theorem Labels.label!_of_label? {_ : Labels} {l : Label} {a : Int64} (h : label?
   | .reg r =>
     ret (BitVec.ofInt 64 ((s.regs.getRegOrSp mem.base).signed + r.interp s.regs p)) s
   | .imm i =>
-    i.imm.interp p (fun off =>
-      ret
-        (match i.index with
-          | some .Post => BitVec.ofInt 64 (s.regs.getRegOrSp mem.base).signed
-          | _ => BitVec.ofInt 64 ((s.regs.getRegOrSp mem.base).signed + Int64.toInt off))
-        (match i.index with
-          | some _ => { s with regs := s.regs.setRegOrSp mem.base (BitVec.ofInt 64 ((s.regs.getRegOrSp mem.base).signed + Int64.toInt off)) }
-          | none => s))
+    ret
+      (match i.index with
+        | some .Post => BitVec.ofInt 64 (s.regs.getRegOrSp mem.base).signed
+        | _ => BitVec.ofInt 64 ((s.regs.getRegOrSp mem.base).signed + Int64.toInt (i.imm.interp p)))
+      (match i.index with
+        | some _ => { s with regs := s.regs.setRegOrSp mem.base (BitVec.ofInt 64 ((s.regs.getRegOrSp mem.base).signed + Int64.toInt (i.imm.interp p))) }
+        | none => s)
 
 -- AArch64 mandates 16-byte alignment when accessing memory through SP.
 @[kstep] def AddrExpr.checkSPAlignment (mem : AddrExpr) (s : MachineData) (ok : Unit → Effects) : Effects :=
@@ -361,8 +359,7 @@ theorem Labels.label!_of_label? {_ : Labels} {l : Label} {a : Int64} (h : label?
 
 @[kstep] def UnscaledAddrExpr.eval (mem : UnscaledAddrExpr) (s : MachineData) (p : Std.Rco Int64)
     (ret : BitVec 64 → Effects) : Effects :=
-  mem.imm.interp p (fun off =>
-    ret (BitVec.ofInt 64 ((s.regs.getRegOrSp mem.base).signed + Int64.toInt off)))
+  ret (BitVec.ofInt 64 ((s.regs.getRegOrSp mem.base).signed + Int64.toInt (mem.imm.interp p)))
 
 -- AArch64 mandates 16-byte alignment when accessing memory through SP.
 @[kstep] def UnscaledAddrExpr.checkSPAlignment (mem : UnscaledAddrExpr) (s : MachineData) (ok : Unit → Effects) : Effects :=
@@ -388,13 +385,11 @@ theorem Labels.label!_of_label? {_ : Labels} {l : Label} {a : Int64} (h : label?
 @[kstep] def Literal.interpLoad {w : MemWidth} (expr : Literal) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → MachineData → Effects) : Effects :=
   match expr with
   | .addr addr_expr => -- Load from address.
-    .resolve_label addr_expr.label (fun addr_val =>
-      let addr := BitVec.ofInt 64 (Int64.toInt addr_val)
-      s.load addr w ret)
+    let addr := BitVec.ofInt 64 (Int64.toInt (label addr_expr.label))
+    s.load addr w ret
   | .pool litpool_expr => -- Bypass loading and return value directly.
-    litpool_expr.expr.interp p (fun val =>
-      let val_bv : w.type := BitVec.ofInt w.bits (Int64.toInt val)
-      ret val_bv s)
+    let val_bv : w.type := BitVec.ofInt w.bits (Int64.toInt (litpool_expr.expr.interp p))
+    ret val_bv s
 
 @[kstep] def AddrOrLit.interpLoad {w : MemWidth} (expr : AddrOrLit) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → MachineData → Effects) :=
   match expr with
@@ -704,10 +699,9 @@ set_option maxHeartbeats 1000000
     s.setRegOrZr dst res next
   | .AND_i dst src1 imm =>
     let val1 := s.regs.getRegOrZr src1
-    imm.interp p (fun imm =>
-      let val2 := BitVec.ofInt w.bits (Int64.toInt imm)
-      let res := val1 &&& val2
-      s.setRegOrSp dst res next)
+    let val2 := BitVec.ofInt w.bits (Int64.toInt (imm.interp p))
+    let res := val1 &&& val2
+    s.setRegOrSp dst res next
   | .AND_s dst src1 src2 =>
     let val1 := s.regs.getRegOrZr src1
     let val2 := src2.interp s.regs p
@@ -715,11 +709,10 @@ set_option maxHeartbeats 1000000
     s.setRegOrZr dst res next
   | .ANDS_i dst src1 imm =>
     let val1 := s.regs.getRegOrZr src1
-    imm.interp p (fun imm =>
-      let val2 := BitVec.ofInt w.bits (Int64.toInt imm)
-      let res := val1 &&& val2
-      let flags := StatusFlags.from_result res { c := false, v := false }
-      { s with status := flags }.setRegOrZr dst res next)
+    let val2 := BitVec.ofInt w.bits (Int64.toInt (imm.interp p))
+    let res := val1 &&& val2
+    let flags := StatusFlags.from_result res { c := false, v := false }
+    { s with status := flags }.setRegOrZr dst res next
   | .ANDS_s dst src1 src2 =>
     let val1 := s.regs.getRegOrZr src1
     let val2 := src2.interp s.regs p
@@ -728,10 +721,9 @@ set_option maxHeartbeats 1000000
     { s with status := flags }.setRegOrZr dst res next
   | .ORR_i dst src1 imm =>
     let val1 := s.regs.getRegOrZr src1
-    imm.interp p (fun imm =>
-      let val2 := BitVec.ofInt w.bits (Int64.toInt imm)
-      let res := val1 ||| val2
-      s.setRegOrSp dst res next)
+    let val2 := BitVec.ofInt w.bits (Int64.toInt (imm.interp p))
+    let res := val1 ||| val2
+    s.setRegOrSp dst res next
   | .ORR_s dst src1 src2 =>
     let val1 := s.regs.getRegOrZr src1
     let val2 := src2.interp s.regs p
@@ -744,10 +736,9 @@ set_option maxHeartbeats 1000000
     s.setRegOrZr dst res next
   | .EOR_i dst src1 imm =>
     let val1 := s.regs.getRegOrZr src1
-    imm.interp p (fun imm =>
-      let val2 := BitVec.ofInt w.bits (Int64.toInt imm)
-      let res := val1 ^^^ val2
-      s.setRegOrSp dst res next)
+    let val2 := BitVec.ofInt w.bits (Int64.toInt (imm.interp p))
+    let res := val1 ^^^ val2
+    s.setRegOrSp dst res next
   | .EOR_s dst src1 src2 =>
     let val1 := s.regs.getRegOrZr src1
     let val2 := src2.interp s.regs p
@@ -819,22 +810,19 @@ set_option maxHeartbeats 1000000
     let res := if lsb == 0 then val2 else (val1 <<< (w.bits - lsb)) ||| (val2 >>> lsb)
     s.setRegOrZr dst res next
   | .MOVZ dst imm shift =>
-    imm.interp p (fun imm =>
-      let val16 := (BitVec.ofInt w.bits (Int64.toInt imm)) &&& 0xFFFF#w.bits
-      let res := val16 <<< shift.toNat
-      s.setRegOrZr dst res next)
+    let val16 := (BitVec.ofInt w.bits (Int64.toInt (imm.interp p))) &&& 0xFFFF#w.bits
+    let res := val16 <<< shift.toNat
+    s.setRegOrZr dst res next
   | .MOVK dst imm shift =>
     let oldVal := s.regs.getRegOrZr dst
     let mask := ~~~(0xFFFF#w.bits <<< shift.toNat)
-    imm.interp p (fun imm =>
-      let val16 := (BitVec.ofInt w.bits (Int64.toInt imm)) &&& 0xFFFF#w.bits
-      let res := (oldVal &&& mask) ||| (val16 <<< shift.toNat)
-      s.setRegOrZr dst res next)
+    let val16 := (BitVec.ofInt w.bits (Int64.toInt (imm.interp p))) &&& 0xFFFF#w.bits
+    let res := (oldVal &&& mask) ||| (val16 <<< shift.toNat)
+    s.setRegOrZr dst res next
   | .MOVN dst imm shift =>
-    imm.interp p (fun imm =>
-      let val16 := (BitVec.ofInt w.bits (Int64.toInt imm)) &&& 0xFFFF#w.bits
-      let res := ~~~(val16 <<< shift.toNat)
-      s.setRegOrZr dst res next)
+    let val16 := (BitVec.ofInt w.bits (Int64.toInt (imm.interp p))) &&& 0xFFFF#w.bits
+    let res := ~~~(val16 <<< shift.toNat)
+    s.setRegOrZr dst res next
   | .LSLV dst src1 src2 =>
     let val1 := s.regs.getRegOrZr src1
     let val2 := s.regs.getRegOrZr src2
@@ -908,23 +896,21 @@ set_option maxHeartbeats 1000000
         StatusFlags.ofNat nzcv
     next { s with status := status' }
   | .ADR dst target =>
-    target.evalBranchTarget p (fun targetVal =>
-      let val := BitVec.ofInt 64 (Int64.toInt targetVal)
-      s.setRegOrZr dst val next)
+    let val := BitVec.ofInt 64 (Int64.toInt (target.evalBranchTarget p))
+    s.setRegOrZr dst val next
   | .ADRP dst target =>
-    target.evalBranchTarget p (fun targetVal =>
-      let val := BitVec.ofInt 64 (Int64.toInt targetVal)
-      s.setRegOrZr dst (val &&& ~~~0xFFF#64) next)
+    let val := BitVec.ofInt 64 (Int64.toInt (target.evalBranchTarget p))
+    s.setRegOrZr dst (val &&& ~~~0xFFF#64) next
   | .B target =>
-    target.evalBranchTarget p (jmp · s)
+    jmp (target.evalBranchTarget p) s
   | .B_cond cond target =>
     if cond.interp s.status then
-      target.evalBranchTarget p (jmp · s)
+      jmp (target.evalBranchTarget p) s
     else
       next s
   | .BL target =>
     let lr_val := BitVec.ofInt 64 (Int64.toInt p.upper)
-    s.setRegOrZr RegOrZr.X30 lr_val (fun s' => target.evalBranchTarget p (jmp · s'))
+    s.setRegOrZr RegOrZr.X30 lr_val (fun s' => jmp (target.evalBranchTarget p) s')
   | .BLR target =>
     let lr_val := BitVec.ofInt 64 (Int64.toInt p.upper)
     let target_val := Int64.ofInt (s.regs.getRegOrZr target).signed
@@ -938,25 +924,25 @@ set_option maxHeartbeats 1000000
   | .CBZ reg target =>
     let val := s.regs.getRegOrZr reg
     if val == 0 then
-      target.evalBranchTarget p (jmp · s)
+      jmp (target.evalBranchTarget p) s
     else
       next s
   | .CBNZ reg target =>
     let val := s.regs.getRegOrZr reg
     if val != 0 then
-      target.evalBranchTarget p (jmp · s)
+      jmp (target.evalBranchTarget p) s
     else
       next s
   | .TBZ reg bit target =>
     let val := s.regs.getRegOrZr reg
     if val.getLsbD bit == false then
-      target.evalBranchTarget p (jmp · s)
+      jmp (target.evalBranchTarget p) s
     else
       next s
   | .TBNZ reg bit target =>
     let val := s.regs.getRegOrZr reg
     if val.getLsbD bit == true then
-      target.evalBranchTarget p (jmp · s)
+      jmp (target.evalBranchTarget p) s
     else
       next s
   | .NOP => next s
@@ -988,8 +974,6 @@ def Directives.interp
     directive.interp s (.mk pc (pc+.ofNat sz)) (jmp:=ret) (next := (fun s =>
     interp ds s (pc+.ofNat sz) ret))
 
-open Kraken (Layout)
-
 theorem inert_of_size_zero {prog : Program} {layout : Layout} {i : Nat} {d : Directive}
     (hd : prog[i]? = some d) (hz : layout.dirSize prog i = 0) (s : MachineData) (p : Std.Rco Int64)
     (next : MachineData → Effects) (jmp : Int64 → MachineData → Effects) :
@@ -1002,30 +986,35 @@ theorem inert_of_size_zero {prog : Program} {layout : Layout} {i : Nat} {d : Dir
   | byteArray bs => simp [Directive.interp, ByteArray.isEmpty, show bs.size = 0 from hz]
   | word bytes _ => simp [Directive.interp, show bytes = 0 from hz]
 
+def Executable.step (e : Executable) (s : MachineState) (ret : MachineState → Effects) : Effects :=
+  Directives.interp (e.directivesAtAddress s.pc) s.data s.pc (fun pc s => ret ⟨s, pc⟩)
+
+end
+
+def Executable.label? (e : Executable) (l : Label) : Option Int64 :=
+  e.withAddresses.findSome?
+    (fun {directive, addr, ..} => if directive = .label l then .some addr else .none)
+
 @[instance_reducible]
-def Executable.labels (e : Executable) : Labels :=
-  { label? l := e.withAddresses.findSome?
-      (fun {directive, addr, ..} => if directive = .label l then .some addr else .none) }
+def Labels.update (fallback : Labels) (e : Executable) : Labels where
+  label l := (e.label? l).getD (fallback.label l)
+
+abbrev Labels.ofExecutable (e : Executable) : Labels :=
+  Labels.empty.update e
 
 def Executable.directivesFromLabel (e : Executable) (l : Label) : List (Kraken.Sized Directive) :=
   e.program.dropWhile (·.directive != .label l)
 
-def Executable.step (e : Executable) (s : MachineState) (ret : MachineState → Effects) : Effects :=
-  Directives.interp (e.directivesAtAddress s.pc) s.data s.pc (fun pc s => ret ⟨s, pc⟩)
-
 -- -- Concrete evaluators for expedient testing
 
 partial def Executable.eval (e : Executable) (s : MachineState) (until_ : MachineState → Bool) : Except String (MachineState) :=
+  letI := Labels.ofExecutable e
   if until_ s then .ok s else handleEffects (Executable.step e s .done)
 where
   handleEffects es :=
     match es with
     | .done s => eval e s until_
     | .unimplemented msg => .error msg
-    | .resolve_label lbl k =>
-      match e.labels.label? lbl with
-      | .some a => handleEffects (k a)
-      | .none => .error s!"unresolved label: {lbl}"
     | .require_read_access _ _ ok => handleEffects (ok ())
     | .require_write_access _ _ ok => handleEffects (ok ())
     | .require_exec_access _ ok => handleEffects (ok ())
@@ -1059,8 +1048,8 @@ abbrev eval (prog : Program) (layout : Layout) := Executable.eval (layout.apply 
     .instr ⟨.W64, .STR .X1 { base := .SP, off := 0 }⟩,
     .instr ⟨.W64, .LDR .X2 (.addr { base := .SP, off := 0 })⟩]
   let exe := Program.fakeLayout prog
-  let := exe.labels
-  let start := label! "main"
+  let := Labels.ofExecutable exe
+  let start := label "main"
   let data : MachineData := { dmem := Mem.storeInt {} 0x100 8 42, regs := {SP := 0x100} }
   (Executable.eval exe {data, pc := start} (fun st => st.pc = exe.addrOf prog.length)).bind (fun s => .ok s.1.regs.X2)
 
@@ -1071,8 +1060,8 @@ abbrev eval (prog : Program) (layout : Layout) := Executable.eval (layout.apply 
     .label "main",
     .instr ⟨.W64, .LDR .X1 (.addr { base := .SP, off := .imm { imm := 8, index := some .Pre } })⟩ ]
   let exe := Program.fakeLayout prog
-  let := exe.labels
-  let start := label! "main"
+  let := Labels.ofExecutable exe
+  let start := label "main"
   let data : MachineData := { dmem := Mem.storeInt {} 0x108 8 42, regs := { SP := 0x100 } }
   (Executable.eval exe {data, pc := start} (fun st => st.pc = exe.addrOf prog.length)).bind (fun s => .ok (s.1.regs.X1, s.1.regs.SP))
 
@@ -1083,8 +1072,8 @@ abbrev eval (prog : Program) (layout : Layout) := Executable.eval (layout.apply 
     .label "main",
     .instr ⟨.W64, .STR .X1 { base := .SP, off := .imm { imm := 8, index := some .Post } }⟩ ]
   let exe := Program.fakeLayout prog
-  let := exe.labels
-  let start := label! "main"
+  let := Labels.ofExecutable exe
+  let start := label "main"
   let data : MachineData := { dmem := Mem.storeInt {} 0x100 8 0, regs := { SP := 0x100, X1 := 42 } }
   (Executable.eval exe {data, pc := start} (fun st => st.pc = exe.addrOf prog.length)).bind (fun s =>
     match Mem.loadInt s.1.dmem 0x100 8 with
