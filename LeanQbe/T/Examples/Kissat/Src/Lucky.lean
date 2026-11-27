@@ -15,8 +15,7 @@ Mirrors upstream `kissat/src/lucky.c` (`4` live functions, DAG level `L6`):
 - `full_lucky_ord_fid` (R4: `kissat_lucky_order`)
 - `full_lucky_scan` (R4: `kissat_lucky_scan`)
 - `full_lucky_polar_m7` (R4: `kissat_lucky_polar`)
-- `full_lucky_late_m7` (R4: `kissat_lucky`)
--/
+- `full_lucky_late_m7` (R4: `kissat_lucky`)-/
 
 set_option autoImplicit false
 
@@ -30,11 +29,11 @@ open LeanQbe.T.Examples.Kissat.Src
 kissat_c0! lucky "
 #include \"kissat_internal.h\"
 
-extern u32 full_arena_next(FullHdr *h, u32 cref);
-extern void full_assign(FullHdr *h, u32 lit, u32 rsn);
 extern void full_backtrack(FullHdr *h, u64 target_lvl);
+extern void full_assign(FullHdr *h, u32 lit, u32 rsn);
 extern u64 full_propagate(FullHdr *h);
-extern u64 full_analyze(FullHdr *h);
+extern u64 full_analyze_m6_hdr(FullHdr *h);
+extern u32 full_arena_next(FullHdr *h, u32 cref);
 
 u64 full_lucky_ord_fid(FullHdr *h) {
   u64 cv = h->cur_vars;
@@ -156,7 +155,7 @@ u64 full_lucky_scan(FullHdr *h, bool pos_mode, bool fwd) {
           if (pr2 == 2ULL) { full_backtrack(h, 0ULL); return 2ULL; }
           if (pr2 == 1ULL) { full_backtrack(h, 0ULL); return 0ULL; }
         } else {
-          u64 ast = full_analyze(h);
+          u64 ast = full_analyze_m6_hdr(h);
           if (ast == 20ULL) { return 20ULL; }
           if (ast != 1ULL) { full_backtrack(h, 0ULL); return 2ULL; }
           u64 pr3 = full_propagate(h);

@@ -6,6 +6,7 @@ module
 
 public import LeanQbe.T.Examples.Kissat.Src.Header
 public import LeanQbe.T.Examples.Kissat.Src.Config
+public import LeanQbe.T.Examples.Kissat.Src.Float64
 public import LeanQbe.T.Examples.Kissat.Src.Tiers
 public import LeanQbe.T.InterpKissat
 public import LeanQbe.T.PrintCpp
@@ -13,6 +14,7 @@ public import LeanQbe.T.PrintQbe
 public import LeanQbe.T.Legal
 meta import LeanQbe.T.Examples.Kissat.Src.Header
 meta import LeanQbe.T.Examples.Kissat.Src.Config
+meta import LeanQbe.T.Examples.Kissat.Src.Float64
 meta import LeanQbe.T.Examples.Kissat.Src.Tiers
 meta import LeanQbe.T.InterpKissat
 meta import LeanQbe.T.PrintCpp
@@ -25,7 +27,7 @@ meta import LeanQbe.T.Legal
 1. Exact upstream `kissat/src/config.c` bitmask & option parity checks across all `5` presets
    (`default`, `plain`, `basic`, `sat`, `unsat`) and all `13` `--plain` options.
 2. `checkAcyclic`, `PrintCpp`, `PrintQbe`, and 4-ISA `Fn.legal` checks on `Config.fns` and
-   closed `Tiers.fns ++ Config.fns`.
+   closed `Float64.fns ++ Tiers.fns ++ Config.fns`.
 3. `InterpKissat` execution `#guard`s verifying runtime presets on a `3,456`-byte `FullM6Hdr`.
 4. Headline `fns_wf` / `checkAcyclic` theorems and single-line `#print axioms` (`<= std3`,
    `< 115c`).
@@ -136,7 +138,7 @@ private def basic3DisabledFlags : List (BitVec 64) :=
 /-! ## 2. Module Acyclicity, Codegen & 4-ISA Legalization `#guard`s -/
 
 @[expose] def closedCfgModule : LeanQbe.T.Module :=
-  { fns := Tiers.fns ++ Config.fns, externs := [], exits := [] }
+  { fns := Float64.fns ++ Tiers.fns ++ Config.fns, externs := [], exits := [] }
 
 #guard Config.fns.length == 17
 #guard (Config.fns.map Fn.name).eraseDups.length == 17
@@ -147,7 +149,10 @@ private def basic3DisabledFlags : List (BitVec 64) :=
 #guard (ppTModule configModule).isOk
 #guard (PrintQbe.module configModule).isOk
 #guard (ppTModule closedCfgModule).isOk
-#guard (PrintQbe.module closedCfgModule).isOk
+#guard match PrintQbe.module closedCfgModule with
+  | .error msg =>
+    msg == "PrintQbe: function $u64_mul128 returns 2 values; stock QBE supports at most 1"
+  | .ok _ => false
 #guard (ppModule (Config.fns.map (Fn.legal .aarch64))).isOk
 #guard (ppModule (Config.fns.map (Fn.legal .scalar64))).isOk
 #guard (ppModule (Config.fns.map (Fn.legal .x64AVX2))).isOk
@@ -251,8 +256,10 @@ theorem cfg_closed_acyclic : closedCfgModule.checkAcyclic = true := by rfl
 
 theorem cfg_closed_wf : ∀ f ∈ closedCfgModule.fns, f.Wf := by
   intro f hf
-  rcases List.mem_append.mp hf with ht | hc
-  · exact Tiers.fns_wf f ht
+  rcases List.mem_append.mp hf with hft | hc
+  · rcases List.mem_append.mp hft with h64 | ht
+    · exact Float64.fns_wf f h64
+    · exact Tiers.fns_wf f ht
   · exact Config.fns_wf f hc
 
 end LeanQbeTest.T.KissatConfigTest

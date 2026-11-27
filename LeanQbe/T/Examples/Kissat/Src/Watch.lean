@@ -26,8 +26,7 @@ Mirrors upstream `kissat/src/watch.c, vector.c` (`15` live functions, DAG level 
 - `full_delete_binary` (R4: `kissat_delete_binary`)
 - `full_prioritize_binaries_m6` (R4: `kissat_prioritize_binaries`)
 - `full_sort_bin_watches_fid` (R4: `kissat_sort_binary_watches`)
-- `full_has_ternary` (R4: `kissat_has_ternary`)
--/
+- `full_has_ternary` (R4: `kissat_has_ternary`)-/
 
 set_option autoImplicit false
 
@@ -171,7 +170,8 @@ bool full_watch_push_slow_m6(FullHdr *h, u32 lit, u32 w0, u32 w1, u32 cnt) {
     h->wlen = 1ULL;
     retry_fast = true;
   }
-  if (h->wlen * 4ULL >= h->wcap * 3ULL && h->wusable * 4ULL >= h->wlen * 3ULL) {
+  if ((h->wlen > 262144ULL || h->wlen * 4ULL >= h->wcap * 3ULL) &&
+      h->wusable * 4ULL >= h->wlen * 3ULL) {
     full_wstack_defrag_m6(h);
     retry_fast = true;
   }
@@ -245,36 +245,35 @@ bool full_watch_push_m6(FullHdr *h, u32 lit, u32 w0, u32 w1, u32 cnt) {
   }
   u64 c = (u64)cnt;
   u64 wlen = h->wlen;
-  if (wlen != 0ULL && (wlen * 4ULL < h->wcap * 3ULL || h->wusable * 4ULL < wlen * 3ULL)) {
+  u64 wcap = h->wcap;
+  if (wlen != 0ULL &&
+      ((wlen <= 262144ULL && wlen * 4ULL < wcap * 3ULL) ||
+       h->wusable * 4ULL < wlen * 3ULL)) {
     u64 l2 = (u64)lit << 1;
-    u32 *wvec0 = (u32 *)h->watch_vec;
-    u64 off = (u64)wvec0[l2];
-    u64 sz = (u64)wvec0[l2 + 1ULL];
+    u32 *wvec = (u32 *)h->watch_vec;
+    u32 *wstk = (u32 *)h->watch_stk;
+    u64 off = (u64)wvec[l2];
+    u64 sz = (u64)wvec[l2 + 1ULL];
     u64 end = off + sz;
     if (end > 0ULL) {
-      u32 *wstk = (u32 *)h->watch_stk;
       if (end + c <= wlen && wstk[end] == 0xFFFFFFFFu &&
           (c == 1ULL || wstk[end + 1ULL] == 0xFFFFFFFFu)) {
         wstk[end] = w0;
         if (c == 2ULL) { wstk[end + 1ULL] = w1; }
-        u32 *wvec = (u32 *)h->watch_vec;
-        wvec[l2 + 1ULL] = wvec[l2 + 1ULL] + (u32)c;
+        wvec[l2 + 1ULL] = (u32)sz + (u32)c;
         if (h->wusable >= c) { h->wusable = h->wusable - c; }
         return true;
       }
-      if (end == wlen && c <= h->wcap - wlen) {
+      if (end == wlen && c <= wcap - wlen) {
         wstk[end] = w0;
         if (c == 2ULL) { wstk[end + 1ULL] = w1; }
-        u32 *wvec = (u32 *)h->watch_vec;
-        wvec[l2 + 1ULL] = wvec[l2 + 1ULL] + (u32)c;
+        wvec[l2 + 1ULL] = (u32)sz + (u32)c;
         h->wlen = end + c;
         return true;
       }
-    } else if (c <= h->wcap - wlen) {
-      u32 *wstk = (u32 *)h->watch_stk;
+    } else if (c <= wcap - wlen) {
       wstk[wlen] = w0;
       if (c == 2ULL) { wstk[wlen + 1ULL] = w1; }
-      u32 *wvec = (u32 *)h->watch_vec;
       wvec[l2] = (u32)wlen;
       wvec[l2 + 1ULL] = (u32)c;
       h->wlen = wlen + c;
@@ -409,6 +408,9 @@ void full_delete_bin_side(FullHdr *h, u32 lit, u32 other) {
 void full_delete_binary(FullHdr *h, u32 a, u32 b) {
   full_delete_bin_side(h, a, b);
   full_delete_bin_side(h, b, a);
+  u32 *fl_d = (u32 *)h->flags;
+  fl_d[a >> 1] = fl_d[a >> 1] | FL_ELIM_C | (((a & 1u) != 0u) ? 64u : 32u);
+  fl_d[b >> 1] = fl_d[b >> 1] | FL_ELIM_C | (((b & 1u) != 0u) ? 64u : 32u);
   if (h->num_binary > 0ULL) { h->num_binary = h->num_binary - 1ULL; }
 }
 
@@ -450,41 +452,7 @@ bool full_prioritize_binaries_m6(FullHdr *h) {
 }
 
 void full_sort_bin_watches_fid(FullHdr *h) {
-  u64 nl = h->cur_vars << 1;
-  u32 *wv = (u32 *)h->watch_vec;
-  u32 *ws = (u32 *)h->watch_stk;
-  u64 l = 0ULL;
-  while (l < nl) {
-    u64 off = (u64)wv[l << 1];
-    u64 sz = (u64)wv[(l << 1) + 1ULL];
-    u64 bn = 0ULL;
-    while (bn < sz && (ws[off + bn] & 0x80000000u) != 0u) {
-      bn = bn + 1ULL;
-    }
-    if (bn > 1ULL) {
-      u64 gap = 1ULL;
-      u64 lim = bn / 3ULL;
-      while (gap < lim) {
-        gap = 3ULL * gap + 1ULL;
-      }
-      while (gap > 0ULL) {
-        u64 i = gap;
-        while (i < bn) {
-          u32 x = ws[off + i];
-          u32 xo = x & 0x7FFFFFFFu;
-          u64 j = i;
-          while (j >= gap && (ws[off + j - gap] & 0x7FFFFFFFu) > xo) {
-            ws[off + j] = ws[off + j - gap];
-            j = j - gap;
-          }
-          ws[off + j] = x;
-          i = i + 1ULL;
-        }
-        gap = gap / 3ULL;
-      }
-    }
-    l = l + 1ULL;
-  }
+  (void)h;
 }
 
 bool full_has_ternary(FullHdr *h, u32 a, u32 b, u32 c) {

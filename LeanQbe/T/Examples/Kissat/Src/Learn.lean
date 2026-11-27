@@ -11,13 +11,11 @@ meta import LeanQbe.T.Examples.Kissat.Src.Header
 /-!
 # Kissat C0 Learned Clause Emission, Eager Subsumption & OOM Recovery (`Src/Learn.lean`)
 
-Mirrors upstream `kissat/src/learn.c` (`5` live functions, DAG level `L4`):
+Mirrors upstream `kissat/src/learn.c` (`4` live functions, DAG level `L4`):
 - `full_det_new_level` (R4: `kissat_determine_new_level`)
 - `full_one_lit_confl` (R4: `kissat_one_literal_on_conflict_level`)
 - `full_eager_subsume` (R4: `kissat_eagerly_subsume_last_learned`)
-- `full_learn_clause` (R4: `kissat_learn_clause_basic`)
-- `full_learn_clause_m6` (R4: `kissat_learn_clause`)
--/
+- `full_learn_clause_m6` (R4: `kissat_learn_clause`)-/
 
 set_option autoImplicit false
 
@@ -31,14 +29,13 @@ open LeanQbe.T.Examples.Kissat.Src
 kissat_c0! learn "
 #include \"kissat_internal.h\"
 
+extern void full_backtrack_ac_fid(FullHdr *h, u64 target_lvl);
+extern void full_assign_lvl(FullHdr *h, u32 lit, u32 rsn, u32 alvl);
 extern void full_wstack_defrag(FullHdr *h);
 extern bool full_watch_push(FullHdr *h, u32 lit, u32 w0, u32 w1, u32 cnt);
 extern void full_unwatch_large(FullHdr *h, u32 lit, u32 cref);
-extern void full_assign_lvl(FullHdr *h, u32 lit, u32 rsn, u32 alvl);
-extern void full_backtrack_ac_fid(FullHdr *h, u64 target_lvl);
-extern u64 full_add_clause(FullHdr *h, u32 len, u32 glue, bool red);
-extern u64 full_reduce(FullHdr *h, bool force);
 extern u64 full_reduce_m6(FullHdr *h, bool force);
+extern u64 full_add_clause(FullHdr *h, u32 len, u32 glue, bool red);
 extern u64 full_reduce_purge_c0(FullHdr *h);
 
 u64 full_det_new_level(FullHdr *h, u64 jump) {
@@ -64,7 +61,13 @@ u64 full_one_lit_confl(FullHdr *h) {
     u64 jlvl = (la > lb) ? (u64)lb : (u64)la;
     u64 nlvl = full_det_new_level(h, jlvl);
     full_backtrack_ac_fid(h, nlvl);
-    full_assign_lvl(h, forced, (other & PW_LIT_MASK) | PW_BIN_FLAG, (u32)jlvl);
+    u32 jr_ol = (other & PW_LIT_MASK) | PW_BIN_FLAG;
+    if (jlvl > 0ULL) {
+      u32 *rsns_ol = (u32 *)h->reason;
+      u32 nr_ol = rsns_ol[other >> 1];
+      if (nr_ol != 0xFFFFFFFFu && (nr_ol & PW_BIN_FLAG) != 0u) { jr_ol = nr_ol; }
+    }
+    full_assign_lvl(h, forced, jr_ol, (u32)jlvl);
     return 1ULL;
   }
   u32 cref = (u32)h->confl_ref;
@@ -160,6 +163,7 @@ void full_eager_subsume(FullHdr *h, u64 new_ref) {
           if (!act) {
             ar[cr] = hdr | PH_GARB;
             h->arena_garbage = h->arena_garbage + 3ULL + (u64)csz;
+            if (h->num_redundant > 0ULL) { h->num_redundant = h->num_redundant - 1ULL; }
             ll[i] = 0xFFFFFFFFu;
             h->eager_sub_cnt = h->eager_sub_cnt + 1ULL;
             subsumed = true;
@@ -187,118 +191,21 @@ void full_eager_subsume(FullHdr *h, u64 new_ref) {
   }
 }
 
-u64 full_learn_clause(FullHdr *h, u64 glue) {
-  u32 *tmp = (u32 *)h->tmp_lits;
-  u32 *lvl = (u32 *)h->level;
-  i8 *vals = (i8 *)h->values;
-  u32 uip_lit = tmp[0];
-  if (h->tmp_len == 1ULL) {
-    full_backtrack_ac_fid(h, 0ULL);
-    if (vals[uip_lit] != (i8)0) { return 0ULL; }
-    full_assign_lvl(h, uip_lit, 0xFFFFFFFFu, 0u);
-    return 1ULL;
-  }
-  u64 tlen = h->tmp_len;
-  if (tlen > 2ULL) {
-    u64 lo = 1ULL;
-    u64 hi = tlen - 1ULL;
-    while (lo < hi) {
-      u32 sw = tmp[lo]; tmp[lo] = tmp[hi]; tmp[hi] = sw;
-      lo = lo + 1ULL;
-      hi = hi - 1ULL;
-    }
-    u64 rb = 1ULL;
-    while (rb < tlen) {
-      u32 rl = lvl[((u64)tmp[rb]) >> 1];
-      u64 re = rb + 1ULL;
-      while (re < tlen && lvl[((u64)tmp[re]) >> 1] == rl) {
-        re = re + 1ULL;
-      }
-      u64 rl_i = rb;
-      u64 rh_i = re - 1ULL;
-      while (rl_i < rh_i) {
-        u32 sw = tmp[rl_i]; tmp[rl_i] = tmp[rh_i]; tmp[rh_i] = sw;
-        rl_i = rl_i + 1ULL;
-        rh_i = rh_i - 1ULL;
-      }
-      rb = re;
-    }
-  }
-  u64 i = 2ULL;
-  while (i < tlen) {
-    u32 x = tmp[i];
-    u32 lx = lvl[((u64)x) >> 1];
-    u64 j = i;
-    while (j > 1ULL && lvl[((u64)tmp[j - 1ULL]) >> 1] < lx) {
-      tmp[j] = tmp[j - 1ULL];
-      j = j - 1ULL;
-    }
-    tmp[j] = x;
-    i = i + 1ULL;
-  }
-  u64 max_lvl = (u64)lvl[((u64)tmp[1]) >> 1];
-  if (max_lvl >= h->cur_level) { max_lvl = h->cur_level - 1ULL; }
-  u64 nlvl = full_det_new_level(h, max_lvl);
-  full_backtrack_ac_fid(h, nlvl);
-  if (h->arena_len + h->tmp_len + 8ULL > h->arena_cap || h->wcap - h->wlen < 32ULL) {
-    if (h->wusable > 0ULL) { full_wstack_defrag(h); }
-    if (h->arena_len + h->tmp_len + 8ULL > h->arena_cap) {
-      u64 rr = full_reduce(h, true);
-      if (rr == 20ULL) { return 20ULL; }
-      if (rr != 1ULL) { return 0ULL; }
-      if (h->cur_level != nlvl || vals[uip_lit] != (i8)0) { return 1ULL; }
-    }
-  }
-  u64 new_ref = full_add_clause(h, (u32)h->tmp_len, (u32)glue, true);
-  if (new_ref == 0xFFFFFFFFULL || vals[uip_lit] != (i8)0) { return 0ULL; }
-  if (new_ref != 0xFFFFFFFEULL && new_ref < h->arena_len) {
-    u32 *ar = (u32 *)h->arena;
-    ar[new_ref] = ar[new_ref] | (31u << 27);
-  }
-  u32 rsn = (new_ref == 0xFFFFFFFEULL)
-    ? ((tmp[1] & PW_LIT_MASK) | PW_BIN_FLAG) : (u32)new_ref;
-  full_assign_lvl(h, uip_lit, rsn, (u32)max_lvl);
-  full_eager_subsume(h, new_ref);
-  return 1ULL;
-}
-
 u64 full_learn_clause_m6(FullHdr *h, u64 glue) {
   u32 *tmp = (u32 *)h->tmp_lits;
   u32 *lvl = (u32 *)h->level;
   i8 *vals = (i8 *)h->values;
   u32 uip_lit = tmp[0];
   if (h->tmp_len == 1ULL) {
-    full_backtrack_ac_fid(h, 0ULL);
+    u64 nlvl_u = full_det_new_level(h, 0ULL);
+    full_backtrack_ac_fid(h, nlvl_u);
     if (vals[uip_lit] != (i8)0) { return 0ULL; }
     full_assign_lvl(h, uip_lit, 0xFFFFFFFFu, 0u);
+    if (h->probing == 0ULL) { h->iterating = 1ULL; }
+    full_eager_subsume(h, 0xFFFFFFFFULL);
     return 1ULL;
   }
   u64 tlen = h->tmp_len;
-  if (tlen > 2ULL) {
-    u64 lo = 1ULL;
-    u64 hi = tlen - 1ULL;
-    while (lo < hi) {
-      u32 sw = tmp[lo]; tmp[lo] = tmp[hi]; tmp[hi] = sw;
-      lo = lo + 1ULL;
-      hi = hi - 1ULL;
-    }
-    u64 rb = 1ULL;
-    while (rb < tlen) {
-      u32 rl = lvl[((u64)tmp[rb]) >> 1];
-      u64 re = rb + 1ULL;
-      while (re < tlen && lvl[((u64)tmp[re]) >> 1] == rl) {
-        re = re + 1ULL;
-      }
-      u64 rl_i = rb;
-      u64 rh_i = re - 1ULL;
-      while (rl_i < rh_i) {
-        u32 sw = tmp[rl_i]; tmp[rl_i] = tmp[rh_i]; tmp[rh_i] = sw;
-        rl_i = rl_i + 1ULL;
-        rh_i = rh_i - 1ULL;
-      }
-      rb = re;
-    }
-  }
   u64 i = 2ULL;
   while (i < tlen) {
     u32 x = tmp[i];
@@ -343,8 +250,15 @@ u64 full_learn_clause_m6(FullHdr *h, u64 glue) {
     u32 *ar = (u32 *)h->arena;
     ar[new_ref] = ar[new_ref] | (31u << 27);
   }
-  u32 rsn = (new_ref == 0xFFFFFFFEULL)
-    ? ((tmp[1] & PW_LIT_MASK) | PW_BIN_FLAG) : (u32)new_ref;
+  u32 rsn = (u32)new_ref;
+  if (new_ref == 0xFFFFFFFEULL) {
+    rsn = (tmp[1] & PW_LIT_MASK) | PW_BIN_FLAG;
+    if (max_lvl > 0ULL) {
+      u32 *rsns_lc = (u32 *)h->reason;
+      u32 nr_lc = rsns_lc[tmp[1] >> 1];
+      if (nr_lc != 0xFFFFFFFFu && (nr_lc & PW_BIN_FLAG) != 0u) { rsn = nr_lc; }
+    }
+  }
   full_assign_lvl(h, uip_lit, rsn, (u32)max_lvl);
   full_eager_subsume(h, new_ref);
   return 1ULL;

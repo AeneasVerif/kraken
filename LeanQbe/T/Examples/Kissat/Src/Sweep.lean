@@ -11,7 +11,7 @@ meta import LeanQbe.T.Examples.Kissat.Src.Header
 /-!
 # Kissat C0 Bounded SAT Sweeping (`Src/Sweep.lean`)
 
-Mirrors upstream `kissat/src/sweep.c` (`21` live functions, DAG level `L4`):
+Mirrors upstream `kissat/src/sweep.c` (`20` live functions, DAG level `L4`):
 - `full_m6_sweep_cone` (R4: `kissat_sweep_add_cone`)
 - `full_m6_sweep_refine_sig` (R4: `kissat_sweep_refine_signatures`)
 - `full_m6_sweep_rand_phases` (R4: `kissat_sweep_randomize_phases`)
@@ -26,14 +26,12 @@ Mirrors upstream `kissat/src/sweep.c` (`21` live functions, DAG level `L4`):
 - `full_m6_sweep_classes` (R4: `kissat_sweep_equivalence_classes`)
 - `full_m6_els_ar` (R4: `kissat_sweep_substitute_arena`)
 - `full_m6_els_lit` (R4: `kissat_sweep_substitute_literal`)
-- `full_m6_els_fold` (R4: `kissat_sweep_fold_equivalences`)
 - `full_m6_dense_els` (R4: `kissat_sweep_dense_substitute`)
 - `full_m6_sweep_var` (R4: `kissat_sweep_variable`)
 - `full_m6_cand_sift` (R4: `kissat_sweep_candidate_sift`)
 - `full_m6_collect_cands` (R4: `kissat_sweep_collect_candidates`)
 - `full_m6_sweep_vars` (R4: `kissat_sweep_variables`)
-- `full_sweep_dense_m6` (R4: `kissat_sweep`)
--/
+- `full_sweep_dense_m6` (R4: `kissat_sweep`)-/
 
 set_option autoImplicit false
 
@@ -47,18 +45,18 @@ open LeanQbe.T.Examples.Kissat.Src
 kissat_c0! sweep "
 #include \"kissat_internal.h\"
 
-extern bool full_watch_push(FullHdr *h, u32 lit, u32 w0, u32 w1, u32 cnt);
-extern u64 full_add_bin(FullHdr *h, u32 a, u32 b);
-extern bool full_add_unit(FullHdr *h, u32 lit);
-extern void full_set_inactive(FullHdr *h, u32 v, u32 flag);
-extern bool full_extend_push2(FullHdr *h, u32 blk_lit, u32 other);
-extern bool full_m6_dense_prop(FullHdr *h);
 extern u64 full_m6_max_v(u64 cap);
 extern void full_k6_init(FullHdr *h, u32 nv);
 extern bool full_k6_add_clause(FullHdr *h, u32 *lits, u32 sz);
 extern u64 full_k6_solve(FullHdr *h, u64 tick_lim);
 extern bool full_k6_flip(FullHdr *h, u32 lit);
+extern bool full_add_unit(FullHdr *h, u32 lit);
 extern void full_k512_add_live_m6(FullHdr *h, u32 a, u32 b);
+extern u32 full_cong_find(u32 *repr, u32 l);
+extern bool full_watch_push(FullHdr *h, u32 lit, u32 w0, u32 w1, u32 cnt);
+extern u64 full_add_bin(FullHdr *h, u32 a, u32 b);
+extern bool full_m6_dense_prop(FullHdr *h);
+extern u64 full_dense_occ_cnt_fid(FullHdr *h, u32 lit, u64 cap);
 
 u64 full_m6_sweep_cone(FullHdr *h, u32 root_v) {
   u32 mv = (u32)full_m6_max_v(h->scratch_cap);
@@ -570,17 +568,23 @@ bool full_m6_els_ar(FullHdr *h, u32 cr, u32 rl) {
   bool chg = false; u32 k = 0u;
   while (k < sz) {
     u32 l = ar[(u64)cr + 3ULL + (u64)k];
-    if ((u64)l < nlits && repr[l] != l) { chg = true; break; }
+    if ((u64)l < nlits && full_cong_find(repr, l) != l) { chg = true; break; }
     k = k + 1u;
   }
   if (!chg) {
     if (!full_watch_push(h, rl, sz & PW_LIT_MASK, cr, 2u)) { h->oom = 1ULL; }
     return true;
   }
+  bool has_rl = false;
+  u32 hk = 0u;
+  while (hk < sz) {
+    if (ar[(u64)cr + 3ULL + (u64)hk] == rl) { has_rl = true; break; }
+    hk = hk + 1u;
+  }
   bool taut = false; u32 nsz = 0u; k = 0u;
   while (k < sz) {
     u32 x = ar[(u64)cr + 3ULL + (u64)k];
-    u32 rx = ((u64)x < nlits) ? repr[x] : x;
+    u32 rx = ((u64)x < nlits) ? full_cong_find(repr, x) : x;
     if ((u64)rx < nlits) {
       if (lm[rx ^ 1u] != (u8)0) { taut = true; break; }
       if (lm[rx] == (u8)0 && (u64)nsz < h->max_vars) {
@@ -609,7 +613,7 @@ bool full_m6_els_ar(FullHdr *h, u32 cr, u32 rl) {
       ar[cr] = hdr | PH_SHRK; ar[(u64)cr + 3ULL + (u64)sz - 1ULL] = 0xFFFFFFFFu;
     }
   }
-  if (!full_watch_push(h, rl, nsz & PW_LIT_MASK, cr, 2u)) { h->oom = 1ULL; }
+  if (!has_rl && !full_watch_push(h, rl, nsz & PW_LIT_MASK, cr, 2u)) { h->oom = 1ULL; }
   return true;
 }
 
@@ -648,7 +652,7 @@ bool full_m6_els_lit(FullHdr *h, u32 l, u32 rl) {
           if (orem && h->num_binary > 0ULL) { h->num_binary = h->num_binary - 1ULL; }
         }
       }
-      u32 rot = ((u64)ot < nlits) ? repr[ot] : ot;
+      u32 rot = ot;
       if ((u64)rot >= nlits || rl == (rot ^ 1u)) { continue; }
       if (rl == rot) { if (!full_add_unit(h, rl)) { return false; } continue; }
       u64 ab = full_add_bin(h, rl, rot);
@@ -666,81 +670,49 @@ bool full_m6_els_lit(FullHdr *h, u32 l, u32 rl) {
   return h->inconsistent == 0ULL;
 }
 
-bool full_m6_els_fold(FullHdr *h, u32 neq) {
-  u32 *repr = (u32 *)h->repr; u32 *eqb = (u32 *)h->work_stk2;
-  u64 cv = h->cur_vars; u64 nlits = cv << 1;
-  u64 i = 0u; while (i < nlits) { repr[i] = (u32)i; i = i + 1ULL; }
-  u64 ei = 0ULL;
-  while (ei < (u64)neq) {
-    u32 a = eqb[ei << 1]; u32 b = eqb[(ei << 1) + 1u];
-    u32 ra = a; u64 ga = cv;
-    while (ga > 0ULL && repr[ra] != ra) { ra = repr[ra]; ga = ga - 1ULL; }
-    u32 rb = b; u64 gb = cv;
-    while (gb > 0ULL && repr[rb] != rb) { rb = repr[rb]; gb = gb - 1ULL; }
-    if (ra == (rb ^ 1u)) { h->inconsistent = 1ULL; return false; }
-    if (ra != rb) {
-      if ((rb >> 1) < (ra >> 1)) { u32 tmp = ra; ra = rb; rb = tmp; }
-      repr[rb] = ra; repr[rb ^ 1u] = ra ^ 1u;
-    }
-    ei = ei + 1ULL;
-  }
-  u64 v = 0ULL;
-  while (v < cv) {
-    u32 pl = (u32)(v << 1); u32 r = repr[pl];
-    if (r != pl) { r = repr[r]; repr[pl] = r; repr[pl | 1u] = r ^ 1u; }
-    v = v + 1ULL;
-  }
-  i8 *vals = (i8 *)h->values; u32 *fl = (u32 *)h->flags;
-  v = 0ULL;
-  while (v < cv) {
-    u32 lit = (u32)(v << 1); u32 rep = repr[lit];
-    if (rep != lit) {
-      i8 vl = vals[lit]; i8 vr = vals[rep];
-      if (vl != (i8)0 && vr == (i8)0) {
-        u32 u = (vl > (i8)0) ? rep : (rep ^ 1u);
-        if (!full_add_unit(h, u)) { return false; }
-      } else if (vr != (i8)0 && vl == (i8)0) {
-        u32 u = (vr > (i8)0) ? lit : (lit ^ 1u);
-        if (!full_add_unit(h, u)) { return false; }
-      } else if (vl != (i8)0 && vl != vr) {
-        h->inconsistent = 1ULL; return false;
-      }
-    }
-    v = v + 1ULL;
-  }
-  v = 0ULL;
-  while (v < cv) {
-    u32 lit = (u32)(v << 1); u32 rep = repr[lit];
-    if (rep != lit) {
-      if ((fl[v] & FL_ACTIVE) == 0u || (fl[rep >> 1] & FL_ACTIVE) == 0u ||
-          vals[lit] != (i8)0 || vals[rep] != (i8)0) {
-        repr[lit] = lit; repr[lit | 1u] = lit | 1u;
-      } else if (h->extend_len + 4ULL <= h->extend_cap) {
-        full_extend_push2(h, lit | 1u, rep);
-        full_extend_push2(h, lit, rep ^ 1u);
-        full_set_inactive(h, (u32)v, FL_SUBST);
-        fl[rep >> 1] = fl[rep >> 1] | FL_SWEEP;
-        h->subst_cnt = h->subst_cnt + 1ULL;
-      } else {
-        repr[lit] = lit; repr[lit | 1u] = lit | 1u;
-      }
-    }
-    v = v + 1ULL;
-  }
-  return true;
-}
-
 bool full_m6_dense_els(FullHdr *h, u32 neq) {
   if (neq == 0u || h->inconsistent != 0ULL) { return h->inconsistent == 0ULL; }
-  if (!full_m6_els_fold(h, neq)) { return false; }
-  u32 *repr = (u32 *)h->repr; u64 cv = h->cur_vars; u64 v = 0ULL;
-  while (v < cv && h->oom == 0ULL && h->inconsistent == 0ULL) {
-    u32 lit = (u32)(v << 1); u32 rl = repr[lit];
-    if (rl != lit) {
-      if (!full_m6_els_lit(h, lit, rl)) { return false; }
-      if (!full_m6_els_lit(h, lit | 1u, rl ^ 1u)) { return false; }
+  u32 *repr = (u32 *)h->repr; u32 *eqb = (u32 *)h->work_stk2;
+  i8 *vals = (i8 *)h->values; u32 *fl = (u32 *)h->flags;
+  u64 cv = h->cur_vars; u64 nlits = cv << 1;
+  u64 ei = 0ULL;
+  while (ei < (u64)neq && h->oom == 0ULL && h->inconsistent == 0ULL) {
+    u32 a = eqb[ei << 1]; u32 b = eqb[(ei << 1) + 1u];
+    ei = ei + 1ULL;
+    if ((u64)a >= nlits || (u64)b >= nlits) { continue; }
+    u32 ra = full_cong_find(repr, a);
+    u32 rb = full_cong_find(repr, b);
+    if (ra == rb) { continue; }
+    if (ra == (rb ^ 1u)) { h->inconsistent = 1ULL; return false; }
+    if (rb < ra) { u32 tmp = ra; ra = rb; rb = tmp; }
+    i8 va = vals[ra]; i8 vb = vals[rb];
+    if (va != (i8)0 && vb != (i8)0) {
+      if (va != vb) { h->inconsistent = 1ULL; return false; }
+      continue;
     }
-    v = v + 1ULL;
+    if (va != (i8)0) {
+      u32 u = (va > (i8)0) ? rb : (rb ^ 1u);
+      if (!full_add_unit(h, u)) { return false; }
+      continue;
+    }
+    if (vb != (i8)0) {
+      u32 u = (vb > (i8)0) ? ra : (ra ^ 1u);
+      if (!full_add_unit(h, u)) { return false; }
+      continue;
+    }
+    if ((fl[ra >> 1] & FL_ACTIVE) == 0u || (fl[rb >> 1] & FL_ACTIVE) == 0u) { continue; }
+    repr[rb] = ra;
+    repr[rb ^ 1u] = ra ^ 1u;
+    fl[rb >> 1] = fl[rb >> 1] & (~(FL_SWEEP | 0x40000000u | 0x20000000u));
+    h->sweep_cnt = h->sweep_cnt + 1ULL;
+    if (!full_m6_els_lit(h, rb, ra)) { return false; }
+    if (!full_m6_els_lit(h, rb ^ 1u, ra ^ 1u)) { return false; }
+    u64 ab1 = full_add_bin(h, rb | 0u, ra ^ 1u);
+    if (ab1 == 20ULL) { return false; }
+    if (ab1 == 2ULL) { h->oom = 1ULL; return true; }
+    u64 ab2 = full_add_bin(h, rb ^ 1u, ra);
+    if (ab2 == 20ULL) { return false; }
+    if (ab2 == 2ULL) { h->oom = 1ULL; return true; }
   }
   if (h->inconsistent != 0ULL) { return false; }
   return full_m6_dense_prop(h);
@@ -749,6 +721,8 @@ bool full_m6_dense_els(FullHdr *h, u32 neq) {
 u64 full_m6_sweep_var(FullHdr *h, u32 root_v, u64 tick_lim) {
   u32 mv = (u32)full_m6_max_v(h->scratch_cap);
   if (mv == 0u) { return 1ULL; }
+  u32 *s_repr = (u32 *)h->repr;
+  if (full_cong_find(s_repr, root_v << 1) != (root_v << 1)) { return 1ULL; }
   u64 pk = full_m6_sweep_cone(h, root_v);
   u32 nv = (u32)(pk & 0xFFFFULL); u32 nc = (u32)(pk >> 16);
   u32 *cone_v = (u32 *)h->work_stk1; u32 *tmk = (u32 *)h->tarjan_mark;
@@ -811,8 +785,8 @@ u32 full_m6_collect_cands(FullHdr *h) {
     u64 v = cur + step;
     if (v >= cv) { v = v - cv; }
     if ((fl[v] & (FL_ACTIVE | FL_SWEEP)) == (FL_ACTIVE | FL_SWEEP) && vals[v << 1] == (i8)0) {
-      u64 dp = (u64)wvec[((v << 1) << 1) + 1ULL];
-      u64 dn = (u64)wvec[(((v << 1) | 1ULL) << 1) + 1ULL];
+      u64 dp = full_dense_occ_cnt_fid(h, (u32)(v << 1), max_occ);
+      u64 dn = full_dense_occ_cnt_fid(h, (u32)((v << 1) | 1ULL), max_occ);
       if (dp > 0ULL && dn > 0ULL && dp <= max_occ && dn <= max_occ) {
         u64 d = dp + dn;
         u32 d32 = (d > 0x3FFFFFFFULL) ? 0x3FFFFFFFu : (u32)d;
@@ -840,6 +814,7 @@ u32 full_m6_collect_cands(FullHdr *h) {
 
 u64 full_m6_sweep_vars(FullHdr *h, u64 budget, u64 tick_lim) {
   u32 *gu = (u32 *)h->glue_used;
+  gu[33] = 0xFFFFFFFFu;
   gu[SWP_GU_SWEPT] = 0u;
   u32 mv = (u32)full_m6_max_v(h->scratch_cap);
   if (mv == 0u || budget == 0ULL || tick_lim == 0ULL) { return 1ULL; }
@@ -857,8 +832,8 @@ u64 full_m6_sweep_vars(FullHdr *h, u64 budget, u64 tick_lim) {
       if ((fl[v] & (FL_ACTIVE | FL_SWEEP | FL_SWEEP_INC)) ==
           (FL_ACTIVE | FL_SWEEP | FL_SWEEP_INC)) {
         if (vals[v << 1] == (i8)0) {
-          u64 dp = (u64)wvec[((v << 1) << 1) + 1ULL];
-          u64 dn = (u64)wvec[(((v << 1) | 1ULL) << 1) + 1ULL];
+          u64 dp = full_dense_occ_cnt_fid(h, (u32)(v << 1), max_occ);
+          u64 dn = full_dense_occ_cnt_fid(h, (u32)((v << 1) | 1ULL), max_occ);
           if (dp > 0ULL && dn > 0ULL && dp <= max_occ && dn <= max_occ) {
             rem_inc = rem_inc + 1ULL;
           } else {
@@ -884,8 +859,8 @@ u64 full_m6_sweep_vars(FullHdr *h, u64 budget, u64 tick_lim) {
     u64 v = 0ULL;
     while (v < cv) {
       if ((fl[v] & FL_ACTIVE) != 0u && vals[v << 1] == (i8)0) {
-        u64 dp = (u64)wvec[((v << 1) << 1) + 1ULL];
-        u64 dn = (u64)wvec[(((v << 1) | 1ULL) << 1) + 1ULL];
+        u64 dp = full_dense_occ_cnt_fid(h, (u32)(v << 1), max_occ);
+        u64 dn = full_dense_occ_cnt_fid(h, (u32)((v << 1) | 1ULL), max_occ);
         if (dp > 0ULL && dn > 0ULL && dp <= max_occ && dn <= max_occ) {
           fl[v] = (fl[v] & (~FL_SWEEP_INR)) | FL_SWEEP | FL_SWEEP_INC;
         } else {
@@ -899,55 +874,46 @@ u64 full_m6_sweep_vars(FullHdr *h, u64 budget, u64 tick_lim) {
     gu[SWP_GU_INCOMPLETE] = 1u;
     gu[SWP_GU_CURSOR] = 0u;
   }
+  u32 *rp_arr = (u32 *)h->repr;
+  u64 nlits_sw = cv << 1;
+  u64 ri_sw = 0ULL;
+  while (ri_sw < nlits_sw) { rp_arr[ri_sw] = (u32)ri_sw; ri_sw = ri_sw + 1ULL; }
   u32 *cands = (u32 *)h->tarjan_reach;
   u32 *k = ((u32 *)h->scratch_buf) + (1280u + (mv << 1));
-  u32 *eqb = (u32 *)h->work_stk2; u32 *rp_arr = (u32 *)h->repr;
+  u32 *eqb = (u32 *)h->work_stk2;
   u64 rem_ticks = (tick_lim > 0xFFFFFFFFULL) ? 0xFFFFFFFFULL : tick_lim;
-  u64 rem_b = budget; u32 pass = 0u;
-  while (pass < 8u && rem_b > 0ULL && rem_ticks > 0ULL &&
+  u64 rem_b = budget;
+  u32 nc = full_m6_collect_cands(h);
+  u32 ci = 0u;
+  while (ci < nc && rem_b > 0ULL && rem_ticks > 0ULL &&
          h->oom == 0ULL && h->fuel > 0ULL && h->inconsistent == 0ULL) {
-    u32 nc = full_m6_collect_cands(h);
-    if (nc == 0u) { break; }
-    u32 ci = 0u; u32 isz = 0u;
-    while (rem_b > 0ULL && rem_ticks > 0ULL &&
-           h->oom == 0ULL && h->fuel > 0ULL && h->inconsistent == 0ULL) {
-      u32 v = 0u;
-      if (isz > 0u) {
-        isz = isz - 1u;
-        v = cands[cv + (u64)isz];
-      } else if (ci < nc) {
-        v = cands[ci]; ci = ci + 1u;
-        gu[SWP_GU_CURSOR] = ((u64)v + 1ULL < cv) ? (v + 1u) : 0u;
-      } else {
-        break;
-      }
-      if ((fl[v] & (FL_ACTIVE | FL_SWEEP)) == (FL_ACTIVE | FL_SWEEP) && vals[v << 1] == (i8)0) {
-        fl[v] = fl[v] & (~(FL_SWEEP | FL_SWEEP_INC | FL_SWEEP_INR));
-        rem_b = rem_b - 1ULL;
-        u64 sub0 = h->subst_cnt;
-        if (full_m6_sweep_var(h, v, rem_ticks) == 20ULL) { return 20ULL; }
-        if (h->propagated < h->trail_end && !full_m6_dense_prop(h)) { return 20ULL; }
-        u64 spent = (u64)k[K6H_TICKS];
-        rem_ticks = (spent >= rem_ticks) ? 0ULL : (rem_ticks - spent);
-        if (h->subst_cnt > sub0) {
-          u32 neq = k[K6H_NEQ]; u32 ei = 0u; u64 nlits = cv << 1;
-          while (ei < neq && (u64)ei < cv) {
-            u32 lit = eqb[ei << 1];
-            if ((u64)lit < nlits) {
-              u32 rv = rp_arr[lit] >> 1;
-              if ((u64)rv < cv && (fl[rv] & FL_ACTIVE) != 0u && vals[rv << 1] == (i8)0) {
-                if ((fl[rv] & FL_SWEEP_INR) == 0u && (u64)isz < cv) {
-                  cands[cv + (u64)isz] = rv; isz = isz + 1u;
-                }
-                fl[rv] = fl[rv] | FL_SWEEP | FL_SWEEP_INR;
+    u32 v = cands[ci]; ci = ci + 1u;
+    gu[SWP_GU_CURSOR] = ((u64)v + 1ULL < cv) ? (v + 1u) : 0u;
+    if ((fl[v] & (FL_ACTIVE | FL_SWEEP)) == (FL_ACTIVE | FL_SWEEP) && vals[v << 1] == (i8)0) {
+      fl[v] = fl[v] & (~(FL_SWEEP | FL_SWEEP_INC | FL_SWEEP_INR));
+      rem_b = rem_b - 1ULL;
+      u64 sw0 = h->sweep_cnt;
+      if (full_m6_sweep_var(h, v, rem_ticks) == 20ULL) { return 20ULL; }
+      if (h->propagated < h->trail_end && !full_m6_dense_prop(h)) { return 20ULL; }
+      u64 spent = (u64)k[K6H_TICKS];
+      rem_ticks = (spent >= rem_ticks) ? 0ULL : (rem_ticks - spent);
+      if (h->sweep_cnt > sw0) {
+        u32 neq = k[K6H_NEQ]; u32 ei = 0u;
+        while (ei < neq && (u64)ei < cv) {
+          u32 lit = eqb[ei << 1];
+          if ((u64)lit < nlits_sw) {
+            u32 rv = full_cong_find(rp_arr, lit) >> 1;
+            if ((u64)rv < cv && (fl[rv] & FL_ACTIVE) != 0u && vals[rv << 1] == (i8)0) {
+              if ((fl[rv] & FL_SWEEP_INR) == 0u && (u64)nc < (cv << 1)) {
+                cands[nc] = rv; nc = nc + 1u;
               }
+              fl[rv] = fl[rv] | FL_SWEEP | FL_SWEEP_INR;
             }
-            ei = ei + 1u;
           }
+          ei = ei + 1u;
         }
       }
     }
-    pass = pass + 1u;
   }
   if (h->inconsistent != 0ULL) { return 20ULL; }
   u64 left_inc = 0ULL; u64 v = 0ULL;
@@ -955,8 +921,8 @@ u64 full_m6_sweep_vars(FullHdr *h, u64 budget, u64 tick_lim) {
     if ((fl[v] & (FL_ACTIVE | FL_SWEEP | FL_SWEEP_INC)) ==
         (FL_ACTIVE | FL_SWEEP | FL_SWEEP_INC)) {
       if (vals[v << 1] == (i8)0) {
-        u64 dp = (u64)wvec[((v << 1) << 1) + 1ULL];
-        u64 dn = (u64)wvec[(((v << 1) | 1ULL) << 1) + 1ULL];
+        u64 dp = full_dense_occ_cnt_fid(h, (u32)(v << 1), max_occ);
+        u64 dn = full_dense_occ_cnt_fid(h, (u32)((v << 1) | 1ULL), max_occ);
         if (dp > 0ULL && dn > 0ULL && dp <= max_occ && dn <= max_occ) {
           left_inc = 1ULL;
           break;

@@ -244,9 +244,6 @@ public import LeanQbe.T.Examples.Kissat.Proof.Spec.Tactics
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Tactics1
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.WitnessInv
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.WitnessInv1
-public import LeanQbe.T.Examples.Kissat.Proof.Tiers.Header1
-public import LeanQbe.T.Examples.Kissat.Proof.Tiers.Header2
-public import LeanQbe.T.Examples.Kissat.Proof.Tiers.Header3
 public import LeanQbe.T.Examples.Kissat.Ref.Base
 public import LeanQbe.T.Examples.Kissat.Ref.Cdcl
 public import LeanQbe.T.Examples.Kissat.Ref.Chrono
@@ -288,6 +285,7 @@ public import LeanQbe.T.Examples.Kissat.Src.Dimacs
 public import LeanQbe.T.Examples.Kissat.Src.Eliminate
 public import LeanQbe.T.Examples.Kissat.Src.Extend
 public import LeanQbe.T.Examples.Kissat.Src.Factor
+public import LeanQbe.T.Examples.Kissat.Src.Float64
 public import LeanQbe.T.Examples.Kissat.Src.Forward
 public import LeanQbe.T.Examples.Kissat.Src.Full
 public import LeanQbe.T.Examples.Kissat.Src.Gates

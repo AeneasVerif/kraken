@@ -25,8 +25,7 @@ Mirrors upstream `kissat/src/kitten.c` (`14` live functions, DAG level `L0`):
 - `full_k6_analyze` (R4: `kitten_analyze`)
 - `full_k6_solve` (R4: `kitten_solve`)
 - `full_k6_flip` (R4: `kitten_flip_literal`)
-- `full_k512_add_live_m6` (R4: `kitten_add_live_clause`)
--/
+- `full_k512_add_live_m6` (R4: `kitten_add_live_clause`)-/
 
 set_option autoImplicit false
 
@@ -58,6 +57,10 @@ void full_k6_add_ticks(u32 *k, u64 delta) {
 void full_k6_init(FullHdr *h, u32 nv) {
   u32 mv = (u32)full_m6_max_v(h->scratch_cap);
   if (mv == 0u || nv > mv) { return; }
+  u32 *gu_hw = (u32 *)h->glue_used;
+  u32 hw = gu_hw[33];
+  u32 lim = nv;
+  if (nv == mv && hw < mv) { lim = hw; }
   u32 base = 1280u + (mv << 1);
   u32 *k = ((u32 *)h->scratch_buf) + base;
   u32 i = 0u;
@@ -74,16 +77,29 @@ void full_k6_init(FullHdr *h, u32 nv) {
   u32 *lvl = k + 32u; u32 *rsn = k + (32u + mv);
   u32 *qprev = k + (32u + 2u * mv); u32 *qnext = k + (32u + 3u * mv);
   u32 *qst = k + (32u + 4u * mv); u32 *flags = k + (32u + 6u * mv);
-  i = 0u;
-  while (i < nv) {
-    lvl[i] = 0u; rsn[i] = 0xFFFFFFFFu; flags[i] = 0u; qst[i] = i + 1u;
-    qprev[i] = (i == 0u) ? 0xFFFFFFFFu : (i - 1u);
-    qnext[i] = (i + 1u >= nv) ? 0xFFFFFFFFu : (i + 1u);
-    i = i + 1u;
+  if (lim > 0u) {
+    i = 0u;
+    while (i < lim) { lvl[i] = 0u; i = i + 1u; }
+    i = 0u;
+    while (i < lim) { rsn[i] = 0xFFFFFFFFu; i = i + 1u; }
+    i = 0u;
+    while (i < lim) { flags[i] = 0u; i = i + 1u; }
+    i = 0u;
+    while (i < lim) { qst[i] = i + 1u; i = i + 1u; }
+    qprev[0] = 0xFFFFFFFFu;
+    i = 1u;
+    while (i < lim) { qprev[i] = i - 1u; i = i + 1u; }
+    i = 0u;
+    while (i < lim) { qnext[i] = i + 1u; i = i + 1u; }
+    if (nv > 0u && nv - 1u < lim) { qnext[nv - 1u] = 0xFFFFFFFFu; }
   }
   u32 *vals = k + (32u + 10u * mv); u32 *whead = k + (32u + 12u * mv);
-  u32 nl = nv << 1; i = 0u;
-  while (i < nl) { vals[i] = 0u; whead[i] = 0xFFFFFFFFu; i = i + 1u; }
+  u32 nl = lim << 1;
+  i = 0u;
+  while (i < nl) { vals[i] = 0u; i = i + 1u; }
+  i = 0u;
+  while (i < nl) { whead[i] = 0xFFFFFFFFu; i = i + 1u; }
+  if (nv == mv) { gu_hw[33] = 0u; } else if (hw < nv) { gu_hw[33] = nv; }
 }
 
 void full_k6_watch(u32 *k, u32 cid, u32 l0, u32 l1) {
@@ -109,6 +125,17 @@ void full_k6_assign(u32 *k, u32 lit, u32 rsn_cid) {
 }
 
 bool full_k6_add_clause(FullHdr *h, u32 *lits, u32 sz) {
+  u32 *gu_hw = (u32 *)h->glue_used;
+  u32 hw = gu_hw[33];
+  if (hw != 0xFFFFFFFFu) {
+    u32 xi = 0u;
+    while (xi < sz) {
+      u32 xv = (lits[xi] >> 1) + 1u;
+      if (xv > hw) { hw = xv; }
+      xi = xi + 1u;
+    }
+    gu_hw[33] = hw;
+  }
   u32 mv = (u32)full_m6_max_v(h->scratch_cap);
   if (mv == 0u) { return false; }
   u32 *k = ((u32 *)h->scratch_buf) + (1280u + (mv << 1));

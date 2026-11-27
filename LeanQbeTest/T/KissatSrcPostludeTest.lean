@@ -4,11 +4,13 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 module
 
+public import LeanQbe.T.Examples.Kissat.Src.Float64
 public import LeanQbe.T.Examples.Kissat.Src.Full
 public import LeanQbe.T.Examples.Kissat.Src.Config
 public import LeanQbe.T.PrintCpp
 public import LeanQbe.T.PrintQbe
 meta import LeanQbe.T.Examples.Kissat.Src.Header
+meta import LeanQbe.T.Examples.Kissat.Src.Float64
 meta import LeanQbe.T.Examples.Kissat.Src.Full
 meta import LeanQbe.T.Examples.Kissat.Src.Config
 meta import LeanQbe.T.PrintCpp
@@ -49,16 +51,21 @@ kissat_src_postlude! postlude_demo
 
 #guard postlude_demo_fns.length == 2
 #guard fns.length == 2
-#guard Full.kissatModule.fns.length == 410
-#guard (Full.kissatModule.fns.map Fn.name).eraseDups.length == 410
+#guard Float64.fns.length == 14
+#guard Full.kissatModule.fns.length == 418
+#guard (Full.kissatModule.fns.map Fn.name).eraseDups.length == 418
 #guard Full.kissatModule.checkAcyclic == true
 #guard Config.configModule.fns.length == 17
 #guard Config.configModule.checkAcyclic == true
 #guard (ppTModule Full.kissatModule).isOk
-#guard (PrintQbe.module Full.kissatModule).isOk
+#guard match PrintQbe.module Full.kissatModule with
+  | .error msg =>
+    msg == "PrintQbe: function $u64_mul128 returns 2 values; stock QBE supports at most 1"
+  | .ok _ => false
 #guard (ppTModule Config.configModule).isOk
 #guard (PrintQbe.module Config.configModule).isOk
 
+theorem src_float64_wf : ∀ f ∈ Float64.fns, f.Wf := Float64.fns_wf
 theorem src_full_wf : ∀ f ∈ Full.kissatModule.fns, f.Wf := Full.kissatModule_wf
 theorem src_config_wf : ∀ f ∈ Config.fns, f.Wf := Config.fns_wf
 theorem src_parse_body_wf : Func.Wf Parse.full_parse_body_body := Parse.full_parse_body_wf
@@ -75,6 +82,7 @@ end
 
 end LeanQbeTest.T.KissatSrcPostludeTest
 
+#print axioms LeanQbeTest.T.KissatSrcPostludeTest.src_float64_wf
 #print axioms LeanQbeTest.T.KissatSrcPostludeTest.src_full_wf
 #print axioms LeanQbeTest.T.KissatSrcPostludeTest.src_config_wf
 #print axioms LeanQbeTest.T.KissatSrcPostludeTest.src_parse_body_wf

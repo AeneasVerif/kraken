@@ -14,8 +14,7 @@ meta import LeanQbe.T.Examples.Kissat.Src.Header
 Mirrors upstream `kissat/src/transitive.c` (`3` live functions, DAG level `L3`):
 - `full_trans_lit_m6` (R4: `kissat_transitive_reduce_literal`)
 - `full_trans_sort_m6` (R4: `kissat_transitive_sort_candidates`)
-- `full_transitive_m6` (R4: `kissat_transitive_reduction`)
--/
+- `full_transitive_m6` (R4: `kissat_transitive_reduction`)-/
 
 set_option autoImplicit false
 
@@ -29,12 +28,12 @@ open LeanQbe.T.Examples.Kissat.Src
 kissat_c0! transitive "
 #include \"kissat_internal.h\"
 
-extern void full_wstack_defrag(FullHdr *h);
 extern void full_delete_bin_side(FullHdr *h, u32 lit, u32 other);
-extern bool full_prioritize_binaries_m6(FullHdr *h);
-extern void full_backtrack(FullHdr *h, u64 target_lvl);
 extern bool full_add_unit(FullHdr *h, u32 lit);
+extern void full_backtrack(FullHdr *h, u64 target_lvl);
+extern bool full_prioritize_binaries_m6(FullHdr *h);
 extern u64 full_propagate(FullHdr *h);
+extern void full_wstack_defrag(FullHdr *h);
 
 bool full_trans_lit_m6(FullHdr *h, u32 src, bool stop_early) {
   i8 *vals = (i8 *)h->values;
@@ -69,12 +68,12 @@ bool full_trans_lit_m6(FullHdr *h, u32 src, bool stop_early) {
         if ((qw & PW_BIN_FLAG) == 0u) {
           if (stop_early) { break; }
           q = q + 2ULL;
-          if (((q - loff) & 15ULL) == 0ULL && ticks > 0ULL) { ticks = ticks - 1ULL; }
+          if (((q - loff) & 31ULL) == 0ULL && ticks > 0ULL) { ticks = ticks - 1ULL; }
           continue;
         }
         if (nl == src && q == p) { q = q + 1ULL; continue; }
         q = q + 1ULL;
-        if (((q - loff) & 15ULL) == 0ULL && ticks > 0ULL) { ticks = ticks - 1ULL; }
+        if (((q - loff) & 31ULL) == 0ULL && ticks > 0ULL) { ticks = ticks - 1ULL; }
         u32 ot = qw & PW_LIT_MASK;
         if (ot == dst) { trans = true; break; }
         if ((u64)ot < nlits) {
@@ -150,8 +149,9 @@ void full_trans_sort_m6(FullHdr *h, u64 n) {
 u64 full_transitive_m6(FullHdr *h, u64 tick_lim) {
   if (h->cur_level != 0ULL) { full_backtrack(h, 0ULL); }
   u64 cv = h->cur_vars;
+  u64 saved_prob = h->probing;
   if (h->num_binary == 0ULL || tick_lim == 0ULL || cv == 0ULL) {
-    h->probing = 0ULL; return 1ULL;
+    return 1ULL;
   }
   h->probing = 1ULL;
   bool stop_early = full_prioritize_binaries_m6(h);
@@ -189,7 +189,7 @@ u64 full_transitive_m6(FullHdr *h, u64 tick_lim) {
     pi = pi + 1ULL;
   }
   if (h->wusable * 2ULL > h->wcap) { full_wstack_defrag(h); }
-  h->probing = 0ULL;
+  h->probing = saved_prob;
   return res;
 }
 "

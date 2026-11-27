@@ -24,8 +24,7 @@ Mirrors upstream `kissat/src/compact.c` (`13` live functions, DAG level `L3`):
 - `full_compact_vmtf` (R4: `kissat_compact_queue`)
 - `full_compact_sift_h` (R4: `kissat_compact_heap_sift`)
 - `full_compact_heap` (R4: `kissat_compact_heap`)
-- `full_compact` (R4: `kissat_compact`)
--/
+- `full_compact` (R4: `kissat_compact`)-/
 
 set_option autoImplicit false
 
@@ -39,10 +38,10 @@ open LeanQbe.T.Examples.Kissat.Src
 kissat_c0! compact "
 #include \"kissat_internal.h\"
 
-extern u32 full_arena_next(FullHdr *h, u32 cref);
-extern void full_wstack_defrag(FullHdr *h);
-extern bool full_watch_push(FullHdr *h, u32 lit, u32 w0, u32 w1, u32 cnt);
 extern u64 full_flush_trail(FullHdr *h);
+extern u32 full_arena_next(FullHdr *h, u32 cref);
+extern bool full_watch_push(FullHdr *h, u32 lit, u32 w0, u32 w1, u32 cnt);
+extern void full_wstack_defrag(FullHdr *h);
 extern bool full_rewatch_arena(FullHdr *h, u64 dst);
 
 bool full_compact_needed(FullHdr *h) {
@@ -68,7 +67,7 @@ void full_compact_mark_live(FullHdr *h) {
   u32 *ar = (u32 *)h->arena;
   u64 v = 0ULL;
   while (v < cv) {
-    map[v] = 0u;
+    map[v] = ((fl[v] & FL_ACTIVE) != 0u && vals[v << 1] == (i8)0) ? 1u : 0u;
     v = v + 1ULL;
   }
   u64 l = 0ULL;
@@ -390,6 +389,10 @@ void full_compact_vars(FullHdr *h, u64 old_cv, u64 ncv) {
     lvl[v] = 0u;
     rsns[v] = 0xFFFFFFFFu;
     sc[v] = 0ULL;
+    ph[v] = (i8)0;
+    ptgt[v] = (i8)0;
+    pbst[v] = (i8)0;
+    wbst[v] = (i8)1;
     qs[v] = 0u;
     qp[v] = 0xFFFFFFFFu;
     qn[v] = 0xFFFFFFFFu;

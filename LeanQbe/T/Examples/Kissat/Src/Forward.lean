@@ -11,16 +11,16 @@ meta import LeanQbe.T.Examples.Kissat.Src.Header
 /-!
 # Kissat C0 Forward Subsumption & Strengthening (`Src/Forward.lean`)
 
-Mirrors upstream `kissat/src/forward.c` (`8` live functions, DAG level `L4`):
+Mirrors upstream `kissat/src/forward.c` (`9` live functions, DAG level `L4`):
 - `full_fwd_dedup_bins` (R4: `kissat_remove_duplicated_binaries`)
 - `full_fwd_flush_large_m7` (R4: `kissat_forward_flush_large`)
+- `full_dense_bin_roundtrip_fid`
 - `full_fwd_reconnect_irred_m7` (R4: `kissat_forward_reconnect_irredundant`)
 - `full_fwd_scan_lit_m7` (R4: `kissat_forward_scan_literal`)
 - `full_fwd_check_cl_m7` (R4: `kissat_forward_check_clause`)
 - `full_fwd_connect_subsumer_m7` (R4: `kissat_forward_connect_subsumer`)
 - `full_fwd_collect_sort_m7` (R4: `kissat_forward_collect_and_sort`)
-- `full_forward_sub_m7` (R4: `kissat_forward_subsume_during_elimination`)
--/
+- `full_forward_sub_m7` (R4: `kissat_forward_subsume_during_elimination`)-/
 
 set_option autoImplicit false
 
@@ -34,13 +34,15 @@ open LeanQbe.T.Examples.Kissat.Src
 kissat_c0! forward "
 #include \"kissat_internal.h\"
 
-extern u32 full_arena_next(FullHdr *h, u32 cref);
-extern void full_wstack_defrag(FullHdr *h);
-extern bool full_watch_push(FullHdr *h, u32 lit, u32 w0, u32 w1, u32 cnt);
-extern void full_unwatch_large(FullHdr *h, u32 lit, u32 cref);
-extern u64 full_add_bin(FullHdr *h, u32 a, u32 b);
 extern bool full_add_unit(FullHdr *h, u32 lit);
+extern void full_wstack_defrag(FullHdr *h);
+extern void full_sweep_bins(FullHdr *h);
+extern bool full_watch_push(FullHdr *h, u32 lit, u32 w0, u32 w1, u32 cnt);
+extern u32 full_arena_next(FullHdr *h, u32 cref);
+extern u64 full_dense_occ_cnt_fid(FullHdr *h, u32 lit, u64 cap);
+extern void full_unwatch_large(FullHdr *h, u32 lit, u32 cref);
 extern bool full_dense_flush_units_m7(FullHdr *h);
+extern u64 full_add_bin(FullHdr *h, u32 a, u32 b);
 
 bool full_fwd_dedup_bins(FullHdr *h) {
   u64 nlits = h->cur_vars << 1; u32 *wvec = (u32 *)h->watch_vec;
@@ -109,6 +111,88 @@ void full_fwd_flush_large_m7(FullHdr *h) {
   if (h->wusable * 2ULL > h->wcap) { full_wstack_defrag(h); }
 }
 
+void full_dense_bin_roundtrip_fid(FullHdr *h) {
+  u64 cv = h->cur_vars;
+  u64 nlits = cv << 1;
+  if (nlits == 0ULL) { return; }
+  full_fwd_flush_large_m7(h);
+  if (h->num_binary == 0ULL || h->wcap == 0ULL) { return; }
+  u32 *wvec = (u32 *)h->watch_vec;
+  u32 *wstk = (u32 *)h->watch_stk;
+  i8 *vals = (i8 *)h->values;
+  u8 *lm = (u8 *)h->lit_mark;
+  u32 *pairs = (u32 *)h->scratch_buf;
+  u64 scap_pairs = h->scratch_cap >> 1;
+  u64 nb = 0ULL;
+  bool overflow = false;
+  u64 l = 0ULL;
+  while (l < nlits && !overflow) {
+    u64 off = (u64)wvec[l << 1];
+    u64 sz = (u64)wvec[(l << 1) + 1ULL];
+    if (sz > 0ULL) {
+      i8 lv = vals[l];
+      u64 p = off;
+      u64 end = off + sz;
+      while (p < end) {
+        u32 w0 = wstk[p];
+        p = p + 1ULL;
+        if ((w0 & PW_BIN_FLAG) != 0u) {
+          u32 ot = w0 & PW_LIT_MASK;
+          if ((u64)ot < nlits && lm[ot] == (u8)0) {
+            lm[ot] = (u8)1;
+            if (lv <= (i8)0 && vals[ot] <= (i8)0 && l < (u64)ot) {
+              if (nb < scap_pairs) {
+                pairs[nb << 1] = (u32)l;
+                pairs[(nb << 1) + 1ULL] = ot;
+                nb = nb + 1ULL;
+              } else {
+                overflow = true;
+                break;
+              }
+            }
+          }
+        } else if (p < end) {
+          p = p + 1ULL;
+        }
+      }
+      p = off;
+      while (p < end) {
+        u32 w0 = wstk[p];
+        p = p + 1ULL;
+        if ((w0 & PW_BIN_FLAG) != 0u) {
+          u32 ot = w0 & PW_LIT_MASK;
+          if ((u64)ot < nlits) { lm[ot] = (u8)0; }
+        } else if (p < end) {
+          p = p + 1ULL;
+        }
+      }
+    }
+    l = l + 1ULL;
+  }
+  if (overflow) {
+    full_sweep_bins(h);
+    return;
+  }
+  l = 0ULL;
+  while (l < nlits) {
+    wvec[l << 1] = 0u;
+    wvec[(l << 1) + 1ULL] = 0u;
+    l = l + 1ULL;
+  }
+  wstk[0] = 0u;
+  h->wlen = 1ULL;
+  h->wusable = 0ULL;
+  h->num_binary = nb;
+  u64 k = 0ULL;
+  while (k < nb) {
+    u32 a = pairs[k << 1];
+    u32 b = pairs[(k << 1) + 1ULL];
+    full_watch_push(h, a, (b & PW_LIT_MASK) | PW_BIN_FLAG, 0u, 1u);
+    full_watch_push(h, b, (a & PW_LIT_MASK) | PW_BIN_FLAG, 0u, 1u);
+    k = k + 1ULL;
+  }
+}
+
 void full_fwd_reconnect_irred_m7(FullHdr *h) {
   full_fwd_flush_large_m7(h);
   u32 *ar = (u32 *)h->arena;
@@ -152,7 +236,9 @@ u32 full_fwd_scan_lit_m7(FullHdr *h, u32 cref, u32 sz, u32 scan_lit, bool check_
   u32 *wstk = (u32 *)h->watch_stk;
   u64 off = (u64)wvec[(u64)scan_lit << 1];
   u64 wsz = (u64)wvec[((u64)scan_lit << 1) + 1ULL];
-  if (wsz == 0ULL || wsz > 1000ULL) { return 0xFFFFFFFFu; }
+  if (wsz == 0ULL || full_dense_occ_cnt_fid(h, scan_lit, 1001ULL) > 1000ULL) {
+    return 0xFFFFFFFFu;
+  }
   u64 end = off + wsz;
   u64 p = off;
   while (p < end) {
@@ -313,17 +399,17 @@ void full_fwd_connect_subsumer_m7(FullHdr *h, u32 cref) {
   while (i < sz) {
     u32 l = ar[(u64)cref + 3ULL + (u64)i];
     if ((fl[l >> 1] & FL_SUBSUME) != 0u) {
-      u32 d = wvec[((u64)l << 1) + 1ULL];
+      u32 d = (u32)full_dense_occ_cnt_fid(h, l, 1001ULL);
       if (d < best_d) { best_d = d; best_l = l; }
     }
     i = i + 1u;
   }
   if (best_d == 0xFFFFFFFFu) {
-    best_d = wvec[((u64)best_l << 1) + 1ULL];
+    best_d = (u32)full_dense_occ_cnt_fid(h, best_l, 1001ULL);
     i = 1u;
     while (i < sz) {
       u32 l = ar[(u64)cref + 3ULL + (u64)i];
-      u32 d = wvec[((u64)l << 1) + 1ULL];
+      u32 d = (u32)full_dense_occ_cnt_fid(h, l, 1001ULL);
       if (d < best_d) { best_d = d; best_l = l; }
       i = i + 1u;
     }
@@ -410,12 +496,15 @@ u64 full_fwd_collect_sort_m7(FullHdr *h) {
 }
 
 u64 full_forward_sub_m7(FullHdr *h, u64 budget) {
-  if (budget == 0ULL) { return 1ULL; }
+  if (budget == 0ULL) { full_fwd_reconnect_irred_m7(h); return 1ULL; }
   if (!full_fwd_dedup_bins(h)) { return 20ULL; }
   if (!full_dense_flush_units_m7(h)) { return 20ULL; }
   u64 saved_prop = h->propagated;
   u64 ncand = full_fwd_collect_sort_m7(h);
-  if (ncand == 0ULL) { return (h->inconsistent != 0ULL) ? 20ULL : 1ULL; }
+  if (ncand == 0ULL) {
+    full_fwd_reconnect_irred_m7(h);
+    return (h->inconsistent != 0ULL) ? 20ULL : 1ULL;
+  }
   full_fwd_flush_large_m7(h);
   u32 *rr = (u32 *)h->red_refs;
   u32 *ar = (u32 *)h->arena;

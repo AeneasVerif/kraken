@@ -16,9 +16,8 @@ Mirrors upstream `kissat/src/preprocess.c, search.c, internal.c`
 - `full_preprocess_m6` (R4: `kissat_preprocess`)
 - `full_simplify_m6` (R4: `kissat_simplify`)
 - `full_search_m6` (R4: `kissat_search`)
-- `kissat_solve_bytes_m6` (R4: `kissat_solve_bytes_impl`)
-- `kissat_solve_bytes` (R4: `kissat_solve_bytes`)
--/
+- `kissat_solve_bytes_seeded`
+- `kissat_solve_bytes` (R4: `kissat_solve_bytes`)-/
 
 set_option autoImplicit false
 
@@ -32,44 +31,38 @@ open LeanQbe.T.Examples.Kissat.Src
 kissat_c0! search "
 #include \"kissat_internal.h\"
 
-extern u64 kissat_check_model(u64 cnf_ptr, u64 cnf_end, KissatDimacs *d, i8 *vals, u64 mv_max);
-extern u64 full_scale_delta_m5(FullHdr *h, u64 delta);
-extern void full_backtrack(FullHdr *h, u64 target_lvl);
-extern void m6_hdr_set_watermark(FullHdr *h, u64 kind, u64 val);
-extern u64 full_m6_mem_init(u64 cnf_ptr, u64 cnf_end, u64 work_base, u64 avail, u64 fuel);
+extern u64 full_lucky_late_m7(FullHdr *h);
 extern u64 full_propagate(FullHdr *h);
-extern u64 full_parse_body(FullHdr *h, u64 cnf_end);
 extern u64 full_arena_sweep(FullHdr *h);
-extern u64 full_reduce_m6(FullHdr *h, bool force);
+extern u64 full_compact(FullHdr *h);
+extern u64 full_scale_delta_m5(FullHdr *h, u64 delta);
+extern u64 full_probe_m6(FullHdr *h, bool initial);
+extern bool full_compact_needed(FullHdr *h);
+extern void full_backtrack(FullHdr *h, u64 target_lvl);
+extern u64 full_eliminate_m6(FullHdr *h, bool initial);
+extern void full_update_classify_fid(FullHdr *h);
+extern void m6_hdr_set_watermark(FullHdr *h, u64 kind, u64 val);
 extern u64 full_analyze_m6_hdr(FullHdr *h);
-extern u64 m6_hdr_decide_fid(FullHdr *h);
-extern void full_rephase(FullHdr *h);
+extern u64 full_reduce_m6(FullHdr *h, bool force);
+extern void full_switch_mode_m7(FullHdr *h);
 extern u64 full_restart_due(FullHdr *h);
 extern void full_restart(FullHdr *h);
-extern void full_switch_mode_m7(FullHdr *h);
-extern void full_extend(FullHdr *h);
-extern u64 full_lucky_late_m7(FullHdr *h);
-extern u64 full_eliminate_m6(FullHdr *h, bool initial);
-extern bool full_compact_needed(FullHdr *h);
-extern u64 full_compact(FullHdr *h);
 extern u64 full_reorder_m6(FullHdr *h, u64 budget);
-extern u64 full_probe_m6(FullHdr *h, bool initial);
+extern void full_rephase(FullHdr *h);
+extern u64 m6_hdr_decide_fid(FullHdr *h);
+extern u64 full_m6_mem_init(u64 cnf_ptr, u64 cnf_end, u64 work_base, u64 avail, u64 fuel);
+extern u64 full_parse_body(FullHdr *h, u64 cnf_end);
+extern void full_extend(FullHdr *h);
+extern u64 kissat_check_model(u64 cnf_ptr, u64 cnf_end, KissatDimacs *d, i8 *vals, u64 mv_max);
 
 u64 full_preprocess_m6(FullHdr *h) {
-  if (full_propagate(h) == 1ULL) { return 20ULL; }
   if (h->oom != 0ULL || h->fuel == 0ULL) { return 0ULL; }
-  if (h->unflushed > 0ULL) {
-    u64 sr = full_arena_sweep(h);
-    if (sr == 2ULL) { return 20ULL; }
-    if (full_propagate(h) == 1ULL) { return 20ULL; }
-    h->unflushed = 0ULL;
-  }
-  if (h->unassigned == 0ULL) { return 10ULL; }
   u64 saved_lk_ticks = h->search_ticks;
   u64 lk = full_lucky_late_m7(h);
   h->search_ticks = saved_lk_ticks;
   if (lk == 20ULL || lk == 10ULL) { return lk; }
   if (h->inconsistent != 0ULL) { return 20ULL; }
+  if (full_propagate(h) == 1ULL) { return 20ULL; }
   if (h->oom != 0ULL || h->fuel == 0ULL) { return 0ULL; }
   if (h->unflushed > 0ULL || h->trail_end > 0ULL) {
     while (true) {
@@ -83,7 +76,7 @@ u64 full_preprocess_m6(FullHdr *h) {
     }
     h->unflushed = 0ULL;
   }
-  if (full_compact_needed(h)) {
+  if (h->trail_end > 0ULL && h->unassigned > 0ULL) {
     u64 cr = full_compact(h);
     if (cr == 20ULL) { return 20ULL; }
     if (cr != 1ULL) { return 0ULL; }
@@ -133,6 +126,7 @@ u64 full_search_m6(FullHdr *h) {
   u64 lkr = full_lucky_late_m7(h);
   if (lkr == 10ULL || lkr == 20ULL) { return lkr; }
   h->search_ticks = 0ULL; h->mode_saved_ticks = 0ULL;
+  full_update_classify_fid(h);
   m6_hdr_set_watermark(h, M6_WM_PROBE_TICKS, 0ULL); h->fwd_str_cnt = 0ULL;
   while (true) {
     if (h->oom != 0ULL || h->fuel == 0ULL) { return 0ULL; }
@@ -146,7 +140,7 @@ u64 full_search_m6(FullHdr *h) {
       return 10ULL;
     } else if (h->fuel == 0ULL) {
       return 0ULL;
-    } else if (h->conflicts >= h->reduce_limit) {
+    } else if (h->num_redundant > 0ULL && h->conflicts >= h->reduce_limit) {
       last_reduce_cfl = h->conflicts;
       h->fuel = h->fuel - 1ULL;
       u64 rr = full_reduce_m6(h, false);
@@ -164,7 +158,7 @@ u64 full_search_m6(FullHdr *h) {
       reorder_limit = h->conflicts + 10000ULL * reordered;
       h->fuel = h->fuel - 1ULL;
       full_reorder_m6(h, 256ULL);
-    } else if (h->stable != 0ULL && h->conflicts >= h->rephase_limit) {
+    } else if (h->stable != 0ULL && h->conflicts > h->rephase_limit) {
       h->fuel = h->fuel - 1ULL;
       full_rephase(h);
     } else if (h->conflicts != last_reduce_cfl && h->conflicts > h->probe_limit) {
@@ -172,7 +166,8 @@ u64 full_search_m6(FullHdr *h) {
       u64 sr = full_simplify_m6(h, true, false);
       if (sr == 20ULL) { return 20ULL; }
       if (sr != 1ULL) { return 0ULL; }
-    } else if (h->conflicts != last_reduce_cfl && h->conflicts >= h->elim_limit) {
+    } else if (h->conflicts != last_reduce_cfl && h->conflicts >= h->elim_limit &&
+               (h->num_irred + h->num_binary) > 0ULL) {
       h->fuel = h->fuel - 1ULL;
       u64 sr = full_simplify_m6(h, false, true);
       if (sr == 20ULL) { return 20ULL; }
@@ -185,7 +180,8 @@ u64 full_search_m6(FullHdr *h) {
   }
 }
 
-u64 kissat_solve_bytes_m6(u64 cnf_ptr, u64 cnf_len, u64 work_ptr, u64 work_cap, u64 fuel) {
+u64 kissat_solve_bytes_seeded(u64 cnf_ptr, u64 cnf_len, u64 work_ptr,
+                              u64 work_cap, u64 fuel, u64 seed) {
   if (fuel == 0ULL || cnf_ptr == 0ULL || work_ptr == 0ULL) { return 0ULL; }
   if (cnf_len > (~0ULL) - cnf_ptr || work_cap > (~0ULL) - work_ptr) { return 0ULL; }
   u64 pad = (8ULL - (work_ptr & 7ULL)) & 7ULL;
@@ -201,7 +197,13 @@ u64 kissat_solve_bytes_m6(u64 cnf_ptr, u64 cnf_len, u64 work_ptr, u64 work_cap, 
   u64 orig_mv = h->d.mv;
   u64 pp = full_preprocess_m6(h);
   if (pp == 20ULL) { return 20ULL; }
-  u64 r = (pp == 10ULL) ? 10ULL : ((pp == 0ULL) ? 0ULL : full_search_m6(h));
+  u64 r = 0ULL;
+  if (pp == 10ULL) {
+    r = 10ULL;
+  } else if (pp != 0ULL) {
+    h->rng_state = seed & 0xFFFFFFFFULL;
+    r = full_search_m6(h);
+  }
   if (r == 10ULL) {
     full_extend(h);
     h->d.mv = orig_mv;
@@ -213,7 +215,7 @@ u64 kissat_solve_bytes_m6(u64 cnf_ptr, u64 cnf_len, u64 work_ptr, u64 work_cap, 
 }
 
 u64 kissat_solve_bytes(u64 cnf_ptr, u64 cnf_len, u64 work_ptr, u64 work_cap, u64 fuel) {
-  return kissat_solve_bytes_m6(cnf_ptr, cnf_len, work_ptr, work_cap, fuel);
+  return kissat_solve_bytes_seeded(cnf_ptr, cnf_len, work_ptr, work_cap, fuel, 0ULL);
 }
 "
 

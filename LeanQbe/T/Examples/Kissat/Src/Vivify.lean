@@ -20,6 +20,7 @@ Mirrors upstream `kissat/src/vivify.c` (`28` live functions, DAG level `L3`):
 - `full_viv_mark_garb_m6` (R4: `kissat_vivify_mark_garbage`)
 - `full_viv_subsumes_bin_m6` (R4: `kissat_vivify_subsumes_binary`)
 - `full_viv_subsumes_cl_m6` (R4: `kissat_vivify_subsumes_clause`)
+- `full_viv_recompute_promote_fid`
 - `full_viv_deduce_m6` (R4: `kissat_vivify_deduce`)
 - `full_viv_best_implied_m6` (R4: `kissat_vivify_best_implied`)
 - `full_viv_reestablish_m6` (R4: `kissat_vivify_reestablish`)
@@ -35,12 +36,10 @@ Mirrors upstream `kissat/src/vivify.c` (`28` live functions, DAG level `L3`):
 - `full_viv_tier_match_m6` (R4: `kissat_vivify_tier_match`)
 - `full_viv_clear_tier_m6` (R4: `kissat_vivify_clear_tier`)
 - `full_viv_collect_fid` (R4: `kissat_vivify_collect`)
-- `full_viv_count_fid` (R4: `kissat_vivify_count`)
 - `full_viv_sort2_fid` (R4: `kissat_vivify_sort_sift`)
 - `full_viv_sort_fid` (R4: `kissat_vivify_sort_schedule`)
 - `full_vivify_tier_m6_hdr` (R4: `kissat_vivify_tier`)
-- `full_vivify_m6_hdr` (R4: `kissat_vivify`)
--/
+- `full_vivify_m6_hdr` (R4: `kissat_vivify`)-/
 
 set_option autoImplicit false
 
@@ -54,22 +53,22 @@ open LeanQbe.T.Examples.Kissat.Src
 kissat_c0! vivify "
 #include \"kissat_internal.h\"
 
-extern u32 full_arena_next(FullHdr *h, u32 cref);
-extern bool full_watch_push(FullHdr *h, u32 lit, u32 w0, u32 w1, u32 cnt);
-extern void full_unwatch_large(FullHdr *h, u32 lit, u32 cref);
-extern void full_assign(FullHdr *h, u32 lit, u32 rsn);
 extern void full_backtrack(FullHdr *h, u64 target_lvl);
-extern u64 full_add_bin_m6(FullHdr *h, u32 a, u32 b);
+extern void full_unwatch_large(FullHdr *h, u32 lit, u32 cref);
 extern bool full_add_unit(FullHdr *h, u32 lit);
-extern void m6_hdr_sync_legacy_tiers(FullHdr *h);
+extern u64 full_add_bin_m6(FullHdr *h, u32 a, u32 b);
+extern bool full_watch_push(FullHdr *h, u32 lit, u32 w0, u32 w1, u32 cnt);
+extern void full_assign(FullHdr *h, u32 lit, u32 rsn);
+extern u64 full_propagate_ignore(FullHdr *h, u64 ignore_ref);
+extern u32 full_arena_next(FullHdr *h, u32 cref);
+extern u64 m6_hdr_get_watermark(FullHdr *h, u64 kind);
+extern u64 full_propagate(FullHdr *h);
 extern u64 m6_hdr_get_tier1(FullHdr *h, bool vivify_mode);
 extern u64 m6_hdr_get_tier2(FullHdr *h, bool vivify_mode);
 extern bool m6_hdr_delaying(FullHdr *h, u64 id);
 extern void m6_hdr_bump_delay(FullHdr *h, u64 id);
 extern void m6_hdr_reduce_delay(FullHdr *h, u64 id);
-extern u64 m6_hdr_get_watermark(FullHdr *h, u64 kind);
-extern u64 full_propagate_ignore(FullHdr *h, u64 ignore_ref);
-extern u64 full_propagate(FullHdr *h);
+extern void m6_hdr_sync_legacy_tiers(FullHdr *h);
 
 void full_viv_unreason_m6(FullHdr *h, u32 cref) {
   if (h->cur_level == 0ULL) { return; }
@@ -238,6 +237,16 @@ u64 full_viv_commit_m6(FullHdr *h, u32 cref, u32 olen, u32 implied) {
     nhdr = nhdr | PH_SHRK;
   }
   ar[cref] = nhdr;
+  if ((nhdr & PH_RED) == 0u) {
+    u32 *fl_v = (u32 *)h->flags;
+    u32 k_v = 0u;
+    while (k_v < olen) {
+      u32 lv = out[k_v];
+      u32 fbit_v = ((lv & 1u) != 0u) ? FL_FACT_N : FL_FACT_P;
+      fl_v[lv >> 1] = fl_v[lv >> 1] | FL_SUBSUME | FL_ELIM_C | fbit_v;
+      k_v = k_v + 1u;
+    }
+  }
   u32 l0 = out[0]; u32 l1 = out[1];
   if (!full_watch_push(h, l0, l1 & PW_LIT_MASK, cref, 2u) ||
       !full_watch_push(h, l1, l0 & PW_LIT_MASK, cref, 2u)) {
@@ -262,6 +271,14 @@ void full_viv_mark_garb_m6(FullHdr *h, u32 cref) {
     if (h->num_redundant > 0ULL) { h->num_redundant = h->num_redundant - 1ULL; }
   } else {
     if (h->num_irred > 0ULL) { h->num_irred = h->num_irred - 1ULL; }
+    u32 *fl_g = (u32 *)h->flags;
+    u32 k_g = 0u;
+    while (k_g < sz) {
+      u32 lg = ar[(u64)cref + 3ULL + (u64)k_g];
+      u32 fbit_g = ((lg & 1u) != 0u) ? FL_FACT_N : FL_FACT_P;
+      fl_g[lg >> 1] = fl_g[lg >> 1] | FL_ELIM_C | fbit_g;
+      k_g = k_g + 1u;
+    }
   }
   h->viv_cnt = h->viv_cnt + 1ULL;
 }
@@ -287,6 +304,45 @@ bool full_viv_subsumes_cl_m6(FullHdr *h, u32 rcr, u32 sz) {
   return true;
 }
 
+void full_viv_recompute_promote_fid(FullHdr *h, u32 cref) {
+  u32 *ar = (u32 *)h->arena;
+  if ((u64)cref + 3ULL > h->arena_len) { return; }
+  u32 hdr = ar[cref];
+  if ((hdr & 0x00400000u) == 0u) { return; }
+  u64 glue = (u64)(hdr & 0x7FFFFu);
+  if (glue <= 1ULL) { return; }
+  u32 sz = ar[(u64)cref + 2ULL];
+  if (sz < 3u || (u64)cref + 3ULL + (u64)sz > h->arena_len) { return; }
+  u32 *lv = (u32 *)h->level;
+  u32 *ftrl = (u32 *)h->frame_trail;
+  u32 *mclr = (u32 *)h->min_clr;
+  u64 cv = h->cur_vars;
+  u64 ng = 0ULL;
+  u32 k = 0u;
+  while (k < sz) {
+    u64 kv = (u64)(ar[(u64)cref + 3ULL + (u64)k] >> 1);
+    if (kv < cv) {
+      u64 kl = (u64)lv[kv];
+      if (kl <= h->cur_level && (ftrl[kl] & 0x80000000u) == 0u) {
+        ftrl[kl] = ftrl[kl] | 0x80000000u;
+        mclr[ng] = (u32)kl;
+        ng = ng + 1ULL;
+        if (ng >= glue) { break; }
+      }
+    }
+    k = k + 1u;
+  }
+  u64 ui = 0ULL;
+  while (ui < ng) {
+    u32 ml = mclr[ui];
+    ftrl[ml] = ftrl[ml] & 0x7FFFFFFFu;
+    ui = ui + 1ULL;
+  }
+  if (ng > 0ULL && ng < glue) {
+    ar[cref] = (hdr & (~0x7FFFFu)) | (u32)ng;
+  }
+}
+
 u32 full_viv_deduce_m6(FullHdr *h, u32 cref, u32 sz, u32 implied) {
   u32 *ar = (u32 *)h->arena; u8 *mrk = (u8 *)h->mark; u8 *lm = (u8 *)h->lit_mark;
   u32 *tmp = (u32 *)h->tmp_lits; u32 *lvl = (u32 *)h->level; u32 *rsns = (u32 *)h->reason;
@@ -303,30 +359,38 @@ u32 full_viv_deduce_m6(FullHdr *h, u32 cref, u32 sz, u32 implied) {
     u32 src_cr = (h->confl_type == 2ULL) ? (u32)h->confl_ref : cref;
     if (h->confl_type == 1ULL) {
       u32 a = (u32)h->confl_lit0; u32 b = (u32)h->confl_lit1;
-      if (full_viv_subsumes_bin_m6(h, a, b)) { h->ant_sz = 0xFFFFFFFFFFFFFFFEULL; }
-      if (lvl[a >> 1] > 0u && mrk[a >> 1] == (u8)0 && qlen < cv) {
-        mrk[a >> 1] = (u8)1; qstk[qlen] = a >> 1; qlen = qlen + 1ULL;
-      }
-      if (lvl[b >> 1] > 0u && mrk[b >> 1] == (u8)0 && qlen < cv) {
-        mrk[b >> 1] = (u8)1; qstk[qlen] = b >> 1; qlen = qlen + 1ULL;
+      if (full_viv_subsumes_bin_m6(h, a, b)) {
+        h->ant_sz = 0xFFFFFFFFFFFFFFFEULL;
+      } else {
+        if (lvl[a >> 1] > 0u && mrk[a >> 1] == (u8)0 && qlen < cv) {
+          mrk[a >> 1] = (u8)1; qstk[qlen] = a >> 1; qlen = qlen + 1ULL;
+        }
+        if (lvl[b >> 1] > 0u && mrk[b >> 1] == (u8)0 && qlen < cv) {
+          mrk[b >> 1] = (u8)1; qstk[qlen] = b >> 1; qlen = qlen + 1ULL;
+        }
       }
     } else if ((u64)src_cr + 3ULL <= h->arena_len) {
       if (src_cr != cref) {
-        if ((ar[src_cr] & PH_RED) != 0u) { h->res_sz = 1ULL; }
+        if ((ar[src_cr] & PH_RED) != 0u) {
+          h->res_sz = 1ULL;
+          full_viv_recompute_promote_fid(h, src_cr);
+        }
         if (full_viv_subsumes_cl_m6(h, src_cr, sz)) { h->ant_sz = (u64)src_cr; }
       }
-      u32 csz = ar[(u64)src_cr + 2ULL]; u32 i = 0u;
-      while (i < csz) {
-        u32 lv = ar[(u64)src_cr + 3ULL + (u64)i] >> 1;
-        if ((u64)lv < cv && lvl[lv] > 0u && mrk[lv] == (u8)0 && qlen < cv) {
-          mrk[lv] = (u8)1; qstk[qlen] = lv; qlen = qlen + 1ULL;
+      if (h->ant_sz == 0xFFFFFFFFFFFFFFFFULL) {
+        u32 csz = ar[(u64)src_cr + 2ULL]; u32 i = 0u;
+        while (i < csz) {
+          u32 lv = ar[(u64)src_cr + 3ULL + (u64)i] >> 1;
+          if ((u64)lv < cv && lvl[lv] > 0u && mrk[lv] == (u8)0 && qlen < cv) {
+            mrk[lv] = (u8)1; qstk[qlen] = lv; qlen = qlen + 1ULL;
+          }
+          i = i + 1u;
         }
-        i = i + 1u;
       }
     }
   }
   u32 *trl = (u32 *)h->trail; u32 *tpos = (u32 *)h->trail_pos;
-  while (qi < qlen) {
+  while (qi < qlen && h->ant_sz == 0xFFFFFFFFFFFFFFFFULL) {
     u32 v = qstk[qi]; qi = qi + 1ULL;
     u32 rsn = rsns[v];
     if (rsn == 0xFFFFFFFFu) {
@@ -335,19 +399,23 @@ u32 full_viv_deduce_m6(FullHdr *h, u32 cref, u32 sz, u32 implied) {
       else if ((u64)olen < cv) { out[olen] = tl ^ 1u; olen = olen + 1u; }
     } else if ((rsn & PW_BIN_FLAG) != 0u) {
       u32 ot = rsn & PW_LIT_MASK;
-      if (h->ant_sz == 0xFFFFFFFFFFFFFFFFULL) {
-        u32 tl = trl[tpos[v]];
-        if (full_viv_subsumes_bin_m6(h, tl, ot)) { h->ant_sz = 0xFFFFFFFFFFFFFFFEULL; }
+      u32 tl = trl[tpos[v]];
+      if (full_viv_subsumes_bin_m6(h, tl, ot)) {
+        h->ant_sz = 0xFFFFFFFFFFFFFFFEULL;
+        break;
       }
       u32 ov = ot >> 1;
       if ((u64)ov < cv && lvl[ov] > 0u && mrk[ov] == (u8)0 && qlen < cv) {
         mrk[ov] = (u8)1; qstk[qlen] = ov; qlen = qlen + 1ULL;
       }
     } else if ((u64)rsn + 3ULL <= h->arena_len) {
-      if ((ar[rsn] & PH_RED) != 0u) { h->res_sz = 1ULL; }
-      if (h->ant_sz == 0xFFFFFFFFFFFFFFFFULL && rsn != cref &&
-          full_viv_subsumes_cl_m6(h, rsn, sz)) {
+      if ((ar[rsn] & PH_RED) != 0u) {
+        h->res_sz = 1ULL;
+        full_viv_recompute_promote_fid(h, rsn);
+      }
+      if (rsn != cref && full_viv_subsumes_cl_m6(h, rsn, sz)) {
         h->ant_sz = (u64)rsn;
+        break;
       }
       u32 rsz = ar[(u64)rsn + 2ULL]; u32 j = 0u;
       while (j < rsz && (u64)rsn + 3ULL + (u64)rsz <= h->arena_len) {
@@ -483,6 +551,15 @@ u64 full_viv_finish_m6(FullHdr *h, u32 cref, u32 sz,
         ar[sub_ref] = shdr & (~PH_RED);
         if (h->num_redundant > 0ULL) { h->num_redundant = h->num_redundant - 1ULL; }
         h->num_irred = h->num_irred + 1ULL;
+        u32 *fl_p = (u32 *)h->flags;
+        u32 ssz_p = ar[sub_ref + 2ULL];
+        u32 k_p = 0u;
+        while (k_p < ssz_p) {
+          u32 lp = ar[sub_ref + 3ULL + (u64)k_p];
+          u32 fbit_p = ((lp & 1u) != 0u) ? FL_FACT_N : FL_FACT_P;
+          fl_p[lp >> 1] = fl_p[lp >> 1] | FL_SUBSUME | FL_ELIM_C | fbit_p;
+          k_p = k_p + 1u;
+        }
       } else if (is_red && (shdr & PH_RED) != 0u) {
         u32 cgl = hdr & PH_GLUE_MASK;
         u32 sgl = shdr & PH_GLUE_MASK;
@@ -704,27 +781,6 @@ u64 full_viv_collect_fid(FullHdr *h, u64 tier_mode) {
   return bn;
 }
 
-void full_viv_count_fid(FullHdr *h, u64 bn) {
-  u64 nlits = h->cur_vars << 1;
-  u32 *cnt = (u32 *)h->tarjan_reach;
-  u64 l = 0ULL;
-  while (l < nlits) { cnt[l] = 0u; l = l + 1ULL; }
-  u32 *ar = (u32 *)h->arena;
-  u32 *rr = (u32 *)h->red_refs;
-  u64 bi = 0ULL;
-  while (bi < bn) {
-    u32 cr = rr[bi];
-    u32 sz = ar[(u64)cr + 2ULL];
-    u32 k = 0u;
-    while (k < sz) {
-      u32 lit = ar[(u64)cr + 3ULL + (u64)k];
-      if ((u64)lit < nlits && cnt[lit] < 0xFFFFFFFFu) { cnt[lit] = cnt[lit] + 1u; }
-      k = k + 1u;
-    }
-    bi = bi + 1ULL;
-  }
-}
-
 void full_viv_sort2_fid(FullHdr *h, u64 bn, u64 mode) {
   if (bn <= 1ULL) { return; }
   u32 *rr = (u32 *)h->red_refs;
@@ -880,20 +936,44 @@ void full_viv_sort_fid(FullHdr *h, u64 bn) {
 u64 full_vivify_tier_m6_hdr(FullHdr *h, u64 tier_mode, u64 budget, u64 tick_lim) {
   if (budget == 0ULL) { return 1ULL; }
   if (h->cur_level != 0ULL) { full_backtrack(h, 0ULL); }
+  u64 saved_prob = h->probing;
   h->probing = 1ULL;
   u32 *rr = (u32 *)h->red_refs;
   u64 bmax = h->red_cap;
   u64 bn = full_viv_collect_fid(h, tier_mode);
+  {
+    u64 nlits_vc = h->cur_vars << 1;
+    u32 *cnt_vc = (u32 *)h->tarjan_reach;
+    u32 *ar_vc = (u32 *)h->arena;
+    u64 l_vc = 0ULL;
+    while (l_vc < nlits_vc) { cnt_vc[l_vc] = 0u; l_vc = l_vc + 1ULL; }
+    u64 p_vc = 0ULL;
+    while (p_vc < h->arena_len) {
+      u32 hdr_vc = ar_vc[p_vc];
+      u32 sz_vc = ar_vc[p_vc + 2ULL];
+      u64 np_vc = (u64)full_arena_next(h, (u32)p_vc);
+      if ((hdr_vc & PH_GARB) == 0u && sz_vc >= 3u) {
+        u32 k_vc = 0u;
+        while (k_vc < sz_vc) {
+          u32 lit_vc = ar_vc[p_vc + 3ULL + (u64)k_vc];
+          if ((u64)lit_vc < nlits_vc && cnt_vc[lit_vc] < 0xFFFFFFFFu) {
+            cnt_vc[lit_vc] = cnt_vc[lit_vc] + 1u;
+          }
+          k_vc = k_vc + 1u;
+        }
+      }
+      p_vc = np_vc;
+    }
+  }
   bool do_sort = (tier_mode != 0ULL || h->num_irred / 10ULL <= h->num_redundant);
   if (do_sort) {
-    full_viv_count_fid(h, bn);
     full_viv_sort_fid(h, bn);
   }
   u64 res = 1ULL;
   u64 bi = 0ULL;
   while (bi < bn && budget > 0ULL && h->oom == 0ULL && h->fuel > 0ULL &&
-         h->search_ticks < tick_lim) {
-    u32 cr = rr[do_sort ? bi : (bn - 1ULL - bi)];
+         m6_hdr_get_watermark(h, 5ULL) <= tick_lim) {
+    u32 cr = rr[bn - 1ULL - bi];
     budget = budget - 1ULL;
     u64 vc = full_viv_clause_m6(h, cr);
     if (vc == 20ULL) { res = 20ULL; break; }
@@ -906,7 +986,7 @@ u64 full_vivify_tier_m6_hdr(FullHdr *h, u64 tier_mode, u64 budget, u64 tick_lim)
     full_viv_clear_tier_m6(h, tier_mode);
   }
   h->res_sz = bi;
-  h->probing = 0ULL;
+  h->probing = saved_prob;
   return res;
 }
 
@@ -919,15 +999,15 @@ u64 full_vivify_m6_hdr(FullHdr *h) {
   u64 w2 = (h->num_redundant == 0ULL) ? 0ULL : 3ULL;
   u64 w3 = (h->num_redundant == 0ULL) ? 0ULL : 1ULL;
   u64 sum = w0 + w1 + w2 + w3;
-  if (sum == 0ULL) { h->probing = 0ULL; return 1ULL; }
-  u64 start = h->search_ticks;
+  if (sum == 0ULL) { return 1ULL; }
+  u64 start_s = h->search_ticks;
   u64 last_p = m6_hdr_get_watermark(h, M6_WM_PROBE_TICKS);
-  u64 delta = (start > last_p) ? (start - last_p) : 0ULL;
+  u64 delta = (start_s > last_p) ? (start_s - last_p) : 0ULL;
   u64 eff_ref = (delta < 10000000ULL) ? 10000000ULL : delta;
   u64 total = eff_ref / 10ULL;
   if (w1 > 0ULL && w2 > 0ULL && h->tier1 >= h->tier2) { w1 = w1 + w2; w2 = 0ULL; }
   u64 res = 1ULL;
-  u64 lim = start;
+  u64 lim = m6_hdr_get_watermark(h, 5ULL);
   if (w1 > 0ULL) {
     u64 a1 = (total * w1) / sum;
     lim = (lim > (~0ULL) - a1) ? (~0ULL) : (lim + a1);
@@ -951,13 +1031,16 @@ u64 full_vivify_m6_hdr(FullHdr *h) {
     res = full_vivify_tier_m6_hdr(h, 0ULL, 0xFFFFFFFFULL, lim);
     u64 tried = h->res_sz;
     if (res != 20ULL) {
-      u64 y = (h->viv_cnt - vb) + ((ub > h->unassigned) ? (ub - h->unassigned) : 0ULL);
-      if (tried == 0ULL || y * 100ULL < tried) { m6_hdr_bump_delay(h, M6_DELAY_VIVIFYIRR); }
-      else { m6_hdr_reduce_delay(h, M6_DELAY_VIVIFYIRR); }
+      u64 du = (ub > h->unassigned) ? (ub - h->unassigned) : 0ULL;
+      u64 y = (h->viv_cnt - vb) + du;
+      if (tried == 0ULL || y * 100ULL < tried) {
+        m6_hdr_bump_delay(h, M6_DELAY_VIVIFYIRR);
+      } else {
+        m6_hdr_reduce_delay(h, M6_DELAY_VIVIFYIRR);
+      }
     }
   }
   m6_hdr_sync_legacy_tiers(h);
-  h->search_ticks = start;
   return res;
 }
 "
