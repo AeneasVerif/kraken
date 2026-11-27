@@ -366,6 +366,7 @@ mutual
       | some vx =>
         vx.ty.isScalar == retTy.isScalar && vx.ty.width == retTy.width &&
         (retTy.needsRc == vx.ty.needsRc || (retTy == .tagged && vx.ty == .tobject) ||
+          (retTy == .tobject && vx.ty == .tagged) ||
           (!retTy.isScalar && !retTy.needsRc && vx.noRc)) &&
         (retTy == .object → vx.ty == .object) && (retTy == .tagged → vx.ty == .tagged)
       | none => false
