@@ -451,7 +451,7 @@ def solveRelHints (I : Isa) (rh : RelHints I.Reg I.Cond) (f : Fn)
       let liveLocs := liveVars.filterMap fun v =>
         (destTrie.find? v).map fun loc => (SymArg.var v, loc)
       let plocs := pregs.map fun r => Loc.gpr (mapReg r)
-      t.insert lid ⟨liveLocs, plocs⟩) .empty
+      t.insert lid { live := liveLocs, ploc := plocs }) .empty
   let varTrie : Trie VariantHint :=
     rh.variants.foldl (fun t (ip, vh) => t.insert ip vh) .empty
   let elideFromVars : List (Nat × Bool) :=
@@ -677,27 +677,36 @@ available (kept={keepInputRegs.length})"
         | some sIdx => (sa, Loc.slot sIdx .w64)
         | none => (sa, loc)
       | other => (sa, other)
-    entry' := entry'.insert reg.contLid ⟨live', enCont.ploc⟩
+    entry' := entry'.insert reg.contLid { enCont with live := live' }
   for (lid1, lid2) in z.lidMap do
     let ploc' := match hSnip.entry.find? lid1 with
       | some enS => enS.ploc.map mapLoc
       | none => (hOuter.entry.find? lid2).map (·.ploc) |>.getD []
-    let liveOuter := match hOuter.entry.find? lid2 with
-      | some enO => enO.live.filterMap fun (sa, loc) =>
-        match sa with
-        | .var w =>
-          if Live.trieMem calleeNvSet w then
-            (dest'.find? w).map fun dl => (sa, dl)
-          else
-            match loc with
-            | .gpr r =>
-              match findEvictSlot r with
-              | some sIdx => some (sa, Loc.slot sIdx .w64)
-              | none => some (sa, loc)
-            | other => some (sa, other)
-        | _ => some (sa, loc)
-      | none => []
-    entry' := entry'.insert lid2 ⟨liveOuter, ploc'⟩
+    let (liveOuter, liveZOuter) := match hOuter.entry.find? lid2 with
+      | some enO =>
+        let rec go : List (SymArg × I.Loc) → List Bool → List (SymArg × I.Loc) × List Bool
+          | [], _ => ([], [])
+          | (sa, loc) :: rest, zs =>
+            let z := zs.headD false
+            let (rs, rzs) := go rest zs.tail
+            match sa with
+            | .var w =>
+              if Live.trieMem calleeNvSet w then
+                match dest'.find? w with
+                | some dl => ((sa, dl) :: rs, false :: rzs)
+                | none => (rs, rzs)
+              else
+                match loc with
+                | .gpr r =>
+                  match findEvictSlot r with
+                  | some sIdx => ((sa, Loc.slot sIdx .w64) :: rs, z :: rzs)
+                  | none => ((sa, loc) :: rs, z :: rzs)
+                | other => ((sa, other) :: rs, z :: rzs)
+            | _ => ((sa, loc) :: rs, z :: rzs)
+        go enO.live enO.liveZ
+      | none => ([], [])
+    entry' := entry'.insert lid2
+      { live := liveOuter, ploc := ploc', liveZ := liveZOuter, plocZ := [] }
   -- Update `saved` registers cleanly.
   let extraSaved := usedRegs.filter (I.frame.calleeSaved.contains ·)
   let saved' := dedupList (hOuter.saved ++ extraSaved)
@@ -771,14 +780,6 @@ available (kept={keepInputRegs.length})"
     nslotsAfter := nslots'
   }
   pure (hNew, report)
-
-/-- Convenience wrapper matching Phase 0 naming (`Except String (I.Hints × Nat)` returning
-`evictedRegs.length`). -/
-def buildSpillSnippetHints (I : Isa) (sDirect outerLate : Fn) (hOuter : I.Hints)
-    (extraKeepRegs : List I.Reg := []) (hSnipOverride? : Option I.Hints := none) :
-    Except String (I.Hints × Nat) := do
-  let (hNew, rep) ← splice_snippet_hints I sDirect outerLate hOuter extraKeepRegs hSnipOverride?
-  pure (hNew, rep.evictedRegs.length)
 
 end SpillSnippet
 
