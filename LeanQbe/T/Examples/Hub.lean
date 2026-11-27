@@ -19,6 +19,14 @@ public import LeanQbe.T.Examples.Bitblast.Proof.OpsCore0
 public import LeanQbe.T.Examples.Bitblast.Proof.OpsCore1
 public import LeanQbe.T.Examples.Bitblast.Proof.OpsCore2
 public import LeanQbe.T.Examples.Bitblast.Proof.OpsCoreHelpers
+public import LeanQbe.T.Examples.Bitblast.Proof.OpsDivCpop
+public import LeanQbe.T.Examples.Bitblast.Proof.OpsDivCpop0
+public import LeanQbe.T.Examples.Bitblast.Proof.OpsDivCpop1
+public import LeanQbe.T.Examples.Bitblast.Proof.OpsDivCpop1Helpers
+public import LeanQbe.T.Examples.Bitblast.Proof.OpsDivCpop2
+public import LeanQbe.T.Examples.Bitblast.Proof.OpsDivCpop2CpopHelpers
+public import LeanQbe.T.Examples.Bitblast.Proof.OpsDivCpop2Helpers
+public import LeanQbe.T.Examples.Bitblast.Proof.OpsDivCpopHelpers
 public import LeanQbe.T.Examples.Bitblast.Proof.OpsShiftMul
 public import LeanQbe.T.Examples.Bitblast.Proof.OpsShiftMul0
 public import LeanQbe.T.Examples.Bitblast.Proof.OpsShiftMul1
