@@ -361,11 +361,12 @@ def armAddrValid (scale : Nat) : AddrArg Reg → Bool
   | .baseIdxDisp .. => false
   | _ => true
 
-/-- Single sign-extending load `Instr` (`ldrsb`/`ldrsh`) into 64-bit `x_d`. -/
+/-- Single sign-extending load `Instr` (`ldrsb`/`ldrsh`/`ldrsw`) into 64-bit `x_d`. -/
 def armLoadSextDirI (m : Nat) (d : XReg) (addr : AddrExpr) : Option Instr :=
   match m with
   | 8 => some (armIselInsI (w := .W64) (.LDRSB (zr d .W64) addr))
   | 16 => some (armIselInsI (w := .W64) (.LDRSH (zr d .W64) addr))
+  | 32 => some (armIselInsI (w := .W64) (.LDRSW (zr d .W64) (.addr addr)))
   | _ => none
 
 /-- Shared tail builder for `armLoadSextIns` and `armLoadSextZextIdxIns`. -/
@@ -379,10 +380,10 @@ def armLoadSextTailIns (m : Nat) (rd : Reg) (setup : List Instr) (addr : AddrExp
     let dir ← armLoadSextDirI m .X16 addr
     some (setup ++ [dir, armIselMovToSpI .X16], maskNone)
 
-/-- Fused sign-extending load of `m ∈ {8, 16}` bits (`m < n ≤ 64`) from `a` into `rd`
+/-- Fused sign-extending load of `m ∈ {8, 16, 32}` bits (`m < n ≤ 64`) from `a` into `rd`
 (`Instr` builder). -/
 def armLoadSextIns (m n : Nat) (rd : Reg) (a : AddrArg Reg) : Option (List Instr × FlagMask) := do
-  if !(m == 8 || m == 16) || !Nat.blt m n || !Nat.ble n 64 then none
+  if !(m == 8 || m == 16 || m == 32) || !Nat.blt m n || !Nat.ble n 64 then none
   else
     let scale ← armMemScale (.bits m)
     if !armAddrValid scale a then none
@@ -390,10 +391,10 @@ def armLoadSextIns (m n : Nat) (rd : Reg) (a : AddrArg Reg) : Option (List Instr
       let (setup, addr) := armSetupAddrIns scale a
       armLoadSextTailIns m rd setup addr
 
-/-- Fused sign-extending load (`ldrsb`/`ldrsh`) with `zext 32 64` scaled index (`Instr`). -/
+/-- Fused sign-extending load (`ldrsb`/`ldrsh`/`ldrsw`) with `zext 32 64` scaled index (`Instr`). -/
 def armLoadSextZextIdxIns (m n : Nat) (rd base idx : Reg) (sc : AddrScale) (disp : Int64) :
     Option (List Instr × FlagMask) := do
-  if !(m == 8 || m == 16) || !Nat.blt m n || !Nat.ble n 64 then none
+  if !(m == 8 || m == 16 || m == 32) || !Nat.blt m n || !Nat.ble n 64 then none
   else
     let scale ← armMemScale (.bits m)
     let (setup, addr) ← armSetupAddrZextIns scale base idx sc disp
@@ -1427,22 +1428,38 @@ def armZeroUpper32Op : {sig rs : List Ty} → OpCode sig rs →
   | _, [.bits 32], _, _, (.gpr (.reg _), ()) => true
   | _, _, _, _, _ => false
 
-/-- Lower 1-instruction `rd := base + (idx <<< sc.shift)` (`disp == 0`) at `w ∈ {32, 64}` via
-shifted `ADD_s` (`maskNone`), zeroing bits `32..63` when `w = 32`. -/
+/-- Lower `rd := base? + (idx <<< sc.shift) + disp` at `w ∈ {32, 64}` via `ADD_s` / `UBFM`
+(+ optional 12-bit immediate `ADD_e`/`SUB_e`), zeroing bits `32..63` when `w = 32`. -/
 def armLeaArithIns (w : Nat) (base? : Option Reg) (idx : Reg) (sc : AddrScale)
     (disp : Int64) (rd : Reg) : Option (List Instr × FlagMask) := do
   if !(w == 32 || w == 64) then none
-  else if disp.toBitVec.setWidth w != 0#w then none
   else
     let rw := armWidthOf w
+    let dw := disp.toBitVec.setWidth w
     let d ← match rd with | .reg d => some d | .SP => none
     let ri ← match idx with | .reg ri => some ri | .SP => none
     match base? with
     | some (.reg rb) =>
-      let sft := armIselInsI (.ADD_s (zr d rw) (zr rb rw)
+      let mkSft (dst : XReg) : Instr := armIselInsI (.ADD_s (zr dst rw) (zr rb rw)
         { reg := zr ri rw, amount := Int64.ofNat sc.shift, shift := .LSL })
-      some ([sft], maskNone)
-    | some .SP | none => none
+      if dw == 0#w then some ([mkSft d], maskNone)
+      else
+        let addDisp ← armAddSubImmI? false rw d .X16 dw
+        some ([mkSft .X16, addDisp], maskNone)
+    | some .SP => none
+    | none =>
+      if sc.shift == 0 then
+        if dw == 0#w then some ([armIselInsI (.ORR_s (zr d rw) (xzr rw) (sh ri))], maskNone)
+        else
+          let addDisp ← armAddSubImmI? false rw d ri dw
+          some ([addDisp], maskNone)
+      else
+        let shDir (dst : XReg) : Instr := armIselInsI
+          (.UBFM (zr dst rw) (zr ri rw) ((rw.bits - sc.shift) % rw.bits) (rw.bits - 1 - sc.shift))
+        if dw == 0#w then some ([shDir d], maskNone)
+        else
+          let addDisp ← armAddSubImmI? false rw d .X16 dw
+          some ([shDir .X16, addDisp], maskNone)
 
 /-- Lower `rd := (base? + (idx <<< sc.shift) + disp)` into AArch64 directives. -/
 def armLeaArith (w : Nat) (base? : Option Reg) (idx : Reg) (sc : AddrScale)

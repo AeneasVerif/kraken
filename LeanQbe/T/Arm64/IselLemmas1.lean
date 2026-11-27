@@ -1220,7 +1220,7 @@ private theorem Reg64s_getXReg_setSP' (regs : Reg64s) (v : UInt64) (x : XReg) :
     ({ regs with SP := v } : Reg64s).getXReg x = regs.getXReg x := by
   cases x <;> rfl
 
-private theorem armLoadDir_wp [Host] {t : Ty} {d : XReg} {addr : AddrExpr} {a : BitVec 64}
+theorem armLoadDir_wp [Host] {t : Ty} {d : XReg} {addr : AddrExpr} {a : BitVec 64}
     {v : Val t} {s : MachineData} {dir : Instr}
     (hdir : armLoadDirI t d addr = some dir) (hnoSp : ∃ rx, addr.base = .low (.reg rx) .W64)
     (heval : ∀ [Labels] p, addr.eval s p = (a, s)) (hload : loadVal s.dmem t a = some v) :
@@ -1427,7 +1427,7 @@ theorem armLoad_zero32 {h : Host} {k : Nat} {rd : Reg} {a : AddrArg Reg}
   fun hc hk => armLoad_zext rfl hc_in hrd haregs hv hc fun s' ⟨h1, h2⟩ hfr =>
     hk s' ⟨h1.2, h2⟩ hfr
 
-private theorem armLoadSextDir_wp [Host] {m : Nat} {d : XReg} {addr : AddrExpr} {a : BitVec 64}
+theorem armLoadSextDir_wp [Host] {m : Nat} {d : XReg} {addr : AddrExpr} {a : BitVec 64}
     {v : BitVec m} {s : MachineData} {dir : Instr}
     (hdir : armLoadSextDirI m d addr = some dir) (hnoSp : ∃ rx, addr.base = .low (.reg rx) .W64)
     (heval : ∀ [Labels] p, addr.eval s p = (a, s)) (hload : loadVal s.dmem (.bits m) a = some v) :
@@ -1436,21 +1436,27 @@ private theorem armLoadSextDir_wp [Host] {m : Nat} {d : XReg} {addr : AddrExpr} 
   obtain ⟨rx, hrx⟩ := hnoSp
   simp only [loadVal, Option.bind_eq_some_iff] at hload
   rcases hload with ⟨i, hi, hv⟩
-  have hns : m = 8 ∨ m = 16 := by
+  have hns : m = 8 ∨ m = 16 ∨ m = 32 := by
     by_cases h8 : m = 8
     · exact Or.inl h8
     · by_cases h16 : m = 16
-      · exact Or.inr h16
-      · exfalso; revert hdir; simp [armLoadSextDirI]
-  rcases hns with rfl | rfl <;>
-    (simp only [armLoadSextDirI, Option.some.injEq] at hdir; subst hdir;
-     simp only [Ty.bytes, Ty.size, ofBits, Option.some.injEq] at hi hv; subst hv;
-     refine armDirFallsTo_wp (by
-       intro _ p next jmp P hk
-       simp only [Directive.interp, Instr.interp, Operation.interp, AddrExpr.interpLoad,
-         AddrExpr.checkSPAlignment, hrx, heval p, MachineData.load, MemWidth.bytes, hi,
-         MachineData.setRegOrZr, setRegOrZr_zr, MemWidth.bits, Effects.All]
-       exact hk _ rfl))
+      · exact Or.inr (Or.inl h16)
+      · by_cases h32 : m = 32
+        · exact Or.inr (Or.inr h32)
+        · exfalso; revert hdir
+          cases m with
+          | zero => simp [armLoadSextDirI]
+          | succ _ => simp_all [armLoadSextDirI]
+  rcases hns with rfl | rfl | rfl
+  all_goals
+    simp only [armLoadSextDirI, Option.some.injEq] at hdir; subst hdir
+    simp only [Ty.bytes, Ty.size, ofBits, Option.some.injEq] at hi hv; subst hv
+    refine armDirFallsTo_wp (by
+      intro _ p next jmp P hk
+      simp only [Directive.interp, Instr.interp, Operation.interp, AddrOrLit.interpLoad,
+        AddrExpr.interpLoad, AddrExpr.checkSPAlignment, hrx, heval p, MachineData.load,
+        MemWidth.bytes, hi, MachineData.setRegOrZr, setRegOrZr_zr, MemWidth.bits, Effects.All]
+      exact hk _ rfl)
 
 private theorem armLoadSextTail_wp {h : Host} {k m : Nat} {rd : Reg} {setup : List Instr}
     {addr : AddrExpr} {effAddr : BitVec 64} {ci : List Instr} {clob : FlagMask}
@@ -1517,12 +1523,14 @@ theorem armLoadSext_spec {h : Host} {k m n : Nat} {rd : Reg} {a : AddrArg Reg}
       (fun s' => armMach.getGpr s' rd = v.signExtend 64 ∧ armMach.mem s' = armMach.mem s) post := by
   letI := h
   obtain ⟨ci, hc, rfl⟩ := emitCleanPair_eq_some.mp hc_in
-  have hm : m = 8 ∨ m = 16 := by
+  have hm : m = 8 ∨ m = 16 ∨ m = 32 := by
     by_cases h8 : m = 8
     · exact Or.inl h8
     · by_cases h16 : m = 16
-      · exact Or.inr h16
-      · exfalso; revert hc; simp [armLoadSextIns, h8, h16]
+      · exact Or.inr (Or.inl h16)
+      · by_cases h32 : m = 32
+        · exact Or.inr (Or.inr h32)
+        · exfalso; revert hc; simp [armLoadSextIns, h8, h16, h32]
   dsimp only [armLoadSextIns] at hc
   split at hc
   · simp at hc
@@ -1531,7 +1539,7 @@ theorem armLoadSext_spec {h : Host} {k m n : Nat} {rd : Reg} {a : AddrArg Reg}
          else
            let sa := armSetupAddrIns scale a
            armLoadSextTailIns m rd sa.1 sa.2) = some (ci, clob) := by
-      rcases hm with rfl | rfl <;> exact ⟨_, rfl, hc⟩
+      rcases hm with rfl | rfl | rfl <;> exact ⟨_, rfl, hc⟩
     rcases hscEx with ⟨scale, _, hc'⟩
     have hva : armAddrValid scale a = true := by
       cases h : armAddrValid scale a

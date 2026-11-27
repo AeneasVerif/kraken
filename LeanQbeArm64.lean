@@ -17,6 +17,8 @@ public import LeanQbe.T.Arm64.IselLemmas3
 public import LeanQbe.T.Arm64.IselLemmas30
 public import LeanQbe.T.Arm64.IselLemmas31
 public import LeanQbe.T.Arm64.IselLemmas4
+public import LeanQbe.T.Arm64.IselNarrow
+public import LeanQbe.T.Arm64.IselNarrowLemmas
 public import LeanQbe.T.Arm64.IselShift
 public import LeanQbe.T.Arm64.IselShiftLemmas
 public import LeanQbe.T.Arm64.IselStepRules
