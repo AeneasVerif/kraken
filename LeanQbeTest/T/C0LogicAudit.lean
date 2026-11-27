@@ -10,13 +10,14 @@ public import LeanQbe.T.Logic.C0HeadStep
 public import LeanQbe.T.Logic.C0Agrees
 public import LeanQbe.T.Logic.SepTree
 public import LeanQbe.T.Logic.SlabChain
+meta import LeanQbe.T.Logic.SlabChain
 public import LeanQbe.T.Logic.SlabLayoutElab
 public import LeanQbe.T.Logic.ControlComb
 public import LeanQbe.T.LegalEmit
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 /-!
 # Audit Specification: C0 Frontend & Separation-Logic Proof Tooling

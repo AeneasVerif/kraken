@@ -630,7 +630,7 @@ private theorem deferLeaNextFlat_eq {rs : List Ty} (I : Isa) (h : I.Hints)
     (k : TFlat rs) (hwf : k.wfCheck Γ Δ = true) :
     deferLeaNextFlat I h vd' ve' nv ip st1 op k =
       deferLeaNext I h nv ip st1 op (denote VNat LNat k vs ls) := by
-  by_cases hcand : isLeaDeferCand op.code = true
+  by_cases hcand : isLeaDeferCand I.gpr.deferShiftAlu op.code = true
   · dsimp only [deferLeaNextFlat, deferLeaNext]
     simp only [hcand, Bool.not_true, Bool.false_eq_true, ↓reduceIte]
     cases ts with

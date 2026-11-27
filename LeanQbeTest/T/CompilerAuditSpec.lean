@@ -69,7 +69,7 @@ linking (`LinkRec`).
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace CompilerAuditSpec
 

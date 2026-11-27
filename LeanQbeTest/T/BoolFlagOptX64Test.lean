@@ -12,16 +12,18 @@ meta import LeanQbe.T.Spill
 
 Regression suite for Wave `W3` x64 `Rega`/`Isel` optimizations (`x64Target`):
 1. **#1a**: Direct `setcc` + `OPb` boolean lowering without `movb`/`movzx` roundtrips.
-2. **#1b**: Flag consumption (`jnz`/`cmov`) of recently computed flags (`boolFlagOut?` / `cmpFlagsOut?`).
+2. **#1b**: Flag consumption (`jnz`/`cmov`) of recently computed flags
+   (`boolFlagOut?` / `cmpFlagsOut?`).
 3. **#5a**: `.gpr` `JnzCond` branch-over-jump inversion (`jnzGprInv?`) and chained trampoline block
    forwarding (`findGroupFwds`).
-4. **#6**: Zero-compare canonicalization (`normCmpZero1`: `x >=s 1` -> `x >s 0`, `x <u 1` -> `x == 0`),
-   sequential compare & ALU-zero flag reuse (`SymState.flags` / `tryReuseFlagCmp`), and `elideTrunc?`.
+4. **#6**: Zero-compare canonicalization (`normCmpZero1`: `x >=s 1` -> `x >s 0`,
+   `x <u 1` -> `x == 0`), sequential compare & ALU-zero flag reuse
+   (`SymState.flags` / `tryReuseFlagCmp`), and `elideTrunc?`.
 -/
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace LeanQbeTest.T.BoolFlagOptX64Test
 

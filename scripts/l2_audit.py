@@ -74,7 +74,6 @@ CANARY_FRONTIER: tuple[str, ...] = (
     "LeanQbe.T.PassFlatKit",
     "LeanQbe.T.Wasm.BulkSafety",
     "LeanQbe.T.LeanLCNF.LcnfC0RtProofCommon",
-    "LeanQbe.T.LeanLRC.Runtime",
     "LeanQbe.T.Frontend.Bedrock2.ToT",
     "LeanQbe.T.MainLinkReuseLegalCalls",
     "LeanQbe.T.Amd64.Targ",
@@ -366,9 +365,7 @@ def compute_exact_lean_rdeps(
             seeds.add(mod)
     if not seeds:
         return [], []
-    rdeps = collect_lean_rdeps(
-        wt, seeds, barrels=BARRELS, include_legacy=False, max_rdeps=None
-    )
+    rdeps = collect_lean_rdeps(wt, seeds, barrels=BARRELS, max_rdeps=None)
     return sorted(seeds), (rdeps or [])
 
 
@@ -383,7 +380,6 @@ def plan_rdeps_and_canary(
         changed_files,
         max_rdeps=RDEPS_BUILD_CAP,
         base=base_sha,
-        include_legacy=False,
     )
     seeds, exact_mods = compute_exact_lean_rdeps(wt, changed_files)
     core_touched = [f for f in changed_files if CORE_TRIGGER_RE.match(f)]
@@ -453,7 +449,7 @@ def collect_active_headlines_for_mods(
 ) -> dict[str, list[str]]:
     """Map audited module -> headline constants from `scripts/headlines.d/*.txt`."""
     out: dict[str, list[str]] = collections.defaultdict(list)
-    for mod, const in collect_active_headlines(wt, include_legacy=False):
+    for mod, const in collect_active_headlines(wt):
         if mod in mods:
             out[mod].append(const)
     return out
@@ -1062,7 +1058,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     ap.add_argument(
         "--c0-target",
-        choices=("m7fidelity", "fidelity"),
+        choices=("fidelity", "step12", "plain", "m8opt"),
         default=None,
         help="Optional Kissat C0 ASan+UBSan SHA-256 memoized check target.",
     )

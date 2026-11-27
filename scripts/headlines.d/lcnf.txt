@@ -1,11 +1,9 @@
 # One per line: <module to import> <fully qualified constant>.
-# LeanLCNF & LeanLRC frontend lowering headline theorems.
+# LeanLCNF frontend lowering headline theorems.
 LeanQbeTest.T.LeanLCNFTest LeanQbeTest.T.LeanLCNFTest.lcnf_demo_wf
 LeanQbeTest.T.LcnfAudit LcnfAudit.audit_tflat_wf
 LeanQbeTest.T.LcnfAudit LcnfAudit.audit_lcnf_demo_wf
 LeanQbeTest.T.LcnfAudit LcnfAudit.audit_lcnf_cov_wf
-LeanQbeTest.T.LcnfAudit LcnfAudit.audit_lrc_rt_wf
-LeanQbeTest.T.LcnfAudit LcnfAudit.audit_lrc_mod_wf
 LeanQbe.T.LeanLCNF.LExprSem LeanQbe.T.Frontend.C0.lExprToTFlat_sound
 LeanQbe.T.LeanLCNF.LExprSem LeanQbe.T.Frontend.C0.lBlocksToTBlocks_sound
 LeanQbe.T.LeanLCNF.LExprSem LeanQbe.T.Frontend.C0.lExprToTFlat_func_sound

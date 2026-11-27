@@ -960,11 +960,732 @@ theorem ifOpt_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     wp Γ Q X e₂ m → wp Γ Q X (ifOpt depth next e₁) m :=
   ifOptWith_wp false hwf
 
+/-! ## Pure integer compare sinking (`cmpSink`) soundness -/
+
+namespace CmpSinkProofs
+
+private inductive SValRel {V₁ V₂ : Ty → Type} (G' : Ctx V₁ V₂) :
+    (t : Ty) → SVal V₁ t → SVal V₂ t → Prop
+  | val {t : Ty} {a₁ : Arg V₁ t} {a₂ : Arg V₂ t} (id : Nat) :
+    ArgRel G' t a₁ a₂ → SValRel G' t (.val a₁ id) (.val a₂ id)
+  | defer {id n : Nat} {co : CmpOp}
+      {l₁ r₁ : Arg V₁ (.bits n)} {l₂ r₂ : Arg V₂ (.bits n)} :
+    ArgRel G' (.bits n) l₁ l₂ → ArgRel G' (.bits n) r₁ r₂ →
+    SValRel G' .bool (.defer ⟨id, n, co, l₁, r₁⟩) (.defer ⟨id, n, co, l₂, r₂⟩)
+
+private theorem SValRel.weaken {V₁ V₂ : Ty → Type} {G₁ G₂ : Ctx V₁ V₂}
+    (hsub : ∀ p ∈ G₁, p ∈ G₂) {t : Ty} {s₁ : SVal V₁ t} {s₂ : SVal V₂ t}
+    (h : SValRel G₁ t s₁ s₂) : SValRel G₂ t s₁ s₂ := by
+  cases h with
+  | val id ha => exact .val id (ArgRel.weaken hsub ha)
+  | defer hl hr => exact .defer (ArgRel.weaken hsub hl) (ArgRel.weaken hsub hr)
+
+private theorem SValRel.svalId_eq {V₁ V₂ : Ty → Type} {G' : Ctx V₁ V₂} {t : Ty}
+    {s₁ : SVal V₁ t} {s₂ : SVal V₂ t} (h : SValRel G' t s₁ s₂) : svalId s₁ = svalId s₂ := by
+  cases h <;> rfl
+
+private def SRelG {V₁ V₂ : Ty → Type} (G' : Ctx V₁ V₂) (G : Ctx (SVal V₁) (SVal V₂)) : Prop :=
+  ∀ p ∈ G, SValRel G' p.1 p.2.1 p.2.2
+
+private theorem SRelG.weaken {V₁ V₂ : Ty → Type} {G₁ G₂ : Ctx V₁ V₂}
+    {G : Ctx (SVal V₁) (SVal V₂)} (hsub : ∀ p ∈ G₁, p ∈ G₂) (hG : SRelG G₁ G) :
+    SRelG G₂ G :=
+  fun _ hp => (hG _ hp).weaken hsub
+
+private theorem SRelG.freshSVals {V₁ V₂ : Ty → Type} {G' : Ctx V₁ V₂}
+    {G : Ctx (SVal V₁) (SVal V₂)} (hG : SRelG G' G) :
+    {ts : List Ty} → (xs₁ : Tup V₁ ts) → (xs₂ : Tup V₂ ts) → (next : Nat) →
+    SRelG (Tup.zip xs₁ xs₂ ++ G') (Tup.zip (freshSVals ts xs₁ next) (freshSVals ts xs₂ next) ++ G)
+  | [], (), (), _ => hG
+  | t :: ts, (x₁, xs₁), (x₂, xs₂), next => by
+    dsimp only [freshSVals, Tup.zip, SRelG]
+    intro p hp
+    cases hp with
+    | head =>
+      exact .val next (.var List.mem_cons_self)
+    | tail _ hp =>
+      have ih := SRelG.freshSVals (G' := G') (G := G) hG xs₁ xs₂ (next + 1) p hp
+      exact ih.weaken fun q hq => List.mem_cons_of_mem _ hq
+
+private theorem SRelG.dummySVals {V₁ V₂ : Ty → Type} {G' : Ctx V₁ V₂}
+    {G : Ctx (SVal V₁) (SVal V₂)} (hG : SRelG G' G) :
+    (ts : List Ty) → (next : Nat) →
+    SRelG G' (Tup.zip (dummySVals (V := V₁) ts next) (dummySVals (V := V₂) ts next) ++ G)
+  | [], _ => hG
+  | _ :: ts, next => by
+    dsimp only [dummySVals, Tup.zip, SRelG]
+    intro p hp
+    cases hp with
+    | head => exact .val next (.imm _)
+    | tail _ hp => exact SRelG.dummySVals hG ts (next + 1) p hp
+
+private theorem sarg_soutBits {V₁ V₂ : Ty → Type} {G' : Ctx V₁ V₂}
+    {G : Ctx (SVal V₁) (SVal V₂)} (hG : SRelG G' G) {n : Nat}
+    {a₁ : Arg (SVal V₁) (.bits n)} {a₂ : Arg (SVal V₂) (.bits n)}
+    (ha : ArgRel G (.bits n) a₁ a₂) : ArgRel G' (.bits n) (soutBits a₁) (soutBits a₂) := by
+  cases ha with
+  | imm c => exact .imm c
+  | @var s₁ s₂ hm =>
+    cases s₁ with
+    | val _ _ =>
+      cases s₂ with
+      | val _ _ =>
+        cases hG _ hm with
+        | val _ ha' => exact ha'
+
+private theorem sargIsId_eq {V₁ V₂ : Ty → Type} {G' : Ctx V₁ V₂}
+    {G : Ctx (SVal V₁) (SVal V₂)} (hG : SRelG G' G) (cid : Nat) {t : Ty}
+    {a₁ : Arg (SVal V₁) t} {a₂ : Arg (SVal V₂) t}
+    (ha : ArgRel G t a₁ a₂) : sargIsId cid a₁ = sargIsId cid a₂ := by
+  cases ha with
+  | imm _ => rfl
+  | var hm => simp only [sargIsId, (hG _ hm).svalId_eq]
+
+private theorem sargsHasId_eq {V₁ V₂ : Ty → Type} {G' : Ctx V₁ V₂}
+    {G : Ctx (SVal V₁) (SVal V₂)} (hG : SRelG G' G) (cid : Nat) :
+    {ts : List Ty} → {a₁ : Tup (Arg (SVal V₁)) ts} → {a₂ : Tup (Arg (SVal V₂)) ts} →
+    TRel (ArgRel G) a₁ a₂ → sargsHasId cid a₁ = sargsHasId cid a₂
+  | [], (), (), .nil => rfl
+  | _ :: _, (_, _), (_, _), .cons ha has => by
+    dsimp only [sargsHasId]
+    rw [sargIsId_eq hG cid ha, sargsHasId_eq hG cid has]
+
+private theorem shouldDeferCmp_eq_of_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type}
+    {rs : List Ty} (cid : Nat) :
+    ∀ (fuel : Nat) (saw : Bool) (next : Nat) {G' : Ctx V₁ V₂} {G : Ctx (SVal V₁) (SVal V₂)}
+      {D : Ctx L₁ L₂} {e₁ : Expr (SVal V₁) L₁ rs} {e₂ : Expr (SVal V₂) L₂ rs},
+    SRelG G' G → Wf G D e₁ e₂ →
+    shouldDeferCmp cid fuel saw next e₁ = shouldDeferCmp cid fuel saw next e₂
+  | 0, _, _, _, _, _, _, _, _, _ => rfl
+  | fuel + 1, saw, next, G', G, D, _, _, hG, hwf => by
+    cases hwf with
+    | @let_ _ _ ts _ _ _ _ hop hk =>
+      cases hop with
+      | @mk _ _ code args₁ args₂ hargs =>
+        dsimp only [shouldDeferCmp]
+        cases code with
+        | select u =>
+          rcases args₁ with ⟨c₁, aT₁, aE₁, ⟨⟩⟩
+          rcases args₂ with ⟨c₂, aT₂, aE₂, ⟨⟩⟩
+          cases hargs with | cons hc hargs =>
+          cases hargs with | cons haT hargs =>
+          cases hargs with | cons haE _ =>
+          dsimp only [shouldDeferCmpStep]
+          rw [sargIsId_eq hG cid hc, sargIsId_eq hG cid haT, sargIsId_eq hG cid haE]
+          cases (sargIsId cid c₂ && !sargIsId cid aT₂ && !sargIsId cid aE₂) with
+          | true => rfl
+          | false =>
+            cases (sargIsId cid c₂ || sargIsId cid aT₂ || sargIsId cid aE₂) with
+            | true => rfl
+            | false =>
+              exact shouldDeferCmp_eq_of_wf cid fuel true (next + 1)
+                (hG.dummySVals [u] next) (hk (dummySVals [u] next) (dummySVals [u] next))
+        | _ =>
+          dsimp only [shouldDeferCmpStep]
+          rw [sargsHasId_eq hG cid hargs]
+          cases sargsHasId cid args₂ with
+          | true => rfl
+          | false =>
+            exact shouldDeferCmp_eq_of_wf cid fuel (saw || isCmpClobberOp _) (next + _)
+              (hG.dummySVals _ next) (hk (dummySVals _ next) (dummySVals _ next))
+    | load _ _ _ | store _ _ _ | call _ _ _ | jnz _ _ _ | jump _ _ | ret _ | exit _ _
+    | hlt | group _ _ => rfl
+
+private inductive MatRel {V₁ V₂ : Ty → Type} (G' : Ctx V₁ V₂) :
+    List (Nat × V₁ .bool) → List (Nat × V₂ .bool) → Prop
+  | nil : MatRel G' [] []
+  | cons {id : Nat} {v₁ : V₁ .bool} {v₂ : V₂ .bool}
+      {r₁ : List (Nat × V₁ .bool)} {r₂ : List (Nat × V₂ .bool)} :
+    ⟨.bool, v₁, v₂⟩ ∈ G' → MatRel G' r₁ r₂ → MatRel G' ((id, v₁) :: r₁) ((id, v₂) :: r₂)
+
+private theorem MatRel.weaken {V₁ V₂ : Ty → Type} {G₁ G₂ : Ctx V₁ V₂}
+    (hsub : ∀ p ∈ G₁, p ∈ G₂) :
+    {mat₁ : List (Nat × V₁ .bool)} → {mat₂ : List (Nat × V₂ .bool)} →
+    MatRel G₁ mat₁ mat₂ → MatRel G₂ mat₁ mat₂
+  | _, _, .nil => .nil
+  | _, _, .cons hmem hrest => .cons (hsub _ hmem) (MatRel.weaken hsub hrest)
+
+private theorem lookupMat_eq_of_matRel {V₁ V₂ : Ty → Type} {G' : Ctx V₁ V₂} (id : Nat) :
+    {mat₁ : List (Nat × V₁ .bool)} → {mat₂ : List (Nat × V₂ .bool)} →
+    MatRel G' mat₁ mat₂ →
+    (lookupMat id mat₁ = none ∧ lookupMat id mat₂ = none) ∨
+    (∃ v₁ v₂, lookupMat id mat₁ = some v₁ ∧ lookupMat id mat₂ = some v₂ ∧
+      ⟨.bool, v₁, v₂⟩ ∈ G')
+  | [], [], .nil => Or.inl ⟨rfl, rfl⟩
+  | (k, v₁) :: _, (_, v₂) :: _, .cons hv hrest => by
+    dsimp only [lookupMat]
+    by_cases heq : k == id
+    · simp only [heq, ↓reduceIte]
+      exact Or.inr ⟨v₁, v₂, rfl, rfl, hv⟩
+    · simp only [heq, Bool.false_eq_true, ↓reduceIte]
+      exact lookupMat_eq_of_matRel id hrest
+
+private theorem matArg_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
+    {G' : Ctx V₁ V₂} {D' : Ctx L₁ L₂} {G : Ctx (SVal V₁) (SVal V₂)}
+    {mat₁ : List (Nat × V₁ .bool)} {mat₂ : List (Nat × V₂ .bool)}
+    (hG : SRelG G' G) (hmat : MatRel G' mat₁ mat₂)
+    {t : Ty} {a₁ : Arg (SVal V₁) t} {a₂ : Arg (SVal V₂) t} (ha : ArgRel G t a₁ a₂)
+    {cont₁ : List (Nat × V₁ .bool) → Arg V₁ t → Expr V₁ L₁ rs}
+    {cont₂ : List (Nat × V₂ .bool) → Arg V₂ t → Expr V₂ L₂ rs}
+    (hcont : ∀ G'' mat₁' mat₂' a₁' a₂',
+      (∀ p ∈ G', p ∈ G'') → MatRel G'' mat₁' mat₂' → ArgRel G'' t a₁' a₂' →
+      Wf G'' D' (cont₁ mat₁' a₁') (cont₂ mat₂' a₂')) :
+    Wf G' D' (matArg mat₁ a₁ cont₁) (matArg mat₂ a₂ cont₂) := by
+  cases ha with
+  | imm c => exact hcont G' mat₁ mat₂ (.imm c) (.imm c) (fun _ h => h) hmat (.imm c)
+  | @var s₁ s₂ hm =>
+    have hrel := hG _ hm
+    cases s₁ with
+    | val _ _ =>
+      cases s₂ with
+      | val _ _ =>
+        cases hrel with
+        | val _ ha' => exact hcont G' mat₁ mat₂ _ _ (fun _ h => h) hmat ha'
+      | defer _ => cases hrel
+    | defer d₁ =>
+      cases s₂ with
+      | val _ _ => cases hrel
+      | defer d₂ =>
+        cases hrel with
+        | @defer id n co l₁ r₁ l₂ r₂ hl hr =>
+          dsimp only [matArg]
+          rcases lookupMat_eq_of_matRel id hmat with ⟨h1, h2⟩ | ⟨v₁, v₂, h1, h2, hmem⟩
+          · rw [h1, h2]
+            refine .let_ ⟨.cmp co (.bits n) .bool rfl, ?_⟩ fun xs₁ xs₂ => ?_
+            · exact .cons hl (.cons hr .nil)
+            · exact hcont _ ((id, xs₁.1) :: mat₁) ((id, xs₂.1) :: mat₂)
+                (.var xs₁.1) (.var xs₂.1)
+                (fun _ h => List.mem_cons_of_mem _ h)
+                (.cons List.mem_cons_self (hmat.weaken fun _ h => List.mem_cons_of_mem _ h))
+                (.var List.mem_cons_self)
+          · rw [h1, h2]
+            exact hcont G' mat₁ mat₂ (.var v₁) (.var v₂) (fun _ h => h) hmat (.var hmem)
+
+private theorem matArgs_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
+    {G' : Ctx V₁ V₂} {D' : Ctx L₁ L₂} {G : Ctx (SVal V₁) (SVal V₂)}
+    {mat₁ : List (Nat × V₁ .bool)} {mat₂ : List (Nat × V₂ .bool)}
+    (hG : SRelG G' G) (hmat : MatRel G' mat₁ mat₂) :
+    {ts : List Ty} → {as₁ : Tup (Arg (SVal V₁)) ts} → {as₂ : Tup (Arg (SVal V₂)) ts} →
+    TRel (ArgRel G) as₁ as₂ →
+    {cont₁ : List (Nat × V₁ .bool) → Tup (Arg V₁) ts → Expr V₁ L₁ rs} →
+    {cont₂ : List (Nat × V₂ .bool) → Tup (Arg V₂) ts → Expr V₂ L₂ rs} →
+    (∀ G'' mat₁' mat₂' as₁' as₂',
+      (∀ p ∈ G', p ∈ G'') → MatRel G'' mat₁' mat₂' → TRel (ArgRel G'') as₁' as₂' →
+      Wf G'' D' (cont₁ mat₁' as₁') (cont₂ mat₂' as₂')) →
+    Wf G' D' (matArgs mat₁ as₁ cont₁) (matArgs mat₂ as₂ cont₂)
+  | [], (), (), .nil, _, _, hcont => hcont G' mat₁ mat₂ () () (fun _ h => h) hmat .nil
+  | _ :: _, (_, _), (_, _), .cons ha has, _, _, hcont =>
+    matArg_wf hG hmat ha fun _ _ _ a₁' a₂' hsub₁ hmat₁ ha' =>
+      matArgs_wf (hG.weaken hsub₁) hmat₁ has fun G₂ mat₁'' mat₂'' as₁' as₂' hsub₂ hmat₂ has' =>
+        hcont G₂ mat₁'' mat₂'' (a₁', as₁') (a₂', as₂')
+          (fun p hp => hsub₂ p (hsub₁ p hp)) hmat₂ (.cons (ArgRel.weaken hsub₂ ha') has')
+
+private theorem cmpSinkB_get {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
+    (next : Nat) (mat : List (Nat × V .bool)) :
+    {sig : List (List Ty)} → (bs : Blocks (SVal V) L rs sig) →
+    {ts : List Ty} → (i : Member ts sig) → (xs : Tup V ts) →
+    (cmpSinkB next mat bs).get i xs =
+      cmpSink (next + ts.length) mat (bs.get i (freshSVals ts xs next))
+  | _ :: _, .cons _ _, _, .here, _ => rfl
+  | _ :: _, .cons _ bs, _, .there i, xs => cmpSinkB_get next mat bs i xs
+
+private theorem cmpSink_wf_aux {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
+    {G : Ctx (SVal V₁) (SVal V₂)} {D : Ctx L₁ L₂}
+    {e₁ : Expr (SVal V₁) L₁ rs} {e₂ : Expr (SVal V₂) L₂ rs}
+    (hwf : Wf G D e₁ e₂) :
+    ∀ (next : Nat) {G' : Ctx V₁ V₂} {mat₁ : List (Nat × V₁ .bool)} {mat₂ : List (Nat × V₂ .bool)},
+    SRelG G' G → MatRel G' mat₁ mat₂ →
+    Wf G' D (cmpSink next mat₁ e₁) (cmpSink next mat₂ e₂) := by
+  induction hwf using Wf.induct with
+  | @let_ G₁ _ ts _ _ k₁ k₂ hop hk ih =>
+    intro next G' mat₁ mat₂ hG hmat
+    cases hop with
+    | @mk _ _ code args₁ args₂ hargs =>
+      cases code with
+      | cmp co t m h =>
+        cases t with
+        | bits n =>
+          subst h
+          rcases args₁ with ⟨a₁, b₁, ⟨⟩⟩
+          rcases args₂ with ⟨a₂, b₂, ⟨⟩⟩
+          cases hargs with | cons ha hargs =>
+          cases hargs with | cons hb _ =>
+          dsimp only [cmpSink]
+          have hdef : shouldDeferCmp next 16 false (next + 1)
+              (k₁ (.val (.imm default) next, ())) =
+            shouldDeferCmp next 16 false (next + 1)
+              (k₂ (.val (.imm default) next, ())) :=
+            shouldDeferCmp_eq_of_wf next 16 false (next + 1)
+              (hG.dummySVals [.bool] next)
+              (hk (dummySVals [.bool] next) (dummySVals [.bool] next))
+          rw [hdef]
+          split
+          · have hG' : SRelG G' (⟨.bool, .defer ⟨next, n, co, soutBits a₁, soutBits b₁⟩,
+                .defer ⟨next, n, co, soutBits a₂, soutBits b₂⟩⟩ :: G₁) := by
+              intro p hp
+              cases hp with
+              | head => exact .defer (sarg_soutBits hG ha) (sarg_soutBits hG hb)
+              | tail _ hp => exact hG _ hp
+            exact ih _ _ (next + 1) hG' hmat
+          · refine .let_ ⟨.cmp co (.bits n) .bool rfl,
+              .cons (sarg_soutBits hG ha) (.cons (sarg_soutBits hG hb) .nil)⟩ fun xs₁ xs₂ => ?_
+            have hG' : SRelG (⟨.bool, xs₁.1, xs₂.1⟩ :: G')
+                (⟨.bool, .val (.var xs₁.1) next, .val (.var xs₂.1) next⟩ :: G₁) := by
+              intro p hp
+              cases hp with
+              | head => exact .val next (.var List.mem_cons_self)
+              | tail _ hp => exact (hG _ hp).weaken fun _ h => List.mem_cons_of_mem _ h
+            exact ih _ _ (next + 1) hG' (hmat.weaken fun _ h => List.mem_cons_of_mem _ h)
+        | bool | float _ | pair _ _ =>
+          dsimp only [cmpSink]
+          exact matArgs_wf hG hmat hargs fun _ _ _ _ _ hsub hmat' has' =>
+            .let_ ⟨.cmp co _ m h, has'⟩ fun xs₁ xs₂ =>
+              ih (freshSVals _ xs₁ next) (freshSVals _ xs₂ next) (next + 1)
+                (hG.weaken hsub |>.freshSVals xs₁ xs₂ next)
+                (hmat'.weaken fun _ h => List.mem_append_right _ h)
+      | _ =>
+        dsimp only [cmpSink]
+        exact matArgs_wf hG hmat hargs fun _ _ _ _ _ hsub hmat' has' =>
+          .let_ ⟨_, has'⟩ fun xs₁ xs₂ =>
+            ih (freshSVals _ xs₁ next) (freshSVals _ xs₂ next) (next + _)
+              (hG.weaken hsub |>.freshSVals xs₁ xs₂ next)
+              (hmat'.weaken fun _ h => List.mem_append_right _ h)
+  | load t ha _ ih =>
+    intro next G' mat₁ mat₂ hG hmat
+    dsimp only [cmpSink]
+    exact matArg_wf hG hmat ha fun _ _ _ a₁' a₂' hsub hmat' ha' =>
+      .load t ha' fun v₁ v₂ =>
+        ih (.val (.var v₁) next) (.val (.var v₂) next) (next + 1)
+          (by
+            intro p hp
+            cases hp with
+            | head => exact .val next (.var List.mem_cons_self)
+            | tail _ hp => exact (hG _ hp).weaken fun _ h => List.mem_cons_of_mem _ (hsub _ h))
+          (hmat'.weaken fun _ h => List.mem_cons_of_mem _ h)
+  | store hv ha _ ih =>
+    intro next G' mat₁ mat₂ hG hmat
+    dsimp only [cmpSink]
+    exact matArg_wf hG hmat hv fun G₁ mat₁₁ mat₂₁ v₁' v₂' hsub₁ hmat₁ hv' =>
+      matArg_wf (hG.weaken hsub₁) hmat₁ (ArgRel.weaken (fun _ h => h) ha)
+        fun G₂ mat₁₂ mat₂₂ a₁' a₂' hsub₂ hmat₂ ha' =>
+          .store (ArgRel.weaken hsub₂ hv') ha'
+            (ih next (hG.weaken fun _ h => hsub₂ _ (hsub₁ _ h)) hmat₂)
+  | call f hargs _ ih =>
+    intro next G' mat₁ mat₂ hG hmat
+    dsimp only [cmpSink]
+    exact matArgs_wf hG hmat hargs fun G'' mat₁' mat₂' as₁' as₂' hsub hmat' has' =>
+      .call f has' fun xs₁ xs₂ =>
+        ih (freshSVals _ xs₁ next) (freshSVals _ xs₂ next) (next + _)
+          (hG.weaken hsub |>.freshSVals xs₁ xs₂ next)
+          (hmat'.weaken fun _ h => List.mem_append_right _ h)
+  | jnz hc _ _ iht ihe =>
+    intro next G' mat₁ mat₂ hG hmat
+    dsimp only [cmpSink]
+    exact matArg_wf hG hmat hc fun G'' mat₁' mat₂' c₁' c₂' hsub hmat' hc' =>
+      .jnz hc' (iht next (hG.weaken hsub) hmat') (ihe next (hG.weaken hsub) hmat')
+  | jump hj hargs =>
+    intro _ G' mat₁ mat₂ hG hmat
+    dsimp only [cmpSink]
+    exact matArgs_wf hG hmat hargs fun _ _ _ _ _ _ _ has' => .jump hj has'
+  | ret hvs =>
+    intro _ G' mat₁ mat₂ hG hmat
+    dsimp only [cmpSink]
+    exact matArgs_wf hG hmat hvs fun _ _ _ _ _ _ _ hvs' => .ret hvs'
+  | exit f hargs =>
+    intro _ G' mat₁ mat₂ hG hmat
+    dsimp only [cmpSink]
+    exact matArgs_wf hG hmat hargs fun _ _ _ _ _ _ _ has' => .exit f has'
+  | hlt =>
+    intro _ _ _ _ _ _
+    exact .hlt
+  | group _ _ ihb ihk =>
+    intro next G' mat₁ mat₂ hG hmat
+    dsimp only [cmpSink]
+    refine .group (fun Js₁ Js₂ => WfB.of_get fun i xs₁ xs₂ => ?_) fun Js₁ Js₂ => ?_
+    · rw [cmpSinkB_get, cmpSinkB_get]
+      exact ihb Js₁ Js₂ i (freshSVals _ xs₁ next) (freshSVals _ xs₂ next) (next + _)
+        (hG.freshSVals xs₁ xs₂ next) (hmat.weaken fun _ h => List.mem_append_right _ h)
+    · exact ihk Js₁ Js₂ next hG hmat
+
+private def SValGood (env : Nat → Bool) : {t : Ty} → SVal Val t → Val t → Prop
+  | _, .val a _, v => a.val = v
+  | .bool, .defer d, v => d.co.evalBits d.lhs.val d.rhs.val = v ∧ env d.id = v
+
+private def SGoodCtx (env : Nat → Bool) (bound : Nat) (G : Ctx (SVal Val) Val) : Prop :=
+  ∀ p ∈ G, SValGood env p.2.1 p.2.2 ∧ svalId p.2.1 < bound
+
+private def MatGood (env : Nat → Bool) (bound : Nat) (mat : List (Nat × Val .bool)) : Prop :=
+  ∀ id v, lookupMat id mat = some v → id < bound ∧ env id = v
+
+private theorem SGoodCtx.mono {env env' : Nat → Bool} {b b' : Nat} {G : Ctx (SVal Val) Val}
+    (hle : b ≤ b') (henv : ∀ i, i < b → env' i = env i) (hG : SGoodCtx env b G) :
+    SGoodCtx env' b' G := by
+  intro p hp
+  obtain ⟨hv, hlt⟩ := hG p hp
+  refine ⟨?_, Nat.lt_of_lt_of_le hlt hle⟩
+  rcases p with ⟨t, s, v⟩
+  cases s with
+  | val _ _ => exact hv
+  | defer d =>
+    dsimp only [SValGood] at hv ⊢
+    dsimp only [svalId] at hlt
+    exact ⟨hv.1, (henv d.id hlt).trans hv.2⟩
+
+private theorem MatGood.mono {env env' : Nat → Bool} {b b' : Nat} {mat : List (Nat × Val .bool)}
+    (hle : b ≤ b') (henv : ∀ i, i < b → env' i = env i) (hmat : MatGood env b mat) :
+    MatGood env' b' mat := by
+  intro id v hlk
+  obtain ⟨hlt, hv⟩ := hmat id v hlk
+  exact ⟨Nat.lt_of_lt_of_le hlt hle, (henv id hlt).trans hv⟩
+
+private theorem SGoodCtx.freshSVals {env : Nat → Bool} {b : Nat} {G : Ctx (SVal Val) Val}
+    (hG : SGoodCtx env b G) :
+    {ts : List Ty} → (xs : Tup Val ts) →
+    SGoodCtx env (b + ts.length) (Tup.zip (freshSVals ts xs b) xs ++ G)
+  | [], () => hG
+  | _ :: ts, (x, xs) => by
+    dsimp only [freshSVals, Tup.zip]
+    intro p hp
+    cases hp with
+    | head =>
+      exact ⟨rfl, by
+        change b < b + (_ :: ts).length
+        simp only [List.length_cons]
+        omega⟩
+    | tail _ hp =>
+      have hG' : SGoodCtx env (b + 1) G := hG.mono (Nat.le_succ b) fun _ _ => rfl
+      have := SGoodCtx.freshSVals hG' xs p hp
+      simpa only [List.length_cons, Nat.add_assoc, Nat.add_comm 1 ts.length] using this
+
+private theorem SGoodCtx.freshOne {env : Nat → Bool} {b : Nat} {G : Ctx (SVal Val) Val}
+    (hG : SGoodCtx env b G) {t : Ty} (v : Val t) :
+    SGoodCtx env (b + 1) (⟨t, .val (.var v) b, v⟩ :: G) := by
+  intro p hp
+  cases hp with
+  | head => exact ⟨rfl, Nat.lt_succ_self b⟩
+  | tail _ hp => exact (hG.mono (Nat.le_succ b) fun _ _ => rfl) p hp
+
+private theorem SGoodCtx.soutBits_val {env : Nat → Bool} {b : Nat} {G : Ctx (SVal Val) Val}
+    (hG : SGoodCtx env b G) {n : Nat} {a₁ : Arg (SVal Val) (.bits n)} {a₂ : Arg Val (.bits n)}
+    (ha : ArgRel G (.bits n) a₁ a₂) : (soutBits a₁).val = a₂.val := by
+  cases ha with
+  | imm _ => rfl
+  | @var s₁ _ hm =>
+    obtain ⟨hv, _⟩ := hG _ hm
+    cases s₁ with
+    | val _ _ => exact hv
+
+private theorem matArg_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {m : Mem 64}
+    {env : Nat → Bool} {b : Nat} {G : Ctx (SVal Val) Val} {mat : List (Nat × Val .bool)}
+    (hG : SGoodCtx env b G) (hmat : MatGood env b mat)
+    {t : Ty} {a₁ : Arg (SVal Val) t} {a₂ : Arg Val t} (ha : ArgRel G t a₁ a₂)
+    {cont : List (Nat × Val .bool) → Arg Val t → Expr Val Cont rs}
+    (hcont : ∀ mat' a₁', MatGood env b mat' → a₁'.val = a₂.val → wp Γ Q X (cont mat' a₁') m) :
+    wp Γ Q X (matArg mat a₁ cont) m := by
+  cases ha with
+  | imm c => exact hcont mat (.imm c) hmat rfl
+  | @var s₁ _ hm =>
+    obtain ⟨hv, hlt⟩ := hG _ hm
+    cases s₁ with
+    | val a _ =>
+      dsimp only [matArg]
+      exact hcont mat a hmat hv
+    | defer d =>
+      dsimp only [matArg]
+      dsimp only [SValGood] at hv
+      dsimp only [svalId] at hlt
+      cases hlk : lookupMat d.id mat with
+      | some v =>
+        obtain ⟨_, henv⟩ := hmat d.id v hlk
+        exact hcont mat (.var v) hmat (henv.symm.trans hv.2)
+      | none =>
+        dsimp only [wp, Op.wp, OpCode.wp]
+        refine hcont ((d.id, d.co.evalBits d.lhs.val d.rhs.val) :: mat)
+          (.var (d.co.evalBits d.lhs.val d.rhs.val)) ?_ hv.1
+        intro id' v' hlk'
+        dsimp only [lookupMat] at hlk'
+        by_cases heq : d.id == id'
+        · simp only [heq, ↓reduceIte, Option.some.injEq] at hlk'
+          have hid : d.id = id' := beq_iff_eq.mp heq
+          subst hid; subst hlk'
+          exact ⟨hlt, hv.2.trans hv.1.symm⟩
+        · simp only [heq, Bool.false_eq_true, ↓reduceIte] at hlk'
+          exact hmat id' v' hlk'
+
+private theorem matArgs_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {m : Mem 64}
+    {env : Nat → Bool} {b : Nat} {G : Ctx (SVal Val) Val} {mat : List (Nat × Val .bool)}
+    (hG : SGoodCtx env b G) (hmat : MatGood env b mat) :
+    {ts : List Ty} → {as₁ : Tup (Arg (SVal Val)) ts} → {as₂ : Tup (Arg Val) ts} →
+    TRel (ArgRel G) as₁ as₂ →
+    {cont : List (Nat × Val .bool) → Tup (Arg Val) ts → Expr Val Cont rs} →
+    (∀ mat' as₁', MatGood env b mat' → vals as₁' = vals as₂ → wp Γ Q X (cont mat' as₁') m) →
+    wp Γ Q X (matArgs mat as₁ cont) m
+  | [], (), (), .nil, _, hcont => hcont mat () hmat rfl
+  | _ :: _, (_, _), (_, _), .cons ha has, _, hcont =>
+    matArg_wp hG hmat ha fun _ a₁' hmat₁ ha' =>
+      matArgs_wp hG hmat₁ has fun mat₂ as₁' hmat₂ has' =>
+        hcont mat₂ (a₁', as₁') hmat₂ (Prod.ext ha' has')
+
+private theorem mem_tupZip_eq {α : Type} {f : α → Type} :
+    {ts : List α} → (Js : Tup f ts) → ∀ p ∈ Tup.zip Js Js, p.2.1 = p.2.2
+  | [], (), _, hp => nomatch hp
+  | _ :: _, (j, js), p, hp => by
+    cases hp with
+    | head => rfl
+    | tail _ hp => exact mem_tupZip_eq js p hp
+
+private theorem cmpSink_wp_aux {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
+    {G : Ctx (SVal Val) Val} {D : Ctx Cont Cont}
+    {e₁ : Expr (SVal Val) Cont rs} {e₂ : Expr Val Cont rs}
+    (hwf : Wf G D e₁ e₂) :
+    (∀ p ∈ D, p.2.1 = p.2.2) →
+    ∀ (next : Nat) (env : Nat → Bool) (mat : List (Nat × Val .bool)),
+    SGoodCtx env next G → MatGood env next mat →
+    ∀ m, wp Γ Q X e₂ m → wp Γ Q X (cmpSink next mat e₁) m := by
+  induction hwf using Wf.induct with
+  | @let_ G' _ ts _ _ _ _ hop _ ih =>
+    intro hD next env mat hG hmat m hw
+    cases hop with
+    | @mk _ _ code args₁ args₂ hargs =>
+      cases code with
+      | cmp co t mty h =>
+        cases t with
+        | bits n =>
+          subst h
+          rcases args₁ with ⟨a₁, b₁, ⟨⟩⟩
+          rcases args₂ with ⟨a₂, b₂, ⟨⟩⟩
+          cases hargs with | cons ha hargs =>
+          cases hargs with | cons hb _ =>
+          dsimp only [cmpSink]
+          split
+          · dsimp only [wp, Op.wp, OpCode.wp, liftCmp, CmpOp.evalBits] at hw
+            have hf : (Ty.bits n).hasFloat = false := rfl
+            simp only [hf, Bool.false_eq_true, ↓reduceIte] at hw
+            let v : Bool := co.evalBits a₂.val b₂.val
+            let env' : Nat → Bool := fun i => if i = next then v else env i
+            have henv : ∀ i, i < next → env' i = env i := fun i hi => by
+              simp only [env', Nat.ne_of_lt hi, ↓reduceIte]
+            have hG' : SGoodCtx env' (next + 1)
+                (⟨.bool, .defer ⟨next, n, co, soutBits a₁, soutBits b₁⟩, v⟩ :: G') := by
+              intro p hp
+              cases hp with
+              | head =>
+                refine ⟨⟨?_, ?_⟩, Nat.lt_succ_self next⟩
+                · dsimp only
+                  rw [hG.soutBits_val ha, hG.soutBits_val hb]
+                · simp [env']
+              | tail _ hp => exact (hG.mono (Nat.le_succ next) henv) p hp
+            exact ih (.defer ⟨next, n, co, soutBits a₁, soutBits b₁⟩, ()) (v, ())
+              hD (next + 1) env' mat hG'
+              (hmat.mono (Nat.le_succ next) henv) m hw
+          · dsimp only [wp, Op.wp, op2, vals] at hw ⊢
+            rw [hG.soutBits_val ha, hG.soutBits_val hb]
+            exact OpCode.wp_mono (.cmp co (.bits n) .bool rfl) (a₂.val, b₂.val, ())
+              (fun r hr =>
+                ih (.val (.var r.1) next, ()) r hD (next + 1) env mat
+                  (hG.freshOne r.1) (hmat.mono (Nat.le_succ next) fun _ _ => rfl) m hr) hw
+        | bool | float _ | pair _ _ =>
+          dsimp only [cmpSink]
+          refine matArgs_wp hG hmat hargs fun mat' _ hmat' heq => ?_
+          dsimp only [wp, Op.wp] at hw ⊢
+          rw [heq]
+          exact OpCode.wp_mono (.cmp co _ mty h) (vals args₂) (fun r hr =>
+            ih (freshSVals _ r next) r hD (next + 1) env mat'
+              (hG.freshSVals r) (hmat'.mono (Nat.le_succ next) fun _ _ => rfl) m hr) hw
+      | _ =>
+        dsimp only [cmpSink]
+        refine matArgs_wp hG hmat hargs fun mat' _ hmat' heq => ?_
+        dsimp only [wp, Op.wp] at hw ⊢
+        rw [heq]
+        exact OpCode.wp_mono _ (vals args₂) (fun r hr =>
+          ih (freshSVals _ r next) r hD (next + _) env mat'
+            (hG.freshSVals r) (hmat'.mono (Nat.le_add_right _ _) fun _ _ => rfl) m hr) hw
+  | load t ha _ ih =>
+    intro hD next env mat hG hmat m ⟨v, hv, hk⟩
+    dsimp only [cmpSink]
+    refine matArg_wp hG hmat ha fun mat' a₁' hmat' heq => ?_
+    dsimp only [wp]
+    rw [heq]
+    exact ⟨v, hv, ih (.val (.var v) next) v hD (next + 1) env mat'
+      (hG.freshOne v) (hmat'.mono (Nat.le_succ next) fun _ _ => rfl) m hk⟩
+  | store hv ha _ ih =>
+    intro hD next env mat hG hmat m ⟨hok, hk⟩
+    dsimp only [cmpSink]
+    refine matArg_wp hG hmat hv fun mat₁ v₁' hmat₁ hv' =>
+      matArg_wp hG hmat₁ ha fun mat₂ a₁' hmat₂ ha' => ?_
+    dsimp only [wp]
+    rw [hv', ha']
+    exact ⟨hok, ih hD next env mat₂ hG hmat₂ _ hk⟩
+  | call f hargs _ ih =>
+    intro hD next env mat hG hmat m ⟨P, E, hΓ, hP, hE⟩
+    dsimp only [cmpSink]
+    refine matArgs_wp hG hmat hargs fun mat' as₁' hmat' heq => ?_
+    dsimp only [wp]
+    rw [heq]
+    exact ⟨P, E, hΓ, fun r m' hp =>
+      ih (freshSVals _ r next) r hD (next + _) env mat' (hG.freshSVals r)
+        (hmat'.mono (Nat.le_add_right _ _) fun _ _ => rfl) m' (hP r m' hp), hE⟩
+  | jnz hc _ _ iht ihe =>
+    intro hD next env mat hG hmat m hw
+    dsimp only [cmpSink]
+    refine matArg_wp hG hmat hc fun mat' c₁' hmat' heq => ?_
+    dsimp only [wp] at hw ⊢
+    rw [heq]
+    exact ⟨fun h => iht hD next env mat' hG hmat' m (hw.1 h),
+           fun h => ihe hD next env mat' hG hmat' m (hw.2 h)⟩
+  | jump hj hargs =>
+    intro hD next env mat hG hmat m hw
+    dsimp only [cmpSink]
+    refine matArgs_wp hG hmat hargs fun _ _ _ heq => ?_
+    dsimp only [wp] at hw ⊢
+    have hj_eq : _ = _ := hD _ hj
+    dsimp only at hj_eq
+    rw [heq, hj_eq]
+    exact hw
+  | ret hvs =>
+    intro _ next env mat hG hmat m hw
+    dsimp only [cmpSink]
+    refine matArgs_wp hG hmat hvs fun _ _ _ heq => ?_
+    dsimp only [wp] at hw ⊢
+    rw [heq]
+    exact hw
+  | exit f hargs =>
+    intro _ next env mat hG hmat m hw
+    dsimp only [cmpSink]
+    refine matArgs_wp hG hmat hargs fun _ _ _ heq => ?_
+    dsimp only [wp] at hw ⊢
+    rw [heq]
+    exact hw
+  | hlt =>
+    intro _ _ _ _ _ _ _ hw
+    exact hw
+  | @group _ D' sig b₁ b₂ k₁ k₂ _ hk ihb ihk =>
+    intro hD next env mat hG hmat m hw
+    dsimp only [cmpSink, wp] at hw ⊢
+    intro Js hclosed
+    have hD' : ∀ p ∈ (Tup.zip Js Js ++ D'), p.2.1 = p.2.2 := by
+      intro p hp
+      rcases List.mem_append.1 hp with hp | hp
+      · exact mem_tupZip_eq Js p hp
+      · exact hD p hp
+    have hclosed₂ : Closed Γ Q X (b₂ Js) Js := by
+      rw [closed_iff] at hclosed ⊢
+      intro ts' i xs m' hb'
+      apply hclosed i xs m'
+      rw [cmpSinkB_get]
+      exact ihb Js Js i (freshSVals _ xs next) xs hD' (next + ts'.length) env mat
+        (hG.freshSVals xs) (hmat.mono (Nat.le_add_right _ _) fun _ _ => rfl) m' hb'
+    exact ihk Js Js hD' next env mat hG hmat m (hw Js hclosed₂)
+
+private theorem matArg_callsOk {allowed : List SigEntry} {exits : List Sym} {rs : List Ty}
+    (mat : List (Nat × Unit)) {t : Ty} (a : Arg (SVal (fun _ => Unit)) t)
+    {cont : List (Nat × Unit) → Arg (fun _ => Unit) t → Expr (fun _ => Unit) (fun _ => Unit) rs}
+    (hcont : ∀ mat' a', (cont mat' a').callsOk allowed exits) :
+    (matArg mat a cont).callsOk allowed exits := by
+  cases a with
+  | imm _ => exact hcont mat _
+  | var sv =>
+    cases sv with
+    | val _ _ => exact hcont mat _
+    | defer d =>
+      dsimp only [matArg]
+      cases lookupMat (V := fun _ => Unit) d.id mat <;> exact hcont _ _
+
+private theorem matArgs_callsOk {allowed : List SigEntry} {exits : List Sym} {rs : List Ty}
+    (mat : List (Nat × Unit)) :
+    {ts : List Ty} → (as : Tup (Arg (SVal (fun _ => Unit))) ts) →
+    {cont : List (Nat × Unit) → Tup (Arg (fun _ => Unit)) ts →
+      Expr (fun _ => Unit) (fun _ => Unit) rs} →
+    (∀ mat' as', (cont mat' as').callsOk allowed exits) →
+    (matArgs mat as cont).callsOk allowed exits
+  | [], (), _, hcont => hcont mat ()
+  | _ :: _, (a, as), _, hcont =>
+    matArg_callsOk mat a fun mat' a' =>
+      matArgs_callsOk mat' as fun mat'' as' => hcont mat'' (a', as')
+
+private theorem cmpSinkB_callsOk {allowed : List SigEntry} {exits : List Sym} {rs : List Ty}
+    (next : Nat) (mat : List (Nat × Unit)) :
+    {sig : List (List Ty)} →
+    (bs : Blocks (SVal (fun _ => Unit)) (fun _ => Unit) rs sig) →
+    (∀ {ts} (i : Member ts sig) xs,
+      (cmpSink (next + ts.length) mat (bs.get i (freshSVals ts xs next))).callsOk allowed exits) →
+    (cmpSinkB next mat bs).callsOk allowed exits
+  | _, .nil, _ => trivial
+  | _, .cons _ bs, h =>
+    ⟨h .here (Tup.units _), cmpSinkB_callsOk next mat bs fun i => h (.there i)⟩
+
+private theorem cmpSink_callsOk_aux {allowed : List SigEntry} {exits : List Sym} {rs : List Ty}
+    {G : Ctx (SVal (fun _ => Unit)) (fun _ => Unit)}
+    {D : Ctx (fun _ => Unit) (fun _ => Unit)}
+    {e₁ : Expr (SVal (fun _ => Unit)) (fun _ => Unit) rs}
+    {e₂ : Expr (fun _ => Unit) (fun _ => Unit) rs}
+    (hwf : Wf G D e₁ e₂) :
+    ∀ next mat, e₂.callsOk allowed exits → (cmpSink next mat e₁).callsOk allowed exits := by
+  induction hwf using Wf.induct with
+  | @let_ _ _ ts _ _ _ _ hop _ ih =>
+    intro next mat hc
+    cases hop with
+    | @mk _ _ code args₁ _ _ =>
+      cases code with
+      | cmp co t _ h =>
+        cases t with
+        | bits n =>
+          subst h
+          rcases args₁ with ⟨a₁, b₁, ⟨⟩⟩
+          dsimp only [cmpSink]
+          split <;> exact ih _ _ (next + 1) mat hc
+        | bool | float _ | pair _ _ =>
+          dsimp only [cmpSink]
+          exact matArgs_callsOk mat args₁ fun mat' _ =>
+            ih (freshSVals _ (Tup.units _) next) (Tup.units _) (next + 1) mat' hc
+      | _ =>
+        dsimp only [cmpSink]
+        exact matArgs_callsOk mat args₁ fun mat' _ =>
+          ih (freshSVals _ (Tup.units _) next) (Tup.units _) (next + _) mat' hc
+  | load _ _ _ ih =>
+    intro next mat hc
+    dsimp only [cmpSink]
+    exact matArg_callsOk mat _ fun mat' _ => ih (.val (.var ()) next) () (next + 1) mat' hc
+  | store _ _ _ ih =>
+    intro next mat hc
+    dsimp only [cmpSink]
+    exact matArg_callsOk mat _ fun mat₁ _ =>
+      matArg_callsOk mat₁ _ fun mat₂ _ => ih next mat₂ hc
+  | call _ args _ ih =>
+    intro next mat ⟨hf, hc⟩
+    dsimp only [cmpSink]
+    exact matArgs_callsOk mat _ fun mat' _ =>
+      ⟨hf, ih (freshSVals _ (Tup.units _) next) (Tup.units _) (next + _) mat' hc⟩
+  | jnz _ _ _ iht ihe =>
+    intro next mat ⟨ht, he⟩
+    dsimp only [cmpSink]
+    exact matArg_callsOk mat _ fun mat' _ => ⟨iht next mat' ht, ihe next mat' he⟩
+  | jump _ _ =>
+    intro _ mat _
+    dsimp only [cmpSink]
+    exact matArgs_callsOk mat _ fun _ _ => trivial
+  | ret _ | exit _ _ =>
+    intro _ mat hc
+    dsimp only [cmpSink]
+    exact matArgs_callsOk mat _ fun _ _ => hc
+  | hlt =>
+    intro _ _ hc
+    exact hc
+  | @group _ _ sig _ _ _ _ _ _ ihb ihk =>
+    intro next mat ⟨hb, hk⟩
+    dsimp only [cmpSink, Expr.callsOk]
+    refine ⟨cmpSinkB_callsOk next mat _ fun i xs => ?_,
+      ihk (Tup.units sig) (Tup.units sig) next mat hk⟩
+    exact ihb (Tup.units sig) (Tup.units sig) i (freshSVals _ xs next) (Tup.units _) (next + _) mat
+      (Blocks.callsOk_get hb i)
+
+end CmpSinkProofs
+
 /-! ## Closed functions -/
 
-/-- `Func.ifOptWith` preserves relational well-formedness `Func.Wf`. -/
-theorem Func.ifOptWith_wf (bitsOnly : Bool) {as rs : List Ty} {f : Func as rs} (hf : f.Wf) :
-    (Func.ifOptWith bitsOnly f).Wf := by
+/-- `Func.ifOptCore` preserves relational well-formedness `Func.Wf`. -/
+theorem Func.ifOptCore_wf (bitsOnly : Bool) {as rs : List Ty} {f : Func as rs} (hf : f.Wf) :
+    (Func.ifOptCore bitsOnly f).Wf := by
   intro V₁ V₂ L₁ L₂ xs₁ xs₂
   have hwf := hf (IVal V₁) (IVal V₂) (JLabel L₁) (JLabel L₂)
     (freshIVals as xs₁ 0) (freshIVals as xs₂ 0)
@@ -975,6 +1696,24 @@ theorem Func.ifOptWith_wf (bitsOnly : Bool) {as rs : List Ty} {f : Func as rs} (
       as xs₁ xs₂ 0
   exact LeanQbe.T.ifOptWith_wf bitsOnly hwf hKey hrel (fun _ hp => nomatch hp) 0 as.length
 
+/-- `Func.cmpSink` preserves relational well-formedness `Func.Wf`. -/
+theorem Func.cmpSink_wf {as rs : List Ty} {f : Func as rs} (hf : f.Wf) :
+    (Func.cmpSink f).Wf := by
+  intro V₁ V₂ L₁ L₂ xs₁ xs₂
+  have hwf := hf (SVal V₁) (SVal V₂) L₁ L₂ (freshSVals as xs₁ 0) (freshSVals as xs₂ 0)
+  have hG : CmpSinkProofs.SRelG (Tup.zip xs₁ xs₂)
+      (Tup.zip (freshSVals as xs₁ 0) (freshSVals as xs₂ 0)) := by
+    simpa using CmpSinkProofs.SRelG.freshSVals (G' := []) (G := [])
+      (fun _ hp => nomatch hp) xs₁ xs₂ 0
+  exact CmpSinkProofs.cmpSink_wf_aux hwf as.length hG .nil
+
+/-- `Func.ifOptWith` preserves relational well-formedness `Func.Wf`. -/
+theorem Func.ifOptWith_wf (bitsOnly : Bool) {as rs : List Ty} {f : Func as rs} (hf : f.Wf) :
+    (Func.ifOptWith bitsOnly f).Wf := by
+  cases bitsOnly
+  · exact Func.ifOptCore_wf false hf
+  · exact Func.cmpSink_wf (Func.ifOptCore_wf true hf)
+
 /-- `Func.ifOpt` preserves relational well-formedness `Func.Wf`. -/
 theorem Func.ifOpt_wf {as rs : List Ty} {f : Func as rs} (hf : f.Wf) : (Func.ifOpt f).Wf :=
   Func.ifOptWith_wf false hf
@@ -984,16 +1723,36 @@ theorem Func.ifOptBits_wf {as rs : List Ty} {f : Func as rs} (hf : f.Wf) :
     (Func.ifOptBits f).Wf :=
   Func.ifOptWith_wf true hf
 
-/-- `Func.ifOptWith` refines function contracts. -/
-theorem Func.ifOptWith_spec (bitsOnly : Bool) {as rs : List Ty} {f : Func as rs} (hf : f.Wf)
+/-- `Func.ifOptCore` refines function contracts. -/
+theorem Func.ifOptCore_spec (bitsOnly : Bool) {as rs : List Ty} {f : Func as rs} (hf : f.Wf)
     {Γ : Env} {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
-    (h : Func.spec Γ f xs m Q X) : Func.spec Γ (Func.ifOptWith bitsOnly f) xs m Q X := by
+    (h : Func.spec Γ f xs m Q X) : Func.spec Γ (Func.ifOptCore bitsOnly f) xs m Q X := by
   have hwf := hf (IVal Val) Val (JLabel Cont) Cont (freshIVals as xs 0) xs
   have hgood : IGood (fupdTup (fun _ _ => default) 0 xs) as.length
       (Tup.zip (freshIVals as xs 0) xs) := by
     simpa using IGood.freshIVals (ρ := fun _ _ => default) (b := 0) (G := [])
       (fun _ hp => nomatch hp) xs
   exact LeanQbe.T.ifOptWith_wp bitsOnly hwf (fun _ hp => nomatch hp) 0 as.length _ hgood m h
+
+/-- `Func.cmpSink` refines function contracts. -/
+theorem Func.cmpSink_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf)
+    {Γ : Env} {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
+    (h : Func.spec Γ f xs m Q X) : Func.spec Γ (Func.cmpSink f) xs m Q X := by
+  have hwf := hf (SVal Val) Val Cont Cont (freshSVals as xs 0) xs
+  have hgood : CmpSinkProofs.SGoodCtx (fun _ => false) as.length
+      (Tup.zip (freshSVals as xs 0) xs) := by
+    simpa using CmpSinkProofs.SGoodCtx.freshSVals (env := fun _ => false) (b := 0) (G := [])
+      (fun _ hp => nomatch hp) xs
+  exact CmpSinkProofs.cmpSink_wp_aux hwf (fun _ hp => nomatch hp) as.length (fun _ => false) []
+    hgood (fun _ _ h => nomatch h) m h
+
+/-- `Func.ifOptWith` refines function contracts. -/
+theorem Func.ifOptWith_spec (bitsOnly : Bool) {as rs : List Ty} {f : Func as rs} (hf : f.Wf)
+    {Γ : Env} {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
+    (h : Func.spec Γ f xs m Q X) : Func.spec Γ (Func.ifOptWith bitsOnly f) xs m Q X := by
+  cases bitsOnly
+  · exact Func.ifOptCore_spec false hf h
+  · exact Func.cmpSink_spec (Func.ifOptCore_wf true hf) (Func.ifOptCore_spec true hf h)
 
 /-- `Func.ifOpt` refines function contracts: any source contract holds on `Func.ifOpt f`. -/
 theorem Func.ifOpt_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
@@ -1159,16 +1918,37 @@ theorem ifOpt_callsOk {allowed : List SigEntry} {exits : List Sym} {rs : List Ty
     ∀ depth next, e₂.callsOk allowed exits → (ifOpt depth next e₁).callsOk allowed exits :=
   ifOptWith_callsOk false hwf
 
-/-- `Func.ifOptWith` preserves call/exit well-scopedness (`callsOk`). -/
-theorem Func.ifOptWith_callsOk {allowed : List SigEntry} {exits : List Sym}
+/-- `Func.ifOptCore` preserves call/exit well-scopedness (`callsOk`). -/
+theorem Func.ifOptCore_callsOk {allowed : List SigEntry} {exits : List Sym}
     (bitsOnly : Bool) {as rs : List Ty} {f : Func as rs} (hf : f.Wf)
     (hc : (f (fun _ => Unit) (fun _ => Unit) (Tup.units as)).callsOk allowed exits) :
-    ((Func.ifOptWith bitsOnly f) (fun _ => Unit) (fun _ => Unit) (Tup.units as)).callsOk
+    ((Func.ifOptCore bitsOnly f) (fun _ => Unit) (fun _ => Unit) (Tup.units as)).callsOk
       allowed exits :=
   LeanQbe.T.ifOptWith_callsOk bitsOnly
     (hf (IVal (fun _ => Unit)) (fun _ => Unit) (JLabel (fun _ => Unit)) (fun _ => Unit)
       (freshIVals as (Tup.units as) 0) (Tup.units as))
     0 as.length hc
+
+/-- `Func.cmpSink` preserves call/exit well-scopedness (`callsOk`). -/
+theorem Func.cmpSink_callsOk {allowed : List SigEntry} {exits : List Sym}
+    {as rs : List Ty} {f : Func as rs} (hf : f.Wf)
+    (hc : (f (fun _ => Unit) (fun _ => Unit) (Tup.units as)).callsOk allowed exits) :
+    ((Func.cmpSink f) (fun _ => Unit) (fun _ => Unit) (Tup.units as)).callsOk
+      allowed exits :=
+  CmpSinkProofs.cmpSink_callsOk_aux
+    (hf (SVal (fun _ => Unit)) (fun _ => Unit) (fun _ => Unit) (fun _ => Unit)
+      (freshSVals as (Tup.units as) 0) (Tup.units as))
+    as.length [] hc
+
+/-- `Func.ifOptWith` preserves call/exit well-scopedness (`callsOk`). -/
+theorem Func.ifOptWith_callsOk {allowed : List SigEntry} {exits : List Sym}
+    (bitsOnly : Bool) {as rs : List Ty} {f : Func as rs} (hf : f.Wf)
+    (hc : (f (fun _ => Unit) (fun _ => Unit) (Tup.units as)).callsOk allowed exits) :
+    ((Func.ifOptWith bitsOnly f) (fun _ => Unit) (fun _ => Unit) (Tup.units as)).callsOk
+      allowed exits := by
+  cases bitsOnly
+  · exact Func.ifOptCore_callsOk false hf hc
+  · exact Func.cmpSink_callsOk (Func.ifOptCore_wf true hf) (Func.ifOptCore_callsOk true hf hc)
 
 /-- `Func.ifOpt` preserves call/exit well-scopedness (`callsOk`). -/
 theorem Func.ifOpt_callsOk {allowed : List SigEntry} {exits : List Sym}

@@ -20,7 +20,7 @@ Covers global value numbering and common subexpression elimination in `LeanQbe.T
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.GvnTest
 

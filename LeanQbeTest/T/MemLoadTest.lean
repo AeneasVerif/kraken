@@ -27,7 +27,7 @@ Tests:
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace LeanQbe.T.MemLoadTest
 

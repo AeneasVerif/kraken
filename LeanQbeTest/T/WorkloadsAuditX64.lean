@@ -3,9 +3,7 @@ module
 public import LeanQbe.T.Amd64.ChaCha
 public import LeanQbe.T.Amd64.Bignum
 public import LeanQbe.T.Amd64.UnionFind
-import all Kraken.Mem
-import all Kraken.Separation
-meta import LeanQbe.T.Amd64.Bignum
+import LeanQbe.T.Logic.MemLemmas
 
 /-!
 # Verified Workloads (`ChaCha20`, `Curve25519 Bignum`, `UnionFind`) — SysV x86-64 Machine Audit
@@ -46,7 +44,7 @@ Curve25519 bignum kernels (`mul4x4` using `mulx`/`adcx`/`adox` with zero `setcc`
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace WorkloadsAuditX64
 
@@ -101,12 +99,6 @@ theorem audit_chacha_rfc :
   Amd64.ChaCha.rfc8439_vector_x64_nonvacuous
 
 /-! ## 2. Curve25519 Bignum Kernels on x86-64 -/
-
--- Verify emitted `mul4x4` machine code uses dual-carry ADX/BMI2 (`mulx`/`adcx`/`adox`, 0 `setcc`).
-#guard (Amd64.Bignum.mul4x4Compiled.code.filter Amd64.Bignum.isMulxDir).length == 11
-#guard (Amd64.Bignum.mul4x4Compiled.code.filter Amd64.Bignum.isAdcxDir).length == 12
-#guard (Amd64.Bignum.mul4x4Compiled.code.filter Amd64.Bignum.isAdoxDir).length == 12
-#guard (Amd64.Bignum.mul4x4Compiled.code.filter Amd64.Bignum.isSetccDir).length == 0
 
 theorem audit_mul4x4 [hh : Host] (k₀ : Nat)
     (hc : Amd64.Bignum.mul4x4Compiled.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)

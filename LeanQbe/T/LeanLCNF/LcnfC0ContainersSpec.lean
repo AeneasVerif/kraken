@@ -270,38 +270,6 @@ def EnsureExclArrayOutcome (arrObj : LcnfObj) (expand : BitVec 64) (r : BitVec 6
     childObjs' = incChildrenObjs arrObj.fields childObjs ∧
     oldKeep = lcnfObjMem (arrObj.withRc (decNonExclRc arrObj.rc)))
 
-/-- Heap transition after `lcnf_array_set` when in bounds (`i < sz`), replacing `arrObj` in `objs`
-with `rObj` (element `i` set to `v`) and calling `r2_dec_obj` on `old = arrObj.fields[i]`. -/
-def ArraySetInBoundsRel (arr i v : BitVec 64) (objs objs' : List LcnfObj) : Prop :=
-  ∃ (arrObj : LcnfObj) (k : Nat) (_hk : k < objs.length) (r : BitVec 64) (rObj : LcnfObj)
-      (mid1 mid2 : List LcnfObj) (hi : i.toNat < arrObj.fields.length),
-    objs[k] = arrObj ∧ arrObj.addr = arr ∧ ArrCanon arrObj ∧
-    r ≠ 0#64 ∧ r.toNat % 8 = 0 ∧
-    rObj = mkArrObj r 1#32 arrObj.cap (arrObj.fields.set i.toNat v) ∧
-    (arrObj.rc = 1#32 → r = arr ∧ mid1 = objs.eraseIdx k) ∧
-    (arrObj.rc ≠ 1#32 →
-      mid1 = (incChildrenObjs arrObj.fields (objs.eraseIdx k)).insertIdx k
-        (arrObj.withRc (decNonExclRc arrObj.rc))) ∧
-    mid2 = rObj :: mid1 ∧
-    DecObjRel (arrObj.fields[i.toNat]'hi) mid2 objs'
-
-/-- Heap transition after `lcnf_array_pop`, ensuring exclusive `r` and (when `sz > 0`) shrinking
-`fields` via `dropLast` before calling `r2_dec_obj` on the popped last element. -/
-def ArrayPopRel (arr : BitVec 64) (objs objs' : List LcnfObj) : Prop :=
-  ∃ (arrObj : LcnfObj) (k : Nat) (hk : k < objs.length) (r : BitVec 64) (rObj : LcnfObj)
-      (mid1 mid2 : List LcnfObj),
-    objs[k] = arrObj ∧ arrObj.addr = arr ∧ ArrCanon arrObj ∧
-    r ≠ 0#64 ∧ r.toNat % 8 = 0 ∧
-    rObj = mkArrObj r 1#32 arrObj.cap arrObj.fields.dropLast ∧
-    (arrObj.rc = 1#32 → r = arr ∧ mid1 = objs.eraseIdx k) ∧
-    (arrObj.rc ≠ 1#32 →
-      mid1 = (incChildrenObjs arrObj.fields (objs.eraseIdx k)).insertIdx k
-        (arrObj.withRc (decNonExclRc arrObj.rc))) ∧
-    mid2 = rObj :: mid1 ∧
-    (if h : 0 < arrObj.fields.length then
-      DecObjRel (arrObj.fields[arrObj.fields.length - 1]'(by omega)) mid2 objs'
-    else objs' = mid2)
-
 /-! ## 3. Function `Spec` Contracts (`rtR2SpecEntries`) -/
 
 /-- `r2_inc_obj(o) -> ()`: increments non-zero, unsaturated `m_rc`; no-op on 0 or scalar. -/

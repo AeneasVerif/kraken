@@ -8,8 +8,6 @@ public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep9
 public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep9Proof
 public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyUtil
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep9
-public import LeanQbe.T.Examples.Kissat.FullFidelityStep9MemShrink
-public import LeanQbe.T.Examples.Kissat.FullFidelityStep9MemShrinkProof
 import LeanQbe.T.Logic.MemLemmas
 import Kraken.Mem
 import Kraken.Separation
@@ -17,7 +15,6 @@ import Std.Sat.CNF.Basic
 import Std.Sat.CNF.Sat
 meta import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep9
 meta import LeanQbe.T.Examples.Kissat.FullFidelityStep9
-meta import LeanQbe.T.Examples.Kissat.FullFidelityStep9MemShrink
 meta import LeanQbe.T.Examples.LratBytes
 meta import LeanQbe.T.PrintCpp
 meta import LeanQbe.T.PrintQbe
@@ -27,15 +24,13 @@ meta import LeanQbe.T.Legal
 # Canonical Gate-1 `KissatFidelity` Step-9 Top-Level Source Audit (`KissatFidelityStep9Test`)
 
 Architecture-independent C0 IR verification & 4-ISA `#guard` suite of
-`FullFidelityAssemblyStep9.fidStep9Module` (`504` fns, `0` externs, `0` exits) and standalone
-`S9-P0.3` `FullFidelityStep9MemShrink.fidStep9MsM6Module` (`16` fns + `1` extern, `0` exits):
-1. Executable DIMACS parser guards (`parseDimacs`, `nvM6UnsatBytes`, `nvS9MsUnsatBytes`).
+`FullFidelityAssemblyStep9.fidStep9Module` (`504` fns, `0` externs, `0` exits):
+1. Executable DIMACS parser guards (`parseDimacs`, `nvM6UnsatBytes`).
 2. Module shape, Gate-1 purity, acyclicity, Cpp/QBE printing, & 4-ISA legalization `#guard`s
-   for Step-9 replacements (`11` fns), inserted helpers (`3` fns), and `MemShrinkV5` (`16` fns).
+   for Step-9 replacements (`11` fns) and inserted helpers (`3` fns).
 3. `ModuleOk fidStep9Env fidStep9Module`, `fidStep9Env_noExit`, top-level `kissat_solve_bytes`
    `Func.wp` UNSAT soundness + caller memory framing (`XPost := False`) and `(Eq m' ⋆ F_host)`
-   host-framed lift, plus concrete `Mem 64` UNSAT non-vacuity (`fidStep9_unsat_nv`, `r = 20#64`)
-   and `nv_s9ms_*` (`fidStep9MsM6Module`).
+   host-framed lift, plus concrete `Mem 64` UNSAT non-vacuity (`fidStep9_unsat_nv`, `r = 20#64`).
 -/
 
 set_option autoImplicit false
@@ -49,11 +44,8 @@ open LeanQbe.T LeanQbe.T.Examples.LratBytes
 open LeanQbe.T.Examples.Kissat LeanQbe.T.Examples.Kissat.FullM6
 open LeanQbe.T.Examples.Kissat.FullM6Hdr
 open LeanQbe.T.Examples.Kissat.FullM6Orch
-open LeanQbe.T.Examples.Kissat.FullM7MemShrink
-open LeanQbe.T.Examples.Kissat.FullM7MemShrinkV5
 open LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep9
 open LeanQbe.T.Examples.Kissat.FullFidelityAssemblyUtil
-open LeanQbe.T.Examples.Kissat.FullFidelityStep9MemShrink
 
 /-! ## 1. Trusted `Unsat` & DIMACS Parsing Boundary -/
 
@@ -78,9 +70,6 @@ def fidStep9AuditLits (bs : List UInt8) : Option (List (List (Nat × Bool))) :=
 #guard (fidStep9Fns.map Fn.name).eraseDups.length == 504
 #guard fidStep9Module.checkAcyclic == true
 #guard fidStep9Module.externs.isEmpty && fidStep9Module.exits.isEmpty
-#guard fidStep9MsM6Module.fns.length == 16
-#guard fidStep9MsM6Module.checkAcyclic == true
-#guard fidStep9MsM6Module.exits.isEmpty
 #guard (FullFidelityStep9.fidStep9Repls.map Fn.name) ==
   [ "full_prop_flush_del_fid", "full_arena_sweep_m6", "full_reduce_m6"
   , "full_congruence_dense", "full_rebuild_watches", "full_bva_commit"
@@ -90,8 +79,6 @@ def fidStep9AuditLits (bs : List UInt8) : Option (List (List (Nat × Bool))) :=
   [ "full_fill_u64_m7", "full_prop_flush_slow_fid", "full_rebuild_watches_nosort_fid" ]
 #guard (PrintCpp.ppTModule fidStep9Module).isOk
 #guard (PrintQbe.module fidStep9Module).isOk
-#guard (PrintCpp.ppTModule fidStep9MsM6Module).isOk
-#guard (PrintQbe.module fidStep9MsM6Module).isOk
 #guard (PrintCpp.ppModule (FullFidelityStep9.fidStep9Repls.map (Fn.legal .aarch64))).isOk
 #guard (PrintCpp.ppModule (FullFidelityStep9.fidStep9Repls.map (Fn.legal .scalar64))).isOk
 #guard (PrintCpp.ppModule (FullFidelityStep9.fidStep9Repls.map (Fn.legal .x64AVX2))).isOk
@@ -102,11 +89,6 @@ def fidStep9AuditLits (bs : List UInt8) : Option (List (List (Nat × Bool))) :=
 #guard FullFidelityStep9.fidStep9Repls.all fun fn =>
   (Fn.legal .x64AVX512 fn).body.isLegal .x64AVX512
 #guard (FullFidelityStep9.fidStep9Befores.flatMap Prod.snd).all fun fn =>
-  (Fn.legal .aarch64 fn).body.isLegal .aarch64 &&
-  (Fn.legal .scalar64 fn).body.isLegal .scalar64 &&
-  (Fn.legal .x64AVX2 fn).body.isLegal .x64AVX2 &&
-  (Fn.legal .x64AVX512 fn).body.isLegal .x64AVX512
-#guard fidStep9MsM6Module.fns.all fun fn =>
   (Fn.legal .aarch64 fn).body.isLegal .aarch64 &&
   (Fn.legal .scalar64 fn).body.isLegal .scalar64 &&
   (Fn.legal .x64AVX2 fn).body.isLegal .x64AVX2 &&
@@ -178,7 +160,7 @@ theorem fidStep9_host_ok
     ((bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) ⋆ F_host) st_dmem :=
   fidStep9_solve_bytes_host_sound hq hdmem
 
-/-! ## 5. Concrete `Mem 64` UNSAT Non-Vacuity (`fidStep9Module` & `fidStep9MsM6Module`) -/
+/-! ## 5. Concrete `Mem 64` UNSAT Non-Vacuity (`fidStep9Module`) -/
 
 /-- Concrete UNSAT non-vacuity (`r = 20#64`) for `fidStep9Module` on `nvM6UnsatInitMem`. -/
 theorem fidStep9_nv :
@@ -194,56 +176,6 @@ theorem fidStep9_nv :
       (fun _ _ _ _ => False) :=
   fidStep9_unsat_nv
 
-/-- Closed standalone `ModuleOk` for `fidStep9MsStandaloneModule` (`MemShrinkV5`). -/
-theorem fidStep9_ms_solo : ModuleOk fidStep9MsEnv fidStep9MsStandaloneModule :=
-  fidStep9MsStandalone_moduleOk
-
-/-- Closed `ModuleOk` for `fidStep9MsM6Module` (`16` `MemShrinkV5` + `FullM6Hdr` fns, `1`
-extern). -/
-theorem fidStep9_ms_ok : ModuleOk fidStep9MsM6Env fidStep9MsM6Module :=
-  fidStep9MsM6_moduleOk
-
-/-- Concrete `Mem 64` UNSAT NV (`XPost := False`) for `full_init_state_m5` (`S9-P0.3`). -/
-theorem fidStep9_ms_nv :
-    Func.wp fidStep9MsEnv full_init_state_m5_body
-      (nvS9MsCnfPtr, nvS9MsCnfPtr + BitVec.ofNat 64 nvS9MsUnsatBytes.length,
-        nvS9MsHdrPtr, 4096#64, 16#64, ())
-      nvS9MsInitMem
-      (fun (r, ()) m' =>
-        r = true ∧ ∃ c s,
-          c.hdr = nvS9MsHdrPtr ∧ c.avail = 4096 ∧ c.mv = 1 ∧ c.nc = 2 ∧
-          nvS9MsUnsatCnf.Unsat ∧ MemShrinkSparseInv c s ∧
-          (bytes nvS9MsCnfPtr nvS9MsUnsatBytes ⋆ MemShrinkMem c s) m')
-      (fun _ _ _ _ => False) :=
-  nv_s9ms_init_state_unsat
-
-/-- Concrete `Mem 64` NV (`XPost := False`) for `full_m6_mem_init` on `1,000 B` workspace. -/
-theorem fidStep9_ms_tiny :
-    Func.wp fidStep9MsM6Env FullM6Hdr.full_m6_mem_init_body
-      (0x2000#64, 0x2000#64 + BitVec.ofNat 64 nvS9MsUnsatBytes.length,
-       0x2000#64 + BitVec.ofNat 64 nvS9MsUnsatBytes.length, 1000#64, 16#64, ())
-      nvS9MsTinyInitMem
-      (fun (r, ()) m' => r = 0#64 ∧ nvS9MsUnsatCnf.Unsat ∧
-        (bytes 0x2000#64 nvS9MsUnsatBytes ⋆
-          region (0x2000#64 + BitVec.ofNat 64 nvS9MsUnsatBytes.length) 1000) m')
-      (fun _ _ _ _ => False) :=
-  nv_s9ms_m6_mem_init_tiny
-
-/-- Concrete `Mem 64` UNSAT NV (`XPost := False`) for `full_m6_mem_init` on `6,400 B` workspace. -/
-theorem fidStep9_ms_4k :
-    Func.wp fidStep9MsM6Env FullM6Hdr.full_m6_mem_init_body
-      (0x2000#64, 0x2000#64 + BitVec.ofNat 64 nvS9MsUnsatBytes.length,
-       0x2000#64 + BitVec.ofNat 64 nvS9MsUnsatBytes.length, 6400#64, 16#64, ())
-      nvS9Ms4kInitMem
-      (fun (r, ()) m' => ∃ (c : MemShrinkCfg) (ext : List (BitVec 64)) (s : Full.FullState),
-        r = c.hdr ∧ c.hdr = (0x2000#64 + BitVec.ofNat 64 nvS9MsUnsatBytes.length) +
-          BitVec.ofNat 64 fullM6ExtBytes ∧
-        c.avail = 4096 ∧ c.mv = 1 ∧ c.nc = 2 ∧ nvS9MsUnsatCnf.Unsat ∧
-        MsM6HdrExtInitOk ext ∧ MemShrinkM6HdrInv c ext s ∧
-        (bytes 0x2000#64 nvS9MsUnsatBytes ⋆ MemShrinkM6HdrMem c ext s) m')
-      (fun _ _ _ _ => False) :=
-  nv_s9ms_m6_mem_init_4k
-
 /-! ## 6. Single-Line `< 120c` `#print axioms` (`⊆ [propext, Classical.choice, Quot.sound]`) -/
 
 #print axioms fidStep9_cnf_def
@@ -256,10 +188,5 @@ theorem fidStep9_ms_4k :
 #print axioms fidStep9_unsat
 #print axioms fidStep9_host_ok
 #print axioms fidStep9_nv
-#print axioms fidStep9_ms_solo
-#print axioms fidStep9_ms_ok
-#print axioms fidStep9_ms_nv
-#print axioms fidStep9_ms_tiny
-#print axioms fidStep9_ms_4k
 
 end LeanQbeTest.T.KissatFidelityStep9Test

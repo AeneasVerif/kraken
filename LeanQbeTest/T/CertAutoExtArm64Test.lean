@@ -19,7 +19,7 @@ checking `checkLinkList armLayout [] fullCert.chunks = true` with zero `Kraken.X
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace LeanQbeTest.T.CertAutoExtArm64Test
 

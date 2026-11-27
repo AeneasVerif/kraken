@@ -42,7 +42,7 @@ compile_linked_budget_scc! mutRecDemoArm64ProgCert armTarget armLayout armLegalT
   mutRecDemoBudgetMod 1 (maxBound := mutRecDemoExportBound)
   (exportBounds := mutRecDemoExportBounds)
   (ext := rtC0CoreArm64AllExt) (extSigs := rtC0CoreMod.fns.map Fn.sig)
-  (exits := rtExitSyms) (nX := 64)
+  (exits := rtExitSyms) (nX := 64) (flat := true)
 
 /-- Lift of the `86`-function acyclic runtime `rtC0CoreArm64Cert` into `LinkedCertScc`. -/
 @[expose] noncomputable def mutRecDemoRtSccCertArm64 :

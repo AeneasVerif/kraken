@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Unified target-parameterized assembly emitter CLI (`test/common/emit.py`).
 
-Replaces the double-spawning `lake env lean --run test/common/emit.lean` wrapper with
-a direct Python launcher that:
+Direct Python launcher for emitting target assembly that:
   - Avoids an outer `import Lean` process startup on every invocation
   - Uses `tempfile.TemporaryDirectory` + signal cleanup (zero leaked `/tmp/leanqbe_emit_*.lean`)
   - Respects `STAGE_LEAN_PATH` and `LEAN_PATH`
@@ -65,47 +64,6 @@ public def main (args : List String) : IO Unit := do
   let pp := fun c =>
     ".p2align 2\\n" ++ String.intercalate "\\n" (c.map Kraken.AArch64.Print.directive)
   IO.FS.writeFile outPath (Driver.emitAsm (fun c => pp c ++ "\\n") kissatFns dirs)
-""",
-    ("x64", "coreplus"): """\
-import LeanQbe.T.Examples.Kissat.CorePlus
-import LeanQbe.T.Driver
-import LeanQbe.T.Amd64.Targ
-import LeanQbe.T.Amd64.PrintATTAlign
-
-set_option autoImplicit false
-
-open LeanQbe.T LeanQbe.T.Examples.Kissat.CorePlus LeanQbe.T.Amd64
-
-public def main (args : List String) : IO Unit := do
-  let outPath : System.FilePath := match args with
-    | p :: _ => p
-    | [] => "/tmp/coreplus_x64.s"
-  let hints := coreplusFns.map (Fn.computeHints x64Target.toIsa x64LegalTarget)
-  let dirs ← match LeanQbe.T.compile x64Target.toIsa x64LegalTarget coreplusFns hints with
-    | .ok d => pure d
-    | .error e => throw (IO.userError e)
-  let asm := Driver.emitAsm (fun c => toATTAligned c ++ "\\n") coreplusFns dirs
-  IO.FS.writeFile outPath asm
-""",
-    ("arm64", "coreplus"): """\
-import LeanQbe.T.Examples.Kissat.CorePlus
-import LeanQbe.T.Driver
-import LeanQbe.T.Arm64.Targ
-import Kraken.AArch64.Print
-
-open LeanQbe.T LeanQbe.T.Examples.Kissat.CorePlus LeanQbe.T.Arm64
-
-public def main (args : List String) : IO Unit := do
-  let outPath : System.FilePath := match args with
-    | p :: _ => p
-    | [] => "/tmp/coreplus_arm64.s"
-  let hints := coreplusFns.map (Fn.computeHints armTarget.toIsa armLegalTarget)
-  let dirs ← match LeanQbe.T.compile armTarget.toIsa armLegalTarget coreplusFns hints with
-    | .ok d => pure d
-    | .error e => throw (IO.userError e)
-  let pp := fun c =>
-    ".p2align 2\\n" ++ String.intercalate "\\n" (c.map Kraken.AArch64.Print.directive)
-  IO.FS.writeFile outPath (Driver.emitAsm (fun c => pp c ++ "\\n") coreplusFns dirs)
 """,
     ("x64", "plain"): """\
 import LeanQbe.T.Examples.Kissat.Plain
@@ -269,7 +227,7 @@ open LeanQbe.T LeanQbe.T.LeanLCNF LeanQbe.T.Amd64
 private def emitOne (tag : String) (m : LcModule) (out : System.FilePath) : IO Unit := do
   let t0 ← IO.monoMsNow
   let tfs ← IO.ofExcept (lowerModule m)
-  let fns := LeanLRC.tflatFnsToFns tfs
+  let fns := Frontend.C0.tflatFnsToFns tfs
   let hints := fns.map (Fn.computeHints x64Target.toIsa x64LegalTarget)
   let dirs ← IO.ofExcept (LeanQbe.T.compile x64Target.toIsa x64LegalTarget fns hints)
   IO.FS.writeFile out (Driver.emitAsm (fun c => toATTAligned c ++ "\\n") fns dirs)
@@ -297,7 +255,7 @@ open LeanQbe.T LeanQbe.T.LeanLCNF LeanQbe.T.Arm64
 private def emitOne (tag : String) (m : LcModule) (out : System.FilePath) : IO Unit := do
   let t0 ← IO.monoMsNow
   let tfs ← IO.ofExcept (lowerModule m)
-  let fns := LeanLRC.tflatFnsToFns tfs
+  let fns := Frontend.C0.tflatFnsToFns tfs
   let hints := fns.map (Fn.computeHints armTarget.toIsa armLegalTarget)
   let dirs ← IO.ofExcept (LeanQbe.T.compile armTarget.toIsa armLegalTarget fns hints)
   let pp := fun c =>
@@ -311,51 +269,6 @@ def main (args : List String) : IO Unit := do
   match args with
   | _ :: covOut :: _ => emitOne "cov" Coverage.covProgram covOut
   | _ => pure ()
-""",
-    ("x64", "lrc"): """\
-import LeanQbe.T.LeanLRC.ToT
-import LeanQbe.T.Driver
-import LeanQbe.T.Amd64.Targ
-import LeanQbe.T.Amd64.PrintATTAlign
-
-set_option autoImplicit false
-
-open LeanQbe.T LeanQbe.T.LeanLRC LeanQbe.T.Amd64
-
-public def main (args : List String) : IO Unit := do
-  let outPath : System.FilePath := match args with
-    | p :: _ => p
-    | [] => "/tmp/lrc_x64.s"
-  let tfs ← match lowerLrcProgram allBenchLrcMod with
-    | .ok x => pure x | .error e => throw (IO.userError e)
-  let allFns := rtBase_fns ++ tflatFnsToFns tfs
-  let hints := allFns.map (Fn.computeHints x64Target.toIsa x64LegalTarget)
-  let dirs ← match LeanQbe.T.compile x64Target.toIsa x64LegalTarget allFns hints with
-    | .ok d => pure d | .error e => throw (IO.userError e)
-  let asm := Driver.emitAsm (fun c => toATTAligned c ++ "\\n") allFns dirs
-  IO.FS.writeFile outPath asm
-""",
-    ("arm64", "lrc"): """\
-import LeanQbe.T.LeanLRC.ToT
-import LeanQbe.T.Driver
-import LeanQbe.T.Arm64.Targ
-import Kraken.AArch64.Print
-
-open LeanQbe.T LeanQbe.T.LeanLRC LeanQbe.T.Arm64
-
-public def main (args : List String) : IO Unit := do
-  let outPath : System.FilePath := match args with
-    | p :: _ => p
-    | [] => "/tmp/lrc_arm64.s"
-  let tfs ← match lowerLrcProgram allBenchLrcMod with
-    | .ok x => pure x | .error e => throw (IO.userError e)
-  let allFns := rtBase_fns ++ tflatFnsToFns tfs
-  let hints := allFns.map (Fn.computeHints armTarget.toIsa armLegalTarget)
-  let dirs ← match LeanQbe.T.compile armTarget.toIsa armLegalTarget allFns hints with
-    | .ok d => pure d | .error e => throw (IO.userError e)
-  let pp := fun c =>
-    ".p2align 2\\n" ++ String.intercalate "\\n" (c.map Kraken.AArch64.Print.directive)
-  IO.FS.writeFile outPath (Driver.emitAsm (fun c => pp c ++ "\\n") allFns dirs)
 """,
     ("x64", "bignum"): """\
 import LeanQbe.T.Amd64.Bignum
@@ -440,7 +353,6 @@ SUITE_ALIASES: dict[str, str] = {
     "m4": "m4",
     "fullm4": "m4",
     "lcnf": "lcnf",
-    "lrc": "lrc",
     "bignum": "bignum",
     "t_bignum": "bignum",
     "chacha": "chacha",
@@ -513,7 +425,7 @@ def parse_args(argv: list[str]) -> tuple[list[str], str, dict[str, list[str]]]:
     if suite_raw is None or suite_raw not in SUITE_ALIASES:
         raise ValueError(
             "missing or invalid --suite "
-            "<kissat|coreplus|plain|m3|m4|lcnf|lrc|bignum|chacha>"
+            "<kissat|coreplus|plain|m3|m4|lcnf|bignum|chacha>"
         )
     suite = SUITE_ALIASES[suite_raw]
 

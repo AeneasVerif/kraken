@@ -35,7 +35,7 @@ Verifies AArch64 constant materialization and narrow-compare lowering through `a
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace LeanQbeTest.T.Arm64IselB5Test
 

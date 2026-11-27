@@ -24,7 +24,6 @@ SUITE_ORDER: tuple[str, ...] = (
     "./test/arm64/run.sh",
     "./test/c0/run.sh",
     "./test/lcnf/run.sh",
-    "./test/lrc/run.sh",
     "./test/bootstrap0/run_stage_c_native.sh",
     "./test/cpp/run.sh",
     "./test/t_qbe/run.sh",
@@ -37,7 +36,7 @@ SUITE_ORDER: tuple[str, ...] = (
 )
 
 DOC_ONLY_RE = re.compile(
-    r"^(?:.*\.md|docs/.*|scripts/headlines\.d/.*|scripts/headline\.txt|\.gitignore)$"
+    r"^(?:.*\.md|docs/.*|img/.*|scripts/headlines\.d/.*|scripts/headline\.txt|\.gitignore)$"
 )
 
 SCRIPT_ONLY_RE = re.compile(r"^scripts/.*\.(?:sh|py|lean)$")
@@ -51,7 +50,7 @@ CERT_LEAN_RE = re.compile(
 )
 
 TEST_TREE_RE = re.compile(
-    r"^(?:LeanQbeTest|LeanQbeLegacyTest|LeanQbeBootstrap0Test)/.*\.lean$"
+    r"^(?:LeanQbeTest|LeanQbeBootstrap0Test)/.*\.lean$"
 )
 
 EXEC_DECL_RE = re.compile(
@@ -132,8 +131,6 @@ def select_suites(
             selected.add("./test/c0/run.sh")
         elif f.startswith(("LeanQbe/T/LeanLCNF/", "test/lcnf/")):
             selected.add("./test/lcnf/run.sh")
-        elif f.startswith(("LeanQbe/T/LeanLRC/", "test/lrc/")):
-            selected.add("./test/lrc/run.sh")
         elif f.startswith(("LeanQbe/T/Bootstrap0/", "test/bootstrap0/")):
             selected.add("./test/bootstrap0/run_stage_c_native.sh")
         elif f.startswith(("LeanQbe/T/Examples/Kissat/", "bench/kissat/", "test/kissat/")):

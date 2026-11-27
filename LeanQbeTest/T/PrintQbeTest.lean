@@ -4,13 +4,13 @@ public import LeanQbe.T.PrintQbe
 public import LeanQbe.T.Legal
 public import LeanQbe.T.Examples.UnionFind
 public import LeanQbe.T.Examples.LratBytes
-public import LeanQbe.T.Examples.LratTrim
+public import LeanQbe.T.Examples.LratTrimProg
 public import LeanQbe.T.Examples.ChaCha
 meta import LeanQbe.T.PrintQbe
 meta import LeanQbe.T.Legal
 meta import LeanQbe.T.Examples.UnionFind
 meta import LeanQbe.T.Examples.LratBytes
-meta import LeanQbe.T.Examples.LratTrim
+meta import LeanQbe.T.Examples.LratTrimProg
 meta import LeanQbe.T.Examples.ChaCha
 
 /-!
@@ -34,6 +34,10 @@ open LeanQbe.T
 /-- Local `Module` wrapper for `UnionFind.ufFns`. -/
 def ufModule : Module :=
   { fns := LeanQbe.T.Examples.UnionFind.ufFns, externs := [], exits := [] }
+
+/-- Local `Module` wrapper for `LratTrim.lratTrimFns`. -/
+def lratTrimModule : Module :=
+  { fns := LeanQbe.T.Examples.LratTrim.lratTrimFns, externs := [], exits := ["lrat_fail"] }
 
 def containsSubstr (haystack needle : String) : Bool :=
   (haystack.splitOn needle).length > 1
@@ -137,7 +141,8 @@ def boolAndBitsEdgeFn : Fn where
         .let_ (op2 (.cmp .slt .bool) (.var ba.1) (.var bb.1)) fun bslt =>
           .let_ (op2 (.rotl i64) (.var a) (.var s)) fun rl =>
             .let_ (op2 (.rotr i64) (.var rl.1) (.var s)) fun rr =>
-              .let_ (op3 (.ternlog i64 (BitVec.ofNat 8 0xCA)) (.var rr.1) (.var b) (.imm 0xFF#64)) fun tl =>
+              .let_ (op3 (.ternlog i64 (BitVec.ofNat 8 0xCA))
+                  (.var rr.1) (.var b) (.imm 0xFF#64)) fun tl =>
                 .let_ (op1 (.trunc 64 8) (.var a)) fun a8 =>
                   .let_ (op1 (.neg i8) (.var a8.1)) fun na8 =>
                     .let_ (op1 (.zext 8 64) (.var na8.1)) fun nz64 =>
@@ -302,7 +307,8 @@ def floatFn : Fn where
   name := "bad_float"
   as := [Ty.float .d]
   rs := [Ty.float .d]
-  body := fun _ _ args => .let_ (op2 (.fadd (Ty.float .d)) (.var args.1) (.var args.1)) fun r => .ret (.var r.1, ())
+  body := fun _ _ args =>
+    .let_ (op2 (.fadd (Ty.float .d)) (.var args.1) (.var args.1)) fun r => .ret (.var r.1, ())
 
 def pairFn : Fn where
   name := "bad_pair"
@@ -338,18 +344,23 @@ def dupExternModule : Module where
 /-! ## Checks -/
 
 #guard LeanQbe.T.Examples.LratBytes.lratBytesModule.checkAcyclic = true
-#guard LeanQbe.T.Examples.LratTrim.lratTrimModule.checkAcyclic = true
+#guard lratTrimModule.checkAcyclic = true
 
 #guard (PrintQbe.fns LeanQbe.T.Examples.UnionFind.ufFns).isOk = true
 #guard (PrintQbe.module LeanQbe.T.Examples.LratBytes.lratBytesModule).isOk = true
-#guard (PrintQbe.module LeanQbe.T.Examples.LratTrim.lratTrimModule).isOk = true
+#guard (PrintQbe.module lratTrimModule).isOk = true
 
-#guard (PrintQbe.fns (LeanQbe.T.Examples.UnionFind.ufFns.map (Fn.legal LegalTarget.scalar64))).isOk = true
-#guard (PrintQbe.fns (LeanQbe.T.Examples.LratBytes.lratBytesModule.fns.map (Fn.legal LegalTarget.scalar64))).isOk = true
-#guard (PrintQbe.fns (LeanQbe.T.Examples.LratTrim.lratTrimFns.map (Fn.legal LegalTarget.scalar64))).isOk = true
-#guard (PrintQbe.fns (LeanQbe.T.Examples.LratTrim.lratTrimFns.map (Fn.legal LegalTarget.aarch64))).isOk = true
+#guard (PrintQbe.fns
+  (LeanQbe.T.Examples.UnionFind.ufFns.map (Fn.legal LegalTarget.scalar64))).isOk = true
+#guard (PrintQbe.fns
+  (LeanQbe.T.Examples.LratBytes.lratBytesModule.fns.map
+    (Fn.legal LegalTarget.scalar64))).isOk = true
+#guard (PrintQbe.fns
+  (LeanQbe.T.Examples.LratTrim.lratTrimFns.map (Fn.legal LegalTarget.scalar64))).isOk = true
+#guard (PrintQbe.fns
+  (LeanQbe.T.Examples.LratTrim.lratTrimFns.map (Fn.legal LegalTarget.aarch64))).isOk = true
 
-#guard match PrintQbe.module LeanQbe.T.Examples.LratTrim.lratTrimModule with
+#guard match PrintQbe.module lratTrimModule with
   | .ok s =>
     ((s.splitOn "export function $br_trim_proof(l %p0)").length > 1) &&
     ((s.splitOn "export function $br_check_proof(l %p0)").length > 1) &&
@@ -417,7 +428,7 @@ public def runGenerate (outDir : System.FilePath) : IO UInt32 := do
   IO.FS.createDirAll outDir
   let uf := ufModule
   let lb := LeanQbe.T.Examples.LratBytes.lratBytesModule
-  let lt := LeanQbe.T.Examples.LratTrim.lratTrimModule
+  let lt := lratTrimModule
   let jobs : List (String × Except String String) :=
     [ ("uf.ssa", PrintQbe.module uf)
     , ("uf_legal64.ssa", PrintQbe.fns (uf.fns.map (Fn.legal LegalTarget.scalar64)))

@@ -2,8 +2,7 @@ module
 
 public import LeanQbe.T.Examples.Kissat.FullFastCoreLemmas
 meta import LeanQbe.T.Examples.Kissat.FullFastCoreLemmas
-import all Kraken.Mem
-import all Kraken.Separation
+import LeanQbe.T.Logic.MemLemmas
 
 /-!
 # Audit & Verification for Kissat Fast-Core (`FullFastCore*`)
@@ -19,7 +18,7 @@ import all Kraken.Separation
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace LeanQbeTest.T.KissatFastCoreTest
 

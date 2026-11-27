@@ -23,7 +23,7 @@ code quality:
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace LeanQbeTest.T.X64ZextAddrRegressTest
 

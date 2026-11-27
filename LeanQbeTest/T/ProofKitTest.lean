@@ -14,7 +14,7 @@ meta import LeanQbe.T.Logic.ProofKit
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbeTest.T.ProofKitTest
 
@@ -59,7 +59,7 @@ theorem bv_c0_trunc_and_shift_bv (x : BitVec 64) (k : BitVec 64)
 
 /-! ## 2. `state_frame` and `state_frame!` checks -/
 
-@[expose] public section
+public section
 
 structure MiniCfg where
   mv : Nat
@@ -182,9 +182,11 @@ private theorem sum_arr64_spec (Γ : Env) (p : BitVec 64) (xs : List (BitVec 64)
     have hidx64 : idx < 2 ^ 64 := by have := n.isLt; omega
     c0_hsteps
     · have hback_step := hback (idx + 1) (acc + xs[idx]) ml (by omega)
-        (hcur.step (by c0_bv_omega) (by rw [hacc, prefixSum64_succ xs (hcur.idx_lt_length (by c0_bv_omega))]))
+        (hcur.step (by c0_bv_omega)
+          (by rw [hacc, prefixSum64_succ xs (hcur.idx_lt_length (by c0_bv_omega))]))
         hmem
-      simpa only [ArrayCursorInv.ofNat_add_one, ArrayCursorInv.toNat_ofNat_lt hidx64] using hback_step
+      simpa only [ArrayCursorInv.ofNat_add_one, ArrayCursorInv.toNat_ofNat_lt hidx64]
+        using hback_step
     · obtain ⟨rfl, hacc_done⟩ := hcur.done (by c0_bv_omega)
       subst hacc_done
       exact hQ ml hmem
@@ -204,7 +206,8 @@ private theorem inc_arr32_spec (Γ : Env) (p : BitVec 64) (xs₀ : List (Val i32
     (fun _ xs _ => array p xs) R ?hentry ?hbody
   · intro J hJ
     c0_hsteps
-    refine hJ 0 xs₀ () m (ArrayMutCursorInv.init (Nat.zero_le _) hn (fun _ hk => absurd hk (Nat.not_lt_zero _))) hm
+    refine hJ 0 xs₀ () m
+      (ArrayMutCursorInv.init (Nat.zero_le _) hn (fun _ hk => absurd hk (Nat.not_lt_zero _))) hm
   · intro J idx xs _ ml hcur hmem hback
     have hlo := hcur.lo_le
     have hle := hcur.idx_le
@@ -215,7 +218,8 @@ private theorem inc_arr32_spec (Γ : Env) (p : BitVec 64) (xs₀ : List (Val i32
     c0_hsteps
     · have hlt : idx < n.toNat := by c0_bv_omega
       have hidx_len : idx < xs.length := hcur.idx_lt_length hlt
-      have hinv' : ∀ k < idx + 1, (xs.set idx (xs[idx] + 1#32))[k]? = some (xs₀[k]?.getD 0#32 + 1#32) := by
+      have hinv' : ∀ k < idx + 1,
+          (xs.set idx (xs[idx] + 1#32))[k]? = some (xs₀[k]?.getD 0#32 + 1#32) := by
         intro k hk
         by_cases hkx : k = idx
         · subst hkx

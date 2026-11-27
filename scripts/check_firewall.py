@@ -256,7 +256,7 @@ def discover_data_proof_files(root: Path) -> list[str]:
 
     Excludes proof/spec/tactic/util modules and the backwards-compatible
     `FullFidelityInl.lean` barrel (which intentionally re-exports `FullFidelityInlProof`).
-    Active legacy `FullM7*` modules are intentionally left outside this scope.
+    Base `FullM7*` modules are intentionally left outside this scope.
     """
     kissat_dir = root / "LeanQbe" / "T" / "Examples" / "Kissat"
     if not kissat_dir.is_dir():
@@ -338,8 +338,8 @@ def check_data_proof_files(
                     )
                 )
 
-        # Transitive public-import check scoped to `FullFidelity*`/`FullM8*` so active
-        # legacy `FullM7*` modules (e.g. `FullM7Splice`) do not break the gate.
+        # Transitive public-import check scoped to `FullFidelity*`/`FullM8*` so base
+        # `FullM7*` modules (e.g. `FullM7Splice`) do not break the gate.
         queue: list[tuple[str, list[str]]] = [
             (imp.module, [imp.module])
             for imp in imps

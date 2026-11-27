@@ -982,7 +982,7 @@ private theorem armAddsImm_wp [Host] {n : Nat} (hn : n ≤ 64) (w : RegWidth) (r
      rw [himm]
      exact hk _ (by simp [RegWidth.bits, MemWidth.bits]))
 
-private theorem armCmpImm_wp [Host] {n : Nat} (hn : n = 32 ∨ n = 64) (w : RegWidth)
+theorem armCmpImm_wp [Host] {n : Nat} (hn : n = 32 ∨ n = 64) (w : RegWidth)
     (hw : w.bits = n) (rx : XReg) (imm : BitVec n) {cmp : List Instr}
     (hc : armCmpImmIns? w rx imm = some cmp) (s : MachineData) :
     _root_.Program.wp (emitClean cmp)

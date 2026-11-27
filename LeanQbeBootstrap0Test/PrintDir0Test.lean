@@ -4,7 +4,7 @@ public import LeanQbe.T.Bootstrap0.PrintDir0
 public import LeanQbe.T.Bootstrap0.PrintDir0Lemmas
 public import LeanQbe.T.Bootstrap0.Bridge0
 public import LeanQbe.T.Bootstrap0.Compiler0
-public import LeanQbe.T.Bootstrap0.Dummies0
+public import LeanQbeBootstrap0Test.Dummies0
 public import LeanQbe.T.LeanLCNF.Lower1
 public import LeanQbe.T.Amd64.PrintAsm0
 public import Kraken.X64.PrintATT
@@ -14,7 +14,7 @@ meta import LeanQbe.T.Bootstrap0.PrintDir0
 meta import LeanQbe.T.Bootstrap0.PrintDir0Lemmas
 meta import LeanQbe.T.Bootstrap0.Bridge0
 meta import LeanQbe.T.Bootstrap0.Compiler0
-meta import LeanQbe.T.Bootstrap0.Dummies0
+meta import LeanQbeBootstrap0Test.Dummies0
 meta import LeanQbe.T.LeanLCNF.Lower1
 meta import LeanQbe.T.Amd64.Targ
 meta import Kraken.X64.PrintATT
@@ -80,7 +80,7 @@ private def checkLeanqbe0Gate : Except String (Nat × Nat) := do
   (printDir0LcMod.decls.all fun d => !d.name.endsWith "_boxed" && d.params.length <= 5)
 #guard match printDir0Lowered with
   | .ok tfs =>
-    let fns := LeanLRC.tflatFnsToFns tfs
+    let fns := Frontend.C0.tflatFnsToFns tfs
     let mod : Module := { fns, externs := rtExterns, exits := rtExitSyms }
     fns.length == printDir0LcMod.decls.length &&
       fns.all (fun f => Func.checkTFlat f.body) && mod.checkAcyclic

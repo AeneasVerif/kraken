@@ -112,11 +112,11 @@ private def logicalExprEq : BVLogicalExpr → BVLogicalExpr → Bool
     logicalExprEq d1 d2 && logicalExprEq l1 l2 && logicalExprEq r1 r2
   | _, _ => false
 
-/-- Minimum upfront scratch workspace (`256 KiB`). -/
-def minWorkBytes : Nat := 256 * 1024
+/-- Minimum upfront scratch workspace (`2 MiB`, sized for `KissatFidelity` `M6Hdr`). -/
+def minWorkBytes : Nat := 2 * 1024 * 1024
 
-/-- Maximum upfront scratch workspace (`512 MiB`). -/
-def maxWorkBytes : Nat := 512 * 1024 * 1024
+/-- Maximum upfront scratch workspace (`1 GiB`). -/
+def maxWorkBytes : Nat := 1024 * 1024 * 1024
 
 /-- Encoded `BVP1` statistics used for deterministic upfront workspace sizing. -/
 structure ProgStats where
@@ -148,10 +148,11 @@ instance : BEq EncodedProg where
 
 /-- Append one 32-bit `Nat` word in little-endian byte order onto a `ByteArray`. -/
 @[inline] def pushWordLE (ba : ByteArray) (w : Nat) : ByteArray :=
-  let b0 := (w % 256).toUInt8
-  let b1 := ((w / 256) % 256).toUInt8
-  let b2 := ((w / 65536) % 256).toUInt8
-  let b3 := ((w / 16777216) % 256).toUInt8
+  let u := w.toUInt32
+  let b0 := u.toUInt8
+  let b1 := (u >>> 8).toUInt8
+  let b2 := (u >>> 16).toUInt8
+  let b3 := (u >>> 24).toUInt8
   (((ba.push b0).push b1).push b2).push b3
 
 /-- Pack a list of 32-bit `Nat` words into a little-endian `ByteArray`. -/
@@ -183,22 +184,22 @@ def opAigEstimate (op w argWidth : Nat) : Nat :=
   else
     0
 
-/-- Deterministic upfront workspace-sizing formula (in `Nat` bytes, clamped to `[256 KiB, 512 MiB]`).
-Combines estimated bitblaster AIG/HT/lit/DIMACS space, Kissat fixed per-variable state, and
-clause arena headroom (`4 * est_clauses * 48`), rounded up to a power of two. -/
+/-- Deterministic upfront workspace-sizing formula (in `Nat` bytes, in `[256 KiB, 512 MiB]`).
+Reconciled with `bv_init_workspace`'s `acap = rem >> 5` (`32 * estAig`) and `ht_slots <= rem / 16`,
+plus bitblaster literals/DIMACS space, Kissat fixed per-variable state, and clause arena headroom
+(`4 * est_clauses * 48`), rounded up to a power of two. -/
 def estimateWorkBytesNat (stats : ProgStats) : Nat :=
   let estAig := stats.totalAtomBits + stats.estAigGates + 1
   let estClauses := stats.estClauses
   let htSlots := max 1024 (nextPow2 (2 * estAig))
-  let bitblastBytes :=
-    128 +
-    8 * estAig +
-    4 * htSlots +
-    4 * stats.nNodes +
+  let fixedBytes := 128 + 4 * stats.nVars + 4 * stats.nNodes + 16 + 64
+  let remBytes :=
+    max (32 * estAig) (16 * htSlots) +
     4 * (stats.totalAtomBits + stats.estAigGates + 8 * stats.maxWidth) +
     32 * estClauses
+  let bitblastBytes := fixedBytes + remBytes
   let maxVarsEst := estAig + min (estAig / 2 + 16) 4096
-  let kissatFixed := 4096 + 160 * maxVarsEst
+  let kissatFixed := 4096 + 384 * maxVarsEst
   let kissatClauseHeadroom := 4 * estClauses * 48
   let rawBytes := bitblastBytes + kissatFixed + kissatClauseHeadroom
   min maxWorkBytes (max minWorkBytes (nextPow2 rawBytes))

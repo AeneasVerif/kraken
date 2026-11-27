@@ -3,19 +3,6 @@ module
 public import LeanQbe.T.Examples.Kissat.Core
 public import LeanQbe.T.Examples.Kissat.CoreLemmas
 public import LeanQbe.T.Examples.Kissat.CoreLemmas1
-public import LeanQbe.T.Examples.Kissat.CorePlus
-public import LeanQbe.T.Examples.Kissat.CorePlusAnalyzeLemmas
-public import LeanQbe.T.Examples.Kissat.CorePlusAnalyzeLemmas1
-public import LeanQbe.T.Examples.Kissat.CorePlusArena
-public import LeanQbe.T.Examples.Kissat.CorePlusHeurLemmas
-public import LeanQbe.T.Examples.Kissat.CorePlusIngestLemmas
-public import LeanQbe.T.Examples.Kissat.CorePlusIngestLemmas1
-public import LeanQbe.T.Examples.Kissat.CorePlusLemmas
-public import LeanQbe.T.Examples.Kissat.CorePlusMinimizeLemmas
-public import LeanQbe.T.Examples.Kissat.CorePlusMinimizeLemmas1
-public import LeanQbe.T.Examples.Kissat.CorePlusPropLemmas
-public import LeanQbe.T.Examples.Kissat.CorePlusSpec
-public import LeanQbe.T.Examples.Kissat.CorePlusSpec1
 public import LeanQbe.T.Examples.Kissat.Dimacs
 public import LeanQbe.T.Examples.Kissat.DimacsLemmas
 public import LeanQbe.T.Examples.Kissat.DimacsLemmas1
@@ -108,7 +95,6 @@ public import LeanQbe.T.Examples.Kissat.FullFastCore
 public import LeanQbe.T.Examples.Kissat.FullFastCoreBcpLemmas
 public import LeanQbe.T.Examples.Kissat.FullFastCoreBcpLemmas1
 public import LeanQbe.T.Examples.Kissat.FullFastCoreLemmas
-public import LeanQbe.T.Examples.Kissat.FullFastProof
 public import LeanQbe.T.Examples.Kissat.FullFastSched
 public import LeanQbe.T.Examples.Kissat.FullFastSchedLemmas
 public import LeanQbe.T.Examples.Kissat.FullFastTmkLemmas
@@ -197,6 +183,7 @@ public import LeanQbe.T.Examples.Kissat.FullWalkExtLemmas1
 public import LeanQbe.T.Examples.Kissat.FullWalkExtLemmas2
 public import LeanQbe.T.Examples.Kissat.KissatCertCommon
 public import LeanQbe.T.Examples.Kissat.KissatCertParamCommon
+public import LeanQbe.T.Examples.Kissat.KissatPlainCertCommon
 public import LeanQbe.T.Examples.Kissat.LayerABve
 public import LeanQbe.T.Examples.Kissat.LayerABve1
 public import LeanQbe.T.Examples.Kissat.LayerACollect
@@ -242,21 +229,14 @@ public import LeanQbe.T.Examples.Kissat.PlainSearchLemmas1
 public import LeanQbe.T.Examples.Kissat.PlainSpec
 public import LeanQbe.T.Examples.Kissat.PlainSpec1
 public import LeanQbe.T.Examples.Kissat.PlainSpec2
-public import LeanQbe.T.Examples.Kissat.PolicyFrame
-public import LeanQbe.T.Examples.Kissat.PolicyFrameExample
 public import LeanQbe.T.Examples.Kissat.Solver
-public import LeanQbe.T.Examples.Kissat.SolverAnalyzeLemmas
-public import LeanQbe.T.Examples.Kissat.SolverAnalyzeLemmas1
 public import LeanQbe.T.Examples.Kissat.SolverArena
-public import LeanQbe.T.Examples.Kissat.SolverIngestLemmas
 public import LeanQbe.T.Examples.Kissat.SolverIngestLemmas1
-public import LeanQbe.T.Examples.Kissat.SolverLemmas
-public import LeanQbe.T.Examples.Kissat.SolverPropLemmas
 public import LeanQbe.T.Examples.Kissat.SolverSpec
 
 set_option autoImplicit false
 
 /-!
-Subsystem hub re-exporting Kissat Core, LayerA, Dimacs, Plain, CorePlus, Full, FastCore,
+Subsystem hub re-exporting Kissat Core, LayerA, Dimacs, Plain, Full, FastCore,
 FastSched, Fast, Kitten, and DefSweep modules.
 -/

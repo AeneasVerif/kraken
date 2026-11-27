@@ -7,8 +7,7 @@ public import LeanQbe.T.Arm64.IselStepRules
 public import LeanQbe.T.Arm64.LinkRec
 public import LeanQbe.T.Arm64.Litmus
 public import LeanQbeTest.T.MainLinkArm64Test
-import all Kraken.Mem
-import all Kraken.Separation
+import LeanQbe.T.Logic.MemLemmas
 
 /-!
 # AAPCS64 AArch64 Backend, Multi-Chunk Linker, Cyclic Recursion, & Litmus Audit
@@ -51,7 +50,7 @@ Self-contained machine-level audit for the AAPCS64 AArch64 (`Kraken.AArch64`) ba
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace CompilerAuditArm64
 
@@ -76,6 +75,7 @@ theorem audit_arm_to_isa :
         supportsAddrDisp := armSupportsAddrDisp,
         supportsAddrIdx := armSupportsAddrIdx,
         supportsTestFuse := true,
+        supportsCmpMem := armSupportsCmpMem,
         supportsAddrZextIdx := armSupportsAddrIdx } :=
   armTarget_toIsa
 

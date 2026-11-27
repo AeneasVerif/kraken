@@ -20,9 +20,6 @@
 #   CHECK_RDEPS_MAX=<N>
 #       Maximum reverse-dependency closure size allowed for `rdeps` before failing closed
 #       (default: `250`).
-#   INCLUDE_LEGACY=0|1
-#       Controls whether `scripts/headlines.d/*legacy*.txt` files are audited in Step 4.
-#       Defaults to `0` if `LeanQbeLegacy*` targets exist in `lakefile.toml`, else `1`.
 #   LAKE_JOBS=<N>
 #       Sets `LEAN_NUM_THREADS=$LAKE_JOBS` for Step 1 `lake build` (defaults to
 #       `${LEAN_NUM_THREADS:-6}` so uncapped runs never spawn `nproc` `lean` workers;
@@ -49,9 +46,8 @@
 #     and native-code tactics (`bv_decide`, `native_decide`, `decide +native`, `ofReduceBool`,
 #     `ofReduceNat`) outside comments and string/char literals.
 #  3. Checks import closures (`LeanQbe` arch-free, `LeanQbeAmd64` / `LeanQbeBootstrap0` /
-#     `LeanQbeBootstrap0Test` no AArch64, `LeanQbeArm64` no X64, 0 legacy Kissat certs in active
-#     `LeanQbe{Amd64,Arm64}` / `LeanQbeBootstrap0*` closures, reachability of `LeanQbe/T/` from
-#     active, `LeanQbeBootstrap0`, or `LeanQbeLegacy{Amd64,Arm64}` roots; no retired untyped files).
+#     `LeanQbeBootstrap0Test` no AArch64, `LeanQbeArm64` no X64, reachability of `LeanQbe/T/`
+#     from `LeanQbe`, `LeanQbe{Amd64,Arm64}`, and `LeanQbeBootstrap0`; no retired untyped files).
 #  3b. Incrementality firewall (`check_firewall.py --require-isa`) and barrel/hub lint
 #      (`sync_hubs.py --check` when present).
 #  4. Single-session compiled `.olean` axiom & `isUnsafe` audit (`audit_axioms` over
@@ -120,26 +116,11 @@ case "$CHECK_SCOPE" in
   *) echo "FAIL: invalid CHECK_SCOPE='$CHECK_SCOPE' (expected auto|rdeps|x64|arm64|full)" >&2; exit 2 ;;
 esac
 
-if [ -z "${INCLUDE_LEGACY:-}" ]; then
-  if grep -qE '^name[[:space:]]*=[[:space:]]*"LeanQbeLegacy' lakefile.toml 2>/dev/null; then
-    INCLUDE_LEGACY=0
-  else
-    INCLUDE_LEGACY=1
-  fi
-fi
-case "$INCLUDE_LEGACY" in
-  0|1) ;;
-  *) echo "FAIL: invalid INCLUDE_LEGACY='$INCLUDE_LEGACY' (expected 0|1)" >&2; exit 2 ;;
-esac
-
-RDEPS_LEG_ARGS=()
-[ "$INCLUDE_LEGACY" = "1" ] && RDEPS_LEG_ARGS=(--include-legacy)
-
 rdeps_scope_ok() {
   [ -n "$CHANGED_FILES" ] && [ -f "$ROOT/scripts/rdeps_scope.py" ] \
     && printf '%s\n' "$CHANGED_FILES" | timeout 60 python3 -B "$ROOT/scripts/rdeps_scope.py" \
       --root "$ROOT" --changed - --base "$CHECK_BASE" \
-      --max-rdeps "$CHECK_RDEPS_MAX" "${RDEPS_LEG_ARGS[@]}" --check-only >/dev/null 2>&1
+      --max-rdeps "$CHECK_RDEPS_MAX" --check-only >/dev/null 2>&1
 }
 
 CHANGED_FILES=""
@@ -214,10 +195,10 @@ check_e1_g5_hygiene() {
   fi
 }
 
-echo "== check.sh: scope=$RESOLVED_SCOPE (requested=$CHECK_SCOPE, INCLUDE_LEGACY=$INCLUDE_LEGACY)"
+echo "== check.sh: scope=$RESOLVED_SCOPE (requested=$CHECK_SCOPE)"
 
 # Collect active headline lines (<Module> <const>) into $TMP/headlines_all.txt
-python3 -B "$ROOT/scripts/_common.py" collect-headlines "$ROOT" "$INCLUDE_LEGACY" "$TMP/headlines_all.txt"
+python3 -B "$ROOT/scripts/_common.py" collect-headlines "$ROOT" "$TMP/headlines_all.txt"
 
 headline_total="$(wc -l <"$TMP/headlines_all.txt" | tr -d ' ')"
 
@@ -276,7 +257,7 @@ elif [ "$RESOLVED_SCOPE" = "rdeps" ]; then
     timeout 60 python3 -B "$ROOT/scripts/rdeps_scope.py" \
       --root "$ROOT" --changed "$TMP/changed_files.txt" \
       --base "${CHECK_BASE:-HEAD~1}" \
-      --max-rdeps "$CHECK_RDEPS_MAX" "${RDEPS_LEG_ARGS[@]}" \
+      --max-rdeps "$CHECK_RDEPS_MAX" \
       --out-headlines "$TMP/rdeps_headlines_filter.txt"
   ) && [ "${#TARGETS[@]}" -gt 0 ]; then
     :
@@ -360,7 +341,7 @@ echo "== 4. axiom & isUnsafe audit"
 # Build log: every `#print axioms` that the build printed.
 grep -E "depends on axioms|does not depend on any axioms" "$TMP/build.log" >"$TMP/axioms.txt" || true
 # Headline theorems: `<Module> <constant>` from scripts/headlines.d/*.txt (or
-# scripts/headline.txt), filtered by INCLUDE_LEGACY and CHECK_SCOPE, audited in a
+# scripts/headline.txt), filtered by CHECK_SCOPE, audited in a
 # single compiled `audit_axioms` session (`importModules (loadExts := false)`,
 # O(V+E) shared `Std.HashSet Name`, verifying `<= std3` and `!isUnsafe`).
 want=0
@@ -418,7 +399,7 @@ if [ "$headline_total" -gt 0 ]; then
   elif [ "$RESOLVED_SCOPE" = "rdeps" ]; then
     echo "   0 headline theorems match rdeps scope; passing cleanly"
   else
-    err "no headline theorems selected for scope=$RESOLVED_SCOPE (INCLUDE_LEGACY=$INCLUDE_LEGACY)"
+    err "no headline theorems selected for scope=$RESOLVED_SCOPE"
   fi
 else
   err "no headline theorem to audit in scripts/headlines.d/ or scripts/headline.txt"
@@ -453,20 +434,10 @@ if [ "${CHECK_TIMES:-0}" = "1" ]; then
   [ "$RESOLVED_SCOPE" != "arm64" ] && cand_arches+=(Amd64)
   [ "$RESOLVED_SCOPE" != "x64" ] && cand_arches+=(Arm64)
   for arch in "${cand_arches[@]}"; do
-    for mod in LratBytes \
-        KissatM7FidelityCert1 KissatM7FidelityCert KissatM7FidelityCertLink KissatM7Fidelity; do
+    for mod in LratBytes KissatPlainCert1 KissatPlainCert KissatPlain KissatFidelityParam \
+        KissatFidelityCert1 KissatFidelityCert KissatFidelityCertLink KissatFidelity; do
       [ -f "LeanQbe/T/$arch/$mod.lean" ] && echo "LeanQbe/T/$arch/$mod.lean" >>"$TMP/timed.txt"
     done
-    if [ "$INCLUDE_LEGACY" = "1" ]; then
-      for mod in Kissat KissatCorePlus KissatPlainCert1 KissatPlainCert KissatPlain \
-          KissatM3Cert1a KissatM3Cert KissatM3 \
-          KissatM4Cert1 KissatM4Cert KissatM4CertLink KissatM4 KissatM4Sound \
-          KissatM5Cert1 KissatM5Cert KissatM5CertLink KissatM5 KissatM5Sound \
-          KissatM6Cert1 KissatM6Cert KissatM6CertLink KissatM6 \
-          KissatM7PlusCert1 KissatM7PlusCert KissatM7PlusCertLink KissatM7Plus; do
-        [ -f "LeanQbe/T/$arch/$mod.lean" ] && echo "LeanQbe/T/$arch/$mod.lean" >>"$TMP/timed.txt"
-      done
-    fi
   done
   git ls-files 'LeanQbe/*Lemmas*.lean' 'LeanQbe/**/*Lemmas*.lean' | sort -u | xargs wc -l \
     | grep -v ' total$' | sort -rn | head -n 5 | awk '{print $2}' >>"$TMP/timed.txt"

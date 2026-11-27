@@ -91,9 +91,6 @@ def rtStatsOff : Nat := 33608
 /-- Byte offset of `s.st.live` inside `LcnfC0FullRt` (`33608 + 16 = 33624`). -/
 def rtLiveOff : Nat := 33624
 
-/-- Byte offset of `s.st.persistent` inside `LcnfC0FullRt` (`33608 + 32 = 33640`). -/
-def rtPersistentOff : Nat := 33640
-
 /-- Byte offset of trailing R1 `scratch` pointer inside `LcnfC0FullRt` (`33672`). -/
 def rtScratchOff : Nat := 33672
 
@@ -119,28 +116,6 @@ def LcnfC0FullRt.toBaseRt (h : LcnfC0FullRt) : LcnfC0Rt :=
     s_st_reused := h.base_s_st_reused
     s_st_cold_decs := h.base_s_st_cold_decs
     s_st_bytes := h.base_s_st_bytes }
-
-/-- Construct `LcnfC0FullRt` from an `LcnfC0Rt` base header and R1 scratch metadata. -/
-def LcnfC0FullRt.ofBaseRt (h : LcnfC0Rt) (scr scrCap : BitVec 64) : LcnfC0FullRt :=
-  { base_s_large_free := h.s_large_free
-    base_s_ba_empty := h.s_ba_empty
-    base_s_cur := h.s_cur
-    base_s_end := h.s_end
-    base_s_work := h.s_work
-    base_s_work_cap := h.s_work_cap
-    base_s_chunks := h.s_chunks
-    base_s_nchunks := h.s_nchunks
-    base_s_chunks_cap := h.s_chunks_cap
-    base_s_st_allocs := h.s_st_allocs
-    base_s_st_frees := h.s_st_frees
-    base_s_st_live := h.s_st_live
-    base_s_st_peak_live := h.s_st_peak_live
-    base_s_st_persistent := h.s_st_persistent
-    base_s_st_reused := h.s_st_reused
-    base_s_st_cold_decs := h.s_st_cold_decs
-    base_s_st_bytes := h.s_st_bytes
-    scratch := scr
-    scratch_cap := scrCap }
 
 /-! ## 2. Unified Pure-C0 Runtime Module (`rtC0CoreMod`) -/
 
@@ -181,7 +156,7 @@ def rtC0CoreMissingCalls : List Sym :=
 (`rtC0CoreFns`), removing all 35 verified runtime functions from `.externs`. When `withFloats` is
 `false`, `.externs` is empty (`[]`); when `true`, only the 3 `lcnf_float_*` externs remain. -/
 def linkLcnfWithRtC0 (tfs : List Frontend.C0.TFlatFn) (withFloats : Bool := false) : Module :=
-  { fns := rtC0CoreFns ++ LeanLRC.tflatFnsToFns tfs
+  { fns := rtC0CoreFns ++ Frontend.C0.tflatFnsToFns tfs
     externs := if withFloats then rtC0FloatExterns else []
     exits := rtExitSyms }
 

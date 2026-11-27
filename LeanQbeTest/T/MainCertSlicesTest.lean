@@ -41,7 +41,7 @@ Tests all additive M8+ certificate infrastructure (`0` dual-arch co-imports, `st
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace LeanQbeTest.T.MainCertSlicesTest
 

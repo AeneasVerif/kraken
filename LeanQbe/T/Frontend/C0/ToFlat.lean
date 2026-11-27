@@ -120,6 +120,18 @@ def TFlatFn.toCoreFlat (tf : TFlatFn) : LeanQbe.T.TFlatFn :=
 theorem TFlatFn.toFn_wf (tf : TFlatFn) : tf.toFn.Wf :=
   Func.wf_of_denote tf.flat rfl
 
+/-- Convert a list of `TFlatFn`s into reified PHOAS `Fn`s (each guaranteed `Wf`). -/
+def tflatFnsToFns (tfs : List TFlatFn) : List Fn :=
+  tfs.map TFlatFn.toFn
+
+/-- Every reified `TFlatFn` satisfies `Func.Wf`. -/
+theorem tflatFnsToFns_wf (tfs : List TFlatFn) :
+    ∀ f ∈ tflatFnsToFns tfs, f.Wf := by
+  intro f hf
+  simp only [tflatFnsToFns, List.mem_map] at hf
+  rcases hf with ⟨tf, _, rfl⟩
+  exact tf.toFn_wf
+
 /-- Lower a C0 `LFn` to `TFlatFn` after promoting exits and checking `TFlat.wfCheck`. -/
 def lFnToTFlatFn (exits : List Sym) (lfn : LFn) : Except String TFlatFn := do
   let body := promoteExitCalls exits lfn.body

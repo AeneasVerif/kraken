@@ -61,6 +61,88 @@ namespace OptFlatPlanKit
 /-- Convert a tuple of `TFlat` de Bruijn index operands into de Bruijn level operands. -/
 @[expose] def levelArgs (b : Nat) : {ts : List Ty} → Tup (Arg K) ts → Tup (Arg K) ts
   | [], () => () | _ :: _, (a, as) => (levelArg b a, levelArgs b as)
+/-- Map an operand transform over a tuple of `Arg W` operands to `Arg K`. -/
+@[expose] def mapArgTup {W : Ty → Type} (f : ∀ {t : Ty}, Arg W t → Arg K t) :
+    {ts : List Ty} → Tup (Arg W) ts → Tup (Arg K) ts
+  | [], () => () | _ :: _, (a, as) => (f a, mapArgTup f as)
+
+/-- Output of evaluating one `.jnz` step in a forward `SweepKL` pass. -/
+inductive SweepJnz (S : Type) : Type
+  | emit (c' : Arg K .bool) (st se : S)
+  | takeT (st : S)
+  | takeF (se : S)
+
+/-- Output of evaluating one `.let_` step in a forward `SweepKL` pass. -/
+inductive LetStep (W : Ty → Type) (S : Type) (ts : List Ty) : Type
+  | elim (res : Tup W ts) (s' : S)
+  | emit1 (op' : Op K ts) (res : Tup W ts) (s' : S) (outD' : Nat)
+  | wrap (mk : {rs : List Ty} → TFlat rs → TFlat rs) (res : Tup W ts) (s' : S) (outD' : Nat)
+
+/-- Generic forward `(W, KL)` `TFlat` pass specification factoring shared recursion. -/
+structure SweepKL (W : Ty → Type) (S : Type) where
+  dflt : ∀ t, Arg W t := fun _ => .imm default
+  argOut : {t : Ty} → Arg W t → Arg K t
+  termArgs : S → {ts : List Ty} → Tup (Arg W) ts → Tup (Arg K) ts :=
+    fun _ => mapArgTup argOut
+  freshLoad : Nat → (t : Ty) → W t
+  freshTup : (ts : List Ty) → Nat → Tup W ts
+  onLet : S → Nat → {ts : List Ty} → Op W ts → LetStep W S ts
+  onJnz : S → Arg W .bool → SweepJnz S
+
+mutual
+/-- Execute a `SweepKL` forward optimization pass over `TFlat rs`. -/
+@[expose, specialize sp] def SweepKL.run {W : Ty → Type} {S : Type} (sp : SweepKL W S)
+    {rs : List Ty} : TFlat rs → Nat → Trie ((t : Ty) × W t) → Nat → S → TFlat rs
+  | .let_ (ts := ts) op k, inD, inE, outD, s =>
+    let opW : Op W ts := ⟨op.code, resolveEnvArgs inD inE op.args sp.dflt⟩
+    match sp.onLet s outD opW with
+    | .elim res s' =>
+      sp.run k (inD + ts.length) (insertTupEnv inD inE res) outD s'
+    | .emit1 op' res s' outD' =>
+      .let_ ⟨op'.code, idxArgs outD op'.args⟩
+        (sp.run k (inD + ts.length) (insertTupEnv inD inE res) outD' s')
+    | .wrap wrapF res s' outD' =>
+      wrapF (sp.run k (inD + ts.length) (insertTupEnv inD inE res) outD' s')
+  | .load t a k, inD, inE, outD, s =>
+    let a' := sp.argOut (resolveEnvArg inD inE a sp.dflt)
+    .load t (idxArg outD a')
+      (sp.run k (inD + 1) (inE.insert inD ⟨t, sp.freshLoad outD t⟩) (outD + 1) s)
+  | .store v a k, inD, inE, outD, s =>
+    let v' := sp.argOut (resolveEnvArg inD inE v sp.dflt)
+    let a' := sp.argOut (resolveEnvArg inD inE a sp.dflt)
+    .store (idxArg outD v') (idxArg outD a') (sp.run k inD inE outD s)
+  | .call f bs args k, inD, inE, outD, s =>
+    let args' := mapArgTup sp.argOut (resolveEnvArgs inD inE args sp.dflt)
+    .call f bs (idxArgs outD args')
+      (sp.run k (inD + bs.length) (insertTupEnv inD inE (sp.freshTup bs outD))
+        (outD + bs.length) s)
+  | .jnz c t e, inD, inE, outD, s =>
+    match sp.onJnz s (resolveEnvArg inD inE c sp.dflt) with
+    | .takeT st => sp.run t inD inE outD st
+    | .takeF se => sp.run e inD inE outD se
+    | .emit c' st se =>
+      .jnz (idxArg outD c') (sp.run t inD inE outD st) (sp.run e inD inE outD se)
+  | .jump j args, inD, inE, outD, s =>
+    .jump j (idxArgs outD (sp.termArgs s (resolveEnvArgs inD inE args sp.dflt)))
+  | .ret vs, inD, inE, outD, s =>
+    .ret (idxArgs outD (sp.termArgs s (resolveEnvArgs inD inE vs sp.dflt)))
+  | .exit f args, inD, inE, outD, s =>
+    .exit f (idxArgs outD (sp.termArgs s (resolveEnvArgs inD inE args sp.dflt)))
+  | .hlt, _, _, _, _ => .hlt
+  | .group bodies k, inD, inE, outD, s =>
+    .group (sp.runB bodies inD inE outD s) (sp.run k inD inE outD s)
+
+/-- Block-list companion of `SweepKL.run`. -/
+@[expose, specialize sp] def SweepKL.runB {W : Ty → Type} {S : Type} (sp : SweepKL W S)
+    {rs : List Ty} : {sig : List (List Ty)} → TBlocks rs sig →
+    Nat → Trie ((t : Ty) × W t) → Nat → S → TBlocks rs sig
+  | _, .nil, _, _, _, _ => .nil
+  | _, .cons (ts := ts) b bs, inD, inE, outD, s =>
+    .cons
+      (sp.run b (inD + ts.length) (insertTupEnv inD inE (sp.freshTup ts outD))
+        (outD + ts.length) s)
+      (sp.runB bs inD inE outD s)
+end
 
 /-! ## 2. `PlanLFlat` & Generic `BoolL` Plan Validators -/
 /-- Output-level-based `TFlat` label payload for zero-shift splicing and duplication. -/

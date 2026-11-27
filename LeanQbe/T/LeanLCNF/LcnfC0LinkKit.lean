@@ -39,7 +39,7 @@ open LeanQbe.T
 
 /-- Standalone user `Module` wrapping `tfs : List Frontend.C0.TFlatFn` with `rtExitSyms`. -/
 @[expose] def lcnfProgMod (progTfs : List Frontend.C0.TFlatFn) : Module :=
-  { fns := LeanLRC.tflatFnsToFns progTfs, externs := [], exits := rtExitSyms }
+  { fns := Frontend.C0.tflatFnsToFns progTfs, externs := [], exits := rtExitSyms }
 
 theorem linkLcnfWithRtC0_fns_eq (progTfs : List Frontend.C0.TFlatFn) :
     (linkLcnfWithRtC0 progTfs false).fns =

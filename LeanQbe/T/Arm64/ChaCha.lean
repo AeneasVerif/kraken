@@ -1,11 +1,8 @@
 module
 
-public import LeanQbe.T.Arm64.TargLemmas
+public import LeanQbe.T.Arm64.BenchAbi
 public import LeanQbe.T.Examples.BenchmarkCertKit
 public import LeanQbe.T.MainSplice
-import LeanQbe.T.Logic.MemLemmas
-import all Kraken.Mem
-import all Kraken.Separation
 meta import Lean
 meta import LeanQbe.T.MainSplice
 meta import LeanQbe.T.Arm64.Targ
@@ -17,7 +14,7 @@ meta import LeanQbe.T.Examples.ChaCha
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Arm64.ChaCha
 
@@ -33,7 +30,8 @@ theorem compiled_check :
   t_kernel_rfl
 
 /-- Single kernel evaluation of scalarized `chacha20Block` for AArch64 (`bound = 192`). -/
-def compiled : Compiled armTarget armLegalTarget [] [] 0 chacha20Module.fns chacha20Hints 2048 :=
+@[expose] def compiled :
+    Compiled armTarget armLegalTarget [] [] 0 chacha20Module.fns chacha20Hints 2048 :=
   compileChecked armTarget armLayout armLegalTarget armLabelClean
     [] [] 0 chacha20Module.fns chacha20Hints 2048 compiled_check
 
@@ -79,18 +77,9 @@ theorem chacha20Block_arm64_correct (k₀ : Nat)
             array (t := v4i32) inp init.toRows) ⋆
           region (s.regs.SP.toBitVec - BitVec.ofNat 64 (compiled.bound "chacha20Block"))
             (compiled.bound "chacha20Block") ⋆ R))
-      ⟨s, Labels.label "chacha20Block"⟩ := by
-  have hargs : armTarget.ArgsIn (as := [i64, i64]) (out, inp, ()) s :=
-    ⟨_, rfl, .cons ⟨by decide, by simpa [get_reg] using hout⟩
-      (.cons ⟨by decide, by simpa [get_reg] using hinp⟩ .nil)⟩
-  obtain ⟨m, hm, hmEq⟩ := sep_extract_eq hmem
-  have hfn : armTarget.FnSpec hh "chacha20Block" chacha20BlockSpec
-      (compiled.bound "chacha20Block") 0 :=
-    (chacha20_module_fnspec k₀ hc hu List.mem_cons_self).2
-  refine eventually_weaken _ _ _ _ ?_
-    (arm64_of_returns hfn (chacha20_spec_ok hold hm) s ra R hargs hra hsp hmEq)
-  rintro st ⟨hpc, hcs, hsp', _, m', hP, _, hm'⟩
-  exact ⟨hpc, hcs, hsp', sep_mono (fun _ => sep_mono (fun _ e => e ▸ hP)) hm'⟩
+      ⟨s, Labels.label "chacha20Block"⟩ :=
+  chacha20Block_abi_correct arm64BenchAbi hh compiled chacha20Fns_supportsSource
+    k₀ hc hu out inp init old hold s ra R hout hinp ⟨hra, hsp⟩ hmem
 
 end Generic
 
@@ -100,11 +89,12 @@ attribute [local instance] chachaHost
 abbrev chachaOut0 := LeanQbe.T.Examples.BenchmarkCertKit.chachaOut0
 abbrev chachaInitBytes := LeanQbe.T.Examples.BenchmarkCertKit.chachaInitBytes
 
-def chachaState0 : MachineData :=
+@[expose] def chachaState0 : MachineData :=
   armInit.initState (as := [i64, i64]) (compiled.bound "chacha20Block") chachaInitBytes
     (0x1000#64, 0x1040#64, ())
 
-/-- Concrete RFC 8439 §2.3.2 execution witness of scalarized `chacha20Block` in `compiled.host`. -/
+/-- Concrete RFC 8439 §2.3.2 execution witness of scalarized `chacha20Block` in
+`compiled.host`. -/
 theorem rfc8439_vector_arm64_nonvacuous :
     Eventually (step1 Host.exe)
       (fun st => st.pc = 0x1234 ∧
@@ -116,14 +106,7 @@ theorem rfc8439_vector_arm64_nonvacuous :
               array (t := v4i32) 0x1040#64 rfc8439_test_init.toRows) ⋆
             region (0x1000#64 - BitVec.ofNat 64 (compiled.bound "chacha20Block"))
               (compiled.bound "chacha20Block") ⋆ emp))
-      ⟨chachaState0, Labels.label "chacha20Block"⟩ := by
-  have hfn := (chacha20_module_fnspec 0 compiled.code_infix_host compiled.labelsUnique
-    List.mem_cons_self).2
-  refine eventually_weaken _ _ _ _ ?_
-    (rfc8439_vector_target_nonvacuous armInit compiled hfn rfl)
-  rintro st ⟨hpc, hld, res, hw, hb, hm⟩
-  refine ⟨hpc, hld, res, hw, hb, ?_⟩
-  simpa only [Target.Exit, armTarget, armFrameTarget, armFramePreds, armFrame, armInit,
-    Nat.add_zero] using hm
+      ⟨chachaState0, Labels.label "chacha20Block"⟩ :=
+  rfc8439_vector_abi_nonvacuous arm64BenchAbi compiled chacha20Fns_supportsSource
 
 end LeanQbe.T.Arm64.ChaCha

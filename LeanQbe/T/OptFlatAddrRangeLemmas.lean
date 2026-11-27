@@ -1,31 +1,27 @@
+/-
+Copyright (c) 2026 LeanQbe Contributors. All rights reserved.
+Released under Apache 2.0 license as described in the file LICENSE.
+Authors: LeanQbe Contributors
+-/
 module
 
 public import LeanQbe.T.OptFlatAddrRange
-import LeanQbe.T.FlatDirectLemmas
-import LeanQbe.T.PassFlatKit
+import LeanQbe.T.OptFlatSimKit
 import LeanQbe.T.AddrRangeOptLemmas
 
 /-!
-# Equivalence Proofs for `OptFlatAddrRange` (`addrRangeOptFlat_eq`)
+# `OptFlatAddrRangeLemmas`: Simulation & Equivalence Proofs for `OptFlatAddrRange`
 
 Proves exact `=` correspondence (`std3` axioms only) between the native `TFlat` pass
-`OptFlatAddrRange.addrRangeOptFlat` and `Func.addrRangeOpt`:
-
-* `OptFlatAddrRange.addrRangeOptFlat_eq`
-* `OptFlatAddrRange.denoteFunc_addrRangeOptFlat`
-* `OptFlatAddrRange.addrRangeOptFlat_wfCheck`
-* `OptFlatAddrRange.addrRangeOptFlatFn_toFn`
-* `OptFlatAddrRange.addrRangeOptFlatFn_wfCheck`
+`OptFlatAddrRange.addrRangeOptFlat` and `Func.addrRangeOpt` via `OptFlatSimKit.klSim_mutual`.
 -/
 
 set_option autoImplicit false
 
-public section
-
 namespace LeanQbe.T
 namespace OptFlatAddrRange
 
-open OptFlatPlanKit
+open OptFlatPlanKit OptFlatSimKit
 
 private theorem idxArg_imm_eq {t : Ty} (d : Nat) (c : Val t) :
     idxArg d (.imm c : Arg K t) = .imm c := rfl
@@ -47,6 +43,7 @@ private theorem arSweep_let_eq {V : Ty → Type} {L : List Ty → Type} {ts rs :
     (k : Tup (ARVal V) ts → Expr (ARVal V) L rs) :
     addrRangeSweep curD next plan (.let_ op k) =
       let kPlan := plan.step1
+      let foldD := plan.foldDisp
       match op.arStep curD next with
       | .elim res => addrRangeSweep curD next kPlan (k res)
       | .emit1 op' wrap =>
@@ -59,27 +56,40 @@ private theorem arSweep_let_eq {V : Ty → Type} {L : List Ty → Type} {ts rs :
         .let_ (op2 (.shl (.bits n)) inv (.imm (BitVec.ofNat n sh))) fun (t1, ()) =>
         .let_ (op2 (if isSub then .sub (.bits n) else .add (.bits n)) base (.var t1))
           fun (t2, ()) =>
-        .let_ (op2 (.shl (.bits n)) iv (.imm (BitVec.ofNat n sh))) fun (t3, ()) =>
-        .let_ (op2 (.add (.bits n)) (.var t2) (.var t3)) fun (t4, ()) =>
         if disp == 0#n then
+          .let_ (op2 (.shl (.bits n)) iv (.imm (BitVec.ofNat n sh))) fun (t3, ()) =>
+          .let_ (op2 (.add (.bits n)) (.var t2) (.var t3)) fun (t4, ()) =>
+          addrRangeSweep curD (next + 1) kPlan (k (ARVal.fresh t4 next ivD, ()))
+        else if foldD then
+          .let_ (op2 (.add (.bits n)) (.var t2) (.imm disp)) fun (t2d, ()) =>
+          .let_ (op2 (.shl (.bits n)) iv (.imm (BitVec.ofNat n sh))) fun (t3, ()) =>
+          .let_ (op2 (.add (.bits n)) (.var t2d) (.var t3)) fun (t4, ()) =>
           addrRangeSweep curD (next + 1) kPlan (k (ARVal.fresh t4 next ivD, ()))
         else
+          .let_ (op2 (.shl (.bits n)) iv (.imm (BitVec.ofNat n sh))) fun (t3, ()) =>
+          .let_ (op2 (.add (.bits n)) (.var t2) (.var t3)) fun (t4, ()) =>
           .let_ (op2 (.add (.bits n)) (.var t4) (.imm disp)) fun (t5, ()) =>
           addrRangeSweep curD (next + 1) kPlan (k (ARVal.fresh t5 next ivD, ()))
       | .addrPlain n isSub base inv iv invD ivD disp =>
         .let_ (op2 (if isSub then .sub (.bits n) else .add (.bits n)) base inv) fun (t1, ()) =>
-        .let_ (op2 (.add (.bits n)) (.var t1) iv) fun (t2, ()) =>
         if disp == 0#n then
+          .let_ (op2 (.add (.bits n)) (.var t1) iv) fun (t2, ()) =>
           addrRangeSweep curD (next + 1) kPlan
             (k (⟨.var t2, .var next, ivD,
               { addr? := some (.addVV (.var t1) invD iv ivD 0#n) }⟩, ()))
+        else if foldD then
+          .let_ (op2 (.add (.bits n)) (.var t1) (.imm disp)) fun (t1d, ()) =>
+          .let_ (op2 (.add (.bits n)) (.var t1d) iv) fun (t2, ()) =>
+          addrRangeSweep curD (next + 1) kPlan
+            (k (⟨.var t2, .var next, ivD,
+              { addr? := some (.addVV (.var t1d) invD iv ivD 0#n) }⟩, ()))
         else
+          .let_ (op2 (.add (.bits n)) (.var t1) iv) fun (t2, ()) =>
           .let_ (op2 (.add (.bits n)) (.var t2) (.imm disp)) fun (t3, ()) =>
           addrRangeSweep curD (next + 1) kPlan
             (k (⟨.var t3, .var next, ivD,
               { addr? := some (.addVV (.var t1) invD iv ivD disp) }⟩, ())) := by
-  rw [addrRangeSweep.eq_def]
-  dsimp only
+  rw [addrRangeSweep.eq_def]; dsimp only
   cases op.arStep curD next <;> rfl
 
 private theorem arSweep_jnz_eq {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
@@ -91,219 +101,194 @@ private theorem arSweep_jnz_eq {V : Ty → Type} {L : List Ty → Type} {rs : Li
       | .imm false => addrRangeSweep curD next pe e
       | .var v => .jnz (.var v) (addrRangeSweep curD next pt t)
           (addrRangeSweep curD next pe e) := by
-  rw [addrRangeSweep.eq_def]
-  dsimp only
-  cases c.arOut with
-  | imm b => cases b <;> rfl
-  | var _ => rfl
+  rw [addrRangeSweep.eq_def]; dsimp only
+  cases c.arOut with | imm b => cases b <;> rfl | var _ => rfl
 
-mutual
-private theorem addrRangeSweepFlat_eq {rs : List Ty} :
-    (tf : TFlat rs) → {Γ : List Ty} → {Δ : List (List Ty)} →
-    {vs : List ((t : Ty) × ARVal K t)} → {ls : List ((ts : List Ty) × KL ts)} →
-    {curD next inDepth outDepth : Nat} → {plan : LoopTree} →
-    {inEnv : Trie ((t : Ty) × ARVal K t)} →
-    CtxTypes Γ vs → CtxTypes Δ ls → CtxLevels ls →
-    TrieCtxMatch inDepth inEnv vs → tf.wfCheck Γ Δ = true →
-    toTFlat (addrRangeSweep curD next plan (denote (ARVal K) KL tf vs ls)) outDepth ls.length =
-      addrRangeSweepFlat curD next plan tf inDepth inEnv outDepth
-  | .let_ (ts := ts) op k, Γ, Δ, vs, ls, curD, next, inDepth, outDepth, plan, inEnv,
-      hΓ, hΔ, hll, hm, hwf => by
-    dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
-    rw [addrRangeSweepFlat.eq_def]
-    dsimp only [denote]
-    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hm op.args hwf.1]
-    dsimp only
-    rw [arSweep_let_eq]
-    cases hst : (⟨op.code, resolveEnvArgs inDepth inEnv op.args⟩ : Op (ARVal K) ts).arStep
-        curD next with
-    | elim res =>
-      dsimp only [applyARStep, id]
-      exact addrRangeSweepFlat_eq k (CtxTypes.push _ hΓ) hΔ hll
-        (trieCtxMatch_insertTupEnv hm _) hwf.2
-    | emit1 op' wrap =>
-      dsimp only [applyARStep, toTFlat]
-      exact congrArg (TFlat.let_ _)
-        (addrRangeSweepFlat_eq k (CtxTypes.push _ hΓ) hΔ hll
-          (trieCtxMatch_insertTupEnv hm _) hwf.2)
-    | rangeSubCmp w o x lo width outD =>
-      simp only [applyARStep, toTFlat, idxArgs, op2, Tup.levels, List.length,
-        idxArg_imm_eq, idxArg_succ_self, Nat.zero_add, Nat.add_assoc]
-      exact congrArg (TFlat.let_ _) (congrArg (TFlat.let_ _)
-        (addrRangeSweepFlat_eq k (CtxTypes.push _ hΓ) hΔ hll
-          (trieCtxMatch_insertTupEnv hm (ts := [.bool]) _) hwf.2))
-    | addrShl n isSub base inv iv ivD sh hsh disp =>
-      by_cases hdisp : (disp == 0#n) = true
-      · simp only [applyARStep, hdisp, ↓reduceIte, toTFlat, idxArgs, op2, Tup.levels,
-          List.length, idxArg_imm_eq, idxArg_succ_self, idxArg_add2_self,
-          Nat.zero_add, Nat.add_assoc,
-          show (1 : Nat) + 1 = 2 from rfl, show (1 : Nat) + 2 = 3 from rfl]
+private theorem addrRangeSweepFlat_both :
+    (∀ {rs : List Ty} (tf : TFlat rs) {Γ Δ vs ls inD outD inE}
+      (s : Nat × Nat × LoopTree),
+      CtxTypes Γ vs → CtxTypes Δ ls → CtxLevels ls →
+      TrieCtxMatch inD inE vs → tf.wfCheck Γ Δ = true →
+      toTFlat (addrRangeSweep s.1 s.2.1 s.2.2 (denote (ARVal K) KL tf vs ls)) outD ls.length =
+        addrRangeSweepFlat s.1 s.2.1 s.2.2 tf inD inE outD) ∧
+    (∀ {rs : List Ty} {sig : List (List Ty)} (tb : TBlocks rs sig)
+      {Γ Δ vs ls inD outD inE} (sb : Nat × Nat × LoopBlocks),
+      CtxTypes Γ vs → CtxTypes Δ ls → CtxLevels ls →
+      TrieCtxMatch inD inE vs → tb.wfCheck Γ Δ = true →
+      toTBlocks (addrRangeSweepB sb.1 sb.2.1 sb.2.2 (denoteB (ARVal K) KL tb vs ls))
+          outD ls.length =
+        addrRangeSweepBFlat sb.1 sb.2.1 sb.2.2 tb inD inE outD) := by
+  refine klSim_mutual ⟨
+    fun ⟨curD, next, plan⟩ op k hΓ _ _ hm hwf ih => by
+      obtain ⟨ha, hk⟩ := wf_let hwf
+      simp only [denote]
+      rw [denoteArgs_eq_some_resolveEnvArgs hΓ hm op.args ha]
+      dsimp only; rw [addrRangeSweepFlat.eq_def, arSweep_let_eq]; dsimp only
+      cases hst : ({ code := op.code, args := resolveEnvArgs _ _ op.args } : Op (ARVal K) _).arStep
+          curD next with
+      | elim res =>
+        dsimp only
+        exact ih (curD, next, plan.step1) (ctxTypes_pushTup_rev _ hΓ)
+          (trieCtxMatch_insertTupEnv hm _) hk
+      | emit1 op' wrap =>
+        simp only [applyARStep, toTFlat]
+        exact congrArg (TFlat.let_ _) (ih (curD, next + _, plan.step1)
+          (ctxTypes_pushTup_rev _ hΓ) (trieCtxMatch_insertTupEnv hm _) hk)
+      | rangeSubCmp w o x lo width outD' =>
+        simp only [applyARStep, toTFlat, idxArgs, op2, Tup.levels, List.length,
+          idxArg_imm_eq, idxArg_succ_self, Nat.zero_add, Nat.add_assoc]
         exact congrArg (TFlat.let_ _) (congrArg (TFlat.let_ _)
-          (congrArg (TFlat.let_ _) (congrArg (TFlat.let_ _)
-            (addrRangeSweepFlat_eq k (CtxTypes.push _ hΓ) hΔ hll
-              (trieCtxMatch_insertTupEnv hm (ts := [.bits n]) _) hwf.2))))
-      · simp only [applyARStep, hdisp, Bool.false_eq_true, ↓reduceIte, toTFlat, idxArgs,
-          op2, Tup.levels, List.length, idxArg_imm_eq, idxArg_succ_self, idxArg_add2_self,
-          Nat.zero_add, Nat.add_assoc,
-          show (1 : Nat) + 1 = 2 from rfl, show (1 : Nat) + 3 = 4 from rfl]
-        exact congrArg (TFlat.let_ _) (congrArg (TFlat.let_ _)
-          (congrArg (TFlat.let_ _) (congrArg (TFlat.let_ _) (congrArg (TFlat.let_ _)
-            (addrRangeSweepFlat_eq k (CtxTypes.push _ hΓ) hΔ hll
-              (trieCtxMatch_insertTupEnv hm (ts := [.bits n]) _) hwf.2)))))
-    | addrPlain n isSub base inv iv invD ivD disp =>
-      by_cases hdisp : (disp == 0#n) = true
-      · simp only [applyARStep, hdisp, ↓reduceIte, toTFlat, idxArgs, op2, Tup.levels,
-          List.length, idxArg_succ_self, Nat.zero_add, Nat.add_assoc]
-        exact congrArg (TFlat.let_ _) (congrArg (TFlat.let_ _)
-          (addrRangeSweepFlat_eq k (CtxTypes.push _ hΓ) hΔ hll
-            (trieCtxMatch_insertTupEnv hm (ts := [.bits n]) _) hwf.2))
-      · simp only [applyARStep, hdisp, Bool.false_eq_true, ↓reduceIte, toTFlat, idxArgs,
-          op2, Tup.levels, List.length, idxArg_imm_eq, idxArg_succ_self,
-          Nat.zero_add, Nat.add_assoc, show (1 : Nat) + 1 = 2 from rfl]
-        exact congrArg (TFlat.let_ _) (congrArg (TFlat.let_ _) (congrArg (TFlat.let_ _)
-          (addrRangeSweepFlat_eq k (CtxTypes.push _ hΓ) hΔ hll
-            (trieCtxMatch_insertTupEnv hm (ts := [.bits n]) _) hwf.2)))
-  | .load t a k, Γ, Δ, vs, ls, curD, next, inDepth, outDepth, plan, inEnv,
-      hΓ, hΔ, hll, hm, hwf => by
-    dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
-    dsimp only [addrRangeSweepFlat, denote]
-    rw [denoteArg_eq_some_resolveEnvArg hΓ hm a hwf.1]
-    dsimp only; rw [addrRangeSweep.eq_def]; dsimp only [toTFlat]
-    exact congrArg (TFlat.load t _)
-      (addrRangeSweepFlat_eq k (.cons hΓ) hΔ hll (hm.cons t _) hwf.2)
-  | .store v a k, Γ, Δ, vs, ls, curD, next, inDepth, outDepth, plan, inEnv,
-      hΓ, hΔ, hll, hm, hwf => by
-    dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
-    dsimp only [addrRangeSweepFlat, denote]
-    rw [denoteArg_eq_some_resolveEnvArg hΓ hm v hwf.1.1,
-      denoteArg_eq_some_resolveEnvArg hΓ hm a hwf.1.2]
-    dsimp only; rw [addrRangeSweep.eq_def]; dsimp only [toTFlat]
-    exact congrArg (TFlat.store _ _) (addrRangeSweepFlat_eq k hΓ hΔ hll hm hwf.2)
-  | .call f bs args k, Γ, Δ, vs, ls, curD, next, inDepth, outDepth, plan, inEnv,
-      hΓ, hΔ, hll, hm, hwf => by
-    dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
-    dsimp only [addrRangeSweepFlat, denote]
-    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hm args hwf.1]
-    dsimp only; rw [addrRangeSweep.eq_def]; dsimp only [toTFlat]
-    exact congrArg (TFlat.call f bs _)
-      (addrRangeSweepFlat_eq k (CtxTypes.push _ hΓ) hΔ hll
-        (trieCtxMatch_insertTupEnv hm _) hwf.2)
-  | .jnz c t e, Γ, Δ, vs, ls, curD, next, inDepth, outDepth, plan, inEnv,
-      hΓ, hΔ, hll, hm, hwf => by
-    dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
-    rw [addrRangeSweepFlat.eq_def]
-    dsimp only [denote]
-    rw [denoteArg_eq_some_resolveEnvArg hΓ hm c hwf.1.1]
-    dsimp only
-    rw [arSweep_jnz_eq]
-    cases hc : (resolveEnvArg inDepth inEnv c).arOut with
-    | imm b =>
-      cases b with
-      | true => exact addrRangeSweepFlat_eq t hΓ hΔ hll hm hwf.1.2
-      | false => exact addrRangeSweepFlat_eq e hΓ hΔ hll hm hwf.2
-    | var v =>
-      dsimp only [toTFlat]
-      rw [addrRangeSweepFlat_eq t hΓ hΔ hll hm hwf.1.2,
-        addrRangeSweepFlat_eq e hΓ hΔ hll hm hwf.2]
-  | .jump (ts := ts) j args, Γ, Δ, vs, ls, curD, next, inDepth, outDepth, plan, inEnv,
-      hΓ, hΔ, hll, hm, hwf => by
-    dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
-    obtain ⟨lvl, hlk, hidx⟩ := lookupL_jump_eq hΔ hll hwf.1
-    dsimp only [addrRangeSweepFlat, denote]
-    rw [hlk, denoteArgs_eq_some_resolveEnvArgs hΓ hm args hwf.2]
-    dsimp only; rw [addrRangeSweep.eq_def]; dsimp only [toTFlat]
-    rw [hidx]
-  | .ret vs', Γ, _, vs, ls, curD, next, inDepth, outDepth, plan, inEnv,
-      hΓ, _, _, hm, hwf => by
-    dsimp only [addrRangeSweepFlat, denote]
-    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hm vs' hwf]
-    rfl
-  | .exit f args, Γ, _, vs, ls, curD, next, inDepth, outDepth, plan, inEnv,
-      hΓ, _, _, hm, hwf => by
-    dsimp only [addrRangeSweepFlat, denote]
-    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hm args hwf]
-    rfl
-  | .hlt, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ => rfl
-  | .group (sig := sig) bodies k, Γ, Δ, vs, ls, curD, next, inDepth, outDepth, plan, inEnv,
-      hΓ, hΔ, hll, hm, hwf => by
-    dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
-    dsimp only [addrRangeSweepFlat, denote]
-    rw [addrRangeSweep.eq_def]; dsimp only [toTFlat]
-    have hb := addrRangeSweepBFlat_eq bodies hΓ
-      (CtxTypes.push (Tup.levels sig ls.length) hΔ) hll.pushTup hm hwf.1
-      (curD := curD) (next := next) (outDepth := outDepth) (bsPlan := plan.stepGroup.1)
-    have hk := addrRangeSweepFlat_eq k hΓ
-      (CtxTypes.push (Tup.levels sig ls.length) hΔ) hll.pushTup hm hwf.2
-      (curD := curD) (next := next) (outDepth := outDepth) (plan := plan.stepGroup.2)
-    rw [pushTup_length (Tup.levels sig ls.length) ls] at hb hk
-    rw [hb, hk]
+          (ih (curD, next + 1, plan.step1) (ctxTypes_pushTup_rev _ hΓ)
+            (trieCtxMatch_insertTupEnv hm (ts := [.bool]) _) hk))
+      | addrShl n isSub base inv iv ivD sh _ disp =>
+        by_cases hdisp : (disp == 0#n) = true
+        · simp only [applyARStep, hdisp, ↓reduceIte, toTFlat, idxArgs, op2, Tup.levels,
+            List.length, idxArg_imm_eq, idxArg_succ_self, idxArg_add2_self,
+            Nat.zero_add, Nat.add_assoc,
+            show (1 : Nat) + 1 = 2 from rfl, show (1 : Nat) + 2 = 3 from rfl]
+          exact congrArg (TFlat.let_ _) (congrArg (TFlat.let_ _)
+            (congrArg (TFlat.let_ _) (congrArg (TFlat.let_ _)
+              (ih (curD, next + 1, plan.step1) (ctxTypes_pushTup_rev _ hΓ)
+                (trieCtxMatch_insertTupEnv hm (ts := [.bits n]) _) hk))))
+        · by_cases hfold : plan.foldDisp = true
+          · simp only [applyARStep, hdisp, hfold, Bool.false_eq_true, ↓reduceIte, toTFlat,
+              idxArgs, op2, Tup.levels, List.length, idxArg_imm_eq, idxArg_succ_self,
+              idxArg_add2_self, Nat.zero_add, Nat.add_assoc,
+              show (1 : Nat) + 1 = 2 from rfl, show (1 : Nat) + 2 = 3 from rfl,
+              show (1 : Nat) + 3 = 4 from rfl]
+            exact congrArg (TFlat.let_ _) (congrArg (TFlat.let_ _)
+              (congrArg (TFlat.let_ _) (congrArg (TFlat.let_ _) (congrArg (TFlat.let_ _)
+                (ih (curD, next + 1, plan.step1) (ctxTypes_pushTup_rev _ hΓ)
+                  (trieCtxMatch_insertTupEnv hm (ts := [.bits n]) _) hk)))))
+          · simp only [applyARStep, hdisp, hfold, Bool.false_eq_true, ↓reduceIte, toTFlat,
+              idxArgs, op2, Tup.levels, List.length, idxArg_imm_eq, idxArg_succ_self,
+              idxArg_add2_self, Nat.zero_add, Nat.add_assoc,
+              show (1 : Nat) + 1 = 2 from rfl, show (1 : Nat) + 3 = 4 from rfl]
+            exact congrArg (TFlat.let_ _) (congrArg (TFlat.let_ _)
+              (congrArg (TFlat.let_ _) (congrArg (TFlat.let_ _) (congrArg (TFlat.let_ _)
+                (ih (curD, next + 1, plan.step1) (ctxTypes_pushTup_rev _ hΓ)
+                  (trieCtxMatch_insertTupEnv hm (ts := [.bits n]) _) hk)))))
+      | addrPlain n isSub base inv iv invD ivD disp =>
+        by_cases hdisp : (disp == 0#n) = true
+        · simp only [applyARStep, hdisp, ↓reduceIte, toTFlat, idxArgs, op2, Tup.levels,
+            List.length, idxArg_succ_self, Nat.zero_add, Nat.add_assoc]
+          exact congrArg (TFlat.let_ _) (congrArg (TFlat.let_ _)
+            (ih (curD, next + 1, plan.step1) (ctxTypes_pushTup_rev _ hΓ)
+              (trieCtxMatch_insertTupEnv hm (ts := [.bits n]) _) hk))
+        · by_cases hfold : plan.foldDisp = true
+          · simp only [applyARStep, hdisp, hfold, Bool.false_eq_true, ↓reduceIte, toTFlat,
+              idxArgs, op2, Tup.levels, List.length, idxArg_imm_eq, idxArg_succ_self,
+              Nat.zero_add, Nat.add_assoc, show (1 : Nat) + 1 = 2 from rfl]
+            exact congrArg (TFlat.let_ _) (congrArg (TFlat.let_ _) (congrArg (TFlat.let_ _)
+              (ih (curD, next + 1, plan.step1) (ctxTypes_pushTup_rev _ hΓ)
+                (trieCtxMatch_insertTupEnv hm (ts := [.bits n]) _) hk)))
+          · simp only [applyARStep, hdisp, hfold, Bool.false_eq_true, ↓reduceIte, toTFlat,
+              idxArgs, op2, Tup.levels, List.length, idxArg_imm_eq, idxArg_succ_self,
+              Nat.zero_add, Nat.add_assoc, show (1 : Nat) + 1 = 2 from rfl]
+            exact congrArg (TFlat.let_ _) (congrArg (TFlat.let_ _) (congrArg (TFlat.let_ _)
+              (ih (curD, next + 1, plan.step1) (ctxTypes_pushTup_rev _ hΓ)
+                (trieCtxMatch_insertTupEnv hm (ts := [.bits n]) _) hk))),
+    fun ⟨curD, next, plan⟩ t a k hΓ _ _ hm hwf ih => by
+      obtain ⟨ha, hk⟩ := wf_load hwf
+      simp only [denote]; rw [denoteArg_eq_some_resolveEnvArg hΓ hm a ha]
+      dsimp only; rw [addrRangeSweepFlat.eq_def, addrRangeSweep.eq_def]; simp only [toTFlat]
+      exact congrArg (TFlat.load t _)
+        (ih (curD, next + 1, plan.step1) (.cons hΓ) (trieCtxMatch_singleton hm t _) hk),
+    fun ⟨curD, next, plan⟩ v a k hΓ _ _ hm hwf ih => by
+      obtain ⟨hv, ha, hk⟩ := wf_store hwf
+      simp only [denote]
+      rw [denoteArg_eq_some_resolveEnvArg hΓ hm v hv,
+        denoteArg_eq_some_resolveEnvArg hΓ hm a ha]
+      dsimp only; rw [addrRangeSweepFlat.eq_def, addrRangeSweep.eq_def]; simp only [toTFlat]
+      exact congrArg (TFlat.store _ _) (ih (curD, next, plan.step1) hΓ hm hk),
+    fun ⟨curD, next, plan⟩ f bs args k hΓ _ _ hm hwf ih => by
+      obtain ⟨ha, hk⟩ := wf_call hwf
+      simp only [denote]; rw [denoteArgs_eq_some_resolveEnvArgs hΓ hm args ha]
+      dsimp only; rw [addrRangeSweepFlat.eq_def, addrRangeSweep.eq_def]; simp only [toTFlat]
+      exact congrArg (TFlat.call f bs _)
+        (ih (curD, next + bs.length, plan.step1) (ctxTypes_pushTup_rev _ hΓ)
+          (trieCtxMatch_insertTupEnv hm _) hk),
+    @fun rs Γ Δ vs ls inD outD inE ⟨curD, next, plan⟩ c t e hΓ _ _ hm hwf iht ihe => by
+      obtain ⟨hc, ht, he⟩ := wf_jnz hwf
+      simp only [denote]; rw [denoteArg_eq_some_resolveEnvArg hΓ hm c hc]
+      dsimp only; rw [addrRangeSweepFlat.eq_def, arSweep_jnz_eq]; dsimp only
+      cases (resolveEnvArg inD inE c).arOut with
+      | imm b => cases b with
+        | true => exact iht (curD, next, plan.step2.1) ht
+        | false => exact ihe (curD, next, plan.step2.2) he
+      | var _ =>
+        simp only [toTFlat]
+        rw [iht (curD, next, plan.step2.1) ht, ihe (curD, next, plan.step2.2) he],
+    fun _ j args hΓ hΔ hll hm hwf => by
+      obtain ⟨hj, ha⟩ := wf_jump hwf
+      obtain ⟨lvl, hlk, hidx⟩ := lookupL_jump_eq hΔ hll hj
+      simp only [denote]; rw [hlk, denoteArgs_eq_some_resolveEnvArgs hΓ hm args ha]
+      dsimp only; rw [addrRangeSweepFlat.eq_def, addrRangeSweep.eq_def]
+      simp only [toTFlat, hidx],
+    fun _ vs' hΓ _ _ hm hwf => by
+      simp only [denote]; rw [denoteArgs_eq_some_resolveEnvArgs hΓ hm vs' hwf]; rfl,
+    fun _ f args hΓ _ _ hm hwf => by
+      simp only [denote]; rw [denoteArgs_eq_some_resolveEnvArgs hΓ hm args hwf]; rfl,
+    fun _ _ _ _ _ _ => rfl,
+    fun ⟨curD, next, plan⟩ bodies k _ hΔ hll _ hwf ihB ihK => by
+      obtain ⟨hb, hk⟩ := wf_group hwf
+      dsimp only [addrRangeSweepFlat, denote]
+      rw [addrRangeSweep.eq_def]; simp only [toTFlat]
+      have hb' := ihB (curD, next, plan.stepGroup.1) (ctxTypes_pushTup_rev _ hΔ) hll.pushTup hb
+      have hk' := ihK (curD, next, plan.stepGroup.2) (ctxTypes_pushTup_rev _ hΔ) hll.pushTup hk
+      rw [pushTup_length] at hb' hk'
+      rw [hb', hk'],
+    fun _ _ _ _ _ _ => rfl,
+    fun ⟨curD, next, bsPlan⟩ b bs hΓ _ _ hm hwf ihb ihbs => by
+      obtain ⟨hb, hbs⟩ := wf_cons hwf
+      dsimp only [addrRangeSweepBFlat, denoteB, addrRangeSweepB, toTBlocks]
+      let bd := if bsPlan.stepCons.1 then curD + 1 else curD
+      exact congr
+        (congrArg TBlocks.cons
+          (ihb (bd, next + _, bsPlan.stepCons.2.1) (ctxTypes_pushTup_rev _ hΓ)
+            (trieCtxMatch_insertTupEnv hm _) hb))
+        (ihbs (curD, next, bsPlan.stepCons.2.2) hbs)⟩
 
-private theorem addrRangeSweepBFlat_eq {rs : List Ty} :
-    {sig : List (List Ty)} → (tb : TBlocks rs sig) →
-    {Γ : List Ty} → {Δ : List (List Ty)} →
-    {vs : List ((t : Ty) × ARVal K t)} → {ls : List ((ts : List Ty) × KL ts)} →
-    {curD next inDepth outDepth : Nat} → {bsPlan : LoopBlocks} →
-    {inEnv : Trie ((t : Ty) × ARVal K t)} →
-    CtxTypes Γ vs → CtxTypes Δ ls → CtxLevels ls →
-    TrieCtxMatch inDepth inEnv vs → tb.wfCheck Γ Δ = true →
-    toTBlocks (addrRangeSweepB curD next bsPlan (denoteB (ARVal K) KL tb vs ls))
-        outDepth ls.length =
-      addrRangeSweepBFlat curD next bsPlan tb inDepth inEnv outDepth
-  | _, .nil, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ => rfl
-  | _, .cons (ts := ts) b bs, Γ, Δ, vs, ls, curD, next, inDepth, outDepth, bsPlan, inEnv,
-      hΓ, hΔ, hll, hm, hwf => by
-    dsimp only [TBlocks.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
-    dsimp only [addrRangeSweepBFlat, denoteB, addrRangeSweepB, toTBlocks]
-    refine congr (congrArg TBlocks.cons ?_) ?_
-    · exact addrRangeSweepFlat_eq b (CtxTypes.push _ hΓ) hΔ hll
-        (trieCtxMatch_insertTupEnv hm _) hwf.1
-    · exact addrRangeSweepBFlat_eq bs hΓ hΔ hll hm hwf.2
-end
+public section
 
-/-- `addrRangeOptFlat as tf = reifyFunc (Func.addrRangeOpt (denoteFunc tf))` under
-`wfCheck = true`. -/
-theorem addrRangeOptFlat_eq {as rs : List Ty} (tf : TFlat rs)
+theorem addrRangeOptFlatWith_eq (foldDisp : Bool) {as rs : List Ty} (tf : TFlat rs)
     (hwf : tf.wfCheck (pushTypes as []) [] = true) :
-    addrRangeOptFlat as tf = reifyFunc (Func.addrRangeOpt (denoteFunc (as := as) tf)) := by
-  dsimp only [addrRangeOptFlat, Func.addrRangeOpt]
+    addrRangeOptFlatWith foldDisp as tf =
+      reifyFunc (Func.addrRangeOptWith foldDisp (denoteFunc (as := as) tf)) := by
+  dsimp only [addrRangeOptFlatWith, Func.addrRangeOptWith]
   rw [reifyFunc_denoteFunc_eq tf hwf]
-  by_cases hw : (AddrRangeOpt.buildLoopTree false tf).2 = true
+  by_cases hw : (AddrRangeOpt.buildAddrPlan foldDisp as.length tf).2 = true
   · simp only [hw, ↓reduceIte]
-    have h := addrRangeSweepFlat_eq tf (CtxTypes.push _ .nil) .nil CtxLevels.nil
-      (trieCtxMatch_initEnv (fun x next => ARVal.fresh x next 0) as) hwf
-      (curD := 0) (next := as.length) (outDepth := as.length)
-      (plan := (AddrRangeOpt.buildLoopTree false tf).1)
-    exact h.symm
+    exact (addrRangeSweepFlat_both.1 tf
+      (0, as.length, (AddrRangeOpt.buildAddrPlan foldDisp as.length tf).1)
+      (CtxTypes.push _ .nil) .nil CtxLevels.nil
+      (trieCtxMatch_initEnv (fun x next => ARVal.fresh x next 0) as) hwf).symm
   · simp only [hw, Bool.false_eq_true, ↓reduceIte]
     exact (reifyFunc_denoteFunc_eq tf hwf).symm
 
-/-- `denoteFunc (addrRangeOptFlat as tf) = Func.addrRangeOpt (denoteFunc tf)` under
-`wfCheck = true`. -/
-theorem denoteFunc_addrRangeOptFlat {as rs : List Ty} (tf : TFlat rs)
+theorem denoteFunc_addrRangeOptFlatWith (foldDisp : Bool) {as rs : List Ty} (tf : TFlat rs)
     (hwf : tf.wfCheck (pushTypes as []) [] = true) :
-    denoteFunc (as := as) (addrRangeOptFlat as tf) =
-      Func.addrRangeOpt (denoteFunc (as := as) tf) := by
-  rw [addrRangeOptFlat_eq tf hwf]
-  exact Func.renorm_eq_self (Func.addrRangeOpt_wf (Func.wf_of_denote tf rfl))
+    denoteFunc (as := as) (addrRangeOptFlatWith foldDisp as tf) =
+      Func.addrRangeOptWith foldDisp (denoteFunc (as := as) tf) :=
+  denoteFunc_of_flat_eq (Func.addrRangeOptWith_wf foldDisp) tf hwf
+    (addrRangeOptFlatWith_eq foldDisp tf hwf)
 
-/-- `addrRangeOptFlat` preserves `wfCheck`. -/
-theorem addrRangeOptFlat_wfCheck {as rs : List Ty} (tf : TFlat rs)
+theorem addrRangeOptFlatWith_wfCheck (foldDisp : Bool) {as rs : List Ty} (tf : TFlat rs)
     (hwf : tf.wfCheck (pushTypes as []) [] = true) :
-    (addrRangeOptFlat as tf).wfCheck (pushTypes as []) [] = true := by
-  rw [addrRangeOptFlat_eq tf hwf]
-  exact PassFlatKit.reifyFunc_wfCheck (Func.addrRangeOpt_wf (Func.wf_of_denote tf rfl))
+    (addrRangeOptFlatWith foldDisp as tf).wfCheck (pushTypes as []) [] = true :=
+  wfCheck_of_flat_eq (Func.addrRangeOptWith_wf foldDisp) tf hwf
+    (addrRangeOptFlatWith_eq foldDisp tf hwf)
 
-/-- `(addrRangeOptFlatFn f).toFn = ⟨f.name, f.as, f.rs, Func.addrRangeOpt f.toFn.body⟩`
-under `wfCheck = true`. -/
-theorem addrRangeOptFlatFn_toFn (f : TFlatFn) (hwf : f.wfCheck = true) :
-    (addrRangeOptFlatFn f).toFn = ⟨f.name, f.as, f.rs, Func.addrRangeOpt f.toFn.body⟩ := by
-  dsimp only [addrRangeOptFlatFn, TFlatFn.toFn]
-  rw [denoteFunc_addrRangeOptFlat f.body hwf]
+theorem addrRangeOptFlat_eq {as rs : List Ty} (tf : TFlat rs)
+    (hwf : tf.wfCheck (pushTypes as []) [] = true) :
+    addrRangeOptFlat as tf = reifyFunc (Func.addrRangeOpt (denoteFunc (as := as) tf)) :=
+  addrRangeOptFlatWith_eq false tf hwf
 
-/-- `addrRangeOptFlatFn` preserves `TFlatFn.wfCheck`. -/
-theorem addrRangeOptFlatFn_wfCheck (f : TFlatFn) (hwf : f.wfCheck = true) :
-    (addrRangeOptFlatFn f).wfCheck = true :=
-  addrRangeOptFlat_wfCheck f.body hwf
+flat_pass_corollaries addrRangeOptFlat, Func.addrRangeOpt, Func.addrRangeOpt_wf,
+  addrRangeOptFlat_eq, denoteFunc_addrRangeOptFlat, addrRangeOptFlat_wfCheck,
+  addrRangeOptFlatFn, addrRangeOptFlatFn_toFn, addrRangeOptFlatFn_wfCheck
+
+end
 
 end OptFlatAddrRange
 end LeanQbe.T

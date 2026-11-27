@@ -28,7 +28,7 @@ a full `LinkedCert`. In case 2 it also gives the end-to-end `Defined ∧ FnSpec`
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbeTest.T.MainLinkReuseAmd64Test
 
@@ -146,7 +146,7 @@ theorem chunksB_link : checkLinkList x64Layout [] chunksB = true := by t_kernel_
 def modB : Module where
   fns := [fnBump, fnHelperB, fnDoubleBump]
 
-theorem modB_fns_eq : modB.fns = chunksFns chunksB := rfl
+theorem modB_fns_eq : modB.fns = chunksFns chunksB := by rfl
 
 def certB : LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean modB [] [] 0 2048 where
   chunks := chunksB
@@ -158,8 +158,8 @@ def certB : LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean modB [] 
 /-- The relinked chunk keeps the exact old `code` and `doubleBump` stack bound. -/
 theorem certB_reuses_code :
     dblChunkB.compiled.code = dblCode ∧
-      certB.bound "doubleBump" = dblCompiled.bound "doubleBump" :=
-  ⟨rfl, linkCompiledList_bound (c := dblChunkB) chunksB_link
+      certB.bound "doubleBump" = dblCompiled.bound "doubleBump" := by
+  exact ⟨rfl, linkCompiledList_bound (c := dblChunkB) chunksB_link
     (List.mem_cons_of_mem _ (List.mem_cons_of_mem _ List.mem_cons_self))
     (List.mem_map_of_mem List.mem_cons_self :
       fnDoubleBump.name ∈ [fnDoubleBump].map Fn.name)⟩
@@ -178,7 +178,7 @@ def chunksC : List (CompiledChunk x64Target x64LegalTarget [] 0) := [bumpChunk, 
 
 theorem chunksC_link : checkLinkList x64Layout [] chunksC = true := by t_kernel_rfl
 
-theorem twoChunkMod_fns_eqC : twoChunkMod.fns = chunksFns chunksC := rfl
+theorem twoChunkMod_fns_eqC : twoChunkMod.fns = chunksFns chunksC := by rfl
 
 def certC :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean twoChunkMod [] [] 0 2048 where

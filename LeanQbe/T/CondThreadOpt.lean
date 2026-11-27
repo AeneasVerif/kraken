@@ -641,7 +641,7 @@ def mergeImmLists : List (Nat × Nat) → List (Nat × Nat) → List (Nat × Nat
   | xs, [] => xs
   | (t1, f1) :: xs, (t2, f2) :: ys => (t1 + t2, f1 + f2) :: mergeImmLists xs ys
 
-/-- Summarize boolean immediate arguments of a `.jump` operand tuple (up to first 8 params). -/
+/-- Summarize boolean immediate arguments of a `.jump` operand tuple (up to first 64 params). -/
 def jumpImmBools : Nat → {ts : List Ty} → Tup (Arg K) ts → List (Nat × Nat)
   | 0, _, _ => []
   | _, [], _ => []
@@ -703,7 +703,7 @@ def collectStats {rs : List Ty} (nl : Nat) : TFlat rs → StatTree × StatTrie
   | .jump j args =>
     if j < nl then
       let lvl := nl - 1 - j
-      (.leaf, addStat .empty lvl (jumpImmBools 8 args))
+      (.leaf, addStat .empty lvl (jumpImmBools 64 args))
     else (.leaf, .empty)
   | .ret _ | .exit _ _ | .hlt => (.leaf, .empty)
   | .group (sig := sig) bs k =>
@@ -857,62 +857,92 @@ structure BlockOracleInfo (rs : List Ty) where
   act : BlockAct
   selfIdx : Nat
 
-/-- Decide the `BlockAct` for block `b` (`ts`) given its incoming `BlkStat` and self index. -/
-def decideBlockAct {rs : List Ty} (selfIdx : Nat) (ts : List Ty) (b : TFlat rs) (st : BlkStat) :
-    BlockAct :=
+mutual
+/-- Exact AST node count of a `TFlat` expression (including nested `.group` blocks). -/
+def ctFlatSize {rs : List Ty} : TFlat rs → Nat
+  | .let_ _ k | .load _ _ k | .store _ _ k | .call _ _ _ k => 1 + ctFlatSize k
+  | .jnz _ t e => 1 + ctFlatSize t + ctFlatSize e
+  | .jump _ _ | .ret _ | .exit _ _ | .hlt => 1
+  | .group bs k => 1 + ctBlocksSize bs + ctFlatSize k
+
+/-- Total AST node count across all blocks in a `TBlocks` tuple. -/
+def ctBlocksSize {rs : List Ty} : {s : List (List Ty)} → TBlocks rs s → Nat
+  | _, .nil => 0
+  | _, .cons b bs => ctFlatSize b + ctBlocksSize bs
+end
+
+/-- Peel up to `grpBudget` inner-group AST nodes and pure `.let_` wrappers to find a head
+`.jnz (.var idx)` testing a boolean parameter of the enclosing block with constant callers.
+Returns `(paramIdx, trueArm, falseArm, hadWrapper)`. -/
+def findSplitCandidate? {rs : List Ty} (grpBudget : Nat) (ts : List Ty) (st : BlkStat) :
+    TFlat rs → Nat → Bool → Option (Nat × TFlat rs × TFlat rs × Bool)
+  | .jnz (.var idx) t e, depth, wrapped =>
+    if idx ≥ depth && idx - depth < ts.length then
+      let p := ts.length - 1 - (idx - depth)
+      match splitMember? p ts with
+      | some _ =>
+        let (tJ, fJ) := (st.immBools.drop p).headD (0, 0)
+        if tJ + fJ > 0 then some (p, t, e, wrapped) else none
+      | none => none
+    else none
+  | .group bs k, depth, _ =>
+    let bsz := ctBlocksSize bs
+    if bsz ≤ grpBudget then findSplitCandidate? (grpBudget - bsz) ts st k depth true
+    else none
+  | .let_ (ts := dts) _ k, depth, _ =>
+    findSplitCandidate? grpBudget ts st k (depth + dts.length) true
+  | _, _, _ => none
+
+/-- Decide the `BlockAct` for block `b` (`ts`) given its incoming `BlkStat` and self index.
+When `splitOnly = true`, only bool-param splitting and pure `≤ 1`-node forwarding are enabled
+(omitting generic `≤ 3`-node single-pred / dynamic-arg inlining). -/
+def decideBlockAct {rs : List Ty} (selfIdx : Nat) (ts : List Ty) (b : TFlat rs) (st : BlkStat)
+    (splitOnly : Bool := false) : BlockAct :=
   let selfRec := tflatJumpsTo selfIdx b
   let isPureRet := match b with | .ret _ => true | _ => false
   if !selfRec && (((!isPureRet || st.total ≤ 1) && (tflatSmallNoGroup? 1 b).isSome) ||
-      (st.total ≤ 1 && (tflatSmallNoGroup? 3 b).isSome)) then
+      (!splitOnly && st.total ≤ 1 && (tflatSmallNoGroup? 3 b).isSome)) then
     .keep false true
   else
-    match b with
-    | .jnz (.var idx) t e =>
-      if idx < ts.length then
-        let p := ts.length - 1 - idx
-        match splitMember? p ts with
-        | some _ =>
-          let (tJ, fJ) := (st.immBools.drop p).headD (0, 0)
-          if tJ + fJ > 0 then
-            let dynJ := st.total - tJ - fJ
-            let inlT := (tflatSmallNoGroup? 8 t).isSome && !tflatJumpsTo selfIdx t
-            let inlF := (tflatSmallNoGroup? 8 e).isSome && !tflatJumpsTo selfIdx e
-            let keepT := (!inlT && tJ > 0) || dynJ > 0
-            let keepF := (!inlF && fJ > 0) || dynJ > 0
-            let keepDisp := dynJ ≥ 2
-            .splitBool p keepT keepF keepDisp inlT inlF
-          else .keep true false
-        | none => .keep true false
-      else .keep true false
-    | _ =>
+    match findSplitCandidate? 16 ts st b 0 false with
+    | some (p, t, e, wrapped) =>
+      let (tJ, fJ) := (st.immBools.drop p).headD (0, 0)
+      let dynJ := st.total - tJ - fJ
+      let inlT := !wrapped && (tflatSmallNoGroup? 8 t).isSome && !tflatJumpsTo selfIdx t
+      let inlF := !wrapped && (tflatSmallNoGroup? 8 e).isSome && !tflatJumpsTo selfIdx e
+      let keepT := (!inlT && tJ > 0) || dynJ > 0
+      let keepF := (!inlF && fJ > 0) || dynJ > 0
+      let keepDisp := dynJ ≥ 2
+      .splitBool p keepT keepF keepDisp inlT inlF
+    | none =>
       let hasGroupHead := match b with | .group _ _ => true | _ => false
-      .keep true (st.total > 0 && !hasGroupHead && !(isPureRet && st.total ≥ 2))
+      .keep true (st.total > 0 && !hasGroupHead && !splitOnly && !(isPureRet && st.total ≥ 2))
 
 /-- Build `List BlockAct × List (Option (BlockOracleInfo rs))` for all blocks in a `.group`. -/
 def decideGroupActs {rs : List Ty} (len : Nat) :
-    Nat → {sig : List (List Ty)} → TBlocks rs sig → List BlkStat →
+    Nat → {sig : List (List Ty)} → TBlocks rs sig → List BlkStat → (splitOnly : Bool) →
     List BlockAct × List (Option (BlockOracleInfo rs))
-  | _, _, .nil, _ => ([], [])
-  | idx, ts :: _, .cons b bs, stats =>
+  | _, _, .nil, _, _ => ([], [])
+  | idx, ts :: _, .cons b bs, stats, splitOnly =>
     let st := stats.headD {}
     let selfIdx := len - 1 - idx
-    let act := decideBlockAct selfIdx ts b st
+    let act := decideBlockAct selfIdx ts b st splitOnly
     let info : Option (BlockOracleInfo rs) :=
       match act with
       | .keep _ false => none
       | _ => some ⟨ts, b, act, selfIdx⟩
-    let (acts, infos) := decideGroupActs len (idx + 1) bs stats.tail
+    let (acts, infos) := decideGroupActs len (idx + 1) bs stats.tail splitOnly
     (act :: acts, info :: infos)
 
 mutual
 /-- Top-down `O(N)` planner over `TFlat` + `StatTree`, tracking enclosing `BlockOracleInfo`s
 (newest label first, matching de Bruijn label index `0`). -/
 def buildCTPlan {rs : List Ty} (env : List (Option (BlockOracleInfo rs))) :
-    TFlat rs → StatTree → CTPlan
-  | .let_ _ k, .node1 sk | .load _ _ k, .node1 sk | .store _ _ k, .node1 sk
-  | .call _ _ _ k, .node1 sk => .node1 (buildCTPlan env k sk)
-  | .jnz _ t e, .node2 st se => .node2 (buildCTPlan env t st) (buildCTPlan env e se)
-  | .jump (ts := ts) j args, .leaf =>
+    TFlat rs → StatTree → (splitOnly : Bool := false) → CTPlan
+  | .let_ _ k, .node1 sk, s | .load _ _ k, .node1 sk, s | .store _ _ k, .node1 sk, s
+  | .call _ _ _ k, .node1 sk, s => .node1 (buildCTPlan env k sk s)
+  | .jnz _ t e, .node2 st se, s => .node2 (buildCTPlan env t st s) (buildCTPlan env e se s)
+  | .jump (ts := ts) j args, .leaf, _ =>
     match (env.drop j).headD none with
     | some info =>
       if h : info.ts = ts then
@@ -930,18 +960,19 @@ def buildCTPlan {rs : List Ty} (env : List (Option (BlockOracleInfo rs))) :
           | none => .jump false
       else .jump false
     | none => .jump false
-  | .group (sig := sig) bs k, .group blkStats sbs sk =>
-    let (acts, newInfos) := decideGroupActs sig.length 0 bs blkStats
+  | .group (sig := sig) bs k, .group blkStats sbs sk, splitOnly =>
+    let (acts, newInfos) := decideGroupActs sig.length 0 bs blkStats splitOnly
     let env' := newInfos.reverse ++ env
-    .group acts (buildCTPlanB env' bs sbs) (buildCTPlan env' k sk)
-  | _, _ => .leaf
+    .group acts (buildCTPlanB env' bs sbs splitOnly) (buildCTPlan env' k sk splitOnly)
+  | _, _, _ => .leaf
 
 /-- Block-list companion of `buildCTPlan`. -/
 def buildCTPlanB {rs : List Ty} (env : List (Option (BlockOracleInfo rs))) :
-    {sig : List (List Ty)} → TBlocks rs sig → StatTreeB → CTPlanB
-  | _, .nil, .nil => .nil
-  | _, .cons b bs, .cons sb sbs => .cons (buildCTPlan env b sb) (buildCTPlanB env bs sbs)
-  | _, _, _ => .nil
+    {sig : List (List Ty)} → TBlocks rs sig → StatTreeB → (splitOnly : Bool := false) → CTPlanB
+  | _, .nil, .nil, _ => .nil
+  | _, .cons b bs, .cons sb sbs, splitOnly =>
+    .cons (buildCTPlan env b sb splitOnly) (buildCTPlanB env bs sbs splitOnly)
+  | _, _, _, _ => .nil
 end
 
 /-! ### Phase 2: Verified PHOAS validator (`validateCTPlan`) and rewriter (`rewriteCTAux`) -/
@@ -1455,13 +1486,23 @@ def Func.condThreadWithPlan {as rs : List Ty} (plan : CTPlan) (f : Func as rs) :
     f
 
 open CondThreadOpt in
-/-- Single-pass `O(N)` constant-arg branch threading and bool-param splitting on a closed `Func`. -/
-def Func.condThreadPass {as rs : List Ty} (f : Func as rs) : Func as rs :=
+/-- Single `O(N)` pass of constant-arg branch threading and bool-param block splitting on a
+closed `Func` (`splitOnly = true` disables generic `≤ 3`-node single-pred inlining). -/
+def Func.condThreadPassOnce {as rs : List Ty} (splitOnly : Bool := false)
+    (f : Func as rs) : Func as rs × Bool :=
   let tf := reifyFunc f
   let (st, _) := collectStats 0 tf
-  let plan := buildCTPlan [] tf st
-  if plan.hasChanges then Func.condThreadWithPlan plan f
-  else denoteFunc tf
+  let plan := buildCTPlan [] tf st splitOnly
+  if plan.hasChanges then (Func.condThreadWithPlan plan (denoteFunc tf), true)
+  else (denoteFunc tf, false)
+
+open CondThreadOpt in
+/-- Bounded two-iteration constant-arg branch threading and bool-param block splitting on a
+closed `Func`. Pass 1 runs full threading; if changes occur, pass 2 runs a split/forwarding
+cleanup pass so newly exposed inner forwarders and cascaded splits thread cleanly. -/
+def Func.condThreadPass {as rs : List Ty} (f : Func as rs) : Func as rs :=
+  let (f1, ch1) := Func.condThreadPassOnce false f
+  if ch1 then (Func.condThreadPassOnce true f1).1 else f1
 
 /-- Combined conditional branch threading and dominating known-condition elimination on `Func`. -/
 def Func.condThreadOpt {as rs : List Ty} (f : Func as rs) : Func as rs :=
@@ -1475,5 +1516,7 @@ def Fn.condThreadOpt (fn : Fn) : Fn :=
 (keeping `Opt.lean` untouched until W3 batching). -/
 def Func.condThreadLateOpt {as rs : List Ty} (f : Func as rs) : Func as rs :=
   Func.renorm (Func.condThreadOpt f)
+
+attribute [irreducible] Func.condThreadPass
 
 end LeanQbe.T

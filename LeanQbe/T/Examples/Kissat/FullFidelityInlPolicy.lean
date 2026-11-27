@@ -26,17 +26,16 @@ Extends `FullM7InlPolicy.m7PgoBudget` with budgets tuned on the purified `469`-f
   `full_k6_flip`, `full_m6_sweep_{rearm,refine_sig,rand_phases,solve}`, `full_queue_mtf`,
   `full_cong_eb_match`, `full_sweep_copy`, and `full_analyze_rsn_m6_hdr`).
 * Keeps cold initialization & slow/flush helpers out-of-line (`budget := 0` + `keepOutOfLine`:
-  `m6_hdr_init`, `full_watch_push_slow_m6`, `full_prop_flush_slow_fid`, `full_prop_flush_del_fid`),
-  avoiding cold bloat and BCP spill regressions (`full_rebuild_watches_nosort_fid` &
-  `full_congruence_dense` also held at `0`).
+  `m6_hdr_init`, `full_watch_push_slow_m6`, `full_prop_flush_slow_fid`,
+  `full_prop_flush_del_fid`, `full_k6_init`), avoiding cold bloat and spill regressions
+  (`full_rebuild_watches_nosort_fid` & `full_congruence_dense` also held at `0`).
 * Retains explicit `full_backtrack => 64` (actual post-inline IR `208` stays OOL because inlining
   it exposes `3 * full_backtrack_raw_m5` and expands call count `+128`).
 * Tunes `maxCallerSize := 2800`, `leafMax := 165`, `maxCalleeLoops := some 1`,
   `maxTotalDup := 1500`, `maxCallerCalls := 24`, plus Wave-5 A/B-validated leaf & callee budgets
   (`full_assign_lvl => 180`, `full_min_mark => 90`, `full_watch_push_m6 => 200`,
   `full_watch_push => 220`, `full_k6_flip => 290`, `full_fill_u64_m7 => 40`,
-  `full_sort_bin_watches_fid => 110`, `full_k6_init => 220`, `full_walk_flip_m7 => 280`,
-  `full_decide_m7 => 265`).
+  `full_sort_bin_watches_fid => 110`, `full_walk_flip_m7 => 280`, `full_decide_m7 => 265`).
 
 All `Module.optInlinePolicy_*` correctness, `Func.Wf`, acyclicity, and `LegalTarget` transport
 theorems apply directly with `0` compiler proof LOC.
@@ -137,14 +136,14 @@ def fidPgoBudget : Sym → Nat
   -- Wave-5 Step-7/8/9 & Sweep/Walk/Decide winners (keep `fidInlPolicy == fidInlChunkPolicy`)
   | "full_fill_u64_m7" => 40
   | "full_sort_bin_watches_fid" => 110
-  | "full_k6_init" => 220
+  | "full_k6_init" => 0
   | "full_walk_flip_m7" => 280
   | "full_decide_m7" => 265
   | s => m7PgoBudget s
 
 /-- Profile-guided `InlinePolicy` for `KissatFidelity` (`maxCallerSize := 2800`, `leafMax := 165`,
-`m6_hdr_init`, `full_watch_push_slow_m6`, `full_prop_flush_slow_fid`, and
-`full_prop_flush_del_fid` kept out-of-line). -/
+`m6_hdr_init`, `full_watch_push_slow_m6`, `full_prop_flush_slow_fid`, `full_prop_flush_del_fid`,
+and `full_k6_init` kept out-of-line). -/
 def fidInlPolicy : InlinePolicy :=
   { m7InlPolicy with
     budget := fidPgoBudget
@@ -157,7 +156,8 @@ def fidInlPolicy : InlinePolicy :=
       [ "m6_hdr_init"
       , "full_watch_push_slow_m6"
       , "full_prop_flush_slow_fid"
-      , "full_prop_flush_del_fid" ] }
+      , "full_prop_flush_del_fid"
+      , "full_k6_init" ] }
 
 /-- Zero-scan chunkable `InlinePolicy` matching `fidInlPolicy` on `KissatFidelity`: sets
 `singleSiteMax := 0`, `maxTotalDup := 0`, and `requireLoopSite := false` so `inlSiteCounts` and

@@ -150,7 +150,7 @@ class ParamFirewallTests(unittest.TestCase):
 
     def test_rdeps_tracks_meta_imports_to_compile_guards(self) -> None:
         direct_rdeps = rdeps_scope.compute_rdeps(
-            REPO_ROOT, ["LeanQbe/T/CompileGuard.lean"], include_legacy=True
+            REPO_ROOT, ["LeanQbe/T/CompileGuard.lean"]
         )
         self.assertIsNotNone(direct_rdeps)
         assert direct_rdeps is not None
@@ -163,7 +163,7 @@ class ParamFirewallTests(unittest.TestCase):
             "LeanQbe/T/Arm64/Isa.lean",
         ):
             rdeps = rdeps_scope.compute_rdeps(
-                REPO_ROOT, [changed], max_rdeps=2000, include_legacy=True
+                REPO_ROOT, [changed], max_rdeps=2000
             )
             self.assertIsNotNone(rdeps)
             assert rdeps is not None

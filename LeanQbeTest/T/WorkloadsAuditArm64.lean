@@ -3,8 +3,7 @@ module
 public import LeanQbe.T.Arm64.ChaCha
 public import LeanQbe.T.Arm64.Bignum
 public import LeanQbe.T.Arm64.UnionFind
-import all Kraken.Mem
-import all Kraken.Separation
+import LeanQbe.T.Logic.MemLemmas
 
 /-!
 # Verified Workloads (`ChaCha20`, `Curve25519 Bignum`, `UnionFind`) — AAPCS64 AArch64 Audit
@@ -46,7 +45,7 @@ verified `armLegalTarget` pass), Curve25519 bignum kernels (`mul4x4`, `addMod255
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace WorkloadsAuditArm64
 

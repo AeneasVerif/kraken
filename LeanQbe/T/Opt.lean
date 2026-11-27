@@ -218,11 +218,16 @@ memLoad → gvn → assumeBits → fold`). -/
 def Func.lateCore {as rs : List Ty} (f : Func as rs) : Func as rs :=
   Func.lateCorePost (Func.renorm (Func.lateCorePre f))
 
+/-- Target-parameterized post-`Legal` CFG/cleanup pre-`licm` core (`ifOptBits →
+simplifyGroupFast → deadLoadElim → assumeElim → fold → addrRangeOptWith foldAddrDisp → gvn`). -/
+def Func.lateCfgPreWith (foldAddrDisp : Bool) {as rs : List Ty} (f : Func as rs) : Func as rs :=
+  Func.gvn (Func.addrRangeOptWith foldAddrDisp (Func.fold (Func.assumeElim (Func.deadLoadElim
+    (Func.simplifyGroupFast (Func.ifOptBits f))))))
+
 /-- Post-`Legal` CFG/cleanup pre-`licm` core (`ifOptBits → simplifyGroupFast → deadLoadElim →
 assumeElim → fold → addrRangeOpt → gvn`). -/
 def Func.lateCfgPre {as rs : List Ty} (f : Func as rs) : Func as rs :=
-  Func.gvn (Func.addrRangeOpt (Func.fold (Func.assumeElim (Func.deadLoadElim
-    (Func.simplifyGroupFast (Func.ifOptBits f))))))
+  Func.lateCfgPreWith false f
 
 /-- Post-`Legal` CFG/cleanup post-`licm` core (`licm → dceP`). -/
 def Func.lateCfgPost {as rs : List Ty} (f : Func as rs) : Func as rs :=
@@ -321,6 +326,12 @@ theorem Func.lateCore_eq {as rs : List Ty} (f : Func as rs) :
         (Func.divConst (Func.canon (Func.fold f)))))))) :=
   rfl
 
+theorem Func.lateCfgPreWith_eq (foldAddrDisp : Bool) {as rs : List Ty} (f : Func as rs) :
+    Func.lateCfgPreWith foldAddrDisp f =
+      Func.gvn (Func.addrRangeOptWith foldAddrDisp (Func.fold (Func.assumeElim (Func.deadLoadElim
+        (Func.simplifyGroupFast (Func.ifOptBits f)))))) :=
+  rfl
+
 theorem Func.lateCfgPre_eq {as rs : List Ty} (f : Func as rs) :
     Func.lateCfgPre f =
       Func.gvn (Func.addrRangeOpt (Func.fold (Func.assumeElim (Func.deadLoadElim
@@ -361,7 +372,8 @@ theorem Func.lateOpt_eq {as rs : List Ty} (f : Func as rs) :
 attribute [irreducible] Func.mergeRets Func.simplifyGroupFast Func.peelFast
 attribute [irreducible] Func.earlyCore Func.earlyOpt
 attribute [irreducible] Func.lateCorePre Func.lateCorePost Func.lateCore
-attribute [irreducible] Func.lateCfgPre Func.lateCfgPost Func.lateLoopRotate Func.lateCondThread
+attribute [irreducible] Func.lateCfgPreWith Func.lateCfgPre Func.lateCfgPost
+attribute [irreducible] Func.lateLoopRotate Func.lateCondThread
 attribute [irreducible] Func.lateCfg Func.lateOpt
 
 /-- Renormalize a named function's body to flat canonical AST form once, preserving metadata. -/

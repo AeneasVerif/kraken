@@ -4,7 +4,7 @@
 #   1. Plain PrintCpp (g++ -std=c++20 -O2 -DTQBE_CATCH_UB + clang++ ASan/UBSan) on 58 cases
 #   2. Plain native x64 (x64Target) + native Arm64 (armTarget via qemu-aarch64) with guard pages
 #   3. Benchmark suite (gen_cnfs.py + stock kissat test/cnf/*.cnf, 181 CNFs total when KISSAT_SRC
-#      is present): D-Min (x64) vs CorePlus (x64) vs Plain (x64 & arm64) vs stock kissat --plain
+#      is present): D-Min (x64) vs Plain (x64 & arm64) vs stock kissat --plain
 set -euo pipefail
 export PYTHONDONTWRITEBYTECODE=1
 
@@ -28,9 +28,9 @@ fi
 WORK_BYTES="${WORK_BYTES:-8388608}"
 FUEL="${FUEL:-400000}"
 
-echo "== 1. build Plain, CorePlus, Solver, Codegen Drivers, and KissatPlainC0Test =="
+echo "== 1. build Plain, Solver, Codegen Drivers, and KissatPlainC0Test =="
 timeout 600 lake build --wfail \
-  LeanQbe.T.Examples.Kissat.Plain LeanQbe.T.Examples.Kissat.CorePlus \
+  LeanQbe.T.Examples.Kissat.Plain \
   LeanQbe.T.Examples.Kissat.Solver LeanQbe.T.Driver \
   LeanQbe.T.Amd64.Targ LeanQbe.T.Arm64.Targ \
   LeanQbeTest.T.KissatPlainC0Test
@@ -51,7 +51,7 @@ timeout 60 clang++ $COMMON_CXX -fsanitize=undefined,address -DTQBE_CATCH_UB \
   "$OUT/plain_driver.cpp" -o "$OUT/plain_asan"
 timeout 60 "$OUT/plain_asan"
 
-echo "== 3. Plain native x64 + Arm64 guarded corpus + D-Min/CorePlus builds =="
+echo "== 3. Plain native x64 + Arm64 guarded corpus + D-Min build =="
 timeout 120 python3 -B test/common/emit.py --both-arches --suite plain \
   --x64-arg "$OUT/plain_x64.s" --arm64-arg "$OUT/plain_arm64.s"
 timeout 60 gcc $COMMON_C -I"$OUT/plain_hdr" -no-pie test/kissat/kissat_main.c \
@@ -69,16 +69,9 @@ timeout 60 qemu-aarch64 -L /usr/aarch64-linux-gnu "$OUT/plain_corpus_arm64" \
 diff -u "$OUT/corpus_x64.out" "$OUT/corpus_arm64.out"
 echo "PASS: Plain x64 == Arm64 guarded corpus differential"
 
-timeout 120 python3 -B test/common/emit.py --arch x64 --suite kissat "$OUT/dmin_x64.s" &
-pid_dmin=$!
-timeout 120 python3 -B test/common/emit.py --arch x64 --suite coreplus "$OUT/coreplus_x64.s" &
-pid_cp=$!
-wait "$pid_dmin"
-wait "$pid_cp"
+timeout 120 python3 -B test/common/emit.py --arch x64 --suite kissat "$OUT/dmin_x64.s"
 timeout 60 gcc $COMMON_C -no-pie bench/kissat/bench_main.c "$OUT/dmin_x64.s" \
   -o "$OUT/bench_dmin_x64"
-timeout 60 gcc $COMMON_C -no-pie bench/kissat/bench_main.c "$OUT/coreplus_x64.s" \
-  -o "$OUT/bench_coreplus_x64"
 timeout 60 gcc $COMMON_C -no-pie bench/kissat/bench_main.c "$OUT/plain_x64.s" \
   -o "$OUT/bench_plain_x64"
 timeout 60 aarch64-linux-gnu-gcc $COMMON_C bench/kissat/bench_main.c \
@@ -128,11 +121,11 @@ fi
 
 echo "== 6. Run differential benchmark comparison & Stage 3 telemetry =="
 timeout 300 python3 - "$OUT" "$WORK_BYTES" "$FUEL" \
-  "$OUT/bench_dmin_x64" "$OUT/bench_coreplus_x64" \
+  "$OUT/bench_dmin_x64" \
   "$OUT/bench_plain_x64" "$OUT/bench_plain_arm64" "$KISSAT_BIN" <<'PY'
 import glob, os, statistics, subprocess, sys, time
 
-out, work_bytes, fuel, dmin_bin, cp_bin, pl_x64_bin, pl_arm_bin, kissat_bin = sys.argv[1:9]
+out, work_bytes, fuel, dmin_bin, pl_x64_bin, pl_arm_bin, kissat_bin = sys.argv[1:8]
 gen_cnfs = sorted(glob.glob(os.path.join(out, "cnfs/gen/*.cnf")))
 ktest_cnfs = sorted(glob.glob(os.path.join(out, "cnfs/kissat_test/*.cnf")))
 all_cnfs = [(p, "gen/" + os.path.basename(p)) for p in gen_cnfs] + [
@@ -177,7 +170,6 @@ print(
 )
 
 dmin_res = run_native([dmin_bin], paths, "", parse_bench6)
-cp_res = run_native([cp_bin], paths, "--telemetry", parse_bench6)
 pl_x64_res = run_native([pl_x64_bin], paths, "--plain-telemetry", parse_bench10)
 pl_arm_res = run_native(
     ["qemu-aarch64", "-L", "/usr/aarch64-linux-gnu", pl_arm_bin],
@@ -196,7 +188,6 @@ def run_kissat_mode(flags, cnf_paths):
 
 solvers = [
     ("D-Min (x64)", dmin_res),
-    ("CorePlus (x64)", cp_res),
     ("Plain (x64)", pl_x64_res),
     ("Plain (Arm64 qemu)", pl_arm_res),
 ]
@@ -242,22 +233,19 @@ for name, tbl in solvers:
     avg_ms = statistics.mean(ms_list)
     max_ms = max(ms_list)
     note = ""
-    if name.startswith(("CorePlus", "Plain")):
+    if name.startswith("Plain"):
         confs = sum(tbl[p][2] for p in paths)
         lrn = sum(tbl[p][3] for p in paths)
         mrem = sum(tbl[p][4] for p in paths)
         pct = (100.0 * mrem / (lrn + mrem)) if (lrn + mrem) > 0 else 0.0
-        if name.startswith("Plain"):
-            rst = sum(tbl[p][5] for p in paths)
-            red = sum(tbl[p][6] for p in paths)
-            rph = sum(tbl[p][7] for p in paths)
-            sw = sum(tbl[p][8] for p in paths)
-            note = (
-                f"confl={confs} lrn={lrn} rem={mrem}({pct:.1f}%)"
-                f" rst={rst} red={red} rph={rph} sw={sw}"
-            )
-        else:
-            note = f"confl={confs} lrn={lrn} min_rem={mrem} ({pct:.1f}%)"
+        rst = sum(tbl[p][5] for p in paths)
+        red = sum(tbl[p][6] for p in paths)
+        rph = sum(tbl[p][7] for p in paths)
+        sw = sum(tbl[p][8] for p in paths)
+        note = (
+            f"confl={confs} lrn={lrn} rem={mrem}({pct:.1f}%)"
+            f" rst={rst} red={red} rph={rph} sw={sw}"
+        )
     print(
         f"{name:<22} {len(solved):>4}/{tot:<4} {nsat:>5} {nunsat:>5}"
         f" {avg_ms:>9.2f} {max_ms:>9.2f}  {note}"
@@ -271,9 +259,9 @@ families = [
     ("r3sat", lambda l: l.startswith("gen/r3sat_")),
     ("kissat_test", lambda l: l.startswith("ktest/")),
 ]
-print("\n== Per-Family Solved Breakdown (D-Min vs CorePlus vs Plain vs kissat --plain) ==")
+print("\n== Per-Family Solved Breakdown (D-Min vs Plain vs kissat --plain) ==")
 print(
-    f"{'Family':<12} {'N':>4} {'D-Min':>7} {'Core+':>7} {'Plain':>7} {'KPlain':>7}"
+    f"{'Family':<12} {'N':>4} {'D-Min':>7} {'Plain':>7} {'KPlain':>7}"
     f" {'Pl-Confl':>9} {'Pl-Rst':>7} {'Pl-Red':>7} {'Pl-Sw':>6}"
 )
 for fam, pred in families:
@@ -282,14 +270,13 @@ for fam, pred in families:
         continue
     n = len(sub)
     sd = sum(1 for p in sub if dmin_res[p][0] in (10, 20))
-    sc = sum(1 for p in sub if cp_res[p][0] in (10, 20))
     sp = sum(1 for p in sub if pl_x64_res[p][0] in (10, 20))
     sk = str(sum(1 for p in sub if k_plain[p][0] in (10, 20))) if k_plain is not None else "n/a"
     confs = sum(pl_x64_res[p][2] for p in sub)
     rst = sum(pl_x64_res[p][5] for p in sub)
     red = sum(pl_x64_res[p][6] for p in sub)
     sw = sum(pl_x64_res[p][8] for p in sub)
-    print(f"{fam:<12} {n:>4} {sd:>7} {sc:>7} {sp:>7} {sk:>7} {confs:>9} {rst:>7} {red:>7} {sw:>6}")
+    print(f"{fam:<12} {n:>4} {sd:>7} {sp:>7} {sk:>7} {confs:>9} {rst:>7} {red:>7} {sw:>6}")
 
 print(f"\nPASS: 0 SAT/UNSAT disagreements across all {len(solvers)} solver configurations.")
 PY

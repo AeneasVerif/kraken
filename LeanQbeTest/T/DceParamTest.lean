@@ -7,11 +7,11 @@ public import LeanQbe.T.FlatLemmas
 public import LeanQbe.T.Amd64.TargLemmas
 public import LeanQbe.T.MainSplice
 public import LeanQbe.T.Examples.LratTrimProg
-public import LeanQbe.T.Examples.Kissat.CorePlus
+public import LeanQbe.T.Examples.Kissat.Plain1
 meta import LeanQbe.T.MainSplice
 meta import LeanQbe.T.Amd64.Targ
 meta import LeanQbe.T.Examples.LratTrimProg
-meta import LeanQbe.T.Examples.Kissat.CorePlus
+meta import LeanQbe.T.Examples.Kissat.Plain1
 
 /-!
 # Tests of `LeanQbe.T.DceParam` (`Func.dceP`)
@@ -23,21 +23,21 @@ Covers:
 3. Dead `let_` cascading into a dead block parameter (`letCascadeParamProg`).
 4. Multi-round join-to-join dead-parameter chain (`rounds = 0` vs `rounds = 1`).
 5. Preserving used block parameters (`usedParamProg`).
-6. Corpus validation on `LratTrim` (`trimProof`) and `Kissat.CorePlus` (`kissat_propagate_lit`),
+6. Corpus validation on `LratTrim` (`trimProof`) and `Kissat.Plain` (`plain_sort_reds`),
    confirming dead block-parameter removal and `x64Target` `checkCompile = true`.
 7. Single-line `#print axioms` checks (`⊆ [propext, Classical.choice, Quot.sound]`).
 -/
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbeTest.T.DceParamTest
 
 open LeanQbe.T
 open LeanQbe.T.Amd64
 open LeanQbe.T.Examples.LratTrim
-open LeanQbe.T.Examples.Kissat.CorePlus
+open LeanQbe.T.Examples.Kissat.Plain
 
 /-! ## 1. Dead join-block parameter elimination (`Func.dceP`, `Func.opt`, `earlyOpt`, `lateOpt`) -/
 
@@ -263,29 +263,29 @@ def countGroupParamsB {rs : List Ty} : {sig : List (List Ty)} → TBlocks rs sig
   | _, .cons b bs => countGroupParams b + countGroupParamsB bs
 end
 
-/-- `LratTrim.trimProof`: `Func.dceP` drops dead join parameters on `earlyOpt` IR (`22 → 20`). -/
+/-- `LratTrim.trimProof`: `Func.dceP` drops dead join parameters on `earlyOpt` IR (`17 → 15`). -/
 theorem lratTrim_trimProof_param_count_dce :
     countGroupParams (reifyFunc (Func.dce
-      (Func.peelFast (Func.simplifyGroupFast (Func.earlyCore trimProof)) 24))) = 22 := by
+      (Func.peelFast (Func.simplifyGroupFast (Func.earlyCore trimProof)) 24))) = 17 := by
   t_kernel_rfl
 
 theorem lratTrim_trimProof_param_count_dceP :
     countGroupParams (reifyFunc (Func.dceP
-      (Func.peelFast (Func.simplifyGroupFast (Func.earlyCore trimProof)) 24))) = 20 := by
+      (Func.peelFast (Func.simplifyGroupFast (Func.earlyCore trimProof)) 24))) = 15 := by
   t_kernel_rfl
 
-/-- `Kissat.CorePlus.kissat_propagate_lit`: `Func.dceP` drops dead join parameters on `earlyOpt`
-IR (`8 → 5` in round 0). -/
-theorem kissat_propagate_lit_param_count_dce :
+/-- `Kissat.Plain.plain_sort_reds`: `Func.dceP` drops dead join parameters on `earlyOpt`
+IR (`8 → 6` in round 0). -/
+theorem plain_sort_reds_param_count_dce :
     countGroupParams (reifyFunc (Func.dce
-      (Func.peelFast (Func.simplifyGroupFast (Func.earlyCore kissat_propagate_lit_body)) 24))) =
+      (Func.peelFast (Func.simplifyGroupFast (Func.earlyCore plain_sort_reds_body)) 24))) =
       8 := by
   t_kernel_rfl
 
-theorem kissat_propagate_lit_param_count_dceP :
+theorem plain_sort_reds_param_count_dceP :
     countGroupParams (reifyFunc (Func.dceP
-      (Func.peelFast (Func.simplifyGroupFast (Func.earlyCore kissat_propagate_lit_body)) 24))) =
-      5 := by
+      (Func.peelFast (Func.simplifyGroupFast (Func.earlyCore plain_sort_reds_body)) 24))) =
+      6 := by
   t_kernel_rfl
 
 -- `LratTrim` callee-first module (`5` functions) compiles cleanly on x64 after `Func.dceP`
@@ -297,11 +297,10 @@ theorem lratTrim_x64_checkCompile :
       lratTrimFns lratTrimHints 2048 = true := by
   t_kernel_rfl
 
-/-- `Kissat.CorePlus` propagation slice (`kissat_assign`, `kissat_find_repl`,
-`kissat_propagate_lit`) in callee-first order. -/
-def kissatPropSlice : List Fn :=
-  coreplus_fns.filter fun f =>
-    f.name == "kissat_assign" || f.name == "kissat_find_repl" || f.name == "kissat_propagate_lit"
+/-- `Kissat.Plain` callee-first slice (`plain_assign`, `plain_find_repl`, `plain_red_less`,
+`plain_sort_reds`). -/
+@[expose] def kissatPropSlice : List Fn :=
+  [plain_assign, plain_find_repl, plain_red_less, plain_sort_reds]
 
 -- Compile the Kissat propagation slice on x64 (`checkCompile = true`).
 splice_module_hints kissatPropHints (x64Target.toIsa) x64LegalTarget kissatPropSlice

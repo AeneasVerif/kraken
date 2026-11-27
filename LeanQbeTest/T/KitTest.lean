@@ -15,7 +15,7 @@ lane specs (`vpaddd`, `vpternlogd`, `vprord`, `vpsrld`, `lane_liftCmp`, `lane_bl
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Test.KitTest
 
@@ -262,12 +262,12 @@ def vumin4Tqbe : Func [v4i32, v4i32] [v4i32] :=
     ret %r
   }
 
-theorem add128Tqbe_eq_hand : add128Tqbe = add128 := rfl
-theorem macTqbe_eq_hand : macTqbe = mac := rfl
-theorem ult128Tqbe_eq_hand : ult128Tqbe = ult128 := rfl
-theorem uminTqbe_eq_hand : uminTqbe = umin := rfl
-theorem mulByAddTqbe_eq_hand : mulByAddTqbe = mulByAdd := rfl
-theorem qrStepTqbe_eq_hand : qrStepTqbe = qrStep := rfl
+theorem add128Tqbe_eq_hand : add128Tqbe = add128 := by rfl
+theorem macTqbe_eq_hand : macTqbe = mac := by rfl
+theorem ult128Tqbe_eq_hand : ult128Tqbe = ult128 := by rfl
+theorem uminTqbe_eq_hand : uminTqbe = umin := by rfl
+theorem mulByAddTqbe_eq_hand : mulByAddTqbe = mulByAdd := by rfl
+theorem qrStepTqbe_eq_hand : qrStepTqbe = qrStep := by rfl
 
 theorem add128Tqbe_wf : Func.Wf add128Tqbe := by t_wf_reify
 theorem macTqbe_wf : Func.Wf macTqbe := by t_wf_reify

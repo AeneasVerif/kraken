@@ -23,7 +23,7 @@ Exercises `Func.legal` / `Fn.legal`, `Func.legal_wf`, `Func.legal_wp` / `Func.le
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbeTest.T.LegalTest
 

@@ -75,13 +75,6 @@ def evalOneFnBoundStage1 (I : Isa) (lt : LegalTarget) (f : Fn) :
   match evalOneFnStage1 I lt f with
   | .error e => .error e | .ok (nm, h, mf, ext) => .ok (nm, h, ext, mf.sig)
 
-/-- Fast bound-only meta pass matching `evalOneFn`'s computed `(bound, sig)`. -/
-def evalOneFnBound (I : Isa) (lt : LegalTarget) (raBytes : Nat)
-    (exits : List Sym) (nX maxBound : Nat) (acc : List (SigEntry × Nat)) (f : Fn) :
-    Except String (Nat × SigEntry) := do
-  let (nm, h, ext, sig) ← evalOneFnBoundStage1 I lt f
-  .ok (← evalOneFnBoundCheck I raBytes exits nX maxBound acc nm h ext, sig)
-
 /-- Single-function fused meta pass matching `compileModule` without repeating `earlyOpt`/`mid`. -/
 def evalOneFn (I : Isa) (lt : LegalTarget) (raBytes : Nat)
     (exits : List Sym) (nX maxBound : Nat) (acc : List (SigEntry × Nat)) (f : Fn) :
@@ -668,8 +661,8 @@ def evalPrefixExtFromTasks (I : Isa) (raBytes : Nat)
       callees := callees ++ ext.callees
     pure (out.length, Lean.toExpr (pruneExtCallees callees out))
 
-/-- Evaluates `evalOneFnBound` in order over `fs` starting from `ext0`, returning `(totalLen,
-extLit)` in `compileModule`'s reverse `(sig, bound) :: acc` order. When `pruneFor?` is
+/-- Evaluates per-function bound/signature passes in order over `fs` starting from `ext0`, returning
+`(totalLen, extLit)` in `compileModule`'s reverse `(sig, bound) :: acc` order. When `pruneFor?` is
 `some targetFns`, prunes the emitted literal down to direct callees of `targetFns`. -/
 def evalPrefixExtWithLen (I : Isa) (lt : LegalTarget) (raBytes : Nat)
     (ext0 : List (SigEntry × Nat)) (exits : List Sym) (nX maxBound : Nat)
@@ -792,7 +785,7 @@ def elabAndEvalPrefixExt (targT ltT fnsT : Term) (opts : PrefixExtOptions) :
 
 /-- `eval_prefix_ext! extName target legalTarget fnsExpr [(ext := ...)] [(exits := ...)]
 [(nX := ...)] [(maxBound := ...)] [(prefixDef := ...)] [(pruneFor := ...)] [(flat := ...)]` runs
-`evalOneFnBound` in compiled meta code and emits `def extName : List (SigEntry × Nat) :=
+bound/signature passes in compiled meta code and emits `def extName : List (SigEntry × Nat) :=
 <literal>`. -/
 scoped syntax "eval_prefix_ext! " ident
     term:arg term:arg term:arg ("(" ident " := " term ")")* : command

@@ -22,7 +22,7 @@ meta import LeanQbe.T.PrintQbe
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace LeanQbeTest.T.LcnfP5Test
 
@@ -47,9 +47,9 @@ def anyValAlts (p : LcVal → Bool) : List (LcPat × LcCode) → Bool
 end
 
 def covTfs : List TFlatFn := (lowerModule Coverage.covProgram).toOption.getD []
-def covFns : List Fn := LeanLRC.tflatFnsToFns covTfs
+def covFns : List Fn := Frontend.C0.tflatFnsToFns covTfs
 
-theorem lcnf_cov_wf : ∀ f ∈ covFns, f.Wf := LeanLRC.tflatFnsToFns_wf covTfs
+theorem lcnf_cov_wf : ∀ f ∈ covFns, f.Wf := Frontend.C0.tflatFnsToFns_wf covTfs
 
 #guard Coverage.covMod.decls.any fun d =>
   anyVal (fun | .lit (.str _) => true | _ => false) d.body

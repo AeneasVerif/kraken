@@ -35,7 +35,7 @@ Standalone x86-64 backend suite (no legacy untyped-IR imports). Verifies:
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbeTest.T.Amd64IselTest
 
@@ -109,14 +109,16 @@ theorem pitfall_a_bool_jnz_spec {h : x64Mach.Host} {k j : Nat} {l : Sym} {s : Ma
     (hj : x64Mach.labelAddr h l = x64Mach.addrOf h j)
     (hr : s.regs.get64 .rax = 0xdeadbeef_0000ff00#64)
     (hk : ∀ s', x64Mach.Frame x64Gpr.condReads s s' x64Scratch [] (x64Gpr.jnzGpr .rax l).2 →
-      x64Mach.mem s' = x64Mach.mem s → x64Mach.Run h (k + (x64Gpr.jnzGpr .rax l).1.length) s' post) :
+      x64Mach.mem s' = x64Mach.mem s →
+      x64Mach.Run h (k + (x64Gpr.jnzGpr .rax l).1.length) s' post) :
     x64Mach.Run h k s post := by
   have hgpr : GprHolds (x64Mach.getGpr s .rax) .bool false := by
     dsimp [x64Mach, Machine.getGpr]; rw [hr]; rfl
   exact x64GprSpec.jnzGpr_spec hc hj (by simp [x64Scratch]) hgpr fun s' hfr hm =>
     ⟨fun h => absurd h Bool.false_ne_true, fun _ => hk s' hfr hm⟩
 
-theorem pitfall_a_ofBool_spec {h : x64Mach.Host} {k : Nat} {s : MachineData} {post : MachineState → Prop}
+theorem pitfall_a_ofBool_spec {h : x64Mach.Host} {k : Nat} {s : MachineData}
+    {post : MachineState → Prop}
     (hr : s.regs.get64 .rax = 0xdeadbeef_0000ff01#64)
     {c : List Directive} {clob : FlagMask}
     (hc : x64Gpr.op (.ofBool 64) (.gpr .rax, ()) (.gpr .rdx, ()) .default = some (c, clob)) :
@@ -155,7 +157,8 @@ theorem width_exact_ops_rfl :
     x64Gpr.op (.zext 16 64) (.gpr .rax, ()) (.gpr .rdx, ()) .default =
       some ([ins32 (.movzx (.reg (d .rdx)) (.reg (h16 .rax)))], maskNone) ∧
     x64Gpr.op (.bswap i16) (.gpr .rax, ()) (.gpr .rdx, ()) .default =
-      some ([movW .W16 .rdx .rax, ins16 (.rol (.reg (h16 .rdx)) (.imm8 (.int64 8)))], maskCF ||| maskOF) ∧
+      some ([movW .W16 .rdx .rax, ins16 (.rol (.reg (h16 .rdx)) (.imm8 (.int64 8)))],
+            maskCF ||| maskOF) ∧
     x64Gpr.op (.bswap i32) (.gpr .rax, ()) (.gpr .rax, ()) .default =
       some ([ins32 (.bswap (d .rax))], maskNone) ∧
     x64Gpr.op (.bswap i64) (.gpr .rax, ()) (.gpr .rax, ()) .default =
@@ -381,7 +384,8 @@ theorem pitfall_c_var_shl8_spec {h : x64Mach.Host} {k : Nat} {s : MachineData}
     (ha0 : s.regs.get64 .rax = 0xdeadbeef_cafeba03#64)
     (hb0 : s.regs.get64 .rcx = 0x00000000_00000009#64)
     {c : List Directive} {clob : FlagMask}
-    (hc : x64Gpr.op (.shl i8) (.gpr .rax, .gpr .rcx, ()) (.gpr .rdx, ()) .default = some (c, clob)) :
+    (hc : x64Gpr.op (.shl i8) (.gpr .rax, .gpr .rcx, ()) (.gpr .rdx, ()) .default =
+      some (c, clob)) :
     x64Mach.FallsTo x64Gpr.condReads h k c [.rdx, .r10, .r11] [] clob s
       (fun s' => GprHolds (s'.regs.get64 .rdx) i8 0x06#8 ∧ s'.dmem = s.dmem) post := by
   have ha : x64Mach.PArgHolds s i8 (.gpr .rax) 0x03#8 := by
@@ -412,7 +416,8 @@ theorem hints_and_wide_ops_rfl :
              ins (.mulx (q .r9) (q .r8) (.reg (q .r11))), movD .rdx .r10], maskNone) ∧
     x64Gpr.op (.fshl 64) (.gpr .rax, .gpr .rsi, .imm 8#64, ()) (.gpr .rax, ()) .default =
       some ([movW .W64 .r11 .rax, movW .W64 .r10 .rsi,
-             ins (.shld (.reg (q .r11)) (q .r10) (.imm8 (.int64 8))), movW .W64 .rax .r11], maskAll) ∧
+             ins (.shld (.reg (q .r11)) (q .r10) (.imm8 (.int64 8))),
+             movW .W64 .rax .r11], maskAll) ∧
     x64Gpr.load i64 .rax (.baseDisp .rdi 24) =
       some ([ins (.mov (.reg (q .rax)) (.mem (atDisp .rdi 24)))], maskNone) ∧
     x64Gpr.store i32 (.imm 7#32) (.baseDisp .rdi 0) =
@@ -552,7 +557,8 @@ theorem unsupported_ops_rejected_rfl :
     x64Gpr.supportsScalarOp (.bitcast v4i32 v4i32 rfl) (.var (), ()) = false ∧
     x64Gpr.op (.rbit 64) (.gpr .rax, ()) (.gpr .rdx, ()) .default = none ∧
     x64Gpr.op (.udiv0 64) (.gpr .rax, .gpr .rsi, ()) (.gpr .rdx, ()) .default = none ∧
-    (∀ v0 v1 v2 : RegMm, x64Gpr.op (.fadd f64) (.vec v0, .vec v1, ()) (.vec v2, ()) .default = none) :=
+    (∀ v0 v1 v2 : RegMm,
+      x64Gpr.op (.fadd f64) (.vec v0, .vec v1, ()) (.vec v2, ()) .default = none) :=
   ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, fun _ _ _ => rfl⟩
 
 /-! ## 5. Scalar `Isa` & Kernel `Fn.backendOk` on Legalized `Bignum` & `LratBytes` -/
@@ -609,19 +615,25 @@ def testX64Isa : Isa where
 abbrev scalarX64Legal : LegalTarget := LegalTarget.x64 []
 
 theorem bignum_mul4x4_backendOk :
-    (Fn.legal scalarX64Legal ⟨"mul4x4", [i64, i64, i64], [], Examples.Bignum.mul4x4⟩).backendOk testX64Isa = true := by
+    (Fn.legal scalarX64Legal
+      ⟨"mul4x4", [i64, i64, i64], [], Examples.Bignum.mul4x4⟩).backendOk testX64Isa = true := by
   t_kernel_rfl
 
 theorem bignum_addMod25519_backendOk :
-    (Fn.legal scalarX64Legal ⟨"addMod25519", [i64, i64, i64], [], Examples.Bignum.addMod25519⟩).backendOk testX64Isa = true := by
+    (Fn.legal scalarX64Legal
+      ⟨"addMod25519", [i64, i64, i64], [], Examples.Bignum.addMod25519⟩).backendOk
+      testX64Isa = true := by
   t_kernel_rfl
 
 theorem bignum_subMod25519_backendOk :
-    (Fn.legal scalarX64Legal ⟨"subMod25519", [i64, i64, i64], [], Examples.Bignum.subMod25519⟩).backendOk testX64Isa = true := by
+    (Fn.legal scalarX64Legal
+      ⟨"subMod25519", [i64, i64, i64], [], Examples.Bignum.subMod25519⟩).backendOk
+      testX64Isa = true := by
   t_kernel_rfl
 
 theorem lratBytes_all_backendOk :
-    Examples.LratBytes.lratBytesFns.all (fun fn => (fn.legal scalarX64Legal).backendOk testX64Isa) = true := by
+    Examples.LratBytes.lratBytesFns.all
+      (fun fn => (fn.legal scalarX64Legal).backendOk testX64Isa) = true := by
   t_kernel_rfl
 
 theorem lratBytes_names_verified :

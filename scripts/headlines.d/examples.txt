@@ -1,0 +1,10 @@
+# One per line: <module to import> <fully qualified constant>.
+# ARiSCA ART v1 kernel checker soundness theorems and end-to-end circuit certificates.
+LeanQbe.T.Examples.Arisca.ArtSound LeanQbe.T.Examples.Arisca.checkArt_sound
+LeanQbe.T.Examples.Arisca.ArtSoundB LeanQbe.T.Examples.Arisca.checkArtB_sound
+LeanQbeTest.T.AriscaTest LeanQbeTest.T.AriscaTest.u_array_4_mul
+LeanQbeTest.T.AriscaTest LeanQbeTest.T.AriscaTest.u_array_4_mulB
+LeanQbeTest.T.AriscaTest LeanQbeTest.T.AriscaTest.s_booth_8_flip_mul
+LeanQbeTest.T.AriscaTest LeanQbeTest.T.AriscaTest.s_booth_8_flip_mulB
+LeanQbeTest.T.AriscaTest LeanQbeTest.T.AriscaTest.u_array_4_drop_rejected
+LeanQbeTest.T.AriscaTest LeanQbeTest.T.AriscaTest.u_array_4_drop_rejectedB

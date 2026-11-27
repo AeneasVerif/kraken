@@ -43,7 +43,7 @@ on the purified `469`-function `KissatFidelity` spine (excising `D-11` `full_bve
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace LeanQbeTest.T.FullFidelityInlPolicyTest
 
@@ -325,7 +325,8 @@ theorem pureFidFns_wf : ∀ f ∈ pureFidMod.fns, f.Wf := by
 #guard fidInlPolicy.maxTotalDup == 1500
 #guard fidInlPolicy.maxCallerCalls == 24
 #guard fidInlPolicy.keepOutOfLine ==
-  ["m6_hdr_init", "full_watch_push_slow_m6", "full_prop_flush_slow_fid", "full_prop_flush_del_fid"]
+  [ "m6_hdr_init", "full_watch_push_slow_m6", "full_prop_flush_slow_fid"
+  , "full_prop_flush_del_fid", "full_k6_init" ]
 
 -- Keep cold/spill-regressing helpers strictly OOL (`budget = 0` + `keepOutOfLine`)
 #guard fidPgoBudget "m6_hdr_init" == 0
@@ -335,6 +336,7 @@ theorem pureFidFns_wf : ∀ f ∈ pureFidMod.fns, f.Wf := by
 #guard fidPgoBudget "full_rebuild_watches_nosort_fid" == 0
 #guard fidPgoBudget "full_congruence_dense" == 0
 #guard fidPgoBudget "full_unwatch_large" == 0
+#guard fidPgoBudget "full_k6_init" == 0
 #guard fidPgoBudget "full_watch_push_m6" == 200
 #guard fidPgoBudget "full_k6_ana_cl_fid" == 145
 #guard fidPgoBudget "full_cong_sift_pairs_fid" == 95
@@ -353,7 +355,6 @@ theorem pureFidFns_wf : ∀ f ∈ pureFidMod.fns, f.Wf := by
 #guard fidPgoBudget "full_fill_u64_m7" >= 40
 #guard fidPgoBudget "full_sort_bin_watches_fid" >= 110
 #guard fidPgoBudget "full_k6_flip" >= 290
-#guard fidPgoBudget "full_k6_init" >= 220
 #guard fidPgoBudget "full_walk_flip_m7" >= 280
 #guard fidPgoBudget "full_decide_m7" >= 265
 #guard fidPgoBudget "full_cong_enq_var" >= 85
@@ -401,10 +402,11 @@ def fidComparisonOk : Bool :=
     checkDriver fid.fns "full_deduce_1uip_m6_hdr" 1814 4 &&
     checkDriver fid.fns "full_arena_sweep_m6" 692 5 &&
     checkDriver fid.fns "full_m6_sweep_classes" 1783 9 &&
+    checkDriver fid.fns "full_m6_sweep_cone" 595 5 &&
     checkDriver fid.fns "full_k6_extract_and_solve_m8" 739 2
   rawOk &&
     m7.fns.length == 469 && fid.fns.length == 469 &&
-    m7Calls == 951 && fidCalls == 743 && fidCalls < m7Calls &&
+    m7Calls == 951 && fidCalls == 744 && fidCalls < m7Calls &&
     m7LpCalls == 627 && fidLpCalls == 473 && fidLpCalls < m7LpCalls &&
     m7MaxSz == 1009 && fidMaxSz == 2792 && noOversize &&
     fid.checkAcyclic == true && drvOk

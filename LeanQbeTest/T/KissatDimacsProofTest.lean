@@ -4,8 +4,7 @@ public import LeanQbe.T.Examples.Kissat.DimacsLemmas
 public import LeanQbe.T.Examples.LratBytesLemmas
 meta import LeanQbe.T.Examples.Kissat.DimacsLemmas1
 meta import LeanQbe.T.Examples.LratBytes
-import all Kraken.Mem
-import all Kraken.Separation
+import LeanQbe.T.Logic.MemLemmas
 
 /-!
 # Verification, Non-Vacuity, and Axiom Audit for `Kissat.DimacsLemmas`
@@ -21,7 +20,7 @@ import all Kraken.Separation
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace LeanQbeTest.T.KissatDimacsProofTest
 

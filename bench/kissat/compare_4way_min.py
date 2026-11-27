@@ -11,9 +11,8 @@ EXT_ENGINES = ("c1", "c0_fid", "c4_fid", "c0_opt", "c4_opt")
 
 
 def default_module():
-    k = ROOT / "LeanQbe/T/Examples/Kissat/FullFidelityAssembly.lean"
-    a = ROOT / "LeanQbe/T/Amd64/KissatFidelity.lean"
-    return "KissatFidelity" if (k.is_file() and a.is_file()) else "FullM7Fidelity"
+    k = ROOT / "LeanQbe/T/Examples/Kissat/FullFidelityAssemblyStep12.lean"
+    return "KissatFidelity" if k.is_file() else "Plain"
 
 
 def resolve_module(raw_name):
@@ -176,7 +175,7 @@ def main():
     ap.add_argument("--cnf-dir", help="Directory of .cnf files")
     ap.add_argument("--manifest", help="Stage-1 JSON manifest (benchmarks[].cnf_path)")
     ap.add_argument("--module", default=None,
-                    help="Solver module (default: KissatFidelity if present, else FullM7Fidelity)")
+                    help="Solver module (default: KissatFidelity if present, else Plain)")
     ap.add_argument("--allow-solver-extensions", action="store_true",
                     help="Acknowledge benchmarking a non-fidelity solver extension (e.g. KissatM8Opt)")
     ap.add_argument("--extensions", action="store_true",

@@ -1,5 +1,6 @@
-import LeanQbe.T.Examples.Kissat.FullM7FidelityAssembly
-import LeanQbe.T.Examples.Kissat.FullM7InlPolicy
+import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12
+import LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy
+import LeanQbe.T.Examples.Bitblast.Src.Full
 import LeanQbe.T.MainInline
 import LeanQbe.T.Driver
 import LeanQbe.T.Amd64.Isa
@@ -7,12 +8,12 @@ import LeanQbe.T.Amd64.PrintATTAlign
 
 set_option autoImplicit false
 
--- 1-line swap target once Step-12 KissatFidelity / Bitblast/Build/Amd64/Cert lands:
 private def solverFns : List LeanQbe.T.Fn :=
-  (LeanQbe.T.Examples.Kissat.FullM7Fidelity.m7FidelityModule.optInlinePolicy
-    LeanQbe.T.Examples.Kissat.FullM7InlPolicy.m7InlPolicy).fns
+  (LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12.fidStep12Module.optInlinePolicy
+      LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy.fidInlPolicy).fns ++
+    LeanQbe.T.Examples.Bitblast.Src.Full.bitblastModule.fns
 
-private def solverGlobals : List String := ["kissat_solve_bytes"]
+private def solverGlobals : List String := ["bv_solve_bytes"]
 
 def main (args : List String) : IO Unit := do
   let [outPath] := args | throw (IO.userError "usage: emit_asm_x64.lean <out.s>")

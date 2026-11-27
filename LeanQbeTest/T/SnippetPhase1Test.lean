@@ -27,7 +27,7 @@ Arch-free tests covering:
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace LeanQbeTest.T.SnippetPhase1Test
 
@@ -159,7 +159,8 @@ def latePolicyOf (s : Sym) : SnippetOptPolicy :=
   if s == "branchy" then .predictable else .default
 
 def lateInlinedMod : Module :=
-  phase1Mod.midThenLateInline LegalTarget.aarch64 latePolicyOf (lateInlineSnippetsPolicy ["branchy"])
+  phase1Mod.midThenLateInline LegalTarget.aarch64 latePolicyOf
+    (lateInlineSnippetsPolicy ["branchy"])
 
 def dummyFn : Fn := ⟨"", [], [], fun _ _ _ => .hlt⟩
 

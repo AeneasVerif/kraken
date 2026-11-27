@@ -161,7 +161,7 @@ chunk for `compile_linked_budget_scc!`. -/
 
 /-- Standalone user `Module` containing lowered `roseSum` & `forestSum`. -/
 @[expose] def mutRecDemoProgMod : Module :=
-  { fns := LeanLRC.tflatFnsToFns mutRecDemoTfs, externs := [], exits := rtExitSyms }
+  { fns := Frontend.C0.tflatFnsToFns mutRecDemoTfs, externs := [], exits := rtExitSyms }
 
 /-- Full `88`-function linked `Module`: `rtC0CoreMod` (`86` fns) ++ `mutRecDemoProgMod` (`2` fns).
 -/

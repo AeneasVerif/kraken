@@ -141,6 +141,16 @@ def AddrScale.ofShift? : Nat → Option AddrScale
   | 3 => some .s8
   | _ => none
 
+/-- Immediate shift applied to the second operand of a fused `GprIsa.shiftAlu` ALU op. -/
+inductive AluShift
+  | lsl | lsr | asr
+  deriving DecidableEq, Repr
+
+def AluShift.eval {w : Nat} : AluShift → BitVec w → Nat → BitVec w
+  | .lsl, v, k => v <<< k
+  | .lsr, v, k => v >>> k
+  | .asr, v, k => v.sshiftRight k
+
 inductive AddrArg (Reg : Type) where
   | baseDisp (base : Reg) (disp : Int64 := 0)
   | baseIdxDisp (base idx : Reg) (scale : AddrScale := .s1) (disp : Int64 := 0)
@@ -360,6 +370,26 @@ structure GprIsa (Reg VReg Cond Directive : Type) where
   /-- Optional flag-clobbering immediate materializer used when status flags are dead
   (e.g. 2-byte `xorl %ed, %ed` for `0#64`, returning `(code, clobMask)`). -/
   moviDeadFlags? : Option (Reg → BitVec 64 → List Directive × FlagMask) := none
+  /-- `true` when `x + c` over a scaled `addrSum` `x` should stay linked to `x` (`addImm64 x c`)
+  so one materialized base serves several `[x, #c]` accesses (in-block address CSE). -/
+  addrCse : Bool := false
+  /-- `true` when unsigned/equality compares of narrow canonical `.gprZ` operands may be lowered
+  at a wider width (no zero-extension), e.g. `CBZ w_x` instead of `UXTB` + `CBZ`. -/
+  widenZextCmp : Bool := false
+  /-- Fused shifted-register ALU op `rd := code ra (sh.eval rb k)` (`code ∈ add/sub/and/or/xor`). -/
+  shiftAlu : (w : Nat) → OpCode [.bits w, .bits w] [.bits w] → Reg → Reg → AluShift → Nat →
+    Reg → Option (List Directive × FlagMask) := fun _ _ _ _ _ _ _ => none
+  /-- `true` when `shiftAlu` at `w = 32` zeroes bits `32..63` of `rd`. -/
+  zeroUpper32ShiftAlu : Bool := false
+  /-- `true` when single-use `lshr`/`ashr` feeding a `shiftAlu` consumer may be deferred. -/
+  deferShiftAlu : Bool := false
+  /-- Fused shifted-register comparison `lhs <o> rhs` (`lhsShift` picks which side is shifted). -/
+  shiftCmp : (o : CmpOp) → (w : Nat) → Reg → Reg → AluShift → Nat → Bool →
+    PDst Reg VReg Cond .bool → Option (List Directive × FlagMask) :=
+    fun _ _ _ _ _ _ _ _ => none
+  /-- Operand-order flag-reuse oracle (`some (!lhsShift)`) for `shiftCmp`. -/
+  shiftCmpFlagsOut? : CmpOp → Nat → Bool → PDst Reg VReg Cond .bool → Option Bool :=
+    fun _ _ _ _ => none
 
 structure VecIsa (Reg VReg Cond Directive : Type) where
   vecScratch : List VReg
@@ -950,6 +980,44 @@ structure GprTarget {R V C D : Type} (M : Machine R V C D) (g : GprIsa R V C D)
     g.moviDeadFlags? = some fn →
     M.FallsTo g.condReads h k (fn rd c).1 (rd :: scratch) [] (fn rd c).2 s
       (fun s' => M.getGpr s' rd = c ∧ M.mem s' = M.mem s) post :=
+    by intros; contradiction
+  shiftAlu_spec : ∀ {h k w code ra rb sh n rd c clob va vb s post},
+    g.shiftAlu w code ra rb sh n rd = some (c, clob) →
+    ra ∉ scratch → rb ∉ scratch → rd ∉ scratch →
+    GprHolds (M.getGpr s ra) (.bits w) va → GprHolds (M.getGpr s rb) (.bits w) vb →
+    M.FallsTo g.condReads h k c (rd :: scratch) [] clob s
+      (fun s' => code.wp (va, sh.eval vb n, ()) (fun (res, ()) =>
+        GprHolds (M.getGpr s' rd) (.bits w) res) ∧ M.mem s' = M.mem s) post :=
+    by intros; contradiction
+  shiftAlu_zero32 : g.zeroUpper32ShiftAlu = true →
+    ∀ {h k code ra rb sh n rd c clob va vb s post},
+    g.shiftAlu 32 code ra rb sh n rd = some (c, clob) →
+    ra ∉ scratch → rb ∉ scratch → rd ∉ scratch →
+    GprHolds (M.getGpr s ra) (.bits 32) va → GprHolds (M.getGpr s rb) (.bits 32) vb →
+    M.FallsTo g.condReads h k c (rd :: scratch) [] clob s
+      (fun s' => code.wp (va, sh.eval vb n, ()) (fun (res, ()) =>
+        M.getGpr s' rd = res.setWidth 64) ∧ M.mem s' = M.mem s) post :=
+    by intros; contradiction
+  shiftCmp_spec : ∀ {h k o w ra rb sh n lhsShift pd c clob va vb s post},
+    g.shiftCmp o w ra rb sh n lhsShift pd = some (c, clob) →
+    ra ∉ scratch → rb ∉ scratch → (∀ r ∈ pd.gprs, r ∉ scratch) →
+    GprHolds (M.getGpr s ra) (.bits w) va → GprHolds (M.getGpr s rb) (.bits w) vb →
+    let lhs := if lhsShift then sh.eval va n else va
+    let rhs := if lhsShift then vb else sh.eval vb n
+    M.FallsTo g.condReads h k c (pd.gprs ++ scratch) [] clob s
+      (fun s' => M.PDstHolds s' .bool pd (o.evalBits lhs rhs) ∧ M.mem s' = M.mem s) post :=
+    by intros; contradiction
+  shiftCmp_flags_spec : ∀ {h k o w ra rb sh n lhsShift pd lf c clob va vb s post},
+    g.shiftCmpFlagsOut? o w lhsShift pd = some lf →
+    g.shiftCmp o w ra rb sh n lhsShift pd = some (c, clob) →
+    ra ∉ scratch → rb ∉ scratch → (∀ r ∈ pd.gprs, r ∉ scratch) →
+    GprHolds (M.getGpr s ra) (.bits w) va → GprHolds (M.getGpr s rb) (.bits w) vb →
+    let lhs := if lhsShift then sh.eval va n else va
+    let rhs := if lhsShift then vb else sh.eval vb n
+    M.FallsTo g.condReads h k c (pd.gprs ++ scratch) [] clob s
+      (fun s' => M.PDstHolds s' .bool pd (o.evalBits lhs rhs) ∧
+        FlagCmpOk M g s' (if lf then lhs else rhs) (if lf then rhs else lhs) false ∧
+        M.mem s' = M.mem s) post :=
     by intros; contradiction
 
 structure FramePreds {R V C D : Type} (M : Machine R V C D) : Type where

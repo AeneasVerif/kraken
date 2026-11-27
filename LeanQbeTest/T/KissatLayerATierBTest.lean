@@ -22,7 +22,7 @@ Executable `#guard` / `#eval` checks, closed end-to-end theorems, and single-lin
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace KissatTierBTest
 

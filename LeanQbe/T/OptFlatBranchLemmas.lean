@@ -3,6 +3,7 @@ module
 public import LeanQbe.T.OptFlatBranchLemmas0
 import LeanQbe.T.FlatDirectLemmas
 import LeanQbe.T.PassFlatKit
+import LeanQbe.T.OptFlatSimKit
 import LeanQbe.T.CondThreadOptLemmas2
 
 /-!
@@ -27,6 +28,7 @@ namespace LeanQbe.T
 namespace OptFlatBranch
 
 open OptFlatPlanKit
+open OptFlatSimKit
 open CondThreadOpt
 
 /-! ## 1. `CTTarget`, `ValidLFlat`, and `CTLabelFlat` Relations -/
@@ -41,8 +43,7 @@ private theorem emitCTTargetFlat_eq {rs ts : List Ty} (ovd old : Nat)
     (tgt : CTTarget K KL ts) →
     toTFlat (CTTarget.emit (rs := rs) args tgt) ovd old = emitCTTargetFlat ovd old args tgt
   | .keep l => by
-    dsimp only [CTTarget.emit, emitCTTargetFlat]
-    cases toRealArgs? args <;> rfl
+    dsimp only [CTTarget.emit, emitCTTargetFlat]; cases toRealArgs? args <;> rfl
   | .dead => rfl
   | .split m lT? lF? lD? => by
     dsimp only [CTTarget.emit, emitCTTargetFlat]
@@ -52,24 +53,24 @@ private theorem emitCTTargetFlat_eq {rs ts : List Ty} (ovd old : Nat)
       | true =>
         cases lT? with
         | none => rfl
-        | some lT => cases toRealArgs? (dropTupMem m args) <;> rfl
+        | some _ => cases toRealArgs? (dropTupMem m args) <;> rfl
       | false =>
         cases lF? with
         | none => rfl
-        | some lF => cases toRealArgs? (dropTupMem m args) <;> rfl
+        | some _ => cases toRealArgs? (dropTupMem m args) <;> rfl
     | var v? =>
       cases v? with
       | none => rfl
-      | some v =>
+      | some _ =>
         cases lD? with
-        | some lD => cases toRealArgs? args <;> rfl
+        | some _ => cases toRealArgs? args <;> rfl
         | none =>
           cases lT? with
           | none => rfl
-          | some lT =>
+          | some _ =>
             cases lF? with
             | none => rfl
-            | some lF => cases toRealArgs? (dropTupMem m args) <;> rfl
+            | some _ => cases toRealArgs? (dropTupMem m args) <;> rfl
 
 /-- Validation-time simulation relation between `ValidLFlat` and `CondThreadOpt.ValidL`. -/
 private def ValidLFlatMatch {rs ts : List Ty} (jl : ValidLFlat rs ts) (j : ValidL rs ts) : Prop :=
@@ -111,40 +112,16 @@ private theorem tupFreshSomeOpt_eq :
     tupFreshWith (fun x _ => Arg.var (some x)) ts xs n = toOptArgTup xs
   | [], (), _ => rfl
   | _ :: ts, (_, xs), n => by
-    dsimp only [tupFreshWith, toOptArgTup]
-    rw [tupFreshSomeOpt_eq ts xs (n + 1)]
+    dsimp only [tupFreshWith, toOptArgTup]; rw [tupFreshSomeOpt_eq ts xs (n + 1)]
 
 private theorem tupFreshUnitOpt_eq :
     (ts : List Ty) → (xs : Tup K ts) → (n : Nat) →
     tupFreshWith (fun _ _ => Arg.var (some ())) ts xs n = toOptArgTup (Tup.units ts)
   | [], (), _ => rfl
   | _ :: ts, (_, xs), n => by
-    dsimp only [tupFreshWith, Tup.units, toOptArgTup]
-    rw [tupFreshUnitOpt_eq ts xs (n + 1)]
+    dsimp only [tupFreshWith, Tup.units, toOptArgTup]; rw [tupFreshUnitOpt_eq ts xs (n + 1)]
 
 /-! ## 2. `peelThreadHeadFlat`, `validateInlineFlat`, and `rewriteCTInlineFlat` Equivalence -/
-
-private theorem peelThreadHead_not_let_node1 {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
-    (fuel : Nat) (res : Bool) (pk : CTPlan) {e : Expr (Arg (CTOptV V)) (CTLabel V L rs) rs}
-    (h : ∀ {ts} (op : Op (Arg (CTOptV V)) ts) k, e = .let_ op k → False) :
-    peelThreadHead fuel res (.node1 pk) e = (res, .node1 pk, e) := by
-  cases fuel with
-  | zero => rfl
-  | succ _ =>
-    cases e with
-    | let_ op k => exact False.elim (h op k rfl)
-    | _ => rfl
-
-private theorem peelThreadHead_not_jnz_node2 {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
-    (fuel : Nat) (res : Bool) (pt pe : CTPlan) {e : Expr (Arg (CTOptV V)) (CTLabel V L rs) rs}
-    (h : ∀ c t e', e = .jnz c t e' → False) :
-    peelThreadHead fuel res (.node2 pt pe) e = (res, .node2 pt pe, e) := by
-  cases fuel with
-  | zero => rfl
-  | succ _ =>
-    cases e with
-    | jnz c t e' => exact False.elim (h c t e' rfl)
-    | _ => rfl
 
 private theorem peelThreadHead_other {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
     (fuel : Nat) (res : Bool) (p : CTPlan) (e : Expr (Arg (CTOptV V)) (CTLabel V L rs) rs)
@@ -158,61 +135,10 @@ private theorem peelThreadHead_other {V : Ty → Type} {L : List Ty → Type} {r
     | node2 pt pe => exact absurd rfl (h2 pt pe)
     | leaf | jump _ | group _ _ _ => rfl
 
-private theorem denote_not_let {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
-    {vs : List ((t : Ty) × V t)} {ls : List ((ts : List Ty) × L ts)} :
-    {tf : TFlat rs} → (∀ {dts} (op : Op K dts) k, tf = .let_ op k → False) →
-    ∀ {dts} (op : Op V dts) k, denote V L tf vs ls = .let_ op k → False
-  | .let_ op k, h, _, _, _, _ => h op k rfl
-  | .load _ a _, _, _, _, _, h => by
-    dsimp only [denote] at h; cases hda : denoteArg vs a <;> rw [hda] at h <;> cases h
-  | .store v a _, _, _, _, _, h => by
-    dsimp only [denote] at h
-    cases hdv : denoteArg vs v <;> rw [hdv] at h
-    · cases h
-    · cases hda : denoteArg vs a <;> rw [hda] at h <;> cases h
-  | .call _ _ args _, _, _, _, _, h => by
-    dsimp only [denote] at h; cases hda : denoteArgs vs args <;> rw [hda] at h <;> cases h
-  | .jnz c _ _, _, _, _, _, h => by
-    dsimp only [denote] at h; cases hdc : denoteArg vs c <;> rw [hdc] at h <;> cases h
-  | .jump j args, _, _, _, _, h => by
-    dsimp only [denote] at h
-    cases hdl : lookupL ls _ j <;> rw [hdl] at h
-    · cases h
-    · cases hda : denoteArgs vs args <;> rw [hda] at h <;> cases h
-  | .ret vs', _, _, _, _, h => by
-    dsimp only [denote] at h; cases hdv : denoteArgs vs vs' <;> rw [hdv] at h <;> cases h
-  | .exit _ args, _, _, _, _, h => by
-    dsimp only [denote] at h; cases hda : denoteArgs vs args <;> rw [hda] at h <;> cases h
-  | .hlt, _, _, _, _, h => by cases h
-  | .group _ _, _, _, _, _, h => by cases h
-
-private theorem denote_not_jnz {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
-    {vs : List ((t : Ty) × V t)} {ls : List ((ts : List Ty) × L ts)} :
-    {tf : TFlat rs} → (∀ c t e', tf = .jnz c t e' → False) →
-    ∀ c t e', denote V L tf vs ls = .jnz c t e' → False
-  | .jnz c t e', h, _, _, _, _ => h c t e' rfl
-  | .let_ op _, _, _, _, _, h => by
-    dsimp only [denote] at h; cases hda : denoteArgs vs op.args <;> rw [hda] at h <;> cases h
-  | .load _ a _, _, _, _, _, h => by
-    dsimp only [denote] at h; cases hda : denoteArg vs a <;> rw [hda] at h <;> cases h
-  | .store v a _, _, _, _, _, h => by
-    dsimp only [denote] at h
-    cases hdv : denoteArg vs v <;> rw [hdv] at h
-    · cases h
-    · cases hda : denoteArg vs a <;> rw [hda] at h <;> cases h
-  | .call _ _ args _, _, _, _, _, h => by
-    dsimp only [denote] at h; cases hda : denoteArgs vs args <;> rw [hda] at h <;> cases h
-  | .jump j args, _, _, _, _, h => by
-    dsimp only [denote] at h
-    cases hdl : lookupL ls _ j <;> rw [hdl] at h
-    · cases h
-    · cases hda : denoteArgs vs args <;> rw [hda] at h <;> cases h
-  | .ret vs', _, _, _, _, h => by
-    dsimp only [denote] at h; cases hdv : denoteArgs vs vs' <;> rw [hdv] at h <;> cases h
-  | .exit _ args, _, _, _, _, h => by
-    dsimp only [denote] at h; cases hda : denoteArgs vs args <;> rw [hda] at h <;> cases h
-  | .hlt, _, _, _, _, h => by cases h
-  | .group _ _, _, _, _, _, h => by cases h
+local macro "pth_miss" eqP:Lean.Parser.Tactic.rwRule "," hΓ:ident "," hmV:ident "," hwf0:ident ","
+    hrw:Lean.Parser.Tactic.rwRule "," heq:Lean.Parser.Tactic.rwRule : tactic => `(tactic| (
+  simp only; refine ⟨_, _, $hΓ, $hmV, $hwf0, ?_⟩
+  dsimp only [denote]; rw [$hrw]; dsimp only; rw [$eqP]; dsimp only; rw [$heq]))
 
 private theorem peelThreadHeadFlat_eq {W : Ty → Type} {L : List Ty → Type} {rs : List Ty} :
     (fuel : Nat) → (res : Bool) → (p : CTPlan) → (tf : TFlat rs) →
@@ -227,77 +153,79 @@ private theorem peelThreadHeadFlat_eq {W : Ty → Type} {L : List Ty → Type} {
         r.2.2.2.2.wfCheck Γ' Δ = true ∧
         peelThreadHead fuel res p (denote (Arg (CTOptV W)) (CTLabel W L rs) tf vs ls) =
           (r.1, r.2.1, denote (Arg (CTOptV W)) (CTLabel W L rs) r.2.2.2.2 vs' ls)
-  | 0, res, p, tf, Γ, _, vs, _, _, _, hΓ, _, hmV, hwf =>
-    ⟨Γ, vs, hΓ, hmV, hwf, rfl⟩
+  | 0, _, _, _, Γ, _, vs, _, _, _, hΓ, _, hmV, hwf => ⟨Γ, vs, hΓ, hmV, hwf, rfl⟩
   | fuel + 1, res, p, tf, Γ, Δ, vs, ls, inVD, inVE, hΓ, hΔ, hmV, hwf => by
     cases p with
     | node1 pk =>
       cases tf with
       | let_ op k =>
         have hwf0 := hwf
-        dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
-        have hargs := denoteArgs_eq_some_resolveEnvArgs hΓ hmV op.args hwf.1 ctDflt
+        obtain ⟨ha, hk⟩ := wf_let hwf
+        have hargs := denoteArgs_eq_some_resolveEnvArgs hΓ hmV op.args ha ctDflt
         rw [peelThreadHeadFlat.eq_def]; simp only
         let args' := flattenArgs (resolveEnvArgs inVD inVE op.args ctDflt)
         cases hev : evalThreadLet? op.code args' with
         | some out =>
-          simp only
-          dsimp only [denote]; rw [hargs]; dsimp only [peelThreadHead]; rw [hev]
+          simp only; dsimp only [denote]; rw [hargs]; dsimp only [peelThreadHead]; rw [hev]
           exact peelThreadHeadFlat_eq fuel res pk k
-            (ctxTypes_pushTup_rev out hΓ) hΔ (trieCtxMatch_insertTupEnv hmV out) hwf.2
-        | none =>
-          simp only
-          refine ⟨Γ, vs, hΓ, hmV, hwf0, ?_⟩
-          dsimp only [denote]; rw [hargs]; dsimp only
-          rw [peelThreadHead.eq_def]; dsimp only; rw [hev]
-      | load _ _ _ | store _ _ _ | call _ _ _ _ | jnz _ _ _
-      | jump _ _ | ret _ | exit _ _ | hlt | group _ _ =>
-        rw [peelThreadHeadFlat.eq_def]; simp only
-        refine ⟨Γ, vs, hΓ, hmV, hwf, ?_⟩
-        refine peelThreadHead_not_let_node1 (fuel + 1) res pk ?_
-        exact denote_not_let (fun _ _ h => by cases h)
+            (ctxTypes_pushTup_rev out hΓ) hΔ (trieCtxMatch_insertTupEnv hmV out) hk
+        | none => pth_miss peelThreadHead.eq_def, hΓ, hmV, hwf0, hargs, hev
+      | _ =>
+        rw [peelThreadHeadFlat.eq_def]; simp only; refine ⟨Γ, vs, hΓ, hmV, hwf, ?_⟩
+        cases hne : denote (Arg (CTOptV W)) (CTLabel W L rs) _ vs ls with
+        | let_ _ _ => dsimp only [denote] at hne; repeat (first | cases hne | split at hne)
+        | _ => rfl
     | node2 pt pe =>
       cases tf with
       | jnz c t e =>
         have hwf0 := hwf
-        dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
-        have hc := denoteArg_eq_some_resolveEnvArg hΓ hmV c hwf.1.1 ctDflt
+        obtain ⟨hc, ht, he⟩ := wf_jnz hwf
+        have hca := denoteArg_eq_some_resolveEnvArg hΓ hmV c hc ctDflt
         rw [peelThreadHeadFlat.eq_def]; simp only
         cases hc' : flattenArg (resolveEnvArg inVD inVE c ctDflt) with
         | imm b =>
-          dsimp only [denote]; rw [hc]; dsimp only [peelThreadHead]; rw [hc']
+          dsimp only [denote]; rw [hca]; dsimp only [peelThreadHead]; rw [hc']
           cases b with
-          | true => exact peelThreadHeadFlat_eq fuel true pt t hΓ hΔ hmV hwf.1.2
-          | false => exact peelThreadHeadFlat_eq fuel true pe e hΓ hΔ hmV hwf.2
-        | var v =>
-          simp only
-          refine ⟨Γ, vs, hΓ, hmV, hwf0, ?_⟩
-          dsimp only [denote]; rw [hc]; dsimp only
-          rw [peelThreadHead.eq_def]; dsimp only; rw [hc']
-      | let_ _ _ | load _ _ _ | store _ _ _ | call _ _ _ _
-      | jump _ _ | ret _ | exit _ _ | hlt | group _ _ =>
-        rw [peelThreadHeadFlat.eq_def]; simp only
-        refine ⟨Γ, vs, hΓ, hmV, hwf, ?_⟩
-        refine peelThreadHead_not_jnz_node2 (fuel + 1) res pt pe ?_
-        exact denote_not_jnz (fun _ _ _ h => by cases h)
-    | leaf =>
+          | true => exact peelThreadHeadFlat_eq fuel true pt t hΓ hΔ hmV ht
+          | false => exact peelThreadHeadFlat_eq fuel true pe e hΓ hΔ hmV he
+        | var _ => pth_miss peelThreadHead.eq_def, hΓ, hmV, hwf0, hca, hc'
+      | _ =>
+        rw [peelThreadHeadFlat.eq_def]; simp only; refine ⟨Γ, vs, hΓ, hmV, hwf, ?_⟩
+        cases hne : denote (Arg (CTOptV W)) (CTLabel W L rs) _ vs ls with
+        | jnz _ _ _ => dsimp only [denote] at hne; repeat (first | cases hne | split at hne)
+        | _ => rfl
+    | leaf | jump _ | group _ _ _ =>
       rw [peelThreadHeadFlat.eq_def]; simp only
-      exact ⟨Γ, vs, hΓ, hmV, hwf,
-        peelThreadHead_other (fuel + 1) res .leaf _
-          (fun _ h => nomatch h) (fun _ _ h => nomatch h)⟩
-    | jump _ =>
-      rw [peelThreadHeadFlat.eq_def]; simp only
-      exact ⟨Γ, vs, hΓ, hmV, hwf,
-        peelThreadHead_other (fuel + 1) res (.jump _) _
-          (fun _ h => nomatch h) (fun _ _ h => nomatch h)⟩
-    | group _ _ _ =>
-      rw [peelThreadHeadFlat.eq_def]; simp only
-      exact ⟨Γ, vs, hΓ, hmV, hwf,
-        peelThreadHead_other (fuel + 1) res (.group _ _ _) _
-          (fun _ h => nomatch h) (fun _ _ h => nomatch h)⟩
+      exact ⟨Γ, vs, hΓ, hmV, hwf, peelThreadHead_other _ _ _ _ (by simp) (by simp)⟩
 
-private theorem validateInlineFlat_eq {W : Ty → Type} {LFlat : List Ty → Type}
-    {L : List Ty → Type} {rs : List Ty}
+local macro "vi_succ" eqF:Lean.Parser.Tactic.rwRule "," eqP:Lean.Parser.Tactic.rwRule ","
+    b_t:Lean.Parser.Tactic.elimTarget "," b:ident "," body:tacticSeq : tactic => `(tactic|
+  cases $b_t with
+  | zero => rw [$eqF, $eqP]
+  | succ $b => $body)
+
+local macro "vi_node1" eqF:Lean.Parser.Tactic.rwRule "," eqP:Lean.Parser.Tactic.rwRule ","
+    b_t:Lean.Parser.Tactic.elimTarget "," b:ident ","
+    plan:Lean.Parser.Tactic.elimTarget "," pk:ident ","
+    pre:tacticSeq "," body:tacticSeq : tactic => `(tactic|
+  cases $b_t with
+  | zero => rw [$eqF, $eqP]
+  | succ $b =>
+    ($pre)
+    cases $plan with
+    | node1 $pk => rw [$eqF, $eqP]; simp only; ($body)
+    | _ => rw [$eqF, $eqP])
+
+local macro "vi_term" eqF:Lean.Parser.Tactic.rwRule "," eqP:Lean.Parser.Tactic.rwRule ","
+    b:Lean.Parser.Tactic.elimTarget "," plan:Lean.Parser.Tactic.elimTarget ","
+    pre:tacticSeq : tactic => `(tactic|
+  cases $b with
+  | zero => rw [$eqF, $eqP]
+  | succ _ =>
+    ($pre)
+    cases $plan <;> rw [$eqF, $eqP] <;> simp only)
+
+private theorem validateInlineFlat_eq {W : Ty → Type} {LFlat L : List Ty → Type} {rs : List Ty}
     (R : (ts : List Ty) → LFlat ts → CTLabel W L rs ts → Prop)
     (checkJ : ∀ {ts : List Ty}, LFlat ts → Tup (Arg (CTOptV W)) ts → Bool)
     (hJ : ∀ {ts jl j a}, R ts jl j → checkJ jl a = (j.target.canEmit a || (j.inline? a).isSome)) :
@@ -311,114 +239,184 @@ private theorem validateInlineFlat_eq {W : Ty → Type} {LFlat : List Ty → Typ
     CtxTypes Γ vs → CtxTypes Δ ls → TrieCtxMatch inVD inVE vs →
     TrieRelMatch R inLD inLE ls → tf.wfCheck Γ Δ = true →
     validateInlineFlat checkJ inLD inLE budget plan inVD inVE tf =
-      validateInline budget plan (denote (Arg (CTOptV W)) (CTLabel W L rs) tf vs ls)
-  | 0, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ => by
-    rw [validateInlineFlat.eq_def, validateInline.eq_def]
-  | b + 1, plan, .let_ (ts := dts) ⟨code, args⟩ k, Γ, Δ, vs, ls, inVD, inLD, inVE, inLE,
-      hΓ, hΔ, hmV, hmL, hwf => by
-    dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
-    dsimp only [denote]
-    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hmV args hwf.1 ctDflt]; dsimp only
+      validateInline budget plan (denote (Arg (CTOptV W)) (CTLabel W L rs) tf vs ls) := by
+  intro budget plan tf Γ Δ vs ls inVD inLD inVE inLE hΓ hΔ hmV hmL hwf
+  refine (relSim_mutual (rs := rs)
+    (W := Arg (CTOptV W)) (L₁ := LFlat) (L₂ := CTLabel W L rs) (S := Nat × CTPlan) (SB := Unit)
+    (LR := fun Δ inLD inLE ls => CtxTypes Δ ls ∧ TrieRelMatch R inLD inLE ls)
+    (P := fun s tf _ _ vs ls inVD inVE inLD inLE _ _ =>
+      validateInlineFlat checkJ inLD inLE s.1 s.2 inVD inVE tf =
+        validateInline s.1 s.2 (denote (Arg (CTOptV W)) (CTLabel W L rs) tf vs ls))
+    (PB := fun _ _ _ _ _ _ _ _ _ _ _ _ => True) ⟨
+    @fun ts _ _ _ _ inVD _ _ _ inVE _ ⟨b, plan⟩ op k hΓ _ hmV hlr hwf ih => by
+      vi_node1 validateInlineFlat.eq_def, validateInline.eq_def, b, b, plan, pk,
+        (obtain ⟨ha, hk⟩ := wf_let hwf; dsimp only [denote];
+         rw [denoteArgs_eq_some_resolveEnvArgs hΓ hmV op.args ha ctDflt]; dsimp only),
+        (cases evalThreadLet? op.code (flattenArgs (resolveEnvArgs inVD inVE op.args ctDflt)) with
+         | some out =>
+           exact ih (outVD' := 0) (outLD' := 0) (b + 1, pk) (ctxTypes_pushTup_rev out hΓ)
+             (trieCtxMatch_insertTupEnv hmV out) hlr hk
+         | none =>
+           rw [ih (outVD' := 0) (outLD' := 0) (b, pk) (ctxTypes_pushTup_rev (noneArgTup ts) hΓ)
+             (trieCtxMatch_insertTupEnv hmV (noneArgTup ts)) hlr hk]),
+    fun ⟨b, plan⟩ t a k hΓ _ hmV hlr hwf ih => by
+      vi_node1 validateInlineFlat.eq_def, validateInline.eq_def, b, b, plan, pk,
+        (obtain ⟨ha, hk⟩ := wf_load hwf; dsimp only [denote];
+         rw [denoteArg_eq_some_resolveEnvArg hΓ hmV a ha ctDflt]; dsimp only),
+        rw [ih (outVD' := 0) (outLD' := 0) (b, pk) (.cons hΓ)
+          (hmV.cons t (Arg.var none)) hlr hk],
+    fun ⟨b, plan⟩ v a k hΓ _ hmV hlr hwf ih => by
+      vi_node1 validateInlineFlat.eq_def, validateInline.eq_def, b, b, plan, pk,
+        (obtain ⟨hv, ha, hk⟩ := wf_store hwf; dsimp only [denote];
+         rw [denoteArg_eq_some_resolveEnvArg hΓ hmV v hv ctDflt,
+           denoteArg_eq_some_resolveEnvArg hΓ hmV a ha ctDflt]; dsimp only),
+        rw [ih (outVD' := 0) (outLD' := 0) (b, pk) hΓ hmV hlr hk],
+    fun ⟨b, plan⟩ _ bs args k hΓ _ hmV hlr hwf ih => by
+      vi_node1 validateInlineFlat.eq_def, validateInline.eq_def, b, b, plan, pk,
+        (obtain ⟨ha, hk⟩ := wf_call hwf; dsimp only [denote];
+         rw [denoteArgs_eq_some_resolveEnvArgs hΓ hmV args ha ctDflt]; dsimp only),
+        rw [ih (outVD' := 0) (outLD' := 0) (b, pk) (ctxTypes_pushTup_rev (noneArgTup bs) hΓ)
+          (trieCtxMatch_insertTupEnv hmV (noneArgTup bs)) hlr hk],
+    @fun _ _ vs ls inVD _ _ _ inVE _ ⟨b, plan⟩ c t e hΓ _ hmV _ hwf iht ihe => by
+      vi_succ validateInlineFlat.eq_def, validateInline.eq_def, b, b,
+        (obtain ⟨hc, ht, he⟩ := wf_jnz hwf; dsimp only [denote];
+         rw [denoteArg_eq_some_resolveEnvArg hΓ hmV c hc ctDflt]; dsimp only
+         cases plan with
+         | node2 pt pe =>
+           rw [validateInlineFlat.eq_def, validateInline.eq_def]; simp only
+           cases flattenArg (resolveEnvArg inVD inVE c ctDflt) with
+           | imm bVal =>
+             cases bVal with
+             | true => exact iht (b + 1, pt) ht
+             | false => exact ihe (b + 1, pe) he
+           | var _ =>
+             dsimp only; rw [iht (b, pt) ht]
+             cases hst : validateInline b pt
+                 (denote (Arg (CTOptV W)) (CTLabel W L rs) t vs ls) with
+             | none => rfl
+             | some st => dsimp only [Bind.bind, Option.bind]; rw [ihe (b - st, pe) he]
+         | _ => rw [validateInlineFlat.eq_def, validateInline.eq_def]),
+    fun ⟨b, plan⟩ j args hΓ _ hmV hlr hwf => by
+      vi_succ validateInlineFlat.eq_def, validateInline.eq_def, b, b,
+        (obtain ⟨hj, ha⟩ := wf_jump hwf
+         obtain ⟨w₁, w₂, hres, hlk, hm⟩ := TrieRelMatch.resolveLabel_rel hlr.1 hlr.2 hj
+         dsimp only [denote]
+         rw [hlk, denoteArgs_eq_some_resolveEnvArgs hΓ hmV args ha ctDflt]; dsimp only
+         cases plan with
+         | jump _ =>
+           rw [validateInlineFlat.eq_def, validateInline.eq_def]; simp only
+           rw [hres]; simp only [hJ hm]
+         | _ => rw [validateInlineFlat.eq_def, validateInline.eq_def]),
+    fun ⟨b, plan⟩ vs' hΓ _ hmV _ hwf => by
+      vi_term validateInlineFlat.eq_def, validateInline.eq_def, b, plan,
+        (dsimp only [denote];
+         rw [denoteArgs_eq_some_resolveEnvArgs hΓ hmV vs' hwf ctDflt]; dsimp only),
+    fun ⟨b, plan⟩ _ args hΓ _ hmV _ hwf => by
+      vi_term validateInlineFlat.eq_def, validateInline.eq_def, b, plan,
+        (dsimp only [denote];
+         rw [denoteArgs_eq_some_resolveEnvArgs hΓ hmV args hwf ctDflt]; dsimp only),
+    fun ⟨b, plan⟩ _ _ _ _ _ => by
+      vi_term validateInlineFlat.eq_def, validateInline.eq_def, b, plan, dsimp only [denote],
+    fun ⟨b, plan⟩ _ _ _ _ _ _ _ _ _ => by
+      vi_term validateInlineFlat.eq_def, validateInline.eq_def, b, plan, dsimp only [denote],
+    fun _ _ _ _ _ _ => trivial,
+    fun _ _ _ _ _ _ _ _ _ _ => trivial⟩).1 tf (budget, plan) hΓ hΔ hmV ⟨hΔ, hmL⟩ hwf
+      (outVD := 0) (outLD := 0)
+
+local macro "ct_rw_rel" eqP:Lean.Parser.Tactic.rwRule "," eqF:Lean.Parser.Tactic.rwRule ","
+    onJump:term "," onGroup:term "," onNil:term "," onCons:term : term => `(⟨
+  @fun ts _ _ _ _ inVD outVD _ _ inVE _ plan op k hΓ _ hmV hlr hwf ih => by
+    obtain ⟨ha, hk⟩ := wf_let hwf; dsimp only [denote]
+    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hmV op.args ha ctDflt]; dsimp only
     cases plan with
     | node1 pk =>
-      rw [validateInlineFlat.eq_def, validateInline.eq_def]; simp only
-      cases evalThreadLet? code (flattenArgs (resolveEnvArgs inVD inVE args ctDflt)) with
+      rw [$eqP, $eqF]; simp only
+      cases evalThreadLet? op.code (flattenArgs (resolveEnvArgs inVD inVE op.args ctDflt)) with
       | some out =>
-        exact validateInlineFlat_eq R checkJ hJ (b + 1) pk k
-          (ctxTypes_pushTup_rev out hΓ) hΔ (trieCtxMatch_insertTupEnv hmV out) hmL hwf.2
+        exact ih pk (ctxTypes_pushTup_rev out hΓ) (trieCtxMatch_insertTupEnv hmV out) hlr hk
       | none =>
-        rw [validateInlineFlat_eq R checkJ hJ b pk k
-          (ctxTypes_pushTup_rev (noneArgTup dts) hΓ) hΔ
-          (trieCtxMatch_insertTupEnv hmV (noneArgTup dts)) hmL hwf.2]
-    | leaf | jump _ | node2 _ _ | group _ _ _ =>
-      rw [validateInlineFlat.eq_def, validateInline.eq_def]
-  | b + 1, plan, .load t a k, Γ, Δ, vs, ls, inVD, inLD, inVE, inLE,
-      hΓ, hΔ, hmV, hmL, hwf => by
-    dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
-    dsimp only [denote]
-    rw [denoteArg_eq_some_resolveEnvArg hΓ hmV a hwf.1 ctDflt]; dsimp only
+        cases toRealArgs? (flattenArgs (resolveEnvArgs inVD inVE op.args ctDflt)) with
+        | none => rfl
+        | some _ =>
+          dsimp only [toTFlat]
+          have hfresh := trieCtxMatch_insertFreshWith
+            (fun _ _ od => Arg.var (some od)) hmV ts outVD
+          rw [mkFreshOptArg_eq_toOptArgTup] at hfresh
+          exact congrArg (TFlat.let_ _) (ih pk (ctxTypes_pushTup_rev _ hΓ) hfresh hlr hk)
+    | _ => rw [$eqP, $eqF]; simp only; rfl,
+  @fun _ _ _ _ inVD outVD _ _ inVE _ plan t a k hΓ _ hmV hlr hwf ih => by
+    obtain ⟨ha, hk⟩ := wf_load hwf
+    dsimp only [denote]; rw [denoteArg_eq_some_resolveEnvArg hΓ hmV a ha ctDflt]; dsimp only
     cases plan with
     | node1 pk =>
-      rw [validateInlineFlat.eq_def, validateInline.eq_def]; simp only
-      rw [validateInlineFlat_eq R checkJ hJ b pk k (.cons hΓ) hΔ
-        (hmV.cons t (Arg.var none)) hmL hwf.2]
-    | leaf | jump _ | node2 _ _ | group _ _ _ =>
-      rw [validateInlineFlat.eq_def, validateInline.eq_def]
-  | b + 1, plan, .store v a k, Γ, Δ, vs, ls, inVD, inLD, inVE, inLE,
-      hΓ, hΔ, hmV, hmL, hwf => by
-    dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
-    dsimp only [denote]
-    rw [denoteArg_eq_some_resolveEnvArg hΓ hmV v hwf.1.1 ctDflt,
-      denoteArg_eq_some_resolveEnvArg hΓ hmV a hwf.1.2 ctDflt]; dsimp only
+      rw [$eqP, $eqF]; simp only
+      cases toRealArg? (flattenArg (resolveEnvArg inVD inVE a ctDflt)) with
+      | none => rfl
+      | some _ =>
+        dsimp only [toTFlat]
+        exact congrArg (TFlat.load t _)
+          (ih pk (.cons hΓ) (hmV.cons t (Arg.var (some outVD))) hlr hk)
+    | _ => rw [$eqP, $eqF]; simp only; rfl,
+  @fun _ _ _ _ _ inVD _ _ _ inVE _ plan v a k hΓ _ hmV hlr hwf ih => by
+    obtain ⟨hv, ha, hk⟩ := wf_store hwf; dsimp only [denote]
+    rw [denoteArg_eq_some_resolveEnvArg hΓ hmV v hv ctDflt,
+      denoteArg_eq_some_resolveEnvArg hΓ hmV a ha ctDflt]; dsimp only
     cases plan with
     | node1 pk =>
-      rw [validateInlineFlat.eq_def, validateInline.eq_def]; simp only
-      rw [validateInlineFlat_eq R checkJ hJ b pk k hΓ hΔ hmV hmL hwf.2]
-    | leaf | jump _ | node2 _ _ | group _ _ _ =>
-      rw [validateInlineFlat.eq_def, validateInline.eq_def]
-  | b + 1, plan, .call f bs args k, Γ, Δ, vs, ls, inVD, inLD, inVE, inLE,
-      hΓ, hΔ, hmV, hmL, hwf => by
-    dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
-    dsimp only [denote]
-    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hmV args hwf.1 ctDflt]; dsimp only
+      rw [$eqP, $eqF]; simp only
+      cases toRealArg? (flattenArg (resolveEnvArg inVD inVE v ctDflt)) with
+      | none => rfl
+      | some _ =>
+        cases toRealArg? (flattenArg (resolveEnvArg inVD inVE a ctDflt)) with
+        | none => rfl
+        | some _ => dsimp only [toTFlat]; exact congrArg (TFlat.store _ _) (ih pk hΓ hmV hlr hk)
+    | _ => rw [$eqP, $eqF]; simp only; rfl,
+  @fun _ _ _ _ _ inVD outVD _ _ inVE _ plan f bs args k hΓ _ hmV hlr hwf ih => by
+    obtain ⟨ha, hk⟩ := wf_call hwf; dsimp only [denote]
+    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hmV args ha ctDflt]; dsimp only
     cases plan with
     | node1 pk =>
-      rw [validateInlineFlat.eq_def, validateInline.eq_def]; simp only
-      rw [validateInlineFlat_eq R checkJ hJ b pk k
-        (ctxTypes_pushTup_rev (noneArgTup bs) hΓ) hΔ
-        (trieCtxMatch_insertTupEnv hmV (noneArgTup bs)) hmL hwf.2]
-    | leaf | jump _ | node2 _ _ | group _ _ _ =>
-      rw [validateInlineFlat.eq_def, validateInline.eq_def]
-  | b + 1, plan, .jnz c t e, Γ, Δ, vs, ls, inVD, inLD, inVE, inLE,
-      hΓ, hΔ, hmV, hmL, hwf => by
-    dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
-    dsimp only [denote]
-    rw [denoteArg_eq_some_resolveEnvArg hΓ hmV c hwf.1.1 ctDflt]; dsimp only
+      rw [$eqP, $eqF]; simp only
+      cases toRealArgs? (flattenArgs (resolveEnvArgs inVD inVE args ctDflt)) with
+      | none => rfl
+      | some _ =>
+        dsimp only [toTFlat]
+        have hfresh := trieCtxMatch_insertFreshWith
+          (fun _ _ od => Arg.var (some od)) hmV bs outVD
+        rw [mkFreshOptArg_eq_toOptArgTup] at hfresh
+        exact congrArg (TFlat.call f bs _) (ih pk (ctxTypes_pushTup_rev _ hΓ) hfresh hlr hk)
+    | _ => rw [$eqP, $eqF]; simp only; rfl,
+  @fun _ _ _ _ inVD _ _ _ inVE _ plan c t e hΓ _ hmV _ hwf iht ihe => by
+    obtain ⟨hc, ht, he⟩ := wf_jnz hwf
+    dsimp only [denote]; rw [denoteArg_eq_some_resolveEnvArg hΓ hmV c hc ctDflt]; dsimp only
     cases plan with
     | node2 pt pe =>
-      rw [validateInlineFlat.eq_def, validateInline.eq_def]; simp only
+      rw [$eqP, $eqF]; simp only
       cases flattenArg (resolveEnvArg inVD inVE c ctDflt) with
-      | imm bVal =>
-        cases bVal with
-        | true => exact validateInlineFlat_eq R checkJ hJ (b + 1) pt t hΓ hΔ hmV hmL hwf.1.2
-        | false => exact validateInlineFlat_eq R checkJ hJ (b + 1) pe e hΓ hΔ hmV hmL hwf.2
-      | var _ =>
-        dsimp only
-        rw [validateInlineFlat_eq R checkJ hJ b pt t hΓ hΔ hmV hmL hwf.1.2]
-        cases hst : validateInline b pt (denote (Arg (CTOptV W)) (CTLabel W L rs) t vs ls) with
+      | imm b => cases b with | true => exact iht pt ht | false => exact ihe pe he
+      | var v? =>
+        cases v? with
         | none => rfl
-        | some st =>
-          dsimp only [Bind.bind, Option.bind]
-          rw [validateInlineFlat_eq R checkJ hJ (b - st) pe e hΓ hΔ hmV hmL hwf.2]
-    | leaf | jump _ | node1 _ | group _ _ _ =>
-      rw [validateInlineFlat.eq_def, validateInline.eq_def]
-  | _ + 1, plan, .jump (ts := ts) j args, Γ, Δ, vs, ls, inVD, inLD, inVE, inLE,
-      hΓ, hΔ, hmV, hmL, hwf => by
-    dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
-    obtain ⟨w₁, w₂, hres, hlk, hm⟩ := TrieRelMatch.resolveLabel_rel hΔ hmL hwf.1
-    dsimp only [denote]
-    rw [hlk, denoteArgs_eq_some_resolveEnvArgs hΓ hmV args hwf.2 ctDflt]; dsimp only
+        | some _ => dsimp only [toTFlat]; rw [iht pt ht, ihe pe he]
+    | _ => rw [$eqP, $eqF]; simp only; rfl,
+  $onJump,
+  @fun _ _ _ _ inVD _ _ _ inVE _ plan vs' hΓ _ hmV _ hwf => by
+    dsimp only [denote]; rw [denoteArgs_eq_some_resolveEnvArgs hΓ hmV vs' hwf ctDflt]; dsimp only
     cases plan with
-    | jump _ =>
-      rw [validateInlineFlat.eq_def, validateInline.eq_def]; simp only
-      rw [hres]; simp only [hJ hm]
-    | leaf | node1 _ | node2 _ _ | group _ _ _ =>
-      rw [validateInlineFlat.eq_def, validateInline.eq_def]
-  | _ + 1, plan, .ret vs', Γ, _, vs, _, inVD, _, inVE, _, hΓ, _, hmV, _, hwf => by
-    dsimp only [denote]
-    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hmV vs' hwf ctDflt]; dsimp only
-    cases plan <;> rw [validateInlineFlat.eq_def, validateInline.eq_def] <;> simp only
-  | _ + 1, plan, .exit f args, Γ, _, vs, _, inVD, _, inVE, _, hΓ, _, hmV, _, hwf => by
-    dsimp only [denote]
-    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hmV args hwf ctDflt]; dsimp only
-    cases plan <;> rw [validateInlineFlat.eq_def, validateInline.eq_def] <;> simp only
-  | _ + 1, plan, .hlt, _, _, _, _, _, _, _, _, _, _, _, _, _ => by
-    dsimp only [denote]
-    cases plan <;> rw [validateInlineFlat.eq_def, validateInline.eq_def] <;> simp only
-  | _ + 1, plan, .group _ _, _, _, _, _, _, _, _, _, _, _, _, _, _ => by
-    dsimp only [denote]
-    cases plan <;> rw [validateInlineFlat.eq_def, validateInline.eq_def] <;> simp only
-termination_by structural _ plan _ => plan
+    | leaf =>
+      rw [$eqP, $eqF]; simp only
+      cases toRealArgs? (flattenArgs (resolveEnvArgs inVD inVE vs' ctDflt)) <;> rfl
+    | _ => rw [$eqP, $eqF]; simp only; rfl,
+  @fun _ _ _ _ _ inVD _ _ _ inVE _ plan _ args hΓ _ hmV _ hwf => by
+    dsimp only [denote]; rw [denoteArgs_eq_some_resolveEnvArgs hΓ hmV args hwf ctDflt]; dsimp only
+    cases plan with
+    | leaf =>
+      rw [$eqP, $eqF]; simp only
+      cases toRealArgs? (flattenArgs (resolveEnvArgs inVD inVE args ctDflt)) <;> rfl
+    | _ => rw [$eqP, $eqF]; simp only; rfl,
+  fun plan _ _ _ _ _ => by
+    dsimp only [denote]; cases plan <;> rw [$eqP, $eqF] <;> simp only <;> rfl,
+  $onGroup, $onNil, $onCons⟩)
 
 private theorem rewriteCTInlineFlat_eq {rs : List Ty} :
     (plan : CTPlan) → (tf : TFlat rs) → {Γ : List Ty} → {Δ : List (List Ty)} →
@@ -431,164 +429,80 @@ private theorem rewriteCTInlineFlat_eq {rs : List Ty} :
     TrieRelMatch (fun _ => CTLabelFlatMatch (rs := rs)) inLD inLE ls → tf.wfCheck Γ Δ = true →
     toTFlat (rewriteCTInline plan (denote (Arg (CTOptV K)) (CTLabel K KL rs) tf vs ls))
         outVD outLD =
-      rewriteCTInlineFlat inLD inLE plan inVD inVE outVD outLD tf
-  | plan, .let_ (ts := dts) ⟨code, args⟩ k, Γ, Δ, vs, ls, inVD, inLD, outVD, outLD, inVE, inLE,
-      hΓ, hΔ, hmV, hmL, hwf => by
-    dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
-    dsimp only [denote]
-    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hmV args hwf.1 ctDflt]; dsimp only
-    cases plan with
-    | node1 pk =>
-      rw [rewriteCTInline.eq_def, rewriteCTInlineFlat.eq_def]; simp only
-      cases evalThreadLet? code (flattenArgs (resolveEnvArgs inVD inVE args ctDflt)) with
-      | some out =>
-        exact rewriteCTInlineFlat_eq pk k (ctxTypes_pushTup_rev out hΓ) hΔ
-          (trieCtxMatch_insertTupEnv hmV out) hmL hwf.2
-      | none =>
-        cases toRealArgs? (flattenArgs (resolveEnvArgs inVD inVE args ctDflt)) with
-        | none => rfl
-        | some rargs =>
-          dsimp only [toTFlat]
-          have hfresh := trieCtxMatch_insertFreshWith
-            (fun _ _ od => Arg.var (some od)) hmV dts outVD
-          rw [mkFreshOptArg_eq_toOptArgTup] at hfresh
-          exact congrArg (TFlat.let_ _)
-            (rewriteCTInlineFlat_eq pk k (ctxTypes_pushTup_rev _ hΓ) hΔ hfresh hmL hwf.2)
-    | leaf | jump _ | node2 _ _ | group _ _ _ =>
-      rw [rewriteCTInline.eq_def, rewriteCTInlineFlat.eq_def]; simp only; rfl
-  | plan, .load t a k, Γ, Δ, vs, ls, inVD, inLD, outVD, outLD, inVE, inLE,
-      hΓ, hΔ, hmV, hmL, hwf => by
-    dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
-    dsimp only [denote]
-    rw [denoteArg_eq_some_resolveEnvArg hΓ hmV a hwf.1 ctDflt]; dsimp only
-    cases plan with
-    | node1 pk =>
-      rw [rewriteCTInline.eq_def, rewriteCTInlineFlat.eq_def]; simp only
-      cases toRealArg? (flattenArg (resolveEnvArg inVD inVE a ctDflt)) with
-      | none => rfl
-      | some ra =>
-        dsimp only [toTFlat]
-        exact congrArg (TFlat.load t _)
-          (rewriteCTInlineFlat_eq pk k (.cons hΓ) hΔ (hmV.cons t (Arg.var (some outVD))) hmL hwf.2)
-    | leaf | jump _ | node2 _ _ | group _ _ _ =>
-      rw [rewriteCTInline.eq_def, rewriteCTInlineFlat.eq_def]; simp only; rfl
-  | plan, .store v a k, Γ, Δ, vs, ls, inVD, inLD, outVD, outLD, inVE, inLE,
-      hΓ, hΔ, hmV, hmL, hwf => by
-    dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
-    dsimp only [denote]
-    rw [denoteArg_eq_some_resolveEnvArg hΓ hmV v hwf.1.1 ctDflt,
-      denoteArg_eq_some_resolveEnvArg hΓ hmV a hwf.1.2 ctDflt]; dsimp only
-    cases plan with
-    | node1 pk =>
-      rw [rewriteCTInline.eq_def, rewriteCTInlineFlat.eq_def]; simp only
-      cases toRealArg? (flattenArg (resolveEnvArg inVD inVE v ctDflt)) with
-      | none => rfl
-      | some rv =>
-        cases toRealArg? (flattenArg (resolveEnvArg inVD inVE a ctDflt)) with
-        | none => rfl
-        | some ra =>
-          dsimp only [toTFlat]
-          exact congrArg (TFlat.store _ _) (rewriteCTInlineFlat_eq pk k hΓ hΔ hmV hmL hwf.2)
-    | leaf | jump _ | node2 _ _ | group _ _ _ =>
-      rw [rewriteCTInline.eq_def, rewriteCTInlineFlat.eq_def]; simp only; rfl
-  | plan, .call f bs args k, Γ, Δ, vs, ls, inVD, inLD, outVD, outLD, inVE, inLE,
-      hΓ, hΔ, hmV, hmL, hwf => by
-    dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
-    dsimp only [denote]
-    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hmV args hwf.1 ctDflt]; dsimp only
-    cases plan with
-    | node1 pk =>
-      rw [rewriteCTInline.eq_def, rewriteCTInlineFlat.eq_def]; simp only
-      cases toRealArgs? (flattenArgs (resolveEnvArgs inVD inVE args ctDflt)) with
-      | none => rfl
-      | some rargs =>
-        dsimp only [toTFlat]
-        have hfresh := trieCtxMatch_insertFreshWith
-          (fun _ _ od => Arg.var (some od)) hmV bs outVD
-        rw [mkFreshOptArg_eq_toOptArgTup] at hfresh
-        exact congrArg (TFlat.call f bs _)
-          (rewriteCTInlineFlat_eq pk k (ctxTypes_pushTup_rev _ hΓ) hΔ hfresh hmL hwf.2)
-    | leaf | jump _ | node2 _ _ | group _ _ _ =>
-      rw [rewriteCTInline.eq_def, rewriteCTInlineFlat.eq_def]; simp only; rfl
-  | plan, .jnz c t e, Γ, Δ, vs, ls, inVD, inLD, outVD, outLD, inVE, inLE,
-      hΓ, hΔ, hmV, hmL, hwf => by
-    dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
-    dsimp only [denote]
-    rw [denoteArg_eq_some_resolveEnvArg hΓ hmV c hwf.1.1 ctDflt]; dsimp only
-    cases plan with
-    | node2 pt pe =>
-      rw [rewriteCTInline.eq_def, rewriteCTInlineFlat.eq_def]; simp only
-      cases flattenArg (resolveEnvArg inVD inVE c ctDflt) with
-      | imm b =>
-        cases b with
-        | true => exact rewriteCTInlineFlat_eq pt t hΓ hΔ hmV hmL hwf.1.2
-        | false => exact rewriteCTInlineFlat_eq pe e hΓ hΔ hmV hmL hwf.2
-      | var v? =>
-        cases v? with
-        | none => rfl
-        | some v =>
-          dsimp only [toTFlat]
-          rw [rewriteCTInlineFlat_eq pt t hΓ hΔ hmV hmL hwf.1.2,
-            rewriteCTInlineFlat_eq pe e hΓ hΔ hmV hmL hwf.2]
-    | leaf | jump _ | node1 _ | group _ _ _ =>
-      rw [rewriteCTInline.eq_def, rewriteCTInlineFlat.eq_def]; simp only; rfl
-  | plan, .jump (ts := ts) j args, Γ, Δ, vs, ls, inVD, inLD, outVD, outLD, inVE, inLE,
-      hΓ, hΔ, hmV, hmL, hwf => by
-    dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
-    obtain ⟨w₁, w₂, hres, hlk, hm⟩ := TrieRelMatch.resolveLabel_rel hΔ hmL hwf.1
-    dsimp only [denote]
-    rw [hlk, denoteArgs_eq_some_resolveEnvArgs hΓ hmV args hwf.2 ctDflt]; dsimp only
-    cases plan with
-    | jump _ =>
-      rw [rewriteCTInline.eq_def, rewriteCTInlineFlat.eq_def]; simp only
-      rw [hres]; simp only
-      by_cases hcan :
-          w₂.target.canEmit (flattenArgs (resolveEnvArgs inVD inVE args ctDflt)) = true
-      · rw [hm.1]; simp only [hcan, ↓reduceIte]
-        exact emitCTTargetFlat_eq outVD outLD _ w₂.target
-      · rw [hm.1]; simp only [hcan, Bool.false_eq_true, ↓reduceIte]
-        have hi := hm.2 outVD outLD (flattenArgs (resolveEnvArgs inVD inVE args ctDflt))
-        cases h1 : w₁.inline? outVD outLD _ <;> cases h2 : w₂.inline? _ <;>
-          simp only [h1, h2, ORel] at hi
-        · rfl
-        · exact hi.symm
-    | leaf | node1 _ | node2 _ _ | group _ _ _ =>
-      rw [rewriteCTInline.eq_def, rewriteCTInlineFlat.eq_def]; simp only; rfl
-  | plan, .ret vs', Γ, _, vs, _, inVD, _, _, _, inVE, _, hΓ, _, hmV, _, hwf => by
-    dsimp only [denote]
-    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hmV vs' hwf ctDflt]; dsimp only
-    cases plan with
-    | leaf =>
-      rw [rewriteCTInline.eq_def, rewriteCTInlineFlat.eq_def]; simp only
-      cases toRealArgs? (flattenArgs (resolveEnvArgs inVD inVE vs' ctDflt)) <;> rfl
-    | jump _ | node1 _ | node2 _ _ | group _ _ _ =>
-      rw [rewriteCTInline.eq_def, rewriteCTInlineFlat.eq_def]; simp only; rfl
-  | plan, .exit f args, Γ, _, vs, _, inVD, _, _, _, inVE, _, hΓ, _, hmV, _, hwf => by
-    dsimp only [denote]
-    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hmV args hwf ctDflt]; dsimp only
-    cases plan with
-    | leaf =>
-      rw [rewriteCTInline.eq_def, rewriteCTInlineFlat.eq_def]; simp only
-      cases toRealArgs? (flattenArgs (resolveEnvArgs inVD inVE args ctDflt)) <;> rfl
-    | jump _ | node1 _ | node2 _ _ | group _ _ _ =>
-      rw [rewriteCTInline.eq_def, rewriteCTInlineFlat.eq_def]; simp only; rfl
-  | plan, .hlt, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ => by
-    dsimp only [denote]
-    cases plan <;> rw [rewriteCTInline.eq_def, rewriteCTInlineFlat.eq_def] <;> simp only <;> rfl
-  | plan, .group _ _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ => by
-    dsimp only [denote]
-    cases plan <;> rw [rewriteCTInline.eq_def, rewriteCTInlineFlat.eq_def] <;> simp only <;> rfl
-termination_by structural plan _ => plan
+      rewriteCTInlineFlat inLD inLE plan inVD inVE outVD outLD tf := by
+  intro plan tf Γ Δ vs ls inVD inLD outVD outLD inVE inLE hΓ hΔ hmV hmL hwf
+  refine (relSim_mutual (rs := rs)
+    (W := Arg (CTOptV K)) (L₁ := CTLabelFlat rs) (L₂ := CTLabel K KL rs)
+    (S := CTPlan) (SB := Unit)
+    (LR := fun Δ inLD inLE ls =>
+      CtxTypes Δ ls ∧ TrieRelMatch (fun _ => CTLabelFlatMatch (rs := rs)) inLD inLE ls)
+    (P := fun plan tf _ _ vs ls inVD inVE inLD inLE outVD outLD =>
+      toTFlat (rewriteCTInline plan (denote (Arg (CTOptV K)) (CTLabel K KL rs) tf vs ls))
+          outVD outLD =
+        rewriteCTInlineFlat inLD inLE plan inVD inVE outVD outLD tf)
+    (PB := fun _ _ _ _ _ _ _ _ _ _ _ _ => True)
+    (ct_rw_rel rewriteCTInline.eq_def, rewriteCTInlineFlat.eq_def,
+      @fun _ _ _ _ _ inVD outVD _ outLD inVE _ plan j args hΓ _ hmV hlr hwf => by
+        obtain ⟨hj, ha⟩ := wf_jump hwf
+        obtain ⟨w₁, w₂, hres, hlk, hm⟩ := TrieRelMatch.resolveLabel_rel hlr.1 hlr.2 hj
+        dsimp only [denote]
+        rw [hlk, denoteArgs_eq_some_resolveEnvArgs hΓ hmV args ha ctDflt]; dsimp only
+        cases plan with
+        | jump _ =>
+          rw [rewriteCTInline.eq_def, rewriteCTInlineFlat.eq_def]; simp only; rw [hres]; simp only
+          by_cases hcan :
+              w₂.target.canEmit (flattenArgs (resolveEnvArgs inVD inVE args ctDflt)) = true
+          · rw [hm.1]; simp only [hcan, ↓reduceIte]
+            exact emitCTTargetFlat_eq outVD outLD _ w₂.target
+          · rw [hm.1]; simp only [hcan, Bool.false_eq_true, ↓reduceIte]
+            have hi := hm.2 outVD outLD (flattenArgs (resolveEnvArgs inVD inVE args ctDflt))
+            cases h1 : w₁.inline? outVD outLD _ <;> cases h2 : w₂.inline? _ <;>
+              simp only [h1, h2, ORel] at hi
+            · rfl
+            · exact hi.symm
+        | _ => rw [rewriteCTInline.eq_def, rewriteCTInlineFlat.eq_def]; simp only; rfl,
+      fun plan _ _ _ _ _ _ _ _ _ => by
+        dsimp only [denote]
+        cases plan <;> rw [rewriteCTInline.eq_def, rewriteCTInlineFlat.eq_def] <;>
+          simp only <;> rfl,
+      fun _ _ _ _ _ _ => trivial,
+      fun _ _ _ _ _ _ _ _ _ _ => trivial)).1 tf plan hΓ hΔ hmV ⟨hΔ, hmL⟩ hwf
 
-/-! ## 3. `validateCTPlanFlat` Equivalence -/
+/-! ## 3. Shared Head-Inline Helper & `validateCTPlanFlat` Equivalence -/
+
+private theorem peelValidate_eq {W : Ty → Type} {LFlat L : List Ty → Type} {rs ts : List Ty}
+    (R : (ts' : List Ty) → LFlat ts' → CTLabel W L rs ts' → Prop)
+    (checkJ : ∀ {ts' : List Ty}, LFlat ts' → Tup (Arg (CTOptV W)) ts' → Bool)
+    (hJ : ∀ {ts' jl j a}, R ts' jl j → checkJ jl a = (j.target.canEmit a || (j.inline? a).isSome))
+    {Γ : List Ty} {Δ : List (List Ty)}
+    {vs : List ((t : Ty) × Arg (CTOptV W) t)} {ls : List ((ts' : List Ty) × CTLabel W L rs ts')}
+    {inVD inLD : Nat} {inVE : Trie ((t : Ty) × Arg (CTOptV W) t)}
+    {inLE : Trie ((ts' : List Ty) × LFlat ts')}
+    (hΓ : CtxTypes Γ vs) (hΔ : CtxTypes Δ ls) (hmV : TrieCtxMatch inVD inVE vs)
+    (hmL : TrieRelMatch R inLD inLE ls) (pb : CTPlan) (b : TFlat rs)
+    (hb : b.wfCheck (pushTypes ts Γ) Δ = true) (args : Tup (Arg (CTOptV W)) ts)
+    (budgetFn : Bool → Nat) :
+    let r := peelThreadHeadFlat 4 false pb (inVD + ts.length) (insertTupEnv inVD inVE args) b
+    let resP := peelThreadHead 4 false pb
+      (denote (Arg (CTOptV W)) (CTLabel W L rs) b (pushTup args vs) ls)
+    ∃ Γ' vs', CtxTypes Γ' vs' ∧ TrieCtxMatch r.2.2.1 r.2.2.2.1 vs' ∧
+      r.2.2.2.2.wfCheck Γ' Δ = true ∧
+      resP = (r.1, r.2.1, denote (Arg (CTOptV W)) (CTLabel W L rs) r.2.2.2.2 vs' ls) ∧
+      validateInlineFlat checkJ inLD inLE (budgetFn r.1) r.2.1 r.2.2.1 r.2.2.2.1 r.2.2.2.2 =
+        validateInline (budgetFn resP.1) resP.2.1 resP.2.2 := by
+  have hp := peelThreadHeadFlat_eq 4 false pb b (ctxTypes_pushTup_rev args hΓ) hΔ
+    (trieCtxMatch_insertTupEnv hmV args) hb
+  obtain ⟨Γ', vs', hΓ', hmV', hwf', hpeel⟩ := hp
+  refine ⟨Γ', vs', hΓ', hmV', hwf', hpeel, ?_⟩
+  rw [hpeel]
+  exact validateInlineFlat_eq R checkJ hJ _ _ _ hΓ' hΔ hmV' hmL hwf'
 
 private theorem validTargetsFlat_match {rs : List Ty} :
     (acts : List BlockAct) → (sig : List (List Ty)) →
     TRel (fun _ => ValidLFlatMatch (rs := rs)) (validTargetsFlat acts sig) (validTargets acts sig)
   | _, [] => .nil
   | [], _ :: sig => .cons ⟨rfl, fun _ => rfl⟩ (validTargetsFlat_match [] sig)
-  | _ :: acts, _ :: sig =>
-    .cons ⟨rfl, fun _ => rfl⟩ (validTargetsFlat_match acts sig)
+  | _ :: acts, _ :: sig => .cons ⟨rfl, fun _ => rfl⟩ (validTargetsFlat_match acts sig)
 
 private theorem tryMakeValidInlineFlat_match {rs ts : List Ty}
     {Γ : List Ty} {Δ : List (List Ty)}
@@ -607,8 +521,7 @@ private theorem tryMakeValidInlineFlat_match {rs ts : List Ty}
   have hJ : ∀ {ts' : List Ty} {jl : ValidLFlat rs ts'} {j : ValidL rs ts'}
       {a : Tup (Arg (CTOptV UnitV)) ts'},
       ValidLFlatMatch jl j → (jl.target.canEmit a || jl.inlineOk? a) =
-        (j.target.canEmit a || (j.inline? a).isSome) := by
-    intro _ _ _ a hm; rw [hm.1, hm.2 a]
+        (j.target.canEmit a || (j.inline? a).isSome) := fun hm => by rw [hm.1, hm.2 _]
   cases act with
   | keep _ bInl =>
     cases bInl with
@@ -616,17 +529,10 @@ private theorem tryMakeValidInlineFlat_match {rs ts : List Ty}
     | true =>
       refine ⟨hl.1, fun args => ?_⟩
       dsimp only [tryMakeValidInlineFlat, tryMakeInlineLabel]
-      have hp := peelThreadHeadFlat_eq 4 false pb b (ctxTypes_pushTup_rev args hΓ) hΔ
-        (trieCtxMatch_insertTupEnv hmV args) hb
-      obtain ⟨Γ', vs', hΓ', hmV', hwf', hpeel⟩ := hp
-      cases hres :
-          peelThreadHeadFlat 4 false pb (inVD + ts.length) (insertTupEnv inVD inVE args) b
-      rw [hres] at hmV' hwf' hpeel
-      dsimp only at hmV' hwf' hpeel
-      rw [hpeel]
-      dsimp only
-      rw [validateInlineFlat_eq
-        (fun _ => ValidLFlatMatch (rs := rs)) _ hJ _ _ _ hΓ' hΔ hmV' hmL hwf']
+      obtain ⟨_, _, _, _, _, _, hval⟩ := peelValidate_eq
+        (fun _ => ValidLFlatMatch (rs := rs)) _ hJ hΓ hΔ hmV hmL pb b hb args
+        (fun res => if res then 8 else 3)
+      rw [hval]
       cases (validateInline _ _ _).isSome <;> rfl
   | splitBool _ _ _ _ inlT inlF =>
     by_cases hInl : (inlT || inlF) = true
@@ -634,233 +540,200 @@ private theorem tryMakeValidInlineFlat_match {rs ts : List Ty}
       simp only [hInl, ↓reduceIte]
       refine ⟨hl.1, fun args => ?_⟩
       dsimp only
-      have hp := peelThreadHeadFlat_eq 4 false pb b (ctxTypes_pushTup_rev args hΓ) hΔ
-        (trieCtxMatch_insertTupEnv hmV args) hb
-      obtain ⟨Γ', vs', hΓ', hmV', hwf', hpeel⟩ := hp
-      cases hres :
-          peelThreadHeadFlat 4 false pb (inVD + ts.length) (insertTupEnv inVD inVE args) b
-      rw [hres] at hmV' hwf' hpeel
-      dsimp only at hmV' hwf' hpeel
-      rw [hpeel]
-      dsimp only
-      rw [validateInlineFlat_eq
-        (fun _ => ValidLFlatMatch (rs := rs)) _ hJ 8 _ _ hΓ' hΔ hmV' hmL hwf']
+      obtain ⟨_, _, _, _, _, hpeel, hval⟩ := peelValidate_eq
+        (fun _ => ValidLFlatMatch (rs := rs)) _ hJ hΓ hΔ hmV hmL pb b hb args (fun _ => 8)
+      rw [hval, hpeel]; dsimp only
       cases (_ && (validateInline 8 _ _).isSome) <;> rfl
     · dsimp only [tryMakeValidInlineFlat, tryMakeInlineLabel]
-      simp only [hInl, Bool.false_eq_true, ↓reduceIte]
-      exact hl
+      simp only [hInl, Bool.false_eq_true, ↓reduceIte]; exact hl
 
-private theorem attachValidInlinesFlat_match {rs : List Ty}
+private theorem attachInlinesGen_match {W : Ty → Type} {LFlat L : List Ty → Type} {rs : List Ty}
     {Γ : List Ty} {Δ : List (List Ty)}
-    {vs : List ((t : Ty) × Arg (CTOptV UnitV) t)}
-    {ls : List ((ts' : List Ty) × ValidL rs ts')}
-    {inVD inLD : Nat}
-    {inVE : Trie ((t : Ty) × Arg (CTOptV UnitV) t)}
-    {inLE : Trie ((ts' : List Ty) × ValidLFlat rs ts')}
-    (hΓ : CtxTypes Γ vs) (hΔ : CtxTypes Δ ls) (hmV : TrieCtxMatch inVD inVE vs)
-    (hmL : TrieRelMatch (fun _ => ValidLFlatMatch (rs := rs)) inLD inLE ls) :
+    {vs : List ((t : Ty) × Arg (CTOptV W) t)}
+    {ls : List ((ts : List Ty) × CTLabel W L rs ts)}
+    (R : (ts : List Ty) → LFlat ts → CTLabel W L rs ts → Prop)
+    (tryF : ∀ {ts : List Ty}, BlockAct → CTPlan → TFlat rs → LFlat ts → LFlat ts)
+    (attachF : List BlockAct → CTPlanB → ∀ {sig : List (List Ty)},
+      TBlocks rs sig → Tup LFlat sig → Tup LFlat sig)
+    (hNilActs : ∀ {ts : List Ty} {sig : List (List Ty)} (pbs : CTPlanB)
+      (b : TFlat rs) (bs : TBlocks rs sig) (l : LFlat ts) (ls : Tup LFlat sig),
+      attachF [] pbs (.cons b bs) (l, ls) = (l, attachF [] .nil bs ls))
+    (hNilPbs : ∀ {ts : List Ty} {sig : List (List Ty)} (acts : List BlockAct)
+      (b : TFlat rs) (bs : TBlocks rs sig) (l : LFlat ts) (ls : Tup LFlat sig),
+      attachF acts .nil (.cons b bs) (l, ls) = (l, attachF [] .nil bs ls))
+    (hCons : ∀ {ts : List Ty} {sig : List (List Ty)}
+      (a : BlockAct) (acts : List BlockAct) (pb : CTPlan) (pbs : CTPlanB)
+      (b : TFlat rs) (bs : TBlocks rs sig) (l : LFlat ts) (ls : Tup LFlat sig),
+      attachF (a :: acts) (.cons pb pbs) (.cons b bs) (l, ls) =
+        (tryF a pb b l, attachF acts pbs bs ls))
+    (htry : ∀ {ts : List Ty} (a : BlockAct) (pb : CTPlan) (b : TFlat rs),
+      b.wfCheck (pushTypes ts Γ) Δ = true → ∀ {lF : LFlat ts} {lP : CTLabel W L rs ts},
+      R ts lF lP → R ts (tryF a pb b lF) (tryMakeInlineLabel a pb
+        (fun args => denote (Arg (CTOptV W)) (CTLabel W L rs) b (pushTup args vs) ls) lP)) :
     (acts : List BlockAct) → (pbs : CTPlanB) → {sig : List (List Ty)} → (tb : TBlocks rs sig) →
-    {lsF : Tup (ValidLFlat rs) sig} → {lsP : Tup (ValidL rs) sig} →
-    TRel (fun _ => ValidLFlatMatch (rs := rs)) lsF lsP → tb.wfCheck Γ Δ = true →
-    TRel (fun _ => ValidLFlatMatch (rs := rs))
-      (attachValidInlinesFlat inVD inVE inLD inLE acts pbs tb lsF)
-      (attachInlines acts pbs (denoteB (Arg (CTOptV UnitV)) (ValidL rs) tb vs ls) lsP)
+    {lsF : Tup LFlat sig} → {lsP : Tup (CTLabel W L rs) sig} →
+    TRel R lsF lsP → tb.wfCheck Γ Δ = true →
+    TRel R (attachF acts pbs tb lsF)
+      (attachInlines acts pbs (denoteB (Arg (CTOptV W)) (CTLabel W L rs) tb vs ls) lsP)
   | _, _, [], .nil, (), (), .nil, _ => .nil
   | [], _, _ :: _, .cons _ bs, (_, _), (_, _), .cons hl hls, hwf => by
-    dsimp only [TBlocks.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
-    exact .cons hl (attachValidInlinesFlat_match hΓ hΔ hmV hmL [] .nil bs hls hwf.2)
+    rw [hNilActs]; obtain ⟨_, hbs⟩ := wf_cons hwf
+    exact .cons hl (attachInlinesGen_match R tryF attachF hNilActs hNilPbs hCons htry
+      [] .nil bs hls hbs)
   | _ :: _, .nil, _ :: _, .cons _ bs, (_, _), (_, _), .cons hl hls, hwf => by
-    dsimp only [TBlocks.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
-    exact .cons hl (attachValidInlinesFlat_match hΓ hΔ hmV hmL [] .nil bs hls hwf.2)
+    rw [hNilPbs]; obtain ⟨_, hbs⟩ := wf_cons hwf
+    exact .cons hl (attachInlinesGen_match R tryF attachF hNilActs hNilPbs hCons htry
+      [] .nil bs hls hbs)
   | a :: acts', .cons pb pbs', _ :: _, .cons b bs, (_, _), (_, _), .cons hl hls, hwf => by
-    dsimp only [TBlocks.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
-    dsimp only [attachValidInlinesFlat, denoteB, attachInlines]
-    exact .cons (tryMakeValidInlineFlat_match hΓ hΔ hmV hmL a pb b hwf.1 hl)
-      (attachValidInlinesFlat_match hΓ hΔ hmV hmL acts' pbs' bs hls hwf.2)
+    obtain ⟨hb, hbs⟩ := wf_cons hwf
+    rw [hCons]; dsimp only [denoteB, attachInlines]
+    exact .cons (htry a pb b hb hl)
+      (attachInlinesGen_match R tryF attachF hNilActs hNilPbs hCons htry
+        acts' pbs' bs hls hbs)
 
-mutual
-private theorem validateCTPlanFlat_eq {rs : List Ty} :
-    (plan : CTPlan) → (tf : TFlat rs) → {Γ : List Ty} → {Δ : List (List Ty)} →
-    {vs : List ((t : Ty) × Arg (CTOptV UnitV) t)} →
-    {ls : List ((ts : List Ty) × ValidL rs ts)} →
-    {inVD inLD : Nat} →
-    {inVE : Trie ((t : Ty) × Arg (CTOptV UnitV) t)} →
-    {inLE : Trie ((ts : List Ty) × ValidLFlat rs ts)} →
-    CtxTypes Γ vs → CtxTypes Δ ls → TrieCtxMatch inVD inVE vs →
-    TrieRelMatch (fun _ => ValidLFlatMatch (rs := rs)) inLD inLE ls → tf.wfCheck Γ Δ = true →
-    validateCTPlanFlat plan inVD inVE inLD inLE tf =
-      validateCTPlan plan (denote (Arg (CTOptV UnitV)) (ValidL rs) tf vs ls)
-  | plan, .let_ (ts := dts) ⟨code, args⟩ k, Γ, Δ, vs, ls, inVD, inLD, inVE, inLE,
-      hΓ, hΔ, hmV, hmL, hwf => by
-    dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
-    dsimp only [denote]
-    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hmV args hwf.1 ctDflt]; dsimp only
-    cases plan with
-    | node1 pk =>
-      rw [validateCTPlanFlat.eq_def, validateCTPlan.eq_def]; simp only
-      cases evalThreadLet? code (flattenArgs (resolveEnvArgs inVD inVE args ctDflt)) with
-      | some out =>
-        exact validateCTPlanFlat_eq pk k (ctxTypes_pushTup_rev out hΓ) hΔ
-          (trieCtxMatch_insertTupEnv hmV out) hmL hwf.2
-      | none =>
-        exact validateCTPlanFlat_eq pk k (ctxTypes_pushTup_rev _ hΓ) hΔ
-          (trieCtxMatch_insertTupEnv hmV _) hmL hwf.2
-    | leaf | jump _ | node2 _ _ | group _ _ _ =>
-      rw [validateCTPlanFlat.eq_def, validateCTPlan.eq_def]
-  | plan, .load t a k, Γ, Δ, vs, ls, inVD, inLD, inVE, inLE,
-      hΓ, hΔ, hmV, hmL, hwf => by
-    dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
-    dsimp only [denote]
-    rw [denoteArg_eq_some_resolveEnvArg hΓ hmV a hwf.1 ctDflt]; dsimp only
-    cases plan with
-    | node1 pk =>
-      rw [validateCTPlanFlat.eq_def, validateCTPlan.eq_def]; simp only
-      exact validateCTPlanFlat_eq pk k (.cons hΓ) hΔ (hmV.cons t (Arg.var (some ()))) hmL hwf.2
-    | leaf | jump _ | node2 _ _ | group _ _ _ =>
-      rw [validateCTPlanFlat.eq_def, validateCTPlan.eq_def]
-  | plan, .store v a k, Γ, Δ, vs, ls, inVD, inLD, inVE, inLE,
-      hΓ, hΔ, hmV, hmL, hwf => by
-    dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
-    dsimp only [denote]
-    rw [denoteArg_eq_some_resolveEnvArg hΓ hmV v hwf.1.1 ctDflt,
-      denoteArg_eq_some_resolveEnvArg hΓ hmV a hwf.1.2 ctDflt]; dsimp only
-    cases plan with
-    | node1 pk =>
-      rw [validateCTPlanFlat.eq_def, validateCTPlan.eq_def]; simp only
-      exact validateCTPlanFlat_eq pk k hΓ hΔ hmV hmL hwf.2
-    | leaf | jump _ | node2 _ _ | group _ _ _ =>
-      rw [validateCTPlanFlat.eq_def, validateCTPlan.eq_def]
-  | plan, .call f bs args k, Γ, Δ, vs, ls, inVD, inLD, inVE, inLE,
-      hΓ, hΔ, hmV, hmL, hwf => by
-    dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
-    dsimp only [denote]
-    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hmV args hwf.1 ctDflt]; dsimp only
-    cases plan with
-    | node1 pk =>
-      rw [validateCTPlanFlat.eq_def, validateCTPlan.eq_def]; simp only
-      exact validateCTPlanFlat_eq pk k (ctxTypes_pushTup_rev _ hΓ) hΔ
-        (trieCtxMatch_insertTupEnv hmV _) hmL hwf.2
-    | leaf | jump _ | node2 _ _ | group _ _ _ =>
-      rw [validateCTPlanFlat.eq_def, validateCTPlan.eq_def]
-  | plan, .jnz c t e, Γ, Δ, vs, ls, inVD, inLD, inVE, inLE,
-      hΓ, hΔ, hmV, hmL, hwf => by
-    dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
-    dsimp only [denote]
-    rw [denoteArg_eq_some_resolveEnvArg hΓ hmV c hwf.1.1 ctDflt]; dsimp only
-    cases plan with
-    | node2 pt pe =>
-      rw [validateCTPlanFlat.eq_def, validateCTPlan.eq_def]; simp only
-      cases flattenArg (resolveEnvArg inVD inVE c ctDflt) with
-      | imm b =>
-        cases b with
-        | true => exact validateCTPlanFlat_eq pt t hΓ hΔ hmV hmL hwf.1.2
-        | false => exact validateCTPlanFlat_eq pe e hΓ hΔ hmV hmL hwf.2
-      | var _ =>
-        dsimp only
-        rw [validateCTPlanFlat_eq pt t hΓ hΔ hmV hmL hwf.1.2,
-          validateCTPlanFlat_eq pe e hΓ hΔ hmV hmL hwf.2]
-    | leaf | jump _ | node1 _ | group _ _ _ =>
-      rw [validateCTPlanFlat.eq_def, validateCTPlan.eq_def]
-  | plan, .jump (ts := ts) j args, Γ, Δ, vs, ls, inVD, inLD, inVE, inLE,
-      hΓ, hΔ, hmV, hmL, hwf => by
-    dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
-    obtain ⟨w₁, w₂, hres, hlk, hm⟩ := TrieRelMatch.resolveLabel_rel hΔ hmL hwf.1
-    dsimp only [denote]
-    rw [hlk, denoteArgs_eq_some_resolveEnvArgs hΓ hmV args hwf.2 ctDflt]; dsimp only
-    cases plan with
-    | jump tryInl =>
-      rw [validateCTPlanFlat.eq_def, validateCTPlan.eq_def]; simp only
-      rw [hres]; simp only [hm.1]
-      cases tryInl with
-      | false => rfl
-      | true =>
-        have hi := hm.2 (flattenArgs (resolveEnvArgs inVD inVE args ctDflt))
-        rw [hi]
-        cases w₂.inline? (flattenArgs (resolveEnvArgs inVD inVE args ctDflt)) <;> rfl
-    | leaf | node1 _ | node2 _ _ | group _ _ _ =>
-      rw [validateCTPlanFlat.eq_def, validateCTPlan.eq_def]
-  | plan, .ret vs', Γ, _, vs, _, inVD, _, inVE, _, hΓ, _, hmV, _, hwf => by
-    dsimp only [denote]
-    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hmV vs' hwf ctDflt]; dsimp only
-    cases plan <;> rw [validateCTPlanFlat.eq_def, validateCTPlan.eq_def] <;> simp only
-  | plan, .exit f args, Γ, _, vs, _, inVD, _, inVE, _, hΓ, _, hmV, _, hwf => by
-    dsimp only [denote]
-    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hmV args hwf ctDflt]; dsimp only
-    cases plan <;> rw [validateCTPlanFlat.eq_def, validateCTPlan.eq_def] <;> simp only
-  | plan, .hlt, _, _, _, _, _, _, _, _, _, _, _, _, _ => by
-    dsimp only [denote]
-    cases plan <;> rw [validateCTPlanFlat.eq_def, validateCTPlan.eq_def] <;> simp only
-  | plan, .group (sig := sig) bodies k, Γ, Δ, vs, ls, inVD, inLD, inVE, inLE,
-      hΓ, hΔ, hmV, hmL, hwf => by
-    dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
-    dsimp only [denote]
-    cases plan with
-    | group acts pbs pk =>
-      rw [validateCTPlanFlat.eq_def, validateCTPlan.eq_def]; simp only
-      have hno := validTargetsFlat_match (rs := rs) acts sig
-      have hmNo := TrieRelMatch.pushTup hno hmL
-      have hbody := attachValidInlinesFlat_match hΓ (ctxTypes_pushTup_rev _ hΔ) hmV hmNo
-        acts pbs bodies hno hwf.1
-      have hmBody := TrieRelMatch.pushTup hbody hmL
-      have hΔ' := ctxTypes_pushTup_rev
-        (attachInlines acts pbs (denoteB (Arg (CTOptV UnitV)) (ValidL rs) bodies vs
-          (pushTup (validTargets acts sig) ls)) (validTargets acts sig)) hΔ
-      have hb := validateCTBlocksFlat_eq acts pbs bodies hΓ hΔ' hmV hmBody hwf.1
-      have hk := validateCTPlanFlat_eq pk k hΓ hΔ' hmV hmBody hwf.2
-      rw [hb, hk]
-    | leaf | jump _ | node1 _ | node2 _ _ =>
-      rw [validateCTPlanFlat.eq_def, validateCTPlan.eq_def]
-termination_by structural plan _ => plan
+local macro "vct_node1" eqF:Lean.Parser.Tactic.rwRule "," eqP:Lean.Parser.Tactic.rwRule ","
+    plan:Lean.Parser.Tactic.elimTarget "," pk:ident ","
+    pre:tacticSeq "," body:tacticSeq : tactic => `(tactic| (
+  ($pre); dsimp only
+  cases $plan with
+  | node1 $pk => rw [$eqF, $eqP]; simp only; ($body)
+  | _ => rw [$eqF, $eqP]))
 
-private theorem validateCTBlocksFlat_eq {rs : List Ty} :
-    (acts : List BlockAct) → (pbs : CTPlanB) → {sig : List (List Ty)} → (tb : TBlocks rs sig) →
-    {Γ : List Ty} → {Δ : List (List Ty)} →
-    {vs : List ((t : Ty) × Arg (CTOptV UnitV) t)} →
-    {ls : List ((ts : List Ty) × ValidL rs ts)} →
-    {inVD inLD : Nat} →
-    {inVE : Trie ((t : Ty) × Arg (CTOptV UnitV) t)} →
-    {inLE : Trie ((ts : List Ty) × ValidLFlat rs ts)} →
-    CtxTypes Γ vs → CtxTypes Δ ls → TrieCtxMatch inVD inVE vs →
-    TrieRelMatch (fun _ => ValidLFlatMatch (rs := rs)) inLD inLE ls → tb.wfCheck Γ Δ = true →
-    validateCTBlocksFlat acts pbs inVD inVE inLD inLE tb =
-      validateCTBlocks acts pbs (denoteB (Arg (CTOptV UnitV)) (ValidL rs) tb vs ls)
-  | acts, .nil, [], .nil, _, _, _, _, _, _, _, _, _, _, _, _, _ => by
-    rw [validateCTBlocksFlat.eq_def, denoteB.eq_def, validateCTBlocks.eq_def]; simp only
-    cases acts <;> rfl
-  | _, .cons _ _, [], .nil, _, _, _, _, _, _, _, _, _, _, _, _, _ => by
-    rw [validateCTBlocksFlat.eq_def, denoteB.eq_def, validateCTBlocks.eq_def]; simp only
-  | acts, .nil, _ :: _, .cons _ _, _, _, _, _, _, _, _, _, _, _, _, _, _ => by
-    rw [validateCTBlocksFlat.eq_def, denoteB.eq_def, validateCTBlocks.eq_def]; simp only
-  | [], .cons _ _, _ :: _, .cons _ _, _, _, _, _, _, _, _, _, _, _, _, _, _ => by
-    rw [validateCTBlocksFlat.eq_def, denoteB.eq_def, validateCTBlocks.eq_def]; simp only
-  | a :: acts', .cons pb pbs', ts :: _, .cons b bs, Γ, Δ, vs, ls, inVD, inLD, inVE, inLE,
-      hΓ, hΔ, hmV, hmL, hwf => by
-    dsimp only [TBlocks.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
-    rw [validateCTBlocksFlat.eq_def, denoteB.eq_def, validateCTBlocks.eq_def]; simp only
-    have hrest := validateCTBlocksFlat_eq acts' pbs' bs hΓ hΔ hmV hmL hwf.2
-    cases a with
-    | keep keepB _ =>
-      cases keepB with
-      | true =>
-        simp only
-        rw [validateCTPlanFlat_eq pb b (ctxTypes_pushTup_rev _ hΓ) hΔ
-          (trieCtxMatch_insertTupEnv hmV _) hmL hwf.1, hrest]
-      | false => simp only; rw [hrest]
-    | splitBool p keepT keepF _ _ _ =>
-      simp only
-      cases splitMember? p ts with
-      | none =>
-        simp only
-        rw [validateCTPlanFlat_eq pb b (ctxTypes_pushTup_rev _ hΓ) hΔ
-          (trieCtxMatch_insertTupEnv hmV _) hmL hwf.1, hrest]
-      | some m =>
-        simp only
-        rw [validateCTPlanFlat_eq pb b (ctxTypes_pushTup_rev _ hΓ) hΔ
-          (trieCtxMatch_insertTupEnv hmV _) hmL hwf.1,
-          validateCTPlanFlat_eq pb b (ctxTypes_pushTup_rev _ hΓ) hΔ
-          (trieCtxMatch_insertTupEnv hmV _) hmL hwf.1, hrest]
-termination_by structural _ pbs => pbs
-end
+private theorem validateCTPlanFlat_both {rs : List Ty} :
+    (∀ (tf : TFlat rs) {Γ Δ vs ls inVD} {_outVD : Nat} {inLD} {_outLD : Nat} {inVE inLE}
+      (plan : CTPlan),
+      CtxTypes Γ vs → CtxTypes Δ ls → TrieCtxMatch inVD inVE vs →
+      (CtxTypes Δ ls ∧
+        TrieRelMatch (fun _ => ValidLFlatMatch (rs := rs)) inLD inLE ls) →
+      tf.wfCheck Γ Δ = true →
+      validateCTPlanFlat plan inVD inVE inLD inLE tf =
+        validateCTPlan plan (denote (Arg (CTOptV UnitV)) (ValidL rs) tf vs ls)) ∧
+    (∀ {sig : List (List Ty)} (tb : TBlocks rs sig)
+      {Γ Δ vs ls inVD} {_outVD : Nat} {inLD} {_outLD : Nat} {inVE inLE}
+      (sp : List BlockAct × CTPlanB),
+      CtxTypes Γ vs → CtxTypes Δ ls → TrieCtxMatch inVD inVE vs →
+      (CtxTypes Δ ls ∧
+        TrieRelMatch (fun _ => ValidLFlatMatch (rs := rs)) inLD inLE ls) →
+      tb.wfCheck Γ Δ = true →
+      validateCTBlocksFlat sp.1 sp.2 inVD inVE inLD inLE tb =
+        validateCTBlocks sp.1 sp.2 (denoteB (Arg (CTOptV UnitV)) (ValidL rs) tb vs ls)) := by
+  refine relSim_mutual
+    (LR := fun Δ inLD inLE ls =>
+      CtxTypes Δ ls ∧ TrieRelMatch (fun _ => ValidLFlatMatch (rs := rs)) inLD inLE ls) ⟨
+    @fun ts _ _ _ _ inVD _ _ _ inVE _ plan op k hΓ _ hmV hlr hwf ih => by
+      vct_node1 validateCTPlanFlat.eq_def, validateCTPlan.eq_def, plan, pk,
+        (obtain ⟨ha, hk⟩ := wf_let hwf; dsimp only [denote];
+         rw [denoteArgs_eq_some_resolveEnvArgs hΓ hmV op.args ha ctDflt]),
+        (cases evalThreadLet? op.code (flattenArgs (resolveEnvArgs inVD inVE op.args ctDflt)) with
+         | some out =>
+           exact ih (outVD' := 0) (outLD' := 0) pk (ctxTypes_pushTup_rev out hΓ)
+             (trieCtxMatch_insertTupEnv hmV out) hlr hk
+         | none =>
+           exact ih (outVD' := 0) (outLD' := 0) pk (ctxTypes_pushTup_rev _ hΓ)
+             (trieCtxMatch_insertTupEnv hmV _) hlr hk),
+    fun plan t a k hΓ _ hmV hlr hwf ih => by
+      vct_node1 validateCTPlanFlat.eq_def, validateCTPlan.eq_def, plan, pk,
+        (obtain ⟨ha, hk⟩ := wf_load hwf; dsimp only [denote];
+         rw [denoteArg_eq_some_resolveEnvArg hΓ hmV a ha ctDflt]),
+        exact ih (outVD' := 0) (outLD' := 0) pk (.cons hΓ) (hmV.cons t (Arg.var (some ()))) hlr hk,
+    fun plan v a k hΓ _ hmV hlr hwf ih => by
+      vct_node1 validateCTPlanFlat.eq_def, validateCTPlan.eq_def, plan, pk,
+        (obtain ⟨hv, ha, hk⟩ := wf_store hwf; dsimp only [denote];
+         rw [denoteArg_eq_some_resolveEnvArg hΓ hmV v hv ctDflt,
+           denoteArg_eq_some_resolveEnvArg hΓ hmV a ha ctDflt]),
+        exact ih (outVD' := 0) (outLD' := 0) pk hΓ hmV hlr hk,
+    fun plan _ bs args k hΓ _ hmV hlr hwf ih => by
+      vct_node1 validateCTPlanFlat.eq_def, validateCTPlan.eq_def, plan, pk,
+        (obtain ⟨ha, hk⟩ := wf_call hwf; dsimp only [denote];
+         rw [denoteArgs_eq_some_resolveEnvArgs hΓ hmV args ha ctDflt]),
+        exact ih (outVD' := 0) (outLD' := 0) pk (ctxTypes_pushTup_rev _ hΓ)
+          (trieCtxMatch_insertTupEnv hmV _) hlr hk,
+    @fun _ _ _ _ inVD _ _ _ inVE _ plan c t e hΓ _ hmV _ hwf iht ihe => by
+      obtain ⟨hc, ht, he⟩ := wf_jnz hwf
+      dsimp only [denote]; rw [denoteArg_eq_some_resolveEnvArg hΓ hmV c hc ctDflt]; dsimp only
+      cases plan with
+      | node2 pt pe =>
+        rw [validateCTPlanFlat.eq_def, validateCTPlan.eq_def]; simp only
+        cases flattenArg (resolveEnvArg inVD inVE c ctDflt) with
+        | imm b => cases b with | true => exact iht pt ht | false => exact ihe pe he
+        | var _ => dsimp only; rw [iht pt ht, ihe pe he]
+      | _ => rw [validateCTPlanFlat.eq_def, validateCTPlan.eq_def],
+    @fun _ _ _ _ _ inVD _ _ _ inVE _ plan j args hΓ _ hmV hlr hwf => by
+      obtain ⟨hj, ha⟩ := wf_jump hwf
+      obtain ⟨w₁, w₂, hres, hlk, hm⟩ := TrieRelMatch.resolveLabel_rel hlr.1 hlr.2 hj
+      dsimp only [denote]
+      rw [hlk, denoteArgs_eq_some_resolveEnvArgs hΓ hmV args ha ctDflt]; dsimp only
+      cases plan with
+      | jump tryInl =>
+        rw [validateCTPlanFlat.eq_def, validateCTPlan.eq_def]; simp only
+        rw [hres]; simp only [hm.1]
+        cases tryInl with
+        | false => rfl
+        | true =>
+          rw [hm.2 (flattenArgs (resolveEnvArgs inVD inVE args ctDflt))]
+          cases w₂.inline? (flattenArgs (resolveEnvArgs inVD inVE args ctDflt)) <;> rfl
+      | _ => rw [validateCTPlanFlat.eq_def, validateCTPlan.eq_def],
+    fun plan vs' hΓ _ hmV _ hwf => by
+      dsimp only [denote]
+      rw [denoteArgs_eq_some_resolveEnvArgs hΓ hmV vs' hwf ctDflt]; dsimp only
+      cases plan <;> rw [validateCTPlanFlat.eq_def, validateCTPlan.eq_def] <;> simp only,
+    fun plan _ args hΓ _ hmV _ hwf => by
+      dsimp only [denote]
+      rw [denoteArgs_eq_some_resolveEnvArgs hΓ hmV args hwf ctDflt]; dsimp only
+      cases plan <;> rw [validateCTPlanFlat.eq_def, validateCTPlan.eq_def] <;> simp only,
+    fun plan _ _ _ _ _ => by
+      dsimp only [denote]
+      cases plan <;> rw [validateCTPlanFlat.eq_def, validateCTPlan.eq_def] <;> simp only,
+    @fun sig _ Δ vs ls inVD outVD inLD outLD inVE inLE plan bodies k hΓ hΔ hmV hlr hwf ihB ihK => by
+      obtain ⟨hb, hk⟩ := wf_group hwf
+      dsimp only [denote]
+      cases plan with
+      | group acts pbs pk =>
+        rw [validateCTPlanFlat.eq_def, validateCTPlan.eq_def]; simp only
+        have hno := validTargetsFlat_match (rs := rs) acts sig
+        have hbody := attachInlinesGen_match (fun _ => ValidLFlatMatch (rs := rs))
+          (tryMakeValidInlineFlat inVD inVE _ _)
+          (attachValidInlinesFlat inVD inVE _ _)
+          (fun pbs _ _ _ _ => by cases pbs <;> (rw [attachValidInlinesFlat.eq_def]; rfl))
+          (fun acts _ _ _ _ => by cases acts <;> (rw [attachValidInlinesFlat.eq_def]; rfl))
+          (fun _ _ _ _ _ _ _ _ => rfl)
+          (tryMakeValidInlineFlat_match hΓ (ctxTypes_pushTup_rev _ hΔ) hmV
+            (TrieRelMatch.pushTup hno hlr.2))
+          acts pbs bodies hno hb
+        have hmBody := TrieRelMatch.pushTup hbody hlr.2
+        have hΔ' := ctxTypes_pushTup_rev
+          (attachInlines acts pbs (denoteB (Arg (CTOptV UnitV)) (ValidL rs) bodies vs
+            (pushTup (validTargets acts sig) ls)) (validTargets acts sig)) hΔ
+        rw [ihB (outLD' := outLD) (acts, pbs) hΔ' ⟨hΔ', hmBody⟩ hb,
+          ihK (outLD' := outLD) pk hΔ' ⟨hΔ', hmBody⟩ hk]
+      | _ => rw [validateCTPlanFlat.eq_def, validateCTPlan.eq_def],
+    fun ⟨acts, pbs⟩ _ _ _ _ _ => by
+      rw [validateCTBlocksFlat.eq_def, denoteB.eq_def, validateCTBlocks.eq_def]; simp only
+      cases pbs <;> cases acts <;> rfl,
+    @fun ts _ _ _ _ _ _ _ _ _ _ _ ⟨acts, pbs⟩ b bs hΓ _ hmV hlr hwf ih ihs => by
+      obtain ⟨hb, hbs⟩ := wf_cons hwf
+      cases pbs with
+      | nil => rw [validateCTBlocksFlat.eq_def, denoteB.eq_def, validateCTBlocks.eq_def]; simp only
+      | cons pb pbs' =>
+        cases acts with
+        | nil =>
+          rw [validateCTBlocksFlat.eq_def, denoteB.eq_def, validateCTBlocks.eq_def]; simp only
+        | cons a acts' =>
+          rw [validateCTBlocksFlat.eq_def, denoteB.eq_def, validateCTBlocks.eq_def]; simp only
+          have hrest := ihs (acts', pbs') hbs
+          have hpb (args : Tup (Arg (CTOptV UnitV)) ts) :=
+            ih (outVD' := 0) (outLD' := 0) pb (ctxTypes_pushTup_rev args hΓ)
+              (trieCtxMatch_insertTupEnv hmV args) hlr hb
+          cases a with
+          | keep keepB _ =>
+            cases keepB <;> simp only
+            · rw [hrest]
+            · rw [hpb _, hrest]
+          | splitBool p _ _ _ _ _ =>
+            simp only
+            cases splitMember? p ts <;> simp only
+            · rw [hpb _, hrest]
+            · rw [hpb _, hpb _, hrest]⟩
 
 /-! ## 4. `rewriteCTFlat` Equivalence -/
 
@@ -901,12 +774,10 @@ private theorem toTBlocks_mkSplitBlocks {rs ts : List Ty} (m : Member .bool ts)
   dsimp only [mkSplitBlocks, mkSplitBlocksFlat]
   rw [toTBlocks_condConsBlock, toTBlocks_condConsBlock, toTBlocks_condConsBlock]
   refine congrArg (condConsTBlock keepDisp · _) ?_
-  funext ()
-  rw [htgt]
+  funext (); rw [htgt]
   cases lP.target with
   | keep _ | dead => rfl
-  | split m' lT? lF? _ =>
-    cases lT? <;> cases lF? <;> rfl
+  | split _ lT? lF? _ => cases lT? <;> cases lF? <;> rfl
 
 private theorem toTBlocks_mkSplitCurBlocks {rs ts : List Ty} (keepT keepF keepDisp : Bool)
     {lF : CTLabelFlat rs ts} {lP : CTLabel K KL rs ts} (htgt : lF.target = lP.target)
@@ -950,8 +821,8 @@ private theorem tryMakeInlineLabelFlat_match {rs ts : List Ty}
   have hJ : ∀ {ts' : List Ty} {jl : CTLabelFlat rs ts'} {j : CTLabel K KL rs ts'}
       {a : Tup (Arg (CTOptV K)) ts'},
       CTLabelFlatMatch jl j → (jl.target.canEmit a || (jl.inline? 0 0 a).isSome) =
-        (j.target.canEmit a || (j.inline? a).isSome) := by
-    intro _ jl j a hm; rw [hm.1, orel_isSome (hm.2 0 0 a)]
+        (j.target.canEmit a || (j.inline? a).isSome) :=
+    fun hm => by rw [hm.1, orel_isSome (hm.2 0 0 _)]
   cases act with
   | keep _ bInl =>
     cases bInl with
@@ -959,322 +830,156 @@ private theorem tryMakeInlineLabelFlat_match {rs ts : List Ty}
     | true =>
       refine ⟨hl.1, fun ovd old args => ?_⟩
       dsimp only [tryMakeInlineLabelFlat, tryMakeInlineLabel]
-      have hp := peelThreadHeadFlat_eq 4 false pb b (ctxTypes_pushTup_rev args hΓ) hΔ
-        (trieCtxMatch_insertTupEnv hmV args) hb
-      obtain ⟨Γ', vs', hΓ', hmV', hwf', hpeel⟩ := hp
-      cases hres :
-          peelThreadHeadFlat 4 false pb (inVD + ts.length) (insertTupEnv inVD inVE args) b
-      rw [hres] at hmV' hwf' hpeel
-      dsimp only at hmV' hwf' hpeel
-      rw [hpeel]
-      dsimp only
-      rw [validateInlineFlat_eq
-        (fun _ => CTLabelFlatMatch (rs := rs)) _ hJ _ _ _ hΓ' hΔ hmV' hmL hwf']
-      cases (validateInline _ _ _).isSome <;>
-        simp only [Bool.false_eq_true, ↓reduceIte, ORel]
-      exact (rewriteCTInlineFlat_eq _ _ hΓ' hΔ hmV' hmL hwf').symm
+      obtain ⟨Γ', vs', hΓ', hmV', hwf', hpeel, hval⟩ := peelValidate_eq
+        (fun _ => CTLabelFlatMatch (rs := rs)) _ hJ hΓ hΔ hmV hmL pb b hb args
+        (fun res => if res then 8 else 3)
+      rw [hval, hpeel]; dsimp only
+      cases (validateInline _ _ _).isSome with
+      | false => simp [ORel]
+      | true =>
+        simp only [↓reduceIte, ORel]
+        exact (rewriteCTInlineFlat_eq _ _ hΓ' hΔ hmV' hmL hwf').symm
   | splitBool _ _ _ _ inlT inlF =>
     by_cases hInl : (inlT || inlF) = true
     · dsimp only [tryMakeInlineLabelFlat, tryMakeInlineLabel]
       simp only [hInl, ↓reduceIte]
       refine ⟨hl.1, fun ovd old args => ?_⟩
       dsimp only
-      have hp := peelThreadHeadFlat_eq 4 false pb b (ctxTypes_pushTup_rev args hΓ) hΔ
-        (trieCtxMatch_insertTupEnv hmV args) hb
-      obtain ⟨Γ', vs', hΓ', hmV', hwf', hpeel⟩ := hp
-      cases hres :
-          peelThreadHeadFlat 4 false pb (inVD + ts.length) (insertTupEnv inVD inVE args) b
-      rw [hres] at hmV' hwf' hpeel
-      dsimp only at hmV' hwf' hpeel
-      rw [hpeel]
-      dsimp only
-      rw [validateInlineFlat_eq
-        (fun _ => CTLabelFlatMatch (rs := rs)) _ hJ 8 _ _ hΓ' hΔ hmV' hmL hwf']
-      cases (_ && (validateInline 8 _ _).isSome) <;>
-        simp only [Bool.false_eq_true, ↓reduceIte, ORel]
-      exact (rewriteCTInlineFlat_eq _ _ hΓ' hΔ hmV' hmL hwf').symm
+      obtain ⟨Γ', vs', hΓ', hmV', hwf', hpeel, hval⟩ := peelValidate_eq
+        (fun _ => CTLabelFlatMatch (rs := rs)) _ hJ hΓ hΔ hmV hmL pb b hb args (fun _ => 8)
+      rw [hval, hpeel]; dsimp only
+      cases (_ && (validateInline 8 _ _).isSome) with
+      | false => simp [ORel]
+      | true =>
+        simp only [↓reduceIte, ORel]
+        exact (rewriteCTInlineFlat_eq _ _ hΓ' hΔ hmV' hmL hwf').symm
     · dsimp only [tryMakeInlineLabelFlat, tryMakeInlineLabel]
-      simp only [hInl, Bool.false_eq_true, ↓reduceIte]
-      exact hl
+      simp only [hInl, Bool.false_eq_true, ↓reduceIte]; exact hl
 
-private theorem attachInlinesFlat_match {rs : List Ty}
-    {Γ : List Ty} {Δ : List (List Ty)}
-    {vs : List ((t : Ty) × Arg (CTOptV K) t)}
-    {ls : List ((ts' : List Ty) × CTLabel K KL rs ts')}
-    {inVD inLD : Nat}
-    {inVE : Trie ((t : Ty) × Arg (CTOptV K) t)}
-    {inLE : Trie ((ts' : List Ty) × CTLabelFlat rs ts')}
-    (hΓ : CtxTypes Γ vs) (hΔ : CtxTypes Δ ls) (hmV : TrieCtxMatch inVD inVE vs)
-    (hmL : TrieRelMatch (fun _ => CTLabelFlatMatch (rs := rs)) inLD inLE ls) :
-    (acts : List BlockAct) → (pbs : CTPlanB) → {sig : List (List Ty)} → (tb : TBlocks rs sig) →
-    {lsF : Tup (CTLabelFlat rs) sig} → {lsP : Tup (CTLabel K KL rs) sig} →
-    TRel (fun _ => CTLabelFlatMatch (rs := rs)) lsF lsP → tb.wfCheck Γ Δ = true →
-    TRel (fun _ => CTLabelFlatMatch (rs := rs))
-      (attachInlinesFlat inVD inVE inLD inLE acts pbs tb lsF)
-      (attachInlines acts pbs (denoteB (Arg (CTOptV K)) (CTLabel K KL rs) tb vs ls) lsP)
-  | _, _, [], .nil, (), (), .nil, _ => .nil
-  | [], _, _ :: _, .cons _ bs, (_, _), (_, _), .cons hl hls, hwf => by
-    dsimp only [TBlocks.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
-    exact .cons hl (attachInlinesFlat_match hΓ hΔ hmV hmL [] .nil bs hls hwf.2)
-  | _ :: _, .nil, _ :: _, .cons _ bs, (_, _), (_, _), .cons hl hls, hwf => by
-    dsimp only [TBlocks.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
-    exact .cons hl (attachInlinesFlat_match hΓ hΔ hmV hmL [] .nil bs hls hwf.2)
-  | a :: acts', .cons pb pbs', _ :: _, .cons b bs, (_, _), (_, _), .cons hl hls, hwf => by
-    dsimp only [TBlocks.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
-    dsimp only [attachInlinesFlat, denoteB, attachInlines]
-    exact .cons (tryMakeInlineLabelFlat_match hΓ hΔ hmV hmL a pb b hwf.1 hl)
-      (attachInlinesFlat_match hΓ hΔ hmV hmL acts' pbs' bs hls hwf.2)
-
-mutual
-private theorem rewriteCTFlat_eq {rs : List Ty} :
-    (plan : CTPlan) → (tf : TFlat rs) → {Γ : List Ty} → {Δ : List (List Ty)} →
-    {vs : List ((t : Ty) × Arg (CTOptV K) t)} →
-    {ls : List ((ts : List Ty) × CTLabel K KL rs ts)} →
-    {inVD inLD outVD outLD : Nat} →
-    {inVE : Trie ((t : Ty) × Arg (CTOptV K) t)} →
-    {inLE : Trie ((ts : List Ty) × CTLabelFlat rs ts)} →
-    CtxTypes Γ vs → CtxTypes Δ ls → TrieCtxMatch inVD inVE vs →
-    TrieRelMatch (fun _ => CTLabelFlatMatch (rs := rs)) inLD inLE ls → tf.wfCheck Γ Δ = true →
-    toTFlat (rewriteCTAux plan (denote (Arg (CTOptV K)) (CTLabel K KL rs) tf vs ls))
-        outVD outLD =
-      rewriteCTFlat plan inVD inVE inLD inLE outVD outLD tf
-  | plan, .let_ (ts := dts) ⟨code, args⟩ k, Γ, Δ, vs, ls, inVD, inLD, outVD, outLD, inVE, inLE,
-      hΓ, hΔ, hmV, hmL, hwf => by
-    dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
-    dsimp only [denote]
-    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hmV args hwf.1 ctDflt]; dsimp only
-    cases plan with
-    | node1 pk =>
-      rw [rewriteCTAux.eq_def, rewriteCTFlat.eq_def]; simp only
-      cases evalThreadLet? code (flattenArgs (resolveEnvArgs inVD inVE args ctDflt)) with
-      | some out =>
-        exact rewriteCTFlat_eq pk k (ctxTypes_pushTup_rev out hΓ) hΔ
-          (trieCtxMatch_insertTupEnv hmV out) hmL hwf.2
-      | none =>
-        cases toRealArgs? (flattenArgs (resolveEnvArgs inVD inVE args ctDflt)) with
-        | none => rfl
-        | some rargs =>
-          dsimp only [toTFlat]
-          have hfresh := trieCtxMatch_insertFreshWith
-            (fun _ _ od => Arg.var (some od)) hmV dts outVD
-          rw [mkFreshOptArg_eq_toOptArgTup] at hfresh
-          exact congrArg (TFlat.let_ _)
-            (rewriteCTFlat_eq pk k (ctxTypes_pushTup_rev _ hΓ) hΔ hfresh hmL hwf.2)
-    | leaf | jump _ | node2 _ _ | group _ _ _ =>
-      rw [rewriteCTAux.eq_def, rewriteCTFlat.eq_def]; simp only; rfl
-  | plan, .load t a k, Γ, Δ, vs, ls, inVD, inLD, outVD, outLD, inVE, inLE,
-      hΓ, hΔ, hmV, hmL, hwf => by
-    dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
-    dsimp only [denote]
-    rw [denoteArg_eq_some_resolveEnvArg hΓ hmV a hwf.1 ctDflt]; dsimp only
-    cases plan with
-    | node1 pk =>
-      rw [rewriteCTAux.eq_def, rewriteCTFlat.eq_def]; simp only
-      cases toRealArg? (flattenArg (resolveEnvArg inVD inVE a ctDflt)) with
-      | none => rfl
-      | some ra =>
-        dsimp only [toTFlat]
-        exact congrArg (TFlat.load t _)
-          (rewriteCTFlat_eq pk k (.cons hΓ) hΔ (hmV.cons t (Arg.var (some outVD))) hmL hwf.2)
-    | leaf | jump _ | node2 _ _ | group _ _ _ =>
-      rw [rewriteCTAux.eq_def, rewriteCTFlat.eq_def]; simp only; rfl
-  | plan, .store v a k, Γ, Δ, vs, ls, inVD, inLD, outVD, outLD, inVE, inLE,
-      hΓ, hΔ, hmV, hmL, hwf => by
-    dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
-    dsimp only [denote]
-    rw [denoteArg_eq_some_resolveEnvArg hΓ hmV v hwf.1.1 ctDflt,
-      denoteArg_eq_some_resolveEnvArg hΓ hmV a hwf.1.2 ctDflt]; dsimp only
-    cases plan with
-    | node1 pk =>
-      rw [rewriteCTAux.eq_def, rewriteCTFlat.eq_def]; simp only
-      cases toRealArg? (flattenArg (resolveEnvArg inVD inVE v ctDflt)) with
-      | none => rfl
-      | some rv =>
-        cases toRealArg? (flattenArg (resolveEnvArg inVD inVE a ctDflt)) with
-        | none => rfl
-        | some ra =>
-          dsimp only [toTFlat]
-          exact congrArg (TFlat.store _ _) (rewriteCTFlat_eq pk k hΓ hΔ hmV hmL hwf.2)
-    | leaf | jump _ | node2 _ _ | group _ _ _ =>
-      rw [rewriteCTAux.eq_def, rewriteCTFlat.eq_def]; simp only; rfl
-  | plan, .call f bs args k, Γ, Δ, vs, ls, inVD, inLD, outVD, outLD, inVE, inLE,
-      hΓ, hΔ, hmV, hmL, hwf => by
-    dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
-    dsimp only [denote]
-    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hmV args hwf.1 ctDflt]; dsimp only
-    cases plan with
-    | node1 pk =>
-      rw [rewriteCTAux.eq_def, rewriteCTFlat.eq_def]; simp only
-      cases toRealArgs? (flattenArgs (resolveEnvArgs inVD inVE args ctDflt)) with
-      | none => rfl
-      | some rargs =>
-        dsimp only [toTFlat]
-        have hfresh := trieCtxMatch_insertFreshWith
-          (fun _ _ od => Arg.var (some od)) hmV bs outVD
-        rw [mkFreshOptArg_eq_toOptArgTup] at hfresh
-        exact congrArg (TFlat.call f bs _)
-          (rewriteCTFlat_eq pk k (ctxTypes_pushTup_rev _ hΓ) hΔ hfresh hmL hwf.2)
-    | leaf | jump _ | node2 _ _ | group _ _ _ =>
-      rw [rewriteCTAux.eq_def, rewriteCTFlat.eq_def]; simp only; rfl
-  | plan, .jnz c t e, Γ, Δ, vs, ls, inVD, inLD, outVD, outLD, inVE, inLE,
-      hΓ, hΔ, hmV, hmL, hwf => by
-    dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
-    dsimp only [denote]
-    rw [denoteArg_eq_some_resolveEnvArg hΓ hmV c hwf.1.1 ctDflt]; dsimp only
-    cases plan with
-    | node2 pt pe =>
-      rw [rewriteCTAux.eq_def, rewriteCTFlat.eq_def]; simp only
-      cases flattenArg (resolveEnvArg inVD inVE c ctDflt) with
-      | imm b =>
-        cases b with
-        | true => exact rewriteCTFlat_eq pt t hΓ hΔ hmV hmL hwf.1.2
-        | false => exact rewriteCTFlat_eq pe e hΓ hΔ hmV hmL hwf.2
-      | var v? =>
-        cases v? with
-        | none => rfl
-        | some v =>
-          dsimp only [toTFlat]
-          rw [rewriteCTFlat_eq pt t hΓ hΔ hmV hmL hwf.1.2,
-            rewriteCTFlat_eq pe e hΓ hΔ hmV hmL hwf.2]
-    | leaf | jump _ | node1 _ | group _ _ _ =>
-      rw [rewriteCTAux.eq_def, rewriteCTFlat.eq_def]; simp only; rfl
-  | plan, .jump (ts := ts) j args, Γ, Δ, vs, ls, inVD, inLD, outVD, outLD, inVE, inLE,
-      hΓ, hΔ, hmV, hmL, hwf => by
-    dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
-    obtain ⟨w₁, w₂, hres, hlk, hm⟩ := TrieRelMatch.resolveLabel_rel hΔ hmL hwf.1
-    dsimp only [denote]
-    rw [hlk, denoteArgs_eq_some_resolveEnvArgs hΓ hmV args hwf.2 ctDflt]; dsimp only
-    cases plan with
-    | jump tryInl =>
-      rw [rewriteCTAux.eq_def, rewriteCTFlat.eq_def]; simp only
-      rw [hres]; simp only
-      exact CTLabelFlat_emitJump_eq tryInl hm outVD outLD _
-    | leaf | node1 _ | node2 _ _ | group _ _ _ =>
-      rw [rewriteCTAux.eq_def, rewriteCTFlat.eq_def]; simp only; rfl
-  | plan, .ret vs', Γ, _, vs, _, inVD, _, _, _, inVE, _, hΓ, _, hmV, _, hwf => by
-    dsimp only [denote]
-    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hmV vs' hwf ctDflt]; dsimp only
-    cases plan with
-    | leaf =>
-      rw [rewriteCTAux.eq_def, rewriteCTFlat.eq_def]; simp only
-      cases toRealArgs? (flattenArgs (resolveEnvArgs inVD inVE vs' ctDflt)) <;> rfl
-    | jump _ | node1 _ | node2 _ _ | group _ _ _ =>
-      rw [rewriteCTAux.eq_def, rewriteCTFlat.eq_def]; simp only; rfl
-  | plan, .exit f args, Γ, _, vs, _, inVD, _, _, _, inVE, _, hΓ, _, hmV, _, hwf => by
-    dsimp only [denote]
-    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hmV args hwf ctDflt]; dsimp only
-    cases plan with
-    | leaf =>
-      rw [rewriteCTAux.eq_def, rewriteCTFlat.eq_def]; simp only
-      cases toRealArgs? (flattenArgs (resolveEnvArgs inVD inVE args ctDflt)) <;> rfl
-    | jump _ | node1 _ | node2 _ _ | group _ _ _ =>
-      rw [rewriteCTAux.eq_def, rewriteCTFlat.eq_def]; simp only; rfl
-  | plan, .hlt, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ => by
-    dsimp only [denote]
-    cases plan <;> rw [rewriteCTAux.eq_def, rewriteCTFlat.eq_def] <;> simp only <;> rfl
-  | plan, .group (sig := sig) bodies k, Γ, Δ, vs, ls,
-      inVD, inLD, outVD, outLD, inVE, inLE, hΓ, hΔ, hmV, hmL, hwf => by
-    dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
-    dsimp only [denote]
-    cases plan with
-    | group acts pbs pk =>
-      rw [rewriteCTAux.eq_def, rewriteCTFlat.eq_def]; simp only [toTFlat]
-      have hno := buildTargetsFlat_match (rs := rs) acts sig (Tup.levels (threadSig acts sig) outLD)
-      have hmNo := TrieRelMatch.pushTup hno hmL
-      have hbody := attachInlinesFlat_match hΓ (ctxTypes_pushTup_rev _ hΔ) hmV hmNo
-        acts pbs bodies hno hwf.1
-      have hmBody := TrieRelMatch.pushTup hbody hmL
-      have hΔ' := ctxTypes_pushTup_rev
-        (attachInlines acts pbs (denoteB (Arg (CTOptV K)) (CTLabel K KL rs) bodies vs
-          (pushTup (buildTargets acts sig (Tup.levels (threadSig acts sig) outLD)) ls))
-          (buildTargets acts sig (Tup.levels (threadSig acts sig) outLD))) hΔ
-      have hb := rewriteCTBlocksFlat_eq acts pbs bodies hΓ hΔ' hmV hmBody hno hwf.1
-        (outVD := outVD) (outLD := outLD + (threadSig acts sig).length)
-      have hk := rewriteCTFlat_eq pk k hΓ hΔ' hmV hmBody hwf.2
-        (outVD := outVD) (outLD := outLD + (threadSig acts sig).length)
-      rw [hb, hk]
-    | leaf | jump _ | node1 _ | node2 _ _ =>
-      rw [rewriteCTAux.eq_def, rewriteCTFlat.eq_def]; simp only; rfl
-termination_by structural plan _ => plan
-
-private theorem rewriteCTBlocksFlat_eq {rs : List Ty} :
-    (acts : List BlockAct) → (pbs : CTPlanB) → {sig : List (List Ty)} → (tb : TBlocks rs sig) →
-    {Γ : List Ty} → {Δ : List (List Ty)} →
-    {vs : List ((t : Ty) × Arg (CTOptV K) t)} →
-    {ls : List ((ts : List Ty) × CTLabel K KL rs ts)} →
-    {inVD inLD outVD outLD : Nat} →
-    {inVE : Trie ((t : Ty) × Arg (CTOptV K) t)} →
-    {inLE : Trie ((ts : List Ty) × CTLabelFlat rs ts)} →
-    {lsF : Tup (CTLabelFlat rs) sig} → {lsP : Tup (CTLabel K KL rs) sig} →
-    CtxTypes Γ vs → CtxTypes Δ ls → TrieCtxMatch inVD inVE vs →
-    TrieRelMatch (fun _ => CTLabelFlatMatch (rs := rs)) inLD inLE ls →
-    TRel (fun _ => CTLabelFlatMatch (rs := rs)) lsF lsP → tb.wfCheck Γ Δ = true →
-    toTBlocks (rewriteCTBlocks acts pbs (denoteB (Arg (CTOptV K)) (CTLabel K KL rs) tb vs ls) lsP)
-        outVD outLD =
-      rewriteCTBlocksFlat acts pbs inVD inVE inLD inLE outVD outLD tb lsF
-  | acts, _, [], .nil, _, _, _, _, _, _, outVD, outLD, _, _, (), (), _, _, _, _, _, _ => by
-    rw [rewriteCTBlocksFlat.eq_def, denoteB.eq_def, rewriteCTBlocks.eq_def]; simp only
-    exact toTBlocks_mkHltBlocks (threadSig acts []) outVD outLD
-  | [], _, _ :: sig', .cons _ _, _, _, _, _, _, _, outVD, outLD, _, _, _, _,
-      _, _, _, _, _, _ => by
-    rw [rewriteCTBlocksFlat.eq_def, denoteB.eq_def, rewriteCTBlocks.eq_def]; simp only
-    exact toTBlocks_mkHltBlocks _ outVD outLD
-  | a :: acts', .nil, _ :: sig', .cons _ _, _, _, _, _, _, _, outVD, outLD, _, _, _, _,
-      _, _, _, _, _, _ => by
-    rw [rewriteCTBlocksFlat.eq_def, denoteB.eq_def, rewriteCTBlocks.eq_def]; simp only
-    exact toTBlocks_mkHltBlocks _ outVD outLD
-  | a :: acts', .cons pb pbs', ts :: _, .cons b bs, Γ, Δ, vs, ls,
-      inVD, inLD, outVD, outLD, inVE, inLE, (lF, lsF'), (lP, lsP'),
-      hΓ, hΔ, hmV, hmL, hrel, hwf => by
-    dsimp only [TBlocks.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
-    cases hrel with
-    | cons hl hls =>
-      rw [rewriteCTBlocksFlat.eq_def, denoteB.eq_def, rewriteCTBlocks.eq_def]; simp only
-      rw [toTBlocks_append]
-      have htl := rewriteCTBlocksFlat_eq acts' pbs' bs hΓ hΔ hmV hmL hls hwf.2
-        (outVD := outVD) (outLD := outLD)
-      refine congr (congrArg tblocksAppend ?_) htl
-      cases a with
-      | keep keepB _ =>
-        cases keepB with
-        | true =>
-          dsimp only [actSig, toTBlocks]
-          have hfresh := trieCtxMatch_insertFreshWith
-            (fun _ _ od => Arg.var (some od)) hmV ts outVD
-          rw [mkFreshOptArg_eq_toOptArgTup] at hfresh
-          exact congrArg (TBlocks.cons · .nil)
-            (rewriteCTFlat_eq pb b (ctxTypes_pushTup_rev _ hΓ) hΔ hfresh hmL hwf.1)
-        | false => rfl
-      | splitBool p keepT keepF keepDisp _ _ =>
-        dsimp only
-        have h1 := toTBlocks_mkSplitCurBlocks keepT keepF keepDisp hl.1
-          (fun xs => rewriteCTAux pb (denote (Arg (CTOptV K)) (CTLabel K KL rs) b
-            (pushTup (toOptArgTup xs) vs) ls))
-          (fun m bVal xs => rewriteCTAux pb (denote (Arg (CTOptV K)) (CTLabel K KL rs) b
-            (pushTup (insertTupMem m (.imm bVal) (toOptArgTup xs)) vs) ls))
-          outVD outLD (splitMember? p ts)
-        rw [h1]
-        have hfresh := trieCtxMatch_insertFreshWith
-          (fun _ _ od => Arg.var (some od)) hmV ts outVD
-        rw [mkFreshOptArg_eq_toOptArgTup] at hfresh
-        have hid := rewriteCTFlat_eq pb b (ctxTypes_pushTup_rev _ hΓ) hΔ hfresh hmL hwf.1
-          (outVD := outVD + ts.length) (outLD := outLD)
-        have hsp : (fun (m : Member .bool ts) (bVal : Bool) => toTFlat (rewriteCTAux pb
-              (denote (Arg (CTOptV K)) (CTLabel K KL rs) b
-                (pushTup (insertTupMem m (Arg.imm (V := CTOptV K) bVal)
-                  (toOptArgTup (Tup.levels (eraseMem m) outVD))) vs) ls))
-              (outVD + (eraseMem m).length) outLD) =
-            (fun (m : Member .bool ts) (bVal : Bool) => rewriteCTFlat pb (inVD + ts.length)
-              (insertTupEnv inVD inVE
-                (insertTupMem m (Arg.imm (V := CTOptV K) bVal)
-                  (toOptArgTup (Tup.levels (eraseMem m) outVD))))
-              inLD inLE (outVD + (eraseMem m).length) outLD b) := by
-          funext m bVal
-          exact rewriteCTFlat_eq pb b (ctxTypes_pushTup_rev _ hΓ) hΔ
-            (trieCtxMatch_insertTupEnv hmV _) hmL hwf.1
-        rw [hid, hsp]
-termination_by structural _ pbs => pbs
-end
+private theorem rewriteCTFlat_both {rs : List Ty} :
+    (∀ (tf : TFlat rs) {Γ Δ vs ls inVD outVD inLD outLD inVE inLE} (plan : CTPlan),
+      CtxTypes Γ vs → CtxTypes Δ ls → TrieCtxMatch inVD inVE vs →
+      (CtxTypes Δ ls ∧
+        TrieRelMatch (fun _ => CTLabelFlatMatch (rs := rs)) inLD inLE ls) →
+      tf.wfCheck Γ Δ = true →
+      toTFlat (rewriteCTAux plan (denote (Arg (CTOptV K)) (CTLabel K KL rs) tf vs ls))
+          outVD outLD =
+        rewriteCTFlat plan inVD inVE inLD inLE outVD outLD tf) ∧
+    (∀ {sig : List (List Ty)} (tb : TBlocks rs sig)
+      {Γ Δ vs ls inVD outVD inLD outLD inVE inLE} (sp : List BlockAct × CTPlanB),
+      CtxTypes Γ vs → CtxTypes Δ ls → TrieCtxMatch inVD inVE vs →
+      (CtxTypes Δ ls ∧
+        TrieRelMatch (fun _ => CTLabelFlatMatch (rs := rs)) inLD inLE ls) →
+      tb.wfCheck Γ Δ = true →
+      ∀ {lsF : Tup (CTLabelFlat rs) sig} {lsP : Tup (CTLabel K KL rs) sig},
+        TRel (fun _ => CTLabelFlatMatch (rs := rs)) lsF lsP →
+        toTBlocks (rewriteCTBlocks sp.1 sp.2
+            (denoteB (Arg (CTOptV K)) (CTLabel K KL rs) tb vs ls) lsP) outVD outLD =
+          rewriteCTBlocksFlat sp.1 sp.2 inVD inVE inLD inLE outVD outLD tb lsF) := by
+  refine relSim_mutual
+    (LR := fun Δ inLD inLE ls =>
+      CtxTypes Δ ls ∧ TrieRelMatch (fun _ => CTLabelFlatMatch (rs := rs)) inLD inLE ls)
+    (ct_rw_rel rewriteCTAux.eq_def, rewriteCTFlat.eq_def,
+      @fun _ _ _ _ _ inVD outVD _ outLD inVE _ plan j args hΓ _ hmV hlr hwf => by
+        obtain ⟨hj, ha⟩ := wf_jump hwf
+        obtain ⟨w₁, w₂, hres, hlk, hm⟩ := TrieRelMatch.resolveLabel_rel hlr.1 hlr.2 hj
+        dsimp only [denote]
+        rw [hlk, denoteArgs_eq_some_resolveEnvArgs hΓ hmV args ha ctDflt]; dsimp only
+        cases plan with
+        | jump tryInl =>
+          rw [rewriteCTAux.eq_def, rewriteCTFlat.eq_def]; simp only; rw [hres]; simp only
+          exact CTLabelFlat_emitJump_eq tryInl hm outVD outLD _
+        | _ => rw [rewriteCTAux.eq_def, rewriteCTFlat.eq_def]; simp only; rfl,
+      @fun sig _ Δ vs ls inVD outVD inLD outLD inVE inLE plan bodies k hΓ hΔ hmV hlr hwf
+          ihB ihK => by
+        obtain ⟨hb, hk⟩ := wf_group hwf
+        dsimp only [denote]
+        cases plan with
+        | group acts pbs pk =>
+          rw [rewriteCTAux.eq_def, rewriteCTFlat.eq_def]; simp only [toTFlat]
+          have hno :=
+            buildTargetsFlat_match (rs := rs) acts sig (Tup.levels (threadSig acts sig) outLD)
+          have hbody := attachInlinesGen_match (fun _ => CTLabelFlatMatch (rs := rs))
+            (tryMakeInlineLabelFlat inVD inVE _ _)
+            (attachInlinesFlat inVD inVE _ _)
+            (fun pbs _ _ _ _ => by cases pbs <;> (rw [attachInlinesFlat.eq_def]; rfl))
+            (fun acts _ _ _ _ => by cases acts <;> (rw [attachInlinesFlat.eq_def]; rfl))
+            (fun _ _ _ _ _ _ _ _ => rfl)
+            (tryMakeInlineLabelFlat_match hΓ (ctxTypes_pushTup_rev _ hΔ) hmV
+              (TrieRelMatch.pushTup hno hlr.2))
+            acts pbs bodies hno hb
+          have hmBody := TrieRelMatch.pushTup hbody hlr.2
+          have hΔ' := ctxTypes_pushTup_rev
+            (attachInlines acts pbs (denoteB (Arg (CTOptV K)) (CTLabel K KL rs) bodies vs
+              (pushTup (buildTargets acts sig (Tup.levels (threadSig acts sig) outLD)) ls))
+              (buildTargets acts sig (Tup.levels (threadSig acts sig) outLD))) hΔ
+          have hb' := ihB (outLD' := outLD + (threadSig acts sig).length) (acts, pbs) hΔ'
+            ⟨hΔ', hmBody⟩ hb hno
+          have hk' := ihK (outLD' := outLD + (threadSig acts sig).length) pk hΔ'
+            ⟨hΔ', hmBody⟩ hk
+          rw [hb', hk']
+        | _ => rw [rewriteCTAux.eq_def, rewriteCTFlat.eq_def]; simp only; rfl,
+      @fun _ _ _ _ _ outVD _ outLD _ _ ⟨acts, _⟩ _ _ _ _ _ _ _ hrel => by
+        cases hrel
+        rw [rewriteCTBlocksFlat.eq_def, denoteB.eq_def, rewriteCTBlocks.eq_def]; simp only
+        exact toTBlocks_mkHltBlocks (threadSig acts []) outVD outLD,
+      @fun ts _ _ _ vs ls inVD outVD inLD outLD inVE inLE ⟨acts, pbs⟩ b bs
+          hΓ _ hmV hlr hwf ih ihs lsF lsP hrel => by
+        obtain ⟨hb, hbs⟩ := wf_cons hwf
+        rcases hrel with ⟨⟩ | ⟨hl, hls⟩
+        cases pbs with
+        | nil =>
+          cases acts <;> rw [rewriteCTBlocksFlat.eq_def, denoteB.eq_def, rewriteCTBlocks.eq_def] <;>
+            simp only <;> exact toTBlocks_mkHltBlocks _ outVD outLD
+        | cons pb pbs' =>
+          cases acts with
+          | nil =>
+            rw [rewriteCTBlocksFlat.eq_def, denoteB.eq_def, rewriteCTBlocks.eq_def]; simp only
+            exact toTBlocks_mkHltBlocks _ outVD outLD
+          | cons a acts' =>
+            rw [rewriteCTBlocksFlat.eq_def, denoteB.eq_def, rewriteCTBlocks.eq_def]; simp only
+            rw [toTBlocks_append]
+            refine congr (congrArg tblocksAppend ?_) (ihs (acts', pbs') hbs hls)
+            cases a with
+            | keep keepB _ =>
+              cases keepB with
+              | true =>
+                dsimp only [actSig, toTBlocks]
+                have hfresh := trieCtxMatch_insertFreshWith
+                  (fun _ _ od => Arg.var (some od)) hmV ts outVD
+                rw [mkFreshOptArg_eq_toOptArgTup] at hfresh
+                exact congrArg (TBlocks.cons · .nil)
+                  (ih (outVD' := outVD + ts.length) (outLD' := outLD) pb
+                    (ctxTypes_pushTup_rev _ hΓ) hfresh hlr hb)
+              | false => rfl
+            | splitBool p keepT keepF keepDisp _ _ =>
+              dsimp only
+              have h1 := toTBlocks_mkSplitCurBlocks keepT keepF keepDisp hl.1
+                (fun xs => rewriteCTAux pb (denote (Arg (CTOptV K)) (CTLabel K KL rs) b
+                  (pushTup (toOptArgTup xs) vs) ls))
+                (fun m bVal xs => rewriteCTAux pb (denote (Arg (CTOptV K)) (CTLabel K KL rs) b
+                  (pushTup (insertTupMem m (.imm bVal) (toOptArgTup xs)) vs) ls))
+                outVD outLD (splitMember? p ts)
+              rw [h1]
+              have hfresh := trieCtxMatch_insertFreshWith
+                (fun _ _ od => Arg.var (some od)) hmV ts outVD
+              rw [mkFreshOptArg_eq_toOptArgTup] at hfresh
+              have hid := ih (outVD' := outVD + ts.length) (outLD' := outLD) pb
+                (ctxTypes_pushTup_rev _ hΓ) hfresh hlr hb
+              have hsp : (fun (m : Member .bool ts) (bVal : Bool) => toTFlat (rewriteCTAux pb
+                    (denote (Arg (CTOptV K)) (CTLabel K KL rs) b
+                      (pushTup (insertTupMem m (Arg.imm (V := CTOptV K) bVal)
+                        (toOptArgTup (Tup.levels (eraseMem m) outVD))) vs) ls))
+                    (outVD + (eraseMem m).length) outLD) =
+                  (fun (m : Member .bool ts) (bVal : Bool) => rewriteCTFlat pb (inVD + ts.length)
+                    (insertTupEnv inVD inVE
+                      (insertTupMem m (Arg.imm (V := CTOptV K) bVal)
+                        (toOptArgTup (Tup.levels (eraseMem m) outVD))))
+                    inLD inLE (outVD + (eraseMem m).length) outLD b) := by
+                funext m bVal
+                exact ih (outVD' := outVD + (eraseMem m).length) (outLD' := outLD) pb
+                  (ctxTypes_pushTup_rev _ hΓ) (trieCtxMatch_insertTupEnv hmV _) hlr hb
+              rw [hid, hsp])
 
 /-! ## 5. Public `condThreadPassFlat` Equivalence Theorems -/
 
@@ -1288,12 +993,10 @@ theorem condThreadWithPlanFlat_eq {as rs : List Ty} (plan : CTPlan) (tf : TFlat 
   have hmUnit := trieCtxMatch_initEnv
     (fun {t} (_ : K t) _ => (Arg.var (some ()) : Arg (CTOptV UnitV) t)) as
   rw [tupFreshUnitOpt_eq] at hmUnit
-  have hval : validateCTPlanFlat plan as.length
-        (initEnv (fun _ _ => .var (some ())) as) 0 .empty tf =
-      validateCTPlan plan (denote (Arg (CTOptV UnitV)) (ValidL rs) tf
-        (pushTup (toOptArgTup (Tup.units as)) []) []) :=
-    validateCTPlanFlat_eq plan tf (ctxTypes_pushTup_rev (toOptArgTup (Tup.units as)) .nil) .nil
-      hmUnit (TrieRelMatch.empty (fun _ => ValidLFlatMatch (rs := rs))) hwf
+  have hval := validateCTPlanFlat_both.1 tf plan
+    (ctxTypes_pushTup_rev (toOptArgTup (Tup.units as)) .nil) .nil hmUnit
+    ⟨.nil, TrieRelMatch.empty (fun _ => ValidLFlatMatch (rs := rs))⟩ hwf
+    (_outVD := 0) (_outLD := 0)
   rw [hval]
   by_cases hval' : validateCTPlan plan (denote (Arg (CTOptV UnitV)) (ValidL rs) tf
       (pushTup (toOptArgTup (Tup.units as)) []) []) = true
@@ -1301,13 +1004,26 @@ theorem condThreadWithPlanFlat_eq {as rs : List Ty} (plan : CTPlan) (tf : TFlat 
     have hmK := trieCtxMatch_initEnv
       (fun {t} (x : K t) _ => (Arg.var (some x) : Arg (CTOptV K) t)) as
     rw [tupFreshSomeOpt_eq] at hmK
-    have hrw := rewriteCTFlat_eq plan tf
+    have hrw := rewriteCTFlat_both.1 tf plan
       (ctxTypes_pushTup_rev (toOptArgTup (Tup.levels as 0)) .nil) .nil hmK
-      (TrieRelMatch.empty (fun _ => CTLabelFlatMatch (rs := rs))) hwf
+      ⟨.nil, TrieRelMatch.empty (fun _ => CTLabelFlatMatch (rs := rs))⟩ hwf
       (outVD := as.length) (outLD := 0)
     exact hrw.symm
   · simp only [hval', Bool.false_eq_true, ↓reduceIte]
     exact (reifyFunc_denoteFunc_eq tf hwf).symm
+
+/-- `condThreadPassOnceFlat` agrees with `Func.condThreadPassOnce` on `changed` and `.1`. -/
+theorem condThreadPassOnceFlat_eq {as rs : List Ty} (tf : TFlat rs)
+    (splitOnly : Bool := false) (hwf : tf.wfCheck (pushTypes as []) [] = true) :
+    (condThreadPassOnceFlat as splitOnly tf).1 =
+        reifyFunc (Func.condThreadPassOnce splitOnly (denoteFunc (as := as) tf)).1 ∧
+      (condThreadPassOnceFlat as splitOnly tf).2 =
+        (Func.condThreadPassOnce splitOnly (denoteFunc (as := as) tf)).2 := by
+  dsimp only [condThreadPassOnceFlat, Func.condThreadPassOnce]
+  rw [reifyFunc_denoteFunc_eq tf hwf]
+  split
+  · exact ⟨condThreadWithPlanFlat_eq _ tf hwf, rfl⟩
+  · exact ⟨(reifyFunc_denoteFunc_eq tf hwf).symm, rfl⟩
 
 /-- `condThreadPassFlat as tf = reifyFunc (Func.condThreadPass (denoteFunc tf))` under
 `wfCheck = true`. -/
@@ -1315,39 +1031,23 @@ theorem condThreadPassFlat_eq {as rs : List Ty} (tf : TFlat rs)
     (hwf : tf.wfCheck (pushTypes as []) [] = true) :
     condThreadPassFlat as tf =
       reifyFunc (Func.condThreadPass (denoteFunc (as := as) tf)) := by
-  dsimp only [condThreadPassFlat, Func.condThreadPass]
-  rw [reifyFunc_denoteFunc_eq tf hwf]
+  unfold Func.condThreadPass; dsimp only [condThreadPassFlat]
+  have h1 := condThreadPassOnceFlat_eq tf false hwf
+  rw [h1.2]
   split
-  · exact condThreadWithPlanFlat_eq _ tf hwf
-  · exact (reifyFunc_denoteFunc_eq tf hwf).symm
+  · have hwf1 : (Func.condThreadPassOnce false (denoteFunc (as := as) tf)).1.Wf :=
+      Func.condThreadPassOnce_wf false (Func.wf_of_denote tf rfl)
+    have hwfFlat : (condThreadPassOnceFlat as false tf).1.wfCheck (pushTypes as []) [] = true := by
+      rw [h1.1]; exact PassFlatKit.reifyFunc_wfCheck hwf1
+    have h2 := condThreadPassOnceFlat_eq (condThreadPassOnceFlat as false tf).1 true hwfFlat
+    rw [h2.1, h1.1]
+    exact congrArg reifyFunc (congrArg (fun g => (Func.condThreadPassOnce true g).1)
+      (Func.renorm_eq_self hwf1))
+  · exact h1.1
 
-/-- `denoteFunc (condThreadPassFlat as tf) = Func.condThreadPass (denoteFunc tf)` under
-`wfCheck = true`. -/
-theorem denoteFunc_condThreadPassFlat {as rs : List Ty} (tf : TFlat rs)
-    (hwf : tf.wfCheck (pushTypes as []) [] = true) :
-    denoteFunc (as := as) (condThreadPassFlat as tf) =
-      Func.condThreadPass (denoteFunc (as := as) tf) := by
-  rw [condThreadPassFlat_eq tf hwf]
-  exact Func.renorm_eq_self (Func.condThreadPass_wf (Func.wf_of_denote tf rfl))
-
-/-- `condThreadPassFlat` preserves `wfCheck`. -/
-theorem condThreadPassFlat_wfCheck {as rs : List Ty} (tf : TFlat rs)
-    (hwf : tf.wfCheck (pushTypes as []) [] = true) :
-    (condThreadPassFlat as tf).wfCheck (pushTypes as []) [] = true := by
-  rw [condThreadPassFlat_eq tf hwf]
-  exact PassFlatKit.reifyFunc_wfCheck (Func.condThreadPass_wf (Func.wf_of_denote tf rfl))
-
-/-- `(condThreadPassFlatFn f).toFn = ⟨f.name, f.as, f.rs, Func.condThreadPass f.toFn.body⟩`
-under `wfCheck = true`. -/
-theorem condThreadPassFlatFn_toFn (f : TFlatFn) (hwf : f.wfCheck = true) :
-    (condThreadPassFlatFn f).toFn = ⟨f.name, f.as, f.rs, Func.condThreadPass f.toFn.body⟩ := by
-  dsimp only [condThreadPassFlatFn, TFlatFn.toFn]
-  rw [denoteFunc_condThreadPassFlat f.body hwf]
-
-/-- `condThreadPassFlatFn` preserves `TFlatFn.wfCheck`. -/
-theorem condThreadPassFlatFn_wfCheck (f : TFlatFn) (hwf : f.wfCheck = true) :
-    (condThreadPassFlatFn f).wfCheck = true :=
-  condThreadPassFlat_wfCheck f.body hwf
+flat_pass_corollaries condThreadPassFlat, Func.condThreadPass, Func.condThreadPass_wf,
+  condThreadPassFlat_eq, denoteFunc_condThreadPassFlat, condThreadPassFlat_wfCheck,
+  condThreadPassFlatFn, condThreadPassFlatFn_toFn, condThreadPassFlatFn_wfCheck
 
 end OptFlatBranch
 end LeanQbe.T

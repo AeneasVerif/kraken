@@ -5,8 +5,7 @@ public import LeanQbe.T.MainCertProof
 public import LeanQbe.T.FlatLemmas
 public import LeanQbe.T.Notation
 public import LeanQbe.T.Logic.Rules
-import all Kraken.Mem
-import all Kraken.Separation
+import LeanQbe.T.Logic.MemLemmas
 public meta import Lean
 public meta import LeanQbe.T.MainCertElab
 public meta import LeanQbe.T.Amd64.ScalarTarg

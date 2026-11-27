@@ -23,7 +23,7 @@ meta import LeanQbe.T.PrintQbe
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbeTest.T.LeanLCNFTest
 
@@ -98,10 +98,10 @@ def declHas (short : String) (p : LcCode → Bool) : Bool :=
 def demoTfs : List TFlatFn := (lowerModule Demo.lcnfProgram).toOption.getD []
 
 /-- The reified demo program. -/
-def demoFns : List Fn := LeanLRC.tflatFnsToFns demoTfs
+def demoFns : List Fn := Frontend.C0.tflatFnsToFns demoTfs
 
 /-- Every function of the lowered demo program is `Func.Wf`. -/
-theorem lcnf_demo_wf : ∀ f ∈ demoFns, f.Wf := LeanLRC.tflatFnsToFns_wf demoTfs
+theorem lcnf_demo_wf : ∀ f ∈ demoFns, f.Wf := Frontend.C0.tflatFnsToFns_wf demoTfs
 
 #guard (lowerModule Demo.lcnfProgram).isOk
 #guard demoTfs.length == Demo.lcnfProgram.decls.length + 3
@@ -167,7 +167,7 @@ def generateArtifacts (outDir : System.FilePath) : IO Unit := do
       IO.FS.writeFile (tr / s!"{file}.mono") (s.mono ++ "\n")
       IO.FS.writeFile (tr / s!"{file}.impure") (s.impure ++ "\n")
     | none => throw (IO.userError s!"no snapshot for {full}")
-    match (LeanLRC.tflatFnsToFns tfs).find? (·.name == mangleLc full) with
+    match (Frontend.C0.tflatFnsToFns tfs).find? (·.name == mangleLc full) with
     | some f => IO.FS.writeFile (tr / s!"{file}.T.ssa") ((← IO.ofExcept (PrintQbe.fn f)) ++ "\n")
     | none => throw (IO.userError s!"no lowered function for {full}")
 

@@ -77,7 +77,7 @@ splice_lcnf_tflat! arrayDemoTfs arrayDemoLcMod
 
 /-- Standalone user `Module` containing the three lowered R2 container client functions. -/
 @[expose] def arrayDemoProgMod : Module :=
-  { fns := LeanLRC.tflatFnsToFns arrayDemoTfs, externs := [], exits := rtExitSyms }
+  { fns := Frontend.C0.tflatFnsToFns arrayDemoTfs, externs := [], exits := rtExitSyms }
 
 /-- Full `89`-function linked `Module`: `rtC0CoreMod` (`86` fns) ++ `arrayDemoProgMod` (`3` fns).
 -/

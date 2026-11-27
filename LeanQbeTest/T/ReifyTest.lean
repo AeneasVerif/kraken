@@ -18,7 +18,7 @@ public import LeanQbeTest.T.Smoke
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.ReifyTest
 
@@ -77,8 +77,10 @@ theorem storeThenLoadOther_check : Func.checkTFlat Smoke.storeThenLoadOther = tr
 theorem caller_check : Func.checkTFlat Smoke.caller = true := by decide
 theorem spin_check : Func.checkTFlat Smoke.spin = true := by decide
 
-theorem add128_noHlt (V : Ty → Type) (L : List Ty → Type) (xs : Tup V [Examples.u128, Examples.u128]) :
-    Expr.NoHlt (denote V L (toTFlat (Examples.add128 K KL (Tup.levels [Examples.u128, Examples.u128] 0))
+theorem add128_noHlt (V : Ty → Type) (L : List Ty → Type)
+    (xs : Tup V [Examples.u128, Examples.u128]) :
+    Expr.NoHlt (denote V L
+      (toTFlat (Examples.add128 K KL (Tup.levels [Examples.u128, Examples.u128] 0))
       [Examples.u128, Examples.u128].length 0) (pushTup xs []) []) :=
   Func.denote_noHlt_of_check Examples.add128 (by decide) (by decide) V L xs
 
@@ -97,7 +99,7 @@ theorem oob_wfCheck_false : (toTFlat oobRawExpr 1 0).wfCheck [i64] [] = false :=
   decide
 
 theorem oob_denote_eq_hlt (V : Ty → Type) (L : List Ty → Type) (v : V i64) :
-    denote V L (toTFlat oobRawExpr 1 0) [⟨i64, v⟩] [] = .hlt :=
+    denote V L (toTFlat oobRawExpr 1 0) [⟨i64, v⟩] [] = .hlt := by
   rfl
 
 /-- Type-mismatched de Bruijn index (`i32` expected where `i64` is bound) fails `wfCheck`

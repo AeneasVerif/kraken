@@ -3,13 +3,11 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityAssemblyStep7.lean" ] || \
+if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityAssemblyStep12.lean" ] || \
    [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityAssembly.lean" ]; then
   TARGET="fidelity"
-elif [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM7FidelityAssembly.lean" ]; then
-  TARGET="m7fidelity"
 else
-  TARGET="m5"
+  TARGET="plain"
 fi
 OUT_DIR="/tmp/kissat-c0direct"
 OUT_BIN=""
@@ -24,7 +22,7 @@ DIFF_BASE=""
 usage() {
   cat <<'EOF'
 usage: bash bench/kissat/build_c0_direct.sh [options]
-  --target <fidelity|fidelity-step12|fidelity-step11|fidelity-step10|fidelity-step9|fidelity-step8|fidelity-step7|fidelity-step6|m8opt|plain|m7fidelity|m7plus|m7|m6|m5>
+  --target <fidelity|fidelity-step12|fidelity-step11|fidelity-step10|fidelity-step9|fidelity-step8|fidelity-step7|fidelity-step6|m8opt|plain>
                          Kissat C0 splice target (aliases: fid, step12, step11, step10, step9, step8, opt, m8; default: auto)
   --out-dir <dir>        Output directory for sources/objects/binary (default: /tmp/kissat-c0direct)
   -o, --out <bin>        Output binary path (default: <out-dir>/bench_c0direct_<target>[_asan])
@@ -58,9 +56,8 @@ done
 
 case "$TARGET" in
   plain|fidelity|fid|fidelity-step12|step12|fidelity-step11|step11|fidelity-step10|step10|\
-  fidelity-step9|step9|fidelity-step9-memshrink|step9-memshrink|\
-  fidelity-step8|step8|fidelity-step7|fidelity-step6|fidelity-c0|m8opt|opt|m8|m5|m6|m7|\
-  m7plus|m7fidelity|m7plus-memshrink|m7fidelity-memshrink) ;;
+  fidelity-step9|step9|fidelity-step8|step8|fidelity-step7|fidelity-step6|fidelity-c0|\
+  m8opt|opt|m8) ;;
   *) echo "ERROR: unsupported --target '$TARGET'" >&2; exit 2 ;;
 esac
 

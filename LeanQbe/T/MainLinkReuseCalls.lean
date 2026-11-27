@@ -1345,6 +1345,7 @@ private theorem addrRangeSweep_let {V : Ty → Type} {L : List Ty → Type} {ts 
     (k : Tup (ARVal V) ts → Expr (ARVal V) L rs) :
     addrRangeSweep curD next plan (.let_ op k) =
       let kPlan := plan.step1
+      let foldD := plan.foldDisp
       match op.arStep curD next with
       | .elim res => addrRangeSweep curD next kPlan (k res)
       | .emit1 op' wrap =>
@@ -1357,21 +1358,35 @@ private theorem addrRangeSweep_let {V : Ty → Type} {L : List Ty → Type} {ts 
         .let_ (op2 (.shl (.bits n)) inv (.imm (BitVec.ofNat n sh))) fun (t1, ()) =>
         .let_ (op2 (if isSub then .sub (.bits n) else .add (.bits n)) base (.var t1))
           fun (t2, ()) =>
-        .let_ (op2 (.shl (.bits n)) iv (.imm (BitVec.ofNat n sh))) fun (t3, ()) =>
-        .let_ (op2 (.add (.bits n)) (.var t2) (.var t3)) fun (t4, ()) =>
         if disp == 0#n then
+          .let_ (op2 (.shl (.bits n)) iv (.imm (BitVec.ofNat n sh))) fun (t3, ()) =>
+          .let_ (op2 (.add (.bits n)) (.var t2) (.var t3)) fun (t4, ()) =>
+          addrRangeSweep curD (next + 1) kPlan (k (ARVal.fresh t4 next ivD, ()))
+        else if foldD then
+          .let_ (op2 (.add (.bits n)) (.var t2) (.imm disp)) fun (t2d, ()) =>
+          .let_ (op2 (.shl (.bits n)) iv (.imm (BitVec.ofNat n sh))) fun (t3, ()) =>
+          .let_ (op2 (.add (.bits n)) (.var t2d) (.var t3)) fun (t4, ()) =>
           addrRangeSweep curD (next + 1) kPlan (k (ARVal.fresh t4 next ivD, ()))
         else
+          .let_ (op2 (.shl (.bits n)) iv (.imm (BitVec.ofNat n sh))) fun (t3, ()) =>
+          .let_ (op2 (.add (.bits n)) (.var t2) (.var t3)) fun (t4, ()) =>
           .let_ (op2 (.add (.bits n)) (.var t4) (.imm disp)) fun (t5, ()) =>
           addrRangeSweep curD (next + 1) kPlan (k (ARVal.fresh t5 next ivD, ()))
       | .addrPlain n isSub base inv iv invD ivD disp =>
         .let_ (op2 (if isSub then .sub (.bits n) else .add (.bits n)) base inv) fun (t1, ()) =>
-        .let_ (op2 (.add (.bits n)) (.var t1) iv) fun (t2, ()) =>
         if disp == 0#n then
+          .let_ (op2 (.add (.bits n)) (.var t1) iv) fun (t2, ()) =>
           addrRangeSweep curD (next + 1) kPlan
             (k (⟨.var t2, .var next, ivD,
               { addr? := some (.addVV (.var t1) invD iv ivD 0#n) }⟩, ()))
+        else if foldD then
+          .let_ (op2 (.add (.bits n)) (.var t1) (.imm disp)) fun (t1d, ()) =>
+          .let_ (op2 (.add (.bits n)) (.var t1d) iv) fun (t2, ()) =>
+          addrRangeSweep curD (next + 1) kPlan
+            (k (⟨.var t2, .var next, ivD,
+              { addr? := some (.addVV (.var t1d) invD iv ivD 0#n) }⟩, ()))
         else
+          .let_ (op2 (.add (.bits n)) (.var t1) iv) fun (t2, ()) =>
           .let_ (op2 (.add (.bits n)) (.var t2) (.imm disp)) fun (t3, ()) =>
           addrRangeSweep curD (next + 1) kPlan
             (k (⟨.var t3, .var next, ivD,
@@ -1408,19 +1423,48 @@ private theorem addrRangeSweep_callsOk {allowed : List SigEntry} {exits : List S
         exact ihb _ _ i _ _ _ _ _ (Blocks.callsOk_get hb i),
       ihk _ _ curD b _ hk⟩
 
-/-- `Func.addrRangeOpt` preserves `Expr.callsOk`. -/
-theorem Func.addrRangeOpt_callsOk {allowed : List SigEntry} {exits : List Sym}
-    {as rs : List Ty} {f : Func as rs} (hf : f.Wf)
+/-- `Func.addrRangeOptWith` preserves `Expr.callsOk`. -/
+theorem Func.addrRangeOptWith_callsOk (foldDisp : Bool) {allowed : List SigEntry}
+    {exits : List Sym} {as rs : List Ty} {f : Func as rs} (hf : f.Wf)
     (hc : (f (fun _ => Unit) (fun _ => Unit) (Tup.units as)).callsOk allowed exits) :
-    ((Func.addrRangeOpt f) (fun _ => Unit) (fun _ => Unit) (Tup.units as)).callsOk
-      allowed exits := by
-  dsimp only [Func.addrRangeOpt]
+    ((Func.addrRangeOptWith foldDisp f) (fun _ => Unit) (fun _ => Unit)
+      (Tup.units as)).callsOk allowed exits := by
+  dsimp only [Func.addrRangeOptWith]
   split
   · exact addrRangeSweep_callsOk
       (hf (ARVal (fun _ => Unit)) (fun _ => Unit) (fun _ => Unit) (fun _ => Unit)
         (freshARVals 0 as (Tup.units as) 0) (Tup.units as))
       0 as.length _ hc
   · exact hc
+
+/-- `Func.addrRangeOpt` preserves `Expr.callsOk`. -/
+theorem Func.addrRangeOpt_callsOk {allowed : List SigEntry} {exits : List Sym}
+    {as rs : List Ty} {f : Func as rs} (hf : f.Wf)
+    (hc : (f (fun _ => Unit) (fun _ => Unit) (Tup.units as)).callsOk allowed exits) :
+    ((Func.addrRangeOpt f) (fun _ => Unit) (fun _ => Unit) (Tup.units as)).callsOk
+      allowed exits :=
+  Func.addrRangeOptWith_callsOk false hf hc
+
+/-- `Func.lateCfgPreWith` preserves `Expr.callsOk`. -/
+theorem Func.lateCfgPreWith_callsOk (foldAddrDisp : Bool) {allowed : List SigEntry}
+    {exits : List Sym} {as rs : List Ty} {f : Func as rs} (hf : f.Wf)
+    (hc : (f (fun _ => Unit) (fun _ => Unit) (Tup.units as)).callsOk allowed exits) :
+    ((Func.lateCfgPreWith foldAddrDisp f) (fun _ => Unit) (fun _ => Unit)
+      (Tup.units as)).callsOk allowed exits := by
+  rw [Func.lateCfgPreWith_eq]
+  have hf1 := Func.ifOptBits_wf hf
+  have hf2 := Func.simplifyGroupFast_wf (Func.ifOptBits f)
+  have hf3 := Func.deadLoadElim_wf hf2
+  have hf4 := Func.assumeElim_wf hf3
+  have hf5 := Func.fold_wf hf4
+  have hf6 := Func.addrRangeOptWith_wf foldAddrDisp hf5
+  exact Func.gvn_callsOk hf6
+    (Func.addrRangeOptWith_callsOk foldAddrDisp hf5
+      (Func.fold_callsOk hf4
+        (Func.assumeElim_callsOk
+          (Func.deadLoadElim_callsOk hf2
+            (Func.simplifyGroupFast_callsOk hf1
+              (Func.ifOptBits_callsOk hf hc))))))
 
 /-- `Func.lateCfgPre` preserves `Expr.callsOk`. -/
 theorem Func.lateCfgPre_callsOk {allowed : List SigEntry} {exits : List Sym}
@@ -1429,19 +1473,9 @@ theorem Func.lateCfgPre_callsOk {allowed : List SigEntry} {exits : List Sym}
     ((Func.lateCfgPre f) (fun _ => Unit) (fun _ => Unit)
       (Tup.units as)).callsOk allowed exits := by
   rw [Func.lateCfgPre_eq]
-  have hf1 := Func.ifOptBits_wf hf
-  have hf2 := Func.simplifyGroupFast_wf (Func.ifOptBits f)
-  have hf3 := Func.deadLoadElim_wf hf2
-  have hf4 := Func.assumeElim_wf hf3
-  have hf5 := Func.fold_wf hf4
-  have hf6 := Func.addrRangeOpt_wf hf5
-  exact Func.gvn_callsOk hf6
-    (Func.addrRangeOpt_callsOk hf5
-      (Func.fold_callsOk hf4
-        (Func.assumeElim_callsOk
-          (Func.deadLoadElim_callsOk hf2
-            (Func.simplifyGroupFast_callsOk hf1
-              (Func.ifOptBits_callsOk hf hc))))))
+  dsimp only [Func.addrRangeOpt]
+  rw [← Func.lateCfgPreWith_eq false]
+  exact Func.lateCfgPreWith_callsOk false hf hc
 
 /-- `Func.lateLoopRotate` preserves `Expr.callsOk`. -/
 theorem Func.lateLoopRotate_callsOk {allowed : List SigEntry} {exits : List Sym}
@@ -1493,15 +1527,15 @@ theorem Fn.mid_callsOk (lt : LegalTarget) {f : Fn} (hf : f.Wf) :
   have hren2 := Func.renorm_wf (Func.lateCorePost (Func.renorm (Func.lateCorePre
     (Func.legal lt f.earlyOpt.body))))
   have hc6 := Func.renorm_callsOk hpost hc5
-  have hcfg := Func.lateCfgPre_wf hren2
-  have hc7 := Func.lateCfgPre_callsOk hren2 hc6
-  have hren3 := Func.renorm_wf (Func.lateCfgPre (Func.renorm (Func.lateCorePost
+  have hcfg := Func.lateCfgPreWith_wf lt.foldAddrDisp hren2
+  have hc7 := Func.lateCfgPreWith_callsOk lt.foldAddrDisp hren2 hc6
+  have hren3 := Func.renorm_wf (Func.lateCfgPreWith lt.foldAddrDisp (Func.renorm (Func.lateCorePost
     (Func.renorm (Func.lateCorePre (Func.legal lt f.earlyOpt.body))))))
   have hc8 := Func.renorm_callsOk hcfg hc7
   have hrot := Func.lateLoopRotate_wf hren3
   have hc9 := Func.lateLoopRotate_callsOk hren3 hc8
-  have hren4 := Func.renorm_wf (Func.lateLoopRotate (Func.renorm (Func.lateCfgPre
-    (Func.renorm (Func.lateCorePost (Func.renorm (Func.lateCorePre
+  have hren4 := Func.renorm_wf (Func.lateLoopRotate (Func.renorm (Func.lateCfgPreWith
+    lt.foldAddrDisp (Func.renorm (Func.lateCorePost (Func.renorm (Func.lateCorePre
       (Func.legal lt f.earlyOpt.body))))))))
   have hc10 := Func.renorm_callsOk hrot hc9
   have hct := Func.lateCondThread_wf hren4

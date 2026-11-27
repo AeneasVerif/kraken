@@ -11,6 +11,8 @@ public import LeanQbe.T.OptFlatAddrRange
 public import LeanQbe.T.OptFlatPathCond
 public import LeanQbe.T.OptFlatBranch
 public import LeanQbe.T.OptFlatLoop
+public import LeanQbe.T.OptFlatSimplifyGroup
+public import LeanQbe.T.OptFlatPeel
 
 /-!
 # Staged `TFlat`-Direct Compilation Driver (`MainFlat`)
@@ -22,8 +24,8 @@ Implements first-order `TFlat` equivalents of the mid-end and end-to-end compila
   `OptFlatMem.{memLoadFlat,assumeBitsFlat,divConstFlat}`,
   `OptFlatCfg.{dcePFlat,deadLoadElimFlat,ifOptFlat}`,
   `OptFlatAddrRange.addrRangeOptFlat`, `OptFlatPathCond.pathCondOptFlat`,
-  `TFlat.zeroPeelWith`, `simplifyGroupFastFlat`, `peelFastFlat`, `licmFlat`, `loopRotateFlat`.
-* Remaining `TFlat`-gated `reifyFunc`-backed bridges (`condThreadPassFlat`, `tailDupFlat`).
+  `OptFlatBranch.{condThreadPassFlat,tailDupFlat}`, `OptFlatSimplifyGroup.simplifyGroupPlanFlat`,
+  `OptFlatPeel.peelFlat`, `TFlat.zeroPeelWith`, `licmFlat`, `loopRotateFlat`.
 * End-to-end entry points matching `Fn.earlyOpt`, `Fn.midFromEarly`, `compileFn`, and
   `compileModule`: `earlyOptFlat`, `midStageFlat`, `compileFlatFn`, `compileModuleFlat`.
 -/
@@ -110,20 +112,17 @@ def TFlat.mergeRets {rs : List Ty} (tf : TFlat rs) : TFlat rs :=
 def mergeRetsFlat {rs : List Ty} (tf : TFlat rs) : TFlat rs :=
   tf.mergeRets
 
-/-- `TFlat`-gated `simplifyGroupFast` bypassing PHOAS whenever no join candidate or no plan
-change occurs. -/
+/-- Native `TFlat` `simplifyGroupFast` matching `reifyFunc (Func.simplifyGroupFast (denoteFunc tf))`. -/
 def simplifyGroupFastFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs) : TFlat rs :=
   if hasSimpGroup (tflatLoops tf ≤ 1) tf then
-    let (plan, info) := SgpImpl.buildPlan 0 tf
-    if info.changed then reifyFunc (Func.simplifyGroupWithPlan plan (denoteFunc (as := as) tf))
-    else tf
+    OptFlatSimplifyGroup.simplifyGroupPlanFlat as tf
   else tf
 
-/-- `TFlat`-gated `peelFast` bypassing PHOAS when loop count or node count exceeds budget. -/
+/-- Native `TFlat` `peelFast` matching `reifyFunc (Func.peelFast (denoteFunc tf) budget)`. -/
 def peelFastFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs) (budget : Nat := 24) :
     TFlat rs :=
   if tflatLoops tf ≤ 1 && tflatSize tf ≤ 40 then
-    reifyFunc (Func.peel (denoteFunc (as := as) tf) budget)
+    OptFlatPeel.peelFlat as tf budget
   else tf
 
 /-- Native `TFlat` `licm` (pure + read-only hoisting) via `OptFlatLoop.licmFlat`. -/
@@ -137,9 +136,14 @@ def loopRotateFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs)
 
 /-! ## 2. Native `OptFlat{AddrRange,PathCond}` & Gated Bridges (`condThreadPass`, `tailDup`) -/
 
+/-- Native `TFlat` loop-aware address reassociation and range-check collapse (`addrRangeOptWith`). -/
+def addrRangeOptFlatWith (foldDisp : Bool) (as : List Ty) {rs : List Ty} (tf : TFlat rs) :
+    TFlat rs :=
+  OptFlatAddrRange.addrRangeOptFlatWith foldDisp as tf
+
 /-- Native `TFlat` loop-aware address reassociation and range-check collapse (`addrRangeOpt`). -/
 def addrRangeOptFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs) : TFlat rs :=
-  OptFlatAddrRange.addrRangeOptFlat as tf
+  addrRangeOptFlatWith false as tf
 
 /-- Native `TFlat` dominating path-fact and known-condition pass (`pathCondOpt`). -/
 def pathCondOptFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs) : TFlat rs :=
@@ -182,9 +186,9 @@ def midStageFlat (lt : LegalTarget) (ef : TFlatFn) : TFlatFn :=
     (OptFlatValue.canonFlat as' (OptFlatValue.foldFlat as' tf0)))
   let tf2 := OptFlatValue.foldFlat as' (OptFlatMem.assumeBitsFlat as'
     (OptFlatValue.gvnFlat as' (OptFlatMem.memLoadFlat as' tf1)))
-  let tf3 := OptFlatValue.gvnFlat as' (addrRangeOptFlat as' (OptFlatValue.foldFlat as'
-    (assumeElimFlat (OptFlatCfg.deadLoadElimFlat as' (simplifyGroupFastFlat as'
-      (OptFlatCfg.ifOptFlat true as' tf2))))))
+  let tf3 := OptFlatValue.gvnFlat as' (addrRangeOptFlatWith lt.foldAddrDisp as'
+    (OptFlatValue.foldFlat as' (assumeElimFlat (OptFlatCfg.deadLoadElimFlat as'
+      (simplifyGroupFastFlat as' (OptFlatCfg.ifOptFlat true as' tf2))))))
   let tf4 := loopRotateFlat as' (OptFlatCfg.dcePFlat as' (licmFlat as' tf3))
   let tf5 := mergeRetsFlat (tailDupFlat as' (OptFlatCfg.dcePFlat as'
     (OptFlatValue.foldFlat as' (condThreadLateOptFlat as' tf4))))

@@ -169,14 +169,14 @@ class TestBuildBounded(unittest.TestCase):
             "--mem=16G",
             "--timeout=300",
             "--dry-run",
-            "LeanQbeCoreTest",
+            "LeanQbeCompileGuards",
         )
         self.assertEqual(res3.returncode, 0, res3.stderr)
         out3 = res3.stdout.strip()
         self.assertIn("timeout 300", out3)
         self.assertIn("MemoryMax=16G", out3)
         self.assertIn("LEAN_NUM_THREADS=4", out3)
-        self.assertIn("lake build --wfail LeanQbeCoreTest", out3)
+        self.assertIn("lake build --wfail LeanQbeCompileGuards", out3)
 
     def test_broad_target_rejection_empty_and_option_only_args(self) -> None:
         # Bare invocation without targets
@@ -211,11 +211,7 @@ class TestBuildBounded(unittest.TestCase):
             "LeanQbe:elabArts",
             "LeanQbeTest:o",
             "+LeanQbeTest:o",
-            # Legacy and Bootstrap0 umbrella targets
-            "LeanQbeLegacyAmd64",
-            "LeanQbeLegacyArm64",
-            "LeanQbeLegacyTest",
-            "+LeanQbeLegacyAmd64:irArts",
+            # Bootstrap0 umbrella targets
             "LeanQbeBootstrap0",
             "LeanQbeBootstrap0Test",
             "+LeanQbeBootstrap0:static",
@@ -249,7 +245,6 @@ class TestBuildBounded(unittest.TestCase):
             "LeanQbeArm64",
             "LeanQbeTest",
             "+LeanQbe",
-            "LeanQbeLegacyAmd64",
             "LeanQbeBootstrap0",
         ]
         for tgt in broad_targets:
@@ -263,7 +258,7 @@ class TestBuildBounded(unittest.TestCase):
             "LeanQbeCore",
             "LeanQbeAmd64Core",
             "LeanQbeArm64Core",
-            "LeanQbeCoreTest",
+            "LeanQbeCompileGuards",
             "LeanQbeTest.T.Smoke",
             "leanqbe",
             "leanqbe-arm64",

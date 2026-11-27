@@ -24,7 +24,7 @@ Exercises `LeanQbe.T.Scc` and `LeanQbe.T.SccLemmas`:
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace LeanQbeTest.T.SccTest
 

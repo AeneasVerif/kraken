@@ -1,7 +1,7 @@
 module
 
 public import LeanQbe.T.LeanLCNF.Lower
-public import LeanQbe.T.LeanLRC.ToT
+public import LeanQbe.T.Frontend.C0.ToFlat
 
 /-!
 # Impure `LCNF` → `LeanQbe.T`: code, declarations, closures and modules
@@ -19,7 +19,7 @@ public import LeanQbe.T.LeanLRC.ToT
   a balanced `jnz` tree; under-application extends the closure; over-application chains
   `lcnf_apply_r` and `lcnf_apply_(k-r)`).
 * `lowerModule`: every function is scope-checked by `lExprToTFlat` + `TFlat.wfCheck`;
-  `LeanLRC.tflatFnsToFns_wf` gives `Func.Wf` for every reified function.
+  `Frontend.C0.tflatFnsToFns_wf` gives `Func.Wf` for every reified function.
 -/
 
 set_option autoImplicit false
@@ -547,8 +547,8 @@ def lowerModule (m : LcModule) : Except String (List Frontend.C0.TFlatFn) := do
 def rtExterns : List Extern := rtCalls.map fun (n, as, bs) => { name := n, as, rs := bs }
 
 /-- The `LeanQbe.T.Module` of a lowered program (runtime calls are externs); every function is
-`Func.Wf` by `LeanLRC.tflatFnsToFns_wf`. -/
+`Func.Wf` by `Frontend.C0.tflatFnsToFns_wf`. -/
 def lcnfTModule (tfs : List Frontend.C0.TFlatFn) : Module :=
-  { fns := LeanLRC.tflatFnsToFns tfs, externs := rtExterns, exits := rtExitSyms }
+  { fns := Frontend.C0.tflatFnsToFns tfs, externs := rtExterns, exits := rtExitSyms }
 
 end LeanQbe.T.LeanLCNF

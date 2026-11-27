@@ -402,7 +402,8 @@ def checkDiamondWith {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
   | .jnz _ t e =>
     if isSelectSigWith bitsOnly jTs then
       match checkArm (.loc jId jTs) 2 4 next t, checkArm (.loc jId jTs) 2 4 next e with
-      | some (pT, _), some (pE, _) => some (.jnz pT pE)
+      | some (pT, _), some (pE, _) =>
+        some (.jnz pT pE)
       | _, _ => (checkStoreArms bitsOnly (.loc jId jTs) next t e).map .jnzStore
     else none
   | _ => none
@@ -629,9 +630,189 @@ def tryJnzDiamond {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
   | some r => some r
   | none => tryStoreJnzDiamond bitsOnly next c t e
 
+/-! ## Pure integer compare sinking (`cmpSink`) next to `.select` consumers -/
+
+/-- Deferred pure integer `.bits` comparison awaiting materialization right before its
+`.select` consumer. -/
+structure DeferCmp (V : Ty → Type) where
+  id : Nat
+  n : Nat
+  co : CmpOp
+  lhs : Arg V (.bits n)
+  rhs : Arg V (.bits n)
+
+/-- Variable representation in `cmpSink`: either a regular bound operand tagged with a unique
+binder `id`, or a deferred `.bits` comparison (of type `.bool`). -/
+inductive SVal (V : Ty → Type) : Ty → Type
+  | val {t : Ty} (a : Arg V t) (id : Nat) : SVal V t
+  | defer (d : DeferCmp V) : SVal V .bool
+
+/-- Unique binder identifier of an `SVal`. -/
+def svalId {V : Ty → Type} {t : Ty} : SVal V t → Nat
+  | .val _ id => id
+  | .defer d => d.id
+
+/-- True iff `a` is a variable with binder identifier `cid`. -/
+def sargIsId {V : Ty → Type} {t : Ty} (cid : Nat) : Arg (SVal V) t → Bool
+  | .var sv => svalId sv == cid
+  | .imm _ => false
+
+/-- True iff any argument in `args` is a variable with binder identifier `cid`. -/
+def sargsHasId {V : Ty → Type} (cid : Nat) : {ts : List Ty} → Tup (Arg (SVal V)) ts → Bool
+  | [], () => false
+  | _ :: _, (a, as) => sargIsId cid a || sargsHasId cid as
+
+/-- Wrap bound output variables `xs` into fresh `SVal V`s starting at `next`. -/
+def freshSVals {V : Ty → Type} : (ts : List Ty) → Tup V ts → Nat → Tup (SVal V) ts
+  | [], (), _ => ()
+  | _ :: ts, (x, xs), next => (.val (.var x) next, freshSVals ts xs (next + 1))
+
+/-- Inhabited dummy `SVal V` tuple for straight-line lookahead (never emitted). -/
+def dummySVals {V : Ty → Type} : (ts : List Ty) → Nat → Tup (SVal V) ts
+  | [], _ => ()
+  | _ :: ts, next => (.val (.imm default) next, dummySVals ts (next + 1))
+
+/-- Extract the underlying `Arg V (.bits n)` from `Arg (SVal V) (.bits n)`. -/
+def soutBits {V : Ty → Type} {n : Nat} : Arg (SVal V) (.bits n) → Arg V (.bits n)
+  | .imm c => .imm c
+  | .var (.val a _) => a
+
+/-- True iff `code` clobbers CPU condition flags on both x86-64 and Arm64 (another compare,
+carry arithmetic, or an intervening `.select`). -/
+def isCmpClobberOp {sig rs : List Ty} : OpCode sig rs → Bool
+  | .cmp _ _ _ _ | .addc _ | .subb _ | .select _ => true
+  | _ => false
+
+/-- Non-recursive `.let_` step for `shouldDeferCmp`. -/
+def shouldDeferCmpStep {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
+    (cid : Nat) (sawClobber : Bool) (next : Nat)
+    (rec : Bool → Nat → Expr (SVal V) L rs → Bool) :
+    {sig ts : List Ty} → OpCode sig ts → Tup (Arg (SVal V)) sig →
+    (Tup (SVal V) ts → Expr (SVal V) L rs) → Bool
+  | _, _, .select u, (cond, aT, aE, ()), k =>
+    if sargIsId cid cond && !sargIsId cid aT && !sargIsId cid aE then
+      sawClobber
+    else if sargIsId cid cond || sargIsId cid aT || sargIsId cid aE then
+      false
+    else
+      rec true (next + 1) (k (dummySVals [u] next))
+  | _, ts, code, args, k =>
+    if sargsHasId cid args then false
+    else
+      rec (sawClobber || isCmpClobberOp code) (next + ts.length) (k (dummySVals ts next))
+
+/-- Straight-line `.let_` lookahead: true iff `.bool` binder `cid` is first consumed as the
+condition of a `.select` (not as its value operands) after at least one flag-clobbering op
+within `fuel` `.let_` bindings. -/
+def shouldDeferCmp {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
+    (cid : Nat) : Nat → Bool → Nat → Expr (SVal V) L rs → Bool
+  | 0, _, _, _ => false
+  | fuel + 1, sawClobber, next, .let_ ⟨code, args⟩ k =>
+    shouldDeferCmpStep cid sawClobber next (shouldDeferCmp cid fuel) code args k
+  | _ + 1, _, _, _ => false
+
+/-- Look up an already-materialized deferred comparison by binder `id`. -/
+def lookupMat {V : Ty → Type} (id : Nat) : List (Nat × V .bool) → Option (V .bool)
+  | [] => none
+  | (k, v) :: rest => if k == id then some v else lookupMat id rest
+
+/-- Materialize `a : Arg (SVal V) t`, emitting a deferred `.cmp` once on first use. -/
+def matArg {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
+    (mat : List (Nat × V .bool)) : {t : Ty} → Arg (SVal V) t →
+    (List (Nat × V .bool) → Arg V t → Expr V L rs) → Expr V L rs
+  | _, .imm c, cont => cont mat (.imm c)
+  | _, .var (.val a _), cont => cont mat a
+  | .bool, .var (.defer d), cont =>
+    match lookupMat d.id mat with
+    | some v => cont mat (.var v)
+    | none =>
+      .let_ (op2 (.cmp d.co (.bits d.n) .bool rfl) d.lhs d.rhs) fun (v, ()) =>
+        cont ((d.id, v) :: mat) (.var v)
+
+/-- Materialize a tuple of `Arg (SVal V)` operands left-to-right. -/
+def matArgs {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
+    (mat : List (Nat × V .bool)) : {ts : List Ty} → Tup (Arg (SVal V)) ts →
+    (List (Nat × V .bool) → Tup (Arg V) ts → Expr V L rs) → Expr V L rs
+  | [], (), cont => cont mat ()
+  | _ :: _, (a, as), cont =>
+    matArg mat a fun mat' a' =>
+    matArgs mat' as fun mat'' as' =>
+    cont mat'' (a', as')
+
 end IfOptImpl
 
 open IfOptImpl
+
+mutual
+/-- PHOAS straight-line pure `.bits` compare sinking: defers `.cmp` ops whose first use is a
+`.select` condition past intervening flag-clobbering ops, materializing them directly before
+that `.select`. -/
+def cmpSink {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
+    (next : Nat) (mat : List (Nat × V .bool)) : Expr (SVal V) L rs → Expr V L rs
+  | .let_ (ts := ts) ⟨code, args⟩ k =>
+    match code, args, k with
+    | .cmp co t m h, args, k =>
+      match t, m, h, args, k with
+      | .bits n, .bool, _, (a, b, ()), k =>
+        if shouldDeferCmp next 16 false (next + 1) (k (.val (.imm default) next, ())) then
+          let d : DeferCmp V := ⟨next, n, co, soutBits a, soutBits b⟩
+          cmpSink (next + 1) mat (k (.defer d, ()))
+        else
+          .let_ (op2 (.cmp co (.bits n) .bool rfl) (soutBits a) (soutBits b)) fun (v, ()) =>
+            cmpSink (next + 1) mat (k (.val (.var v) next, ()))
+      | .bool, m, h, args, k =>
+        matArgs mat args fun mat' args' =>
+          .let_ ⟨.cmp co .bool m h, args'⟩ fun xs =>
+            cmpSink (next + 1) mat' (k (freshSVals [m] xs next))
+      | .float f, m, h, args, k =>
+        matArgs mat args fun mat' args' =>
+          .let_ ⟨.cmp co (.float f) m h, args'⟩ fun xs =>
+            cmpSink (next + 1) mat' (k (freshSVals [m] xs next))
+      | .pair x y, m, h, args, k =>
+        matArgs mat args fun mat' args' =>
+          .let_ ⟨.cmp co (.pair x y) m h, args'⟩ fun xs =>
+            cmpSink (next + 1) mat' (k (freshSVals [m] xs next))
+    | code, args, k =>
+      matArgs mat args fun mat' args' =>
+        .let_ ⟨code, args'⟩ fun xs =>
+          cmpSink (next + ts.length) mat' (k (freshSVals ts xs next))
+  | .load t a k =>
+    matArg mat a fun mat' a' =>
+      .load t a' fun v => cmpSink (next + 1) mat' (k (.val (.var v) next))
+  | .store v a k =>
+    matArg mat v fun mat₁ v' =>
+    matArg mat₁ a fun mat₂ a' =>
+      .store v' a' (cmpSink next mat₂ k)
+  | .call f (bs := bs) args k =>
+    matArgs mat args fun mat' args' =>
+      .call f args' fun xs => cmpSink (next + bs.length) mat' (k (freshSVals bs xs next))
+  | .jnz c t e =>
+    matArg mat c fun mat' c' =>
+      .jnz c' (cmpSink next mat' t) (cmpSink next mat' e)
+  | .jump j args =>
+    matArgs mat args fun _ args' => .jump j args'
+  | .ret vs =>
+    matArgs mat vs fun _ vs' => .ret vs'
+  | .exit f args =>
+    matArgs mat args fun _ args' => .exit f args'
+  | .hlt => .hlt
+  | .group bodies k =>
+    .group (fun Js => cmpSinkB next mat (bodies Js))
+           (fun Js => cmpSink next mat (k Js))
+
+/-- Block-list companion of `cmpSink`. -/
+def cmpSinkB {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
+    (next : Nat) (mat : List (Nat × V .bool)) :
+    {sig : List (List Ty)} → Blocks (SVal V) L rs sig → Blocks V L rs sig
+  | _, .nil => .nil
+  | _, .cons (ts := ts) b bs =>
+    .cons (fun xs => cmpSink (next + ts.length) mat (b (freshSVals ts xs next)))
+      (cmpSinkB next mat bs)
+end
+
+/-- Closed-function pure `.bits` compare sinking next to `.select` consumers. -/
+def Func.cmpSink {as rs : List Ty} (f : Func as rs) : Func as rs :=
+  fun V L xs => _root_.LeanQbe.T.cmpSink as.length [] (f (SVal V) L (freshSVals as xs 0))
 
 mutual
 /-- PHOAS-to-PHOAS if-conversion pass (diamond `jnz` → `select`), preserving `.group`
@@ -705,10 +886,16 @@ abbrev ifOpt {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} :=
 abbrev ifOptB {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} :=
   @ifOptBWith V L rs false
 
-/-- Convert eligible diamond `jnz` patterns into `.select`s on a closed typed function `Func`. -/
-def Func.ifOptWith (bitsOnly : Bool) {as rs : List Ty} (f : Func as rs) : Func as rs :=
+/-- Core if-conversion pass without post-conversion compare sinking. -/
+def Func.ifOptCore (bitsOnly : Bool) {as rs : List Ty} (f : Func as rs) : Func as rs :=
   fun V L xs =>
     _root_.LeanQbe.T.ifOptWith bitsOnly 0 as.length (f (IVal V) (JLabel L) (freshIVals as xs 0))
+
+/-- Convert eligible diamond `jnz` patterns into `.select`s on a closed typed function `Func`
+(followed by pure `.bits` compare sinking `Func.cmpSink` when `bitsOnly = true`). -/
+def Func.ifOptWith (bitsOnly : Bool) {as rs : List Ty} (f : Func as rs) : Func as rs :=
+  if bitsOnly then Func.cmpSink (Func.ifOptCore true f)
+  else Func.ifOptCore false f
 
 /-- Pre-`Legal` if-conversion allowing `.bool`/`.bits`/`.pair` select values. -/
 abbrev Func.ifOpt {as rs : List Ty} (f : Func as rs) : Func as rs :=

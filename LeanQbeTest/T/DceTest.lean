@@ -22,7 +22,7 @@ Covers:
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.DceTest
 

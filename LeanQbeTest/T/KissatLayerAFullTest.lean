@@ -27,7 +27,7 @@ Executable `#guard` checks, closed end-to-end non-vacuity theorems, and single-l
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace KissatLayerAFullTest
 

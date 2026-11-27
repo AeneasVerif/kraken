@@ -21,10 +21,10 @@ the 4 Phase-0 validated invariants (`SpillSnippet.splice_snippet_hints`, `solveR
    when available, and preserves any new `I.frame.calleeSaved` registers in `hNew.saved`.
 3. **Outer `Move.st` hoisting onto entry:** Hoists outer `Move.st` moves from `calleeIps` onto
    `startIp` while clearing interior snippet spills (and keeping any outer input `Move.ld` moves).
-4. **Evict / rewrite / post-exit restore:** For any `evictRegs` borrowed from `contLiveRegs`, allocates
-   fresh spill slots (`hOuter.nslots + idx`), emits `Move.st` on `startIp`, rewrites `contLid.live`
-   and internal `lid2.live` (`w ∉ calleeNvs`) from `.gpr r` to `.slot sIdx .w64` (plus internal
-   snippet `w ∈ calleeNvs` from `dest'`), and restores `Move.ld` on `exitNextIp`.
+4. **Evict / rewrite / post-exit restore:** For any `evictRegs` borrowed from `contLiveRegs`,
+   allocates fresh spill slots (`hOuter.nslots + idx`), emits `Move.st` on `startIp`, rewrites
+   `contLid.live` and internal `lid2.live` (`w ∉ calleeNvs`) from `.gpr r` to `.slot sIdx .w64`
+   (plus internal snippet `w ∈ calleeNvs` from `dest'`), and restores `Move.ld` on `exitNextIp`.
 
 Everything returned by `SpillSnippet` is plain `I.Hints` verified downstream by `Rega.lowerFn`
 and `Rega.lowerFn_correct`.
@@ -229,20 +229,46 @@ structure RegionFind where
   calleeIps    : List Nat
   calleeNvs    : List Nat
   calleeLids   : List Nat
+  preExitIps   : List Nat := []
+  preExitVars  : List Nat := []
+  preExitDefs  : List Nat := []
 
 /-- Default start/exit magic store constants used in Phase-0 stress harnesses. -/
 def defaultStartMagics : List (BitVec 64) := [1369899009#64, 0x51A70000#64]
 def defaultExitMagics  : List (BitVec 64) := [1369899010#64, 0x51A80000#64]
 
-/-- Locate a marked exit store inside `contTree`. -/
-def findExitStore? (exitMagics : List (BitVec 64) := defaultExitMagics) :
-    Live.Tree → Option (Nat × Nat × List Nat)
-  | .store _ eIp (.bits 64) (.imm ce) _ afterExit =>
+/-- Locate a marked exit store inside `contTree`, returning
+`(exitIp, exitNextIp, liveAfterExit, preExitIps, preExitUsedVars, preExitDefVars)`.
+Tracking the pre-exit prefix ensures `splice_snippet_hints` keeps registers needed before
+`exitNextIp` un-evicted when `Move.ld` restores run after `exitIp`. -/
+def findExitStoreMeta? (exitMagics : List (BitVec 64) := defaultExitMagics) :
+    Live.Tree → Option (Nat × Nat × List Nat × List Nat × List Nat × List Nat)
+  | .store _ eIp (.bits 64) (.imm ce) a afterExit =>
     if exitMagics.contains ce then
-      some (eIp, (firstIpOf afterExit).getD (eIp + 1), treeHeadLive afterExit)
-    else findExitStore? exitMagics afterExit
-  | .let_ _ _ _ _ _ k | .load _ _ _ _ _ k | .skip _ _ k => findExitStore? exitMagics k
+      some (eIp, (firstIpOf afterExit).getD (eIp + 1), treeHeadLive afterExit,
+        [eIp], Live.argVarIds a, [])
+    else do
+      let (rIp, nxt, lv, ips, uvs, dvs) ← findExitStoreMeta? exitMagics afterExit
+      some (rIp, nxt, lv, eIp :: ips, Live.argVarIds a ++ uvs, dvs)
+  | .store _ eIp _ v a afterExit => do
+    let (rIp, nxt, lv, ips, uvs, dvs) ← findExitStoreMeta? exitMagics afterExit
+    some (rIp, nxt, lv, eIp :: ips, Live.argVarIds v ++ Live.argVarIds a ++ uvs, dvs)
+  | .let_ _ ip nv ts op k => do
+    let (rIp, nxt, lv, ips, uvs, dvs) ← findExitStoreMeta? exitMagics k
+    let newVs := (List.range ts.length).map (nv + ·)
+    some (rIp, nxt, lv, ip :: ips, Live.opVarIds op ++ uvs, newVs ++ dvs)
+  | .load _ ip nv _ a k => do
+    let (rIp, nxt, lv, ips, uvs, dvs) ← findExitStoreMeta? exitMagics k
+    some (rIp, nxt, lv, ip :: ips, Live.argVarIds a ++ uvs, nv :: dvs)
+  | .skip _ ip k => do
+    let (rIp, nxt, lv, ips, uvs, dvs) ← findExitStoreMeta? exitMagics k
+    some (rIp, nxt, lv, ip :: ips, uvs, dvs)
   | _ => none
+
+/-- Locate a marked exit store inside `contTree`. -/
+def findExitStore? (exitMagics : List (BitVec 64) := defaultExitMagics) (t : Live.Tree) :
+    Option (Nat × Nat × List Nat) :=
+  (findExitStoreMeta? exitMagics t).map fun (eIp, nxt, lv, _, _, _) => (eIp, nxt, lv)
 
 mutual
 /-- Locate an explicitly marker-bracketed snippet `.group` inside an outer `Live.Tree`. -/
@@ -252,8 +278,8 @@ def findMarkedRegion? (startMagics : List (BitVec 64) := defaultStartMagics)
   | .store _ sIp (.bits 64) (.imm c) _
       (.group _ (.cons contLid psCont contTree .nil) calleeTree) =>
     if startMagics.contains c then
-      match findExitStore? exitMagics contTree with
-      | some (eIp, nextIp, liveExit) =>
+      match findExitStoreMeta? exitMagics contTree with
+      | some (eIp, nextIp, liveExit, preIps, preUvs, preDvs) =>
         let (cIps, cNvs, cLids) := collectTreeIds calleeTree
         some {
           startIp := sIp
@@ -266,6 +292,9 @@ def findMarkedRegion? (startMagics : List (BitVec 64) := defaultStartMagics)
           calleeIps := cIps
           calleeNvs := cNvs
           calleeLids := cLids
+          preExitIps := preIps
+          preExitVars := Live.dedup preUvs
+          preExitDefs := Live.dedup preDvs
         }
       | none => none
     else findMarkedRegion? startMagics exitMagics
@@ -352,7 +381,7 @@ structure RelHints (Reg Cond : Type) where
   deriving Repr, Inhabited
 
 def dedupList {α : Type} [BEq α] (xs : List α) : List α :=
-  xs.foldl (fun acc x => if acc.contains x then acc else acc ++ [x]) []
+  (xs.foldl (fun acc x => if acc.contains x then acc else x :: acc) []).reverse
 
 /-- Generic `RelHints` solver parameterized by `I : Isa`, assigning GPRs without conflicts,
 honoring `sameRegCliques`, `flagBindings`, `softPrefs`, `variants`, `elideVars`/`elideIps`,
@@ -364,7 +393,7 @@ def solveRelHints (I : Isa) (rh : RelHints I.Reg I.Cond) (f : Fn)
   let pool := if filtered.isEmpty then allPool else filtered
   let fallbackReg := pool.head?.getD I.frame.sp
   let usedOriginals :=
-    dedupList ((rh.softPrefs.map Prod.snd) ++ (rh.blockParamRegs.foldl (fun a p => a ++ p.2) []))
+    dedupList ((rh.softPrefs.map Prod.snd) ++ rh.blockParamRegs.flatMap Prod.snd)
   let rec buildPhi (used : List I.Reg) : List I.Reg → List (I.Reg × I.Reg)
     | [] => []
     | r :: rs =>
@@ -379,16 +408,18 @@ def solveRelHints (I : Isa) (rh : RelHints I.Reg I.Cond) (f : Fn)
   let (t0, _, nvTotal, _, _, tys) := Live.Tree.ofFn f
   let lTrie := Live.liveLabels t0.blocks .empty .empty
   let (_, tLive) := Live.fillLive lTrie .empty .empty t0
-  let afterMap := collectTreeAfterLive tLive
+  let afterTrie : Trie (List Nat) :=
+    (collectTreeAfterLive tLive).reverse.foldl (fun t (v, lv) => t.insert v lv) .empty
   let ipDefs := collectIpDefVars t0
   let hAuto := Spill.hints I f
   -- Seed `destTrieBase` with `softPrefs` and explicit `flagBindings`.
   let destTrieBase : Trie I.Loc :=
     let t1 := rh.softPrefs.foldl (fun t (nv, r) => t.insert nv (.gpr (mapReg r))) .empty
     rh.flagBindings.foldl (fun t (nv, cc) => t.insert nv (.flag cc)) t1
-  -- Propagate mapped GPRs along `sameRegCliques` when non-conflicting across live sets.
-  let cliquePartners (v : Nat) : List Nat :=
-    rh.sameRegCliques.foldl (fun acc cl => if cl.contains v then acc ++ cl else acc) []
+  -- Pre-index `sameRegCliques` by member variable, preserving exact clique-list order.
+  let cliqueTrie : Trie (List Nat) :=
+    rh.sameRegCliques.reverse.foldl (fun t cl =>
+      (Live.dedup cl).foldl (fun t v => t.insert v (cl ++ t.getD v [])) t) .empty
   let destTrie : Trie I.Loc :=
     (List.range nvTotal).foldl (fun t v =>
       if (t.find? v).isSome then t
@@ -402,11 +433,11 @@ def solveRelHints (I : Isa) (rh : RelHints I.Reg I.Cond) (f : Fn)
             | some cc => t.insert v (.flag cc)
             | none => t.insert v (.gpr fallbackReg)
         | _ =>
-          let liveAfter := (afterMap.find? (·.1 == v)).map Prod.snd |>.getD []
+          let liveAfter := afterTrie.getD v []
           let busy := liveAfter.filterMap fun w =>
             if w == v then none
             else match t.find? w with | some (.gpr r) => some r | _ => none
-          let preferredClique := (cliquePartners v).findSome? fun u =>
+          let preferredClique := (cliqueTrie.getD v []).findSome? fun u =>
             match t.find? u with
             | some (.gpr r) => if pool.contains r && !busy.contains r then some r else none
             | _ => none
@@ -426,8 +457,9 @@ def solveRelHints (I : Isa) (rh : RelHints I.Reg I.Cond) (f : Fn)
   let elideFromVars : List (Nat × Bool) :=
     if rh.elideVars.isEmpty then []
     else
+      let elideSet := Live.trieOfList rh.elideVars
       ipDefs.filterMap fun (ip, vs) =>
-        if vs.any (rh.elideVars.contains ·) then some (ip, true) else none
+        if vs.any (Live.trieMem elideSet ·) then some (ip, true) else none
   let elideTrie : Trie Bool :=
     (elideFromVars ++ rh.elideIps ++ extraIpElides).foldl
       (fun t (ip, b) => t.insert ip b) .empty
@@ -471,22 +503,24 @@ def abiRegsList {Reg VReg : Type} :
 
 def collectOuterSlots (I : Isa) (calleeNvs : List Nat) (nvTotal : Nat)
     (hOuter : I.Hints) (enCont? : Option (Entry I.Reg I.VReg I.Cond)) : List Nat :=
+  let calleeNvSet := Live.trieOfList calleeNvs
   let fromDest := (List.range nvTotal).filterMap fun v =>
-    if calleeNvs.contains v then none
+    if Live.trieMem calleeNvSet v then none
     else match hOuter.dest.find? v with | some (.slot s _) => some s | _ => none
   let fromCont := match enCont? with
     | some en => en.live.filterMap fun
-      | (.var v, .slot s _) => if calleeNvs.contains v then none else some s
+      | (.var v, .slot s _) => if Live.trieMem calleeNvSet v then none else some s
       | (_, .slot s _) => some s
       | _ => none
     | none => []
-  dedupList (fromDest ++ fromCont)
+  Live.dedup (fromDest ++ fromCont)
 
 def collectCalleeOnlySlots (I : Isa) (calleeNvs : List Nat) (hOuter : I.Hints)
     (outerSlots : List Nat) : List Nat :=
+  let outerSlotSet := Live.trieOfList outerSlots
   let ss := calleeNvs.filterMap fun v =>
     match hOuter.dest.find? v with | some (.slot s _) => some s | _ => none
-  dedupList (ss.filter (!outerSlots.contains ·))
+  Live.dedup (ss.filter (!Live.trieMem outerSlotSet ·))
 
 /-- Splice standalone snippet hints `hSnip` (computed via `Spill.hints I sDirect` unless overridden)
 into outer function `outerLate` using `hOuter`, implementing all 4 Phase-0 invariants:
@@ -524,37 +558,54 @@ def splice_snippet_hints (I : Isa) (sDirect outerLate : Fn) (hOuter : I.Hints)
   let hSnip := hSnipOverride?.getD (Spill.hints I sDirect)
   if hSnip.nslots > 0 then
     throw s!"snippet '{sDirect.name}' needs {hSnip.nslots} spill slots standalone"
-  -- Invariant #1: collect exact `keepInputRegs` from outer variables referenced inside `calleeTree`.
+  -- Invariant #1: collect exact `keepInputRegs` from outer variables referenced inside `calleeTree`
+  -- plus any outer registers needed in `contTree` before `exitNextIp` (where eviction restores run).
   let outerParamRegs : List (Option I.Reg) := match I.assignArgs outerLate.as with
     | some tup => abiRegsList tup
     | none => []
-  let outerInputVars := (collectTreeUsedVars reg.calleeTree).filter (!reg.calleeNvs.contains ·)
-  let regsFromInputVars := outerInputVars.filterMap fun v =>
+  let calleeNvSet := Live.trieOfList reg.calleeNvs
+  let outerInputVars := (collectTreeUsedVars reg.calleeTree).filter (!Live.trieMem calleeNvSet ·)
+  let regOfOuterVar (v : Nat) : Option I.Reg :=
     if v < outerParamRegs.length then outerParamRegs[v]?.join
     else match hOuter.dest.find? v with | some (.gpr r) => some r | _ => none
+  let regsFromInputVars := outerInputVars.filterMap regOfOuterVar
   let ipUses := collectIpUsedVars reg.calleeTree
   let outerIps := ipUses.filterMap fun (ip, vs) =>
-    if vs.any (!reg.calleeNvs.contains ·) then some ip else none
-  let regsFromIpLoads := outerIps.foldl (fun acc ip =>
-    match hOuter.pre.find? ip with
-    | some ps => acc ++ ps.moves.filterMap fun | .ld r _ => some r | _ => none
-    | none => acc) []
-  let keepInputRegs := dedupList (regsFromInputVars ++ regsFromIpLoads ++ extraKeepRegs)
-  -- Collect exit `contRetRegs`, `contLiveRegs`, and outer live-through regs across internal blocks.
+    if vs.any (!Live.trieMem calleeNvSet ·) then some ip else none
+  let loadRegsAt (ips : List Nat) : List I.Reg :=
+    ips.flatMap fun ip =>
+      match hOuter.pre.find? ip with
+      | some ps => ps.moves.filterMap fun | .ld r _ => some r | _ => none
+      | none => []
+  let regsFromIpLoads := loadRegsAt outerIps
   let enCont? := hOuter.entry.find? reg.contLid
+  let preExitVarRegs := reg.preExitVars.filterMap fun v =>
+    match enCont? with
+    | some en =>
+      en.live.findSome? fun
+        | (.var w, .gpr r) => if w == v then some r else none
+        | _ => none
+    | none => regOfOuterVar v
+  let preExitDefRegs := reg.preExitDefs.filterMap fun v =>
+    match hOuter.dest.find? v with | some (.gpr r) => some r | _ => none
+  let preExitLoadRegs := loadRegsAt reg.preExitIps
+  let keepInputRegs := dedupList
+    (regsFromInputVars ++ regsFromIpLoads ++ preExitVarRegs ++ preExitDefRegs ++
+      preExitLoadRegs ++ extraKeepRegs)
+  -- Collect exit `contRetRegs`, `contLiveRegs`, and outer live-through regs across internal blocks.
   let contRetRegs : List I.Reg := match enCont? with
     | some en => en.ploc.filterMap fun | .gpr r => some r | _ => none
     | none => []
   let contLiveRegs : List I.Reg := match enCont? with
     | some en => en.live.filterMap fun | (_, .gpr r) => some r | _ => none
     | none => []
-  let lid2OuterLiveRegs : List I.Reg := z.lidMap.foldl (fun acc (_, lid2) =>
+  let lid2OuterLiveRegs : List I.Reg := z.lidMap.flatMap fun (_, lid2) =>
     match hOuter.entry.find? lid2 with
-    | some enO => acc ++ enO.live.filterMap fun
-      | (.var w, .gpr r) => if reg.calleeNvs.contains w then none else some r
+    | some enO => enO.live.filterMap fun
+      | (.var w, .gpr r) => if Live.trieMem calleeNvSet w then none else some r
       | (_, .gpr r) => some r
       | _ => none
-    | none => acc) []
+    | none => []
   let allLiveRegs := dedupList (contLiveRegs ++ lid2OuterLiveRegs)
   -- Invariant #2: build `freeRegs`-first pool avoiding `keepInputRegs`.
   let allPool := dedupList (I.frame.allocatable ++ I.frame.calleeSaved) |>.filter
@@ -566,10 +617,10 @@ def splice_snippet_hints (I : Isa) (sDirect outerLate : Fn) (hOuter : I.Hints)
     throw s!"snippet '{sDirect.name}' has 0 registers in snipPool (kept={keepInputRegs.length})"
   let origDestRegs := (List.range nvSnip).filterMap fun v =>
     match hSnip.dest.find? v with | some (.gpr r) => some r | _ => none
-  let origParamRegs := z.lidMap.foldl (fun acc (lid1, _) =>
+  let origParamRegs := z.lidMap.flatMap fun (lid1, _) =>
     match hSnip.entry.find? lid1 with
-    | some en => acc ++ en.ploc.filterMap fun | .gpr r => some r | _ => none
-    | none => acc) []
+    | some en => en.ploc.filterMap fun | .gpr r => some r | _ => none
+    | none => []
   let origRegs := dedupList (origDestRegs ++ origParamRegs)
   if origRegs.length > allPool.length then
     throw s!"snippet '{sDirect.name}' requires {origRegs.length} GPRs > {allPool.length} \
@@ -635,7 +686,7 @@ available (kept={keepInputRegs.length})"
       | some enO => enO.live.filterMap fun (sa, loc) =>
         match sa with
         | .var w =>
-          if reg.calleeNvs.contains w then
+          if Live.trieMem calleeNvSet w then
             (dest'.find? w).map fun dl => (sa, dl)
           else
             match loc with
@@ -654,13 +705,14 @@ available (kept={keepInputRegs.length})"
   -- and clear snippet interior spill moves.
   let outerSlots := collectOuterSlots I reg.calleeNvs nvTotal hOuter enCont?
   let calleeOnlySlots := collectCalleeOnlySlots I reg.calleeNvs hOuter outerSlots
-  let hoistedSts := reg.calleeIps.foldl (fun acc ip =>
+  let calleeOnlySlotSet := Live.trieOfList calleeOnlySlots
+  let hoistedSts : List I.Move := reg.calleeIps.flatMap fun ip =>
     match hOuter.pre.find? ip with
     | some ps =>
-      acc ++ ps.moves.filter fun
-        | .st sIdx _ => !calleeOnlySlots.contains sIdx
+      ps.moves.filter fun
+        | .st sIdx _ => !Live.trieMem calleeOnlySlotSet sIdx
         | _ => false
-    | none => acc) ([] : List I.Move)
+    | none => []
   let outerLoadSteps : List (Nat × List I.Move) := outerIps.filterMap fun ip =>
     match hOuter.pre.find? ip with
     | some ps =>

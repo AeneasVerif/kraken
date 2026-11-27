@@ -32,7 +32,6 @@ Covers:
 
 set_option autoImplicit false
 
-@[expose] public section
 
 namespace LeanQbeTest.T.LoopRotateTest
 

@@ -3,10 +3,9 @@
 
 Inspects tracked `.lean` files under `LeanQbe/` and validates or generates the
 19 pure re-export barrel/hub files (`LeanQbe.lean`, `LeanQbeAmd64.lean`,
-`LeanQbeArm64.lean`, `LeanQbeLegacyAmd64.lean`, `LeanQbeLegacyArm64.lean`,
-`LeanQbeBootstrap0.lean`, and the 13 subsystem `*Hub.lean` files), respecting
-the exact active-vs-legacy and arch-isolation partition from `lakefile.toml`
-and `scripts/check.sh`.
+`LeanQbeArm64.lean`, `LeanQbeBootstrap0.lean`, and the 15 subsystem `*Hub.lean`
+files), respecting the exact arch-isolation partition from `lakefile.toml` and
+`scripts/check.sh`.
 
 Usage:
   python3 -B scripts/sync_hubs.py --check [--strict] [--root .]
@@ -16,7 +15,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import re
 import subprocess
 import sys
 import tomllib
@@ -26,7 +24,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from lean_imports import (
     ALL_HUBS,
     IMPORT_LINE_RE,
-    LEGACY_CERT_RE,
     ROOT_LIBS,
     SUBSYSTEM_HUBS,
     ImportStmt,
@@ -42,18 +39,12 @@ HUB_DOCSTRINGS: dict[str, str] = {
         "`Kraken.AArch64`. -/"
     ),
     "LeanQbeAmd64": (
-        "/-! Root of the active x64 library: imports `Kraken.X64` and active "
+        "/-! Root of the x64 library: imports `Kraken.X64` and "
         "`LeanQbe.T.Amd64.*` modules. -/"
     ),
     "LeanQbeArm64": (
-        "/-!\nRoot of the active AArch64 library: imports `Kraken.AArch64` and "
-        "active `LeanQbe.T.Arm64.*`\nmodules.\n-/"
-    ),
-    "LeanQbeLegacyAmd64": (
-        "/-! Root of the optional legacy x64 Kissat certificate library. -/"
-    ),
-    "LeanQbeLegacyArm64": (
-        "/-! Root of the optional legacy AArch64 Kissat certificate library. -/"
+        "/-!\nRoot of the AArch64 library: imports `Kraken.AArch64` and "
+        "`LeanQbe.T.Arm64.*`\nmodules.\n-/"
     ),
     "LeanQbeBootstrap0": (
         "/-! Root of the optional Stage-A bootstrap compiler library "
@@ -63,6 +54,18 @@ HUB_DOCSTRINGS: dict[str, str] = {
         "/-! Subsystem hub re-exporting core compiler IR, passes, lemmas, "
         "linking, and driver modules. -/"
     ),
+    "LeanQbe.T.Logic.ExtraHub": (
+        "/-! Subsystem hub re-exporting non-core Logic helper and layout "
+        "modules. -/"
+    ),
+    "LeanQbe.T.Unified.Hub": (
+        "/-! Subsystem hub re-exporting Unified CFG recovery and contification "
+        "modules (`LeanQbe.T.Unified.*`). -/"
+    ),
+    "LeanQbe.T.Wasm.Hub": (
+        "/-! Subsystem hub re-exporting WebAssembly AST, decoder, lowering, and "
+        "safety modules (`LeanQbe.T.Wasm.*`). -/"
+    ),
     "LeanQbe.T.Frontend.C0.Hub": (
         "/-! Subsystem hub re-exporting C0 frontend modules "
         "(`LeanQbe.T.Frontend.C0.*`). -/"
@@ -71,18 +74,13 @@ HUB_DOCSTRINGS: dict[str, str] = {
         "/-! Subsystem hub re-exporting LeanLCNF frontend and coverage "
         "modules. -/"
     ),
-    "LeanQbe.T.LeanLRC.Hub": (
-        "/-! Subsystem hub re-exporting LeanLRC IR, runtime, and lowering "
-        "modules. -/"
-    ),
     "LeanQbe.T.Examples.Hub": (
         "/-! Subsystem hub re-exporting non-Kissat example, LRAT, and "
         "benchmark program modules. -/"
     ),
     "LeanQbe.T.Examples.Kissat.BaseHub": (
         "/-!\nSubsystem hub re-exporting Kissat Core, LayerA, Dimacs, Plain, "
-        "CorePlus, Full, FastCore,\nFastSched, Fast, Kitten, and DefSweep "
-        "modules.\n-/"
+        "Full, FastCore,\nFastSched, Fast, Kitten, and DefSweep modules.\n-/"
     ),
     "LeanQbe.T.Examples.Kissat.M3Hub": (
         "/-! Subsystem hub re-exporting all Kissat M3 (`FullM3*`) "
@@ -173,12 +171,6 @@ def parse_barrel_file(path: Path) -> tuple[list[ImportStmt], list[str]]:
     return imports, errors
 
 
-def load_legacy_regex(root: Path) -> re.Pattern[str]:
-    """Return canonical `LEGACY_CERT_RE` shared with `scripts/check.sh`."""
-    _ = root
-    return LEGACY_CERT_RE
-
-
 def verify_lakefile(root: Path) -> list[str]:
     """Verify `lakefile.toml` exists and defines all expected root libraries."""
     lakefile = root / "lakefile.toml"
@@ -225,20 +217,34 @@ def list_tracked_lean_modules(root: Path) -> dict[str, Path]:
     return out
 
 
-def classify_module(mod: str, legacy_re: re.Pattern[str]) -> str | None:
+NONCORE_LOGIC_MODULES: frozenset[str] = frozenset(
+    {
+        "LeanQbe.T.Logic.CanonicalEnv",
+        "LeanQbe.T.Logic.MemAlgebra",
+        "LeanQbe.T.Logic.SlabLayoutElab",
+        "LeanQbe.T.Logic.U32",
+    }
+)
+
+
+def classify_module(mod: str) -> str | None:
     """Assign a tracked `LeanQbe.*` module to its exact hub/barrel partition."""
     if mod in SUBSYSTEM_HUBS:
         return None
     if mod.startswith("LeanQbe.T.Amd64."):
-        return "LeanQbeLegacyAmd64" if legacy_re.match(mod) else "LeanQbeAmd64"
+        return "LeanQbeAmd64"
     if mod.startswith("LeanQbe.T.Arm64."):
-        return "LeanQbeLegacyArm64" if legacy_re.match(mod) else "LeanQbeArm64"
+        return "LeanQbeArm64"
+    if mod in NONCORE_LOGIC_MODULES:
+        return "LeanQbe.T.Logic.ExtraHub"
+    if mod.startswith("LeanQbe.T.Unified."):
+        return "LeanQbe.T.Unified.Hub"
+    if mod.startswith("LeanQbe.T.Wasm."):
+        return "LeanQbe.T.Wasm.Hub"
     if mod == "LeanQbe.T.Frontend.C0" or mod.startswith("LeanQbe.T.Frontend.C0."):
         return "LeanQbe.T.Frontend.C0.Hub"
     if mod.startswith("LeanQbe.T.LeanLCNF."):
         return "LeanQbe.T.LeanLCNF.Hub"
-    if mod.startswith("LeanQbe.T.LeanLRC."):
-        return "LeanQbe.T.LeanLRC.Hub"
     if mod.startswith("LeanQbe.T.Examples.Kissat."):
         sub = mod[len("LeanQbe.T.Examples.Kissat.") :]
         if sub.startswith("FullFidelity"):
@@ -274,21 +280,15 @@ def compute_closure(
     return compute_import_closure([root_mod], root, import_cache=import_cache)
 
 
-ARCH_FORBIDDEN: dict[str, tuple[str, tuple[str, ...], bool]] = {
-    "LeanQbeAmd64": ("x64", ("Kraken.AArch64", "LeanQbe.T.Arm64."), True),
-    "LeanQbeLegacyAmd64": ("x64", ("Kraken.AArch64", "LeanQbe.T.Arm64."), False),
-    "LeanQbeBootstrap0": ("x64", ("Kraken.AArch64", "LeanQbe.T.Arm64."), False),
-    "LeanQbeArm64": ("Arm64", ("Kraken.X64", "LeanQbe.T.Amd64."), True),
-    "LeanQbeLegacyArm64": ("Arm64", ("Kraken.X64", "LeanQbe.T.Amd64."), False),
+ARCH_FORBIDDEN: dict[str, tuple[str, tuple[str, ...]]] = {
+    "LeanQbeAmd64": ("x64", ("Kraken.AArch64", "LeanQbe.T.Arm64.")),
+    "LeanQbeBootstrap0": ("x64", ("Kraken.AArch64", "LeanQbe.T.Arm64.")),
+    "LeanQbeArm64": ("Arm64", ("Kraken.X64", "LeanQbe.T.Amd64.")),
 }
 
 
-def check_isolation(
-    hub: str,
-    closure: set[str],
-    legacy_re: re.Pattern[str],
-) -> list[str]:
-    """Enforce arch and active-vs-legacy isolation invariants on `closure`."""
+def check_isolation(hub: str, closure: set[str]) -> list[str]:
+    """Enforce arch isolation invariants on `closure`."""
     errors: list[str] = []
     if hub in ("LeanQbe", *SUBSYSTEM_HUBS):
         bad = sorted(
@@ -311,7 +311,7 @@ def check_isolation(
         return errors
 
     if hub in ARCH_FORBIDDEN:
-        label, opp_prefixes, forbid_legacy = ARCH_FORBIDDEN[hub]
+        label, opp_prefixes = ARCH_FORBIDDEN[hub]
         opp_name = "Arm64" if label == "x64" else "x64"
         bad_arch = sorted(m for m in closure if m.startswith(opp_prefixes))
         if bad_arch:
@@ -319,24 +319,17 @@ def check_isolation(
                 f"{hub}: {label} closure leaks {opp_name} module(s): "
                 + ", ".join(bad_arch[:5])
             )
-        if forbid_legacy:
-            bad_leg = sorted(m for m in closure if legacy_re.match(m))
-            if bad_leg:
-                errors.append(
-                    f"{hub}: active closure leaks legacy cert(s): "
-                    + ", ".join(bad_leg[:5])
-                )
     return errors
 
 
 def build_partitions(
-    tracked: dict[str, Path], legacy_re: re.Pattern[str]
+    tracked: dict[str, Path],
 ) -> tuple[dict[str, list[str]], list[str]]:
     """Partition all tracked `LeanQbe.*` modules into their designated hubs."""
     partitions: dict[str, list[str]] = {h: [] for h in ALL_HUBS if h != "LeanQbe"}
     errors: list[str] = []
     for mod in sorted(tracked):
-        dest = classify_module(mod, legacy_re)
+        dest = classify_module(mod)
         if dest is None:
             continue
         if dest == "E1_FORBIDDEN":
@@ -354,7 +347,7 @@ def expected_direct_imports(
     """Return canonical sorted direct imports for `hub`."""
     if hub == "LeanQbe":
         return list(SUBSYSTEM_HUBS)
-    if hub in ("LeanQbeAmd64", "LeanQbeArm64", "LeanQbeLegacyAmd64", "LeanQbeLegacyArm64"):
+    if hub in ("LeanQbeAmd64", "LeanQbeArm64"):
         return ["LeanQbe.T.CoreHub", *sorted(partitions[hub])]
     return sorted(partitions[hub])
 
@@ -371,9 +364,8 @@ def render_hub(hub: str, imports: list[str]) -> str:
 def run_check(root: Path, strict: bool) -> int:
     """Verify all 19 hub/barrel files against tracked modules and invariants."""
     errors = verify_lakefile(root)
-    legacy_re = load_legacy_regex(root)
     tracked = list_tracked_lean_modules(root)
-    partitions, part_errors = build_partitions(tracked, legacy_re)
+    partitions, part_errors = build_partitions(tracked)
     errors.extend(part_errors)
 
     import_cache: dict[str, list[ImportStmt]] = {}
@@ -399,12 +391,7 @@ def run_check(root: Path, strict: bool) -> int:
             if extra:
                 errors.append(f"{hub}: unexpected direct import(s): {', '.join(extra)}")
         else:
-            if hub in (
-                "LeanQbeAmd64",
-                "LeanQbeArm64",
-                "LeanQbeLegacyAmd64",
-                "LeanQbeLegacyArm64",
-            ):
+            if hub in ("LeanQbeAmd64", "LeanQbeArm64"):
                 if "LeanQbe.T.CoreHub" not in direct_set:
                     errors.append(
                         f"{hub}: missing required `public import LeanQbe.T.CoreHub`"
@@ -420,7 +407,7 @@ def run_check(root: Path, strict: bool) -> int:
                         f"{hub}: extra/non-existent tracked module `{mod}`"
                     )
                     continue
-                owner = classify_module(mod, legacy_re)
+                owner = classify_module(mod)
                 if owner != hub:
                     errors.append(
                         f"{hub}: misplaced module `{mod}` (belongs to `{owner}`)"
@@ -433,7 +420,7 @@ def run_check(root: Path, strict: bool) -> int:
                     f"{hub}: missing {len(missing_cov)} module(s) from closure: "
                     + ", ".join(missing_cov[:8])
                 )
-            errors.extend(check_isolation(hub, closure, legacy_re))
+            errors.extend(check_isolation(hub, closure))
 
         if strict:
             want_txt = render_hub(hub, expected_direct_imports(hub, partitions))
@@ -464,9 +451,8 @@ def run_check(root: Path, strict: bool) -> int:
 def run_write(root: Path) -> int:
     """Regenerate all 19 hub/barrel files deterministically from tracked files."""
     errors = verify_lakefile(root)
-    legacy_re = load_legacy_regex(root)
     tracked = list_tracked_lean_modules(root)
-    partitions, part_errors = build_partitions(tracked, legacy_re)
+    partitions, part_errors = build_partitions(tracked)
     errors.extend(part_errors)
     if errors:
         for err in errors:

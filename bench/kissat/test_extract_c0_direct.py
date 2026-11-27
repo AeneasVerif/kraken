@@ -22,14 +22,14 @@ import extract_c0_direct as ext
 
 
 class ExtractC0DirectTest(unittest.TestCase):
-    def test_step7_target_resolution_and_fallbacks(self):
+    def test_step12_target_resolution_and_fallbacks(self):
         self.assertEqual(
             ext.resolve_target_spec(KDIR, "fidelity"),
-            ("FullFidelityAssemblyStep7", "FullFidelityAssemblyStep7", "fidStep7Fns"),
+            ("FullFidelityAssemblyStep12", "FullFidelityAssemblyStep12", "fidStep12Fns"),
         )
         self.assertEqual(
             ext.resolve_target_spec(KDIR, "fid"),
-            ("FullFidelityAssemblyStep7", "FullFidelityAssemblyStep7", "fidStep7Fns"),
+            ("FullFidelityAssemblyStep12", "FullFidelityAssemblyStep12", "fidStep12Fns"),
         )
         with tempfile.TemporaryDirectory() as td:
             fake = pathlib.Path(td)
@@ -40,23 +40,24 @@ class ExtractC0DirectTest(unittest.TestCase):
             )
             self.assertEqual(ext.default_target_for_kdir(fake), "fidelity")
 
-    def test_step7_and_legacy_fn_counts(self):
+    def test_fidelity_and_plain_fn_counts(self):
         fid_fns, _, _, sym = ext.load_fns_for_target(KDIR, "fidelity")
-        self.assertEqual(sym, "fidStep7Fns")
-        self.assertEqual(len(fid_fns), 501)
-        m7_fns, _, _, _ = ext.load_fns_for_target(KDIR, "m7fidelity")
-        self.assertEqual(len(m7_fns), 413)
+        self.assertEqual(sym, "fidStep12Fns")
+        self.assertEqual(len(fid_fns), 517)
+        s7_fns, _, _, s7_sym = ext.load_fns_for_target(KDIR, "fidelity-step7")
+        self.assertEqual(s7_sym, "fidStep7Fns")
+        self.assertEqual(len(s7_fns), 501)
         plain_fns, _, _, _ = ext.load_fns_for_target(KDIR, "plain")
         self.assertEqual(len(plain_fns), 59)
 
     def test_split_dir_stability_mtime_and_stale_cleanup(self):
-        fns, _, _, sym = ext.load_fns_for_target(KDIR, "fidelity")
+        fns, _, _, sym = ext.load_fns_for_target(KDIR, "fidelity-step7")
         with tempfile.TemporaryDirectory() as td:
             sdir = pathlib.Path(td)
             stale = sdir / "src_ObsoleteLegacy.c"
             stale.write_text("/* stale */\n", encoding="utf-8")
 
-            info1 = ext.emit_split_dir(fns, sdir, "fidelity", sym)
+            info1 = ext.emit_split_dir(fns, sdir, "fidelity-step7", sym)
             self.assertTrue(info1["written_hdr"])
             self.assertGreater(info1["tu_count"], 40)
             self.assertEqual(info1["removed_tus"], ["src_ObsoleteLegacy.c"])
@@ -76,7 +77,7 @@ class ExtractC0DirectTest(unittest.TestCase):
             bva_ns = (sdir / "src_FullFidelityBva.c").stat().st_mtime_ns
 
             # Second identical emit must preserve mtimes on all untouched files.
-            info2 = ext.emit_split_dir(fns, sdir, "fidelity", sym)
+            info2 = ext.emit_split_dir(fns, sdir, "fidelity-step7", sym)
             self.assertFalse(info2["written_hdr"])
             self.assertEqual(info2["written_tus"], [])
             self.assertEqual((sdir / "kissat_common.h").stat().st_mtime_ns, hdr_ns)
@@ -88,7 +89,7 @@ class ExtractC0DirectTest(unittest.TestCase):
                 if f["name"] == "full_sort_bin_watches_fid":
                     f["text"] = f["text"].replace("{", "{ /* noop edit */ ", 1)
                     break
-            info3 = ext.emit_split_dir(edited, sdir, "fidelity", sym)
+            info3 = ext.emit_split_dir(edited, sdir, "fidelity-step7", sym)
             self.assertFalse(info3["written_hdr"])
             self.assertEqual(info3["written_tus"], ["src_FullFidelityStep7.c"])
             self.assertEqual((sdir / "kissat_common.h").stat().st_mtime_ns, hdr_ns)
@@ -96,13 +97,13 @@ class ExtractC0DirectTest(unittest.TestCase):
             self.assertNotEqual(info3["c0_sha256"], info1["c0_sha256"])
 
     def test_diff_against_base_unchanged_and_single_fn_change(self):
-        fns, _, _, _ = ext.load_fns_for_target(KDIR, "fidelity")
+        fns, _, _, _ = ext.load_fns_for_target(KDIR, "fidelity-step7")
         r = subprocess.run(
             ["git", "-C", str(ROOT), "rev-parse", "HEAD"],
             capture_output=True, text=True, check=True,
         )
         head_rev = r.stdout.strip()
-        diff_same = ext.diff_against_base(fns, ROOT, "fidelity", head_rev)
+        diff_same = ext.diff_against_base(fns, ROOT, "fidelity-step7", head_rev)
         self.assertTrue(diff_same["unchanged"])
         self.assertEqual(diff_same["changed_fns"], [])
 
@@ -111,7 +112,7 @@ class ExtractC0DirectTest(unittest.TestCase):
             if f["name"] == "full_bva_commit":
                 f["text"] = f["text"].replace(";", "; /* delta */", 1)
                 break
-        diff_one = ext.diff_against_base(mutated, ROOT, "fidelity", head_rev)
+        diff_one = ext.diff_against_base(mutated, ROOT, "fidelity-step7", head_rev)
         self.assertFalse(diff_one["unchanged"])
         self.assertEqual(diff_one["changed_fns"], ["full_bva_commit"])
         self.assertEqual(diff_one["modified_fns"], ["full_bva_commit"])

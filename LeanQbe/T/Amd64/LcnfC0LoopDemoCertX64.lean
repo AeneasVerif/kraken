@@ -56,7 +56,7 @@ theorem factLoopLinkedMod_x64_legalSig :
 
 private theorem factLoop_factStr_prog_mem :
     factLoopTfs.tf_1.toFn ∈ (lcnfProgMod factLoopTfs).fns := by
-  simp [lcnfProgMod, factLoopTfs, LeanLRC.tflatFnsToFns]
+  simp [lcnfProgMod, factLoopTfs, Frontend.C0.tflatFnsToFns]
 
 private theorem factLoop_factStr_linked_mem :
     factLoopTfs.tf_1.toFn ∈ factLoopLinkedMod.fns := by
