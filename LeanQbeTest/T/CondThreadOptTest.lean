@@ -30,7 +30,7 @@ Covers:
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace LeanQbeTest.T.CondThreadOptTest
 
@@ -211,7 +211,8 @@ theorem constHeadThread_ct : Func.condThreadOpt constHeadThread = fun _ _ (c, a,
   t_kernel_rfl
 
 theorem constHeadThread_wf : constHeadThread.Wf := by t_wf_reify
-theorem constHeadThread_check : Func.checkTFlat (Func.condThreadLateOpt constHeadThread) = true := by
+theorem constHeadThread_check :
+    Func.checkTFlat (Func.condThreadLateOpt constHeadThread) = true := by
   t_kernel_rfl
 
 /-! ## 3. Formal soundness & `callsOk` instantiations -/
@@ -279,12 +280,14 @@ theorem constArgSplit_ct_spec (Γ : Env) (d : Bool) (x y : BitVec 64) (m : Mem 6
   condThread_ok constArgSplit_wf (constArgSplit_spec Γ d x y m X)
 
 theorem constArgSplit_callsOk :
-    ((Func.condThreadOpt constArgSplit) (fun _ => Unit) (fun _ => Unit) (Tup.units _)).callsOk [] [] :=
+    ((Func.condThreadOpt constArgSplit) (fun _ => Unit) (fun _ => Unit)
+      (Tup.units _)).callsOk [] [] :=
   Func.condThreadOpt_callsOk constArgSplit_wf (by
     simp [constArgSplit, Expr.callsOk, Blocks.callsOk])
 
 theorem constHeadThread_late_callsOk :
-    ((Func.condThreadLateOpt constHeadThread) (fun _ => Unit) (fun _ => Unit) (Tup.units _)).callsOk [] [] :=
+    ((Func.condThreadLateOpt constHeadThread) (fun _ => Unit) (fun _ => Unit)
+      (Tup.units _)).callsOk [] [] :=
   Func.condThreadLateOpt_callsOk constHeadThread_wf (by
     simp [constHeadThread, Expr.callsOk, Blocks.callsOk])
 

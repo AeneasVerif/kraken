@@ -14,7 +14,7 @@ elaboration, codegen, and kernel timings for literal syntax programs are recorde
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.ScaleTest
 

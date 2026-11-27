@@ -16,8 +16,6 @@ public import LeanQbe.T.Examples.Kissat.FullM6Sweep
 public import LeanQbe.T.Examples.Kissat.Full1
 import LeanQbe.T.FlatLemmas
 import LeanQbe.T.WPLemmas
-import all Kraken.Mem
-import all Kraken.Separation
 public meta import Lean
 public meta import LeanQbe.T.MainCertElab
 public meta import LeanQbe.T.MainCertFlatElab

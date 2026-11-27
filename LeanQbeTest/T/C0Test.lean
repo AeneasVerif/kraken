@@ -21,7 +21,7 @@ Covers:
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbeTest.T.C0Test
 
@@ -156,7 +156,8 @@ theorem leanrc_moduleOk : ModuleOk (fun _ _ _ _ _ _ _ => False) leanrc_module :=
         lean_dec, analyze_goto_demo, divmod_u32, sum_divmod_u32, find_guarded] at hn
       rcases pre with _ | ⟨a0, _ | ⟨a1, _ | ⟨a2, _ | ⟨a3, _ | ⟨a4, _ | ⟨a5, _ | rest⟩⟩⟩⟩⟩⟩ <;>
         simp_all
-    simp only [Fn.callsOk, lean_dec, lean_dec_body, Expr.callsOk, Blocks.callsOk, true_and, and_true]
+    simp only [Fn.callsOk, lean_dec, lean_dec_body, Expr.callsOk, Blocks.callsOk,
+      true_and, and_true]
     exact List.mem_append_left _ (List.mem_map.mpr ⟨lean_dec_ref_cold, hmem_cold, rfl⟩)
   · refine ⟨analyze_goto_demo_wf, ?_, fun _ _ _ _ h => h.elim⟩
     simp [Fn.callsOk, analyze_goto_demo, analyze_goto_demo_body, Expr.callsOk, Blocks.callsOk]
@@ -170,7 +171,8 @@ theorem leanrc_moduleOk : ModuleOk (fun _ _ _ _ _ _ _ => False) leanrc_module :=
       simp only [List.map_cons, List.map_nil, List.map_append,
         lean_is_scalar_impl, lean_is_scalar, lean_box, lean_unbox, lean_inc, lean_dec_ref_cold,
         lean_dec, analyze_goto_demo, divmod_u32, sum_divmod_u32, find_guarded] at hn
-      rcases pre with _ | ⟨a0, _ | ⟨a1, _ | ⟨a2, _ | ⟨a3, _ | ⟨a4, _ | ⟨a5, _ | ⟨a6, _ | ⟨a7, _ | ⟨a8, _ | rest⟩⟩⟩⟩⟩⟩⟩⟩⟩ <;>
+      rcases pre with _ | ⟨a0, _ | ⟨a1, _ | ⟨a2, _ | ⟨a3, _ | ⟨a4,
+        _ | ⟨a5, _ | ⟨a6, _ | ⟨a7, _ | ⟨a8, _ | rest⟩⟩⟩⟩⟩⟩⟩⟩⟩ <;>
         simp_all
     simp only [Fn.callsOk, sum_divmod_u32, sum_divmod_u32_body, Expr.callsOk, and_true]
     exact List.mem_append_left _ (List.mem_map.mpr ⟨divmod_u32, hmem_dm, rfl⟩)

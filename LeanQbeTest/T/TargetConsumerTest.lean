@@ -17,7 +17,7 @@ Verifies in a separate downstream `module` that:
 -/
 
 set_option autoImplicit false
-@[expose] public section
+section
 namespace LeanQbe.T.TargetConsumerTest
 open LeanQbe.T
 

@@ -24,7 +24,7 @@ moves (`movl %r, %r`) on x86-64:
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace LeanQbeTest.T.X64Zext32ElideTest
 

@@ -3,8 +3,7 @@ module
 public import LeanQbe.T.Examples.ChaCha
 public import LeanQbe.T.Examples.Bignum
 public import LeanQbe.T.Examples.UnionFindLemmas
-import all Kraken.Mem
-import all Kraken.Separation
+import LeanQbe.T.Logic.MemLemmas
 meta import LeanQbe.T.Examples.ChaCha
 meta import LeanQbe.T.Examples.Bignum
 meta import LeanQbe.T.Examples.UnionFind
@@ -48,7 +47,7 @@ systems/cryptographic workloads in `LeanQbe.T`. Architecture-independent (import
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace WorkloadsAuditSpec
 

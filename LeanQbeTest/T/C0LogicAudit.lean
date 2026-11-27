@@ -16,7 +16,7 @@ public import LeanQbe.T.LegalEmit
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 /-!
 # Audit Specification: C0 Frontend & Separation-Logic Proof Tooling

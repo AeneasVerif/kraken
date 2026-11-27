@@ -76,7 +76,7 @@ open LeanQbe.T.Examples.Kissat.ExportCnfState
 
 /-! ## 2. Pure Clause-Extractor & Executable `interpModule` Functional Checks -/
 
-@[expose] public section
+public section
 
 /-- False exit postcondition witnessing zero `.exit` transitions. -/
 abbrev nvXFalse : XPost := fun _ _ _ _ => False

@@ -3,10 +3,9 @@ module
 public import LeanQbe.T.MainCertProof
 public import LeanQbe.T.Amd64.TargLemmas
 public import LeanQbe.T.Logic.MemLemmas
+import all Kraken.Separation
 public import LeanQbeTest.T.Common.Fixtures
 import LeanQbe.T.FlatLemmas
-import all Kraken.Mem
-import all Kraken.Separation
 public meta import Lean
 public meta import LeanQbe.T.MainCertElab
 public meta import LeanQbe.T.Amd64.Targ
@@ -31,7 +30,7 @@ Tests `LeanQbe.T.MainCert` (`LinkedCert` + `compile_linked_chunks!`) end-to-end 
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace LeanQbeTest.T.MainCertTest
 

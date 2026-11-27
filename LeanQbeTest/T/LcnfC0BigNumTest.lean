@@ -31,7 +31,7 @@ meta import LeanQbe.T.PrintCpp
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace LeanQbeTest.T.LcnfC0BigNumTest
 

@@ -7,8 +7,7 @@ public import LeanQbe.T.LegalWfBaseLemmas1
 public import LeanQbe.T.LegalWpBaseLemmas1
 public import LeanQbe.T.Logic.C0Step
 public import LeanQbe.T.Examples.LratBytesDimacsLemmas
-import all Kraken.Mem
-import all Kraken.Separation
+import LeanQbe.T.Logic.MemLemmas
 
 /-!
 # Verification and Axiom Audit for `ControlComb` and `LegalEmit`
@@ -25,7 +24,7 @@ Exercises:
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace LeanQbeTest.T.CombLegalTest
 

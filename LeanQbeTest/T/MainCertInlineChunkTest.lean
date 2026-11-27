@@ -19,7 +19,7 @@ Tests `inline_chunk_base!`, `inline_mod_chunk!`, and `inline_mod_join!` across:
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace LeanQbeTest.T.MainCertInlineChunkTest
 

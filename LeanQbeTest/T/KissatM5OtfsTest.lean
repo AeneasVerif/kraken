@@ -14,8 +14,7 @@ meta import LeanQbe.T.Examples.Kissat.FullM5OtfsLemmas
 meta import LeanQbe.T.PrintCpp
 meta import LeanQbe.T.PrintQbe
 meta import LeanQbe.T.Legal
-import all Kraken.Mem
-import all Kraken.Separation
+import LeanQbe.T.Logic.MemLemmas
 
 /-!
 # Verification, Backend Compilation Guards, & Axiom Audit for M5 (`FullM5Otfs`)
@@ -32,7 +31,7 @@ import all Kraken.Separation
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace LeanQbeTest.T.KissatM5OtfsTest
 

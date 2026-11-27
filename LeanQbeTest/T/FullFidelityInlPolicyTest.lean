@@ -43,7 +43,7 @@ on the purified `469`-function `KissatFidelity` spine (excising `D-11` `full_bve
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace LeanQbeTest.T.FullFidelityInlPolicyTest
 

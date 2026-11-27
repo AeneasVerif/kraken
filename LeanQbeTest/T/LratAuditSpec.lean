@@ -2,8 +2,7 @@ module
 
 public import LeanQbe.T.Examples.LratBytesLemmas
 public import LeanQbe.T.PrintCpp
-import all Kraken.Mem
-import all Kraken.Separation
+import LeanQbe.T.Logic.MemLemmas
 meta import LeanQbe.T.Legal
 meta import LeanQbe.T.PrintCpp
 meta import LeanQbe.T.Examples.LratBytes
@@ -48,7 +47,7 @@ DIMACS + Binary LRAT proof checker `lratBytesModule`. Architecture-independent (
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LratAuditSpec
 

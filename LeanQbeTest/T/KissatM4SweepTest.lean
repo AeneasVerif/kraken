@@ -14,7 +14,7 @@ meta import LeanQbe.T.Examples.Kissat.FullM4SweepProof
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace LeanQbeTest.T.KissatM4SweepTest
 

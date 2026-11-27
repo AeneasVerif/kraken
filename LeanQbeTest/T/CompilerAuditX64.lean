@@ -8,8 +8,7 @@ public import LeanQbe.T.Amd64.IselStepRules
 public import LeanQbe.T.Amd64.LinkRec
 public import LeanQbe.T.Amd64.Litmus
 public import LeanQbeTest.T.MainLinkAmd64Test
-import all Kraken.Mem
-import all Kraken.Separation
+import LeanQbe.T.Logic.MemLemmas
 
 /-!
 # SysV x86-64 Backend, Multi-Chunk Linker, Cyclic Recursion, & Litmus Audit
@@ -50,7 +49,7 @@ This module imports only `Kraken.X64` (`LeanQbe.T.Amd64.*`), never `Kraken.AArch
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace CompilerAuditX64
 

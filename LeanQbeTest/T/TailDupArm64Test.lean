@@ -26,7 +26,7 @@ branches and `.label` directives.
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace LeanQbeTest.T.TailDupArm64Test
 

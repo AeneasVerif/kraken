@@ -2,8 +2,7 @@ module
 
 public import LeanQbe.T.Examples.Kissat.FullM3CongBvaLemmas
 meta import LeanQbe.T.Examples.Kissat.FullM3CongBvaLemmas
-import all Kraken.Mem
-import all Kraken.Separation
+import LeanQbe.T.Logic.MemLemmas
 
 /-!
 # Verification, UNSAT Non-Vacuity, and Axiom Audit for Kissat M3 (`FullM3CongBva`)
@@ -21,7 +20,7 @@ import all Kraken.Separation
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace LeanQbeTest.T.KissatM3CongBvaTest
 

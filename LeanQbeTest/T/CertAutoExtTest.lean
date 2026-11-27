@@ -19,7 +19,7 @@ hardcoded stack bounds, linking all slices via `LinkedCert.append` and checking
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace LeanQbeTest.T.CertAutoExtTest
 

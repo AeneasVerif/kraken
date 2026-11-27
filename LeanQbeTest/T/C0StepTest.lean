@@ -31,7 +31,7 @@ ignore exit continuations with `Env.ofTable_noExit`.
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbeTest.T.C0StepTest
 

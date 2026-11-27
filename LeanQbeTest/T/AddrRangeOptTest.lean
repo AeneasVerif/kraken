@@ -30,7 +30,7 @@ unsigned range-check collapse) at the typed-IR level:
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace LeanQbeTest.T.AddrRangeOptTest
 

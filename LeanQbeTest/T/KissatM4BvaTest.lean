@@ -2,8 +2,7 @@ module
 
 public import LeanQbe.T.Examples.Kissat.FullM4BvaProof
 meta import LeanQbe.T.Examples.Kissat.FullM4BvaProof
-import all Kraken.Mem
-import all Kraken.Separation
+import LeanQbe.T.Logic.MemLemmas
 
 /-!
 # Verification, UNSAT Non-Vacuity, and Axiom Audit for Kissat M4 (`FullM4Bva`)
@@ -22,7 +21,7 @@ import all Kraken.Separation
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace M4BvaAudit
 

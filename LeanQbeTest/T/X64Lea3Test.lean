@@ -25,7 +25,7 @@ Regression tests on `x64Target` for verified 3-operand `leaq`/`leal` arithmetic 
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace LeanQbeTest.T.X64Lea3Test
 

@@ -8,8 +8,7 @@ meta import LeanQbe.T.Examples.Kissat.FullM3Backbone
 meta import LeanQbe.T.PrintCpp
 meta import LeanQbe.T.PrintQbe
 meta import LeanQbe.T.Legal
-import all Kraken.Mem
-import all Kraken.Separation
+import LeanQbe.T.Logic.MemLemmas
 
 /-!
 # Verification, UNSAT Non-Vacuity, and Axiom Audit for Kissat M3 Backbone & `probe_run` Cursor
@@ -31,7 +30,7 @@ import all Kraken.Separation
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 open Std.Sat Std.ExtHashMap
 open LeanQbe.T

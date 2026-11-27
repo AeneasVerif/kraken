@@ -24,7 +24,7 @@ Covers:
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace Stage1Test
 

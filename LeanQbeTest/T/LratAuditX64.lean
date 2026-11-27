@@ -1,8 +1,7 @@
 module
 
 public import LeanQbe.T.Amd64.LratBytes
-import all Kraken.Mem
-import all Kraken.Separation
+import LeanQbe.T.Logic.MemLemmas
 
 /-!
 # Untrusted-Bytes LRAT Proof Checker (`LratBytes`) — SysV x86-64 Machine Audit
@@ -42,7 +41,7 @@ This module imports only `Kraken.X64` (`LeanQbe.T.Amd64.*`), never `Kraken.AArch
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LratAuditX64
 

@@ -16,7 +16,7 @@ meta import LeanQbe.T.Examples.Kissat.FullM4InprocHotProof
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace LeanQbeTest.T.KissatM4InprocHotTest
 
