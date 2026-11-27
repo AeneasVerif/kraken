@@ -6,10 +6,11 @@ module
 
 public import LeanQbe.T.Examples.Kissat.ExportCnfEntry
 public import LeanQbe.T.Examples.Kissat.ExportCnfStateProof
-public import LeanQbe.T.Examples.Kissat.FullM6Proof
-public import LeanQbe.T.Examples.Kissat.FullM6SatSound
-public import LeanQbe.T.Examples.Kissat.FullM6OrchProof2
+public import LeanQbe.T.Examples.Kissat.FullM6HdrProof0
+public import LeanQbe.T.Examples.Kissat.FullM4CompactLemmas
 import LeanQbe.T.Examples.Kissat.FullArena
+import LeanQbe.T.Logic.BitVec
+import LeanQbe.T.Logic.Bytes
 import LeanQbe.T.Logic.MemLemmas
 import LeanQbe.T.Logic.Rules
 import LeanQbe.T.Logic.ControlComb
@@ -21,10 +22,10 @@ import Kraken.Separation
 /-!
 # Verified Simplified-CNF Exporter — Shard E3 Helpers & Sub-Function WP (`ExportCnfEntryProof0`)
 
-Shared DIMACS helpers, `KissatExportOut` layout predicate, `XPost`-polymorphic `Spec` contracts,
-and WP proofs for `kissat_emit_trivial_cnf_bytes` and `kissat_simplify_export_loaded`.
-Top-level entry theorems and concrete `Mem 64` non-vacuity witnesses live in
-`LeanQbe.T.Examples.Kissat.ExportCnfEntryProof`.
+Shared DIMACS helpers, `KissatExportOut` layout predicate, `FullM6Hdr` workspace &
+`XPost`-polymorphic `Spec` contracts, and WP proofs for `kissat_emit_trivial_cnf_bytes` and
+`kissat_simplify_export_loaded` (zero dependency on `FullM6Proof`, `FullM6SatSound`, or
+`FullM6OrchProof2`). Top-level entry theorems live in `ExportCnfEntryProof`.
 -/
 
 set_option autoImplicit false
@@ -33,14 +34,13 @@ namespace LeanQbe.T.Examples.Kissat.ExportCnfEntryProof
 
 open Std.Sat
 open Kraken
+open Kraken.Bedrock2.Test
 open LeanQbe.T
 open LeanQbe.T.ProofUtil
 open LeanQbe.T.Examples.LratBytes
 open LeanQbe.T.Examples.Kissat
 open LeanQbe.T.Examples.Kissat.Full
-open LeanQbe.T.Examples.Kissat.FullM6
 open LeanQbe.T.Examples.Kissat.FullM6Hdr
-open LeanQbe.T.Examples.Kissat.FullM6Orch
 open LeanQbe.T.Examples.Kissat.ExportCnfFmt
 open LeanQbe.T.Examples.Kissat.ExportCnfState
 open LeanQbe.T.Examples.Kissat.ExportCnfEntry
@@ -63,9 +63,55 @@ def exportOutMem (outDesc outPtr outCap outLen : BitVec 64) : Mem 64 → Prop :=
   cell64 (outDesc + 8#64) outCap ⋆
   cell64 (outDesc + 16#64) outLen
 
+/-- Aligned base address of the `M6Hdr` workspace (`work_ptr + fullAlignPad work_ptr`). -/
+def fullM6WorkBase (work_ptr : BitVec 64) : BitVec 64 :=
+  work_ptr + BitVec.ofNat 64 (fullAlignPad work_ptr)
+
+/-- Aligned `FullHdr *h` pointer placed `fullM6ExtBytes = 2304` bytes past `fullM6WorkBase`. -/
+def fullM6WorkHdr (work_ptr : BitVec 64) : BitVec 64 :=
+  fullM6WorkBase work_ptr + BitVec.ofNat 64 fullM6ExtBytes
+
 end
 
 public section
+
+theorem m6ExtAddr_fullM6WorkHdr (work_ptr : BitVec 64) :
+    m6ExtAddr (fullM6WorkHdr work_ptr) = fullM6WorkBase work_ptr := by
+  rw [m6ExtAddr_eq]
+  unfold fullM6WorkHdr fullM6ExtBytes
+  exact BitVec.add_sub_cancel (fullM6WorkBase work_ptr) (BitVec.ofNat 64 2304)
+
+/-- Split `region work_ptr wlen` into leading alignment padding `[work_ptr .. +pad)` and the
+8-byte-aligned `M6Hdr` workspace `[fullM6WorkBase work_ptr .. +(wlen - pad))`. -/
+theorem region_work_to_m6_workBase {work_ptr : BitVec 64} {wlen : Nat} {m : Mem 64}
+    (hle : fullAlignPad work_ptr + fullM6HdrTotalBytes ≤ wlen) (hfit : wlen ≤ 2 ^ 64)
+    (hm : region work_ptr wlen m) :
+    (region work_ptr (fullAlignPad work_ptr) ⋆
+      region (fullM6WorkBase work_ptr) (wlen - fullAlignPad work_ptr)) m := by
+  have heq : fullAlignPad work_ptr + (wlen - fullAlignPad work_ptr) = wlen := by omega
+  exact (congrFun (region_merge_eq heq hfit) m).mpr hm
+
+/-- Collapse leading alignment padding + `FullM6HdrMem c ext s` (`3,456 B` header + arrays) back
+to `region work_ptr wlen`. -/
+theorem region_work_from_m6_hdrMem {work_ptr : BitVec 64} {wlen : Nat} {c : FullCfg}
+    {ext : List (BitVec 64)} {s : FullState} {m : Mem 64}
+    (hle : fullAlignPad work_ptr + fullM6HdrTotalBytes ≤ wlen) (hfit : wlen ≤ 2 ^ 64)
+    (hhdr : c.hdr = fullM6WorkHdr work_ptr)
+    (hav : c.avail = wlen - fullAlignPad work_ptr - fullM6ExtBytes)
+    (hcfg : FullM6HdrCfgOk c) (hext : M6HdrExtOk ext) (hlen : s.LengthsOk c)
+    (hm : (region work_ptr (fullAlignPad work_ptr) ⋆ FullM6HdrMem c ext s) m) :
+    region work_ptr wlen m := by
+  have hreg : (region work_ptr (fullAlignPad work_ptr) ⋆
+      region (fullM6WorkBase work_ptr) (wlen - fullAlignPad work_ptr)) m := by
+    refine sep_mono_r (fun _ h => ?_) hm
+    have hr := fullM6HdrMem_to_region hcfg hext hlen h
+    rw [hhdr, m6ExtAddr_fullM6WorkHdr, hav] at hr
+    have hsz : fullM6ExtBytes + (wlen - fullAlignPad work_ptr - fullM6ExtBytes) =
+        wlen - fullAlignPad work_ptr := by
+      unfold fullM6HdrTotalBytes fullM6ExtBytes at *; omega
+    rwa [hsz] at hr
+  have heq : fullAlignPad work_ptr + (wlen - fullAlignPad work_ptr) = wlen := by omega
+  exact (congrFun (region_merge_eq heq hfit) m).mp hreg
 
 theorem unsatDimacsBytes_len : unsatDimacsBytes.length = 12 := by
   decide
@@ -215,6 +261,53 @@ end
 /-! ## 2. Separation-Logic `Spec` Contracts (`XPost`-Polymorphic) -/
 
 @[expose] public section
+
+/-- Generic `M6Hdr`-aware preprocessing contract (operating over `FullM6HdrInv` and
+`FullM6HdrMem` while permitting M4 compaction via `FullM4Compact.FullCfgCompat`). -/
+def fullM6PreprocessSpec : Spec [i64] [i64] :=
+  fun (h, ()) m Q _ =>
+    ∃ (c : FullCfg) (F0 : CNF Nat) (ext : List (BitVec 64)) (s : FullState) (R : Mem 64 → Prop),
+      h = c.hdr ∧ FullM6HdrInv c F0 ext s ∧ s.core.cur_level = 0 ∧
+      (FullM6HdrMem c ext s ⋆ R) m ∧
+      ∀ r c' ext' s' m',
+        FullM4Compact.FullCfgCompat c c' → s'.LengthsOk c' →
+        FullM6HdrCfgOk c' → M6HdrExtOk ext' →
+        (r = 0#64 ∨ r = 1#64 ∨ r = 10#64 ∨ r = 20#64) →
+        s'.core.fuel.toNat ≤ s.core.fuel.toNat →
+        (r = 20#64 → F0.Unsat) →
+        (r = 1#64 → FullM6HdrInv c' F0 ext' s' ∧ s'.core.cur_level = 0) →
+        (r = 10#64 → s'.scratch.extend_len ≤ c'.extend_cap) →
+        (FullM6HdrMem c' ext' s' ⋆ R) m' → Q (r, ()) m'
+
+/-- Strengthened `full_m6_mem_init` specification carrying `probing = 0`,
+`vals = replicate`, and `wvec = replicate` needed by `Full.fullParseBodySpec`. -/
+def fullM6MemInitExactSpec : Spec [i64, i64, i64, i64, i64] [i64] :=
+  fun (cnf_ptr, cend, work_base, avail, fuel, ()) m Q _ =>
+    ∃ (cnfBytes : List UInt8) (R : Mem 64 → Prop),
+      cend = cnf_ptr + BitVec.ofNat 64 cnfBytes.length ∧
+      cnf_ptr.toNat + cnfBytes.length < 2 ^ 64 ∧
+      work_base.toNat + avail.toNat < 2 ^ 64 ∧
+      (bytes cnf_ptr cnfBytes ⋆ region work_base avail.toNat ⋆ R) m ∧
+      (∀ m', (bytes cnf_ptr cnfBytes ⋆ region work_base avail.toNat ⋆ R) m' →
+        (avail.toNat < fullM6HdrTotalBytes ∨
+          ∀ mv nc rest, parseHeader cnfBytes = some (mv, nc, rest) →
+            avail.toNat - fullM6ExtBytes < fullFixedBytes mv + nc * 40 + 136) →
+        Q (0#64, ()) m') ∧
+      ∀ (c : FullCfg) (ext : List (BitVec 64)) (s : FullState) (j : Nat)
+        (rest : List UInt8) (m' : Mem 64),
+        c.hdr = work_base + BitVec.ofNat 64 fullM6ExtBytes →
+        c.avail = avail.toNat - fullM6ExtBytes →
+        FullM6HdrCfgOk c → M6HdrExtInitOk ext →
+        parseHeader cnfBytes = some (c.mv, c.nc, rest) →
+        j ≤ cnfBytes.length → cnfBytes.drop j = rest →
+        FullM6HdrInv c (shiftDownCnf CNF.empty) ext s →
+        s.core.cur_vars = c.mv → s.core.d_cur = cnf_ptr + BitVec.ofNat 64 j →
+        s.core.arena_len = 0 → s.core.wlen = 1 → s.core.trail_end = 0 →
+        s.core.propagated = 0 → s.core.cur_level = 0 → s.core.fuel = fuel →
+        s.core.oom = 0#64 → s.core.inconsistent = 0#64 → s.core.probing = 0#64 →
+        s.core.vals = List.replicate (2 * c.max_vars) 0#8 →
+        s.core.wvec = List.replicate (4 * c.max_vars) 0#32 →
+        (bytes cnf_ptr cnfBytes ⋆ FullM6HdrMem c ext s ⋆ R) m' → Q (c.hdr, ()) m'
 
 /-- `XPost`-polymorphic WP contract for
 `kissat_emit_trivial_cnf_bytes(out, cap, out_len_ptr, is_unsat)`.
@@ -403,6 +496,61 @@ def exportCnfEntryEnv : Env :=
 end
 
 public section
+
+theorem fullM6PreprocessSpec_of {c : FullCfg} {F0 : CNF Nat} {ext : List (BitVec 64)}
+    {s : FullState} {R : Mem 64 → Prop} {m : Mem 64} {Q : Post [i64]} {X : XPost}
+    (hinv : FullM6HdrInv c F0 ext s) (hcl0 : s.core.cur_level = 0)
+    (hm : (FullM6HdrMem c ext s ⋆ R) m)
+    (hQ : ∀ r c' ext' s' m',
+      FullM4Compact.FullCfgCompat c c' → s'.LengthsOk c' →
+      FullM6HdrCfgOk c' → M6HdrExtOk ext' →
+      (r = 0#64 ∨ r = 1#64 ∨ r = 10#64 ∨ r = 20#64) →
+      s'.core.fuel.toNat ≤ s.core.fuel.toNat →
+      (r = 20#64 → F0.Unsat) →
+      (r = 1#64 → FullM6HdrInv c' F0 ext' s' ∧ s'.core.cur_level = 0) →
+      (r = 10#64 → s'.scratch.extend_len ≤ c'.extend_cap) →
+      (FullM6HdrMem c' ext' s' ⋆ R) m' → Q (r, ()) m') :
+    fullM6PreprocessSpec (c.hdr, ()) m Q X :=
+  ⟨c, F0, ext, s, R, rfl, hinv, hcl0, hm, hQ⟩
+
+theorem fullM6PreprocessSpec_monoX {xs : Tup Val [i64]} {m : Mem 64} {Q : Post [i64]}
+    {X X' : XPost} (h : fullM6PreprocessSpec xs m Q X) :
+    fullM6PreprocessSpec xs m Q X' := by
+  rcases xs with ⟨_, ⟨⟩⟩; exact h
+
+theorem fullM6MemInitExactSpec_of {cnf_ptr cend work_base avail fuel : BitVec 64}
+    {cnfBytes : List UInt8} {R : Mem 64 → Prop} {m : Mem 64} {Q : Post [i64]} {X : XPost}
+    (hcend : cend = cnf_ptr + BitVec.ofNat 64 cnfBytes.length)
+    (hcfit : cnf_ptr.toNat + cnfBytes.length < 2 ^ 64)
+    (hwfit : work_base.toNat + avail.toNat < 2 ^ 64)
+    (hm : (bytes cnf_ptr cnfBytes ⋆ region work_base avail.toNat ⋆ R) m)
+    (hfail : ∀ m', (bytes cnf_ptr cnfBytes ⋆ region work_base avail.toNat ⋆ R) m' →
+      (avail.toNat < fullM6HdrTotalBytes ∨
+        ∀ mv nc rest, parseHeader cnfBytes = some (mv, nc, rest) →
+          avail.toNat - fullM6ExtBytes < fullFixedBytes mv + nc * 40 + 136) →
+      Q (0#64, ()) m')
+    (hok : ∀ (c : FullCfg) (ext : List (BitVec 64)) (s : FullState) (j : Nat)
+      (rest : List UInt8) (m' : Mem 64),
+      c.hdr = work_base + BitVec.ofNat 64 fullM6ExtBytes →
+      c.avail = avail.toNat - fullM6ExtBytes →
+      FullM6HdrCfgOk c → M6HdrExtInitOk ext →
+      parseHeader cnfBytes = some (c.mv, c.nc, rest) →
+      j ≤ cnfBytes.length → cnfBytes.drop j = rest →
+      FullM6HdrInv c (shiftDownCnf CNF.empty) ext s →
+      s.core.cur_vars = c.mv → s.core.d_cur = cnf_ptr + BitVec.ofNat 64 j →
+      s.core.arena_len = 0 → s.core.wlen = 1 → s.core.trail_end = 0 →
+      s.core.propagated = 0 → s.core.cur_level = 0 → s.core.fuel = fuel →
+      s.core.oom = 0#64 → s.core.inconsistent = 0#64 → s.core.probing = 0#64 →
+      s.core.vals = List.replicate (2 * c.max_vars) 0#8 →
+      s.core.wvec = List.replicate (4 * c.max_vars) 0#32 →
+      (bytes cnf_ptr cnfBytes ⋆ FullM6HdrMem c ext s ⋆ R) m' → Q (c.hdr, ()) m') :
+    fullM6MemInitExactSpec (cnf_ptr, cend, work_base, avail, fuel, ()) m Q X :=
+  ⟨cnfBytes, R, hcend, hcfit, hwfit, hm, hfail, hok⟩
+
+theorem fullM6MemInitExactSpec_monoX
+    {xs : Tup Val [i64, i64, i64, i64, i64]} {m : Mem 64} {Q : Post [i64]} {X X' : XPost}
+    (h : fullM6MemInitExactSpec xs m Q X) : fullM6MemInitExactSpec xs m Q X' := by
+  rcases xs with ⟨_, _, _, _, _, ⟨⟩⟩; exact h
 
 /-! ## 3. BitVec Helpers & Sub-Function WP Proofs -/
 
@@ -855,258 +1003,5 @@ theorem kissat_simplify_export_loaded_wp (Γ : Env)
               (fun hu _ => absurd hu hnot_ut)
 
 end
-
-section M6BaseEnv
-
-open FullM6Proof FullM6ProofUtil FullM6OrchAdapters
-
-private theorem m6ExportTbl_len_eq {fs : List Fn} {rs : List SpecEntry}
-    (h : rs.map (fun e => (e.name, e.as, e.rs)) = fs.map Fn.sig) :
-    fs.length = rs.length := by
-  have h1 := congrArg List.length h
-  simpa only [List.length_map] using h1.symm
-
-@[expose] public section
-
-/-- Exposed `382`-row specification table for `FullM6.m6Module`, matching `m6SpecTable` so
-downstream exporter proofs can unfold `m6ExportBaseEnv` without modifying `FullM6Proof`. -/
-def m6ExportTbl : List SpecEntry :=
-  m6RowsPart1 m6OrchPfxSpecTable ++
-  (m6RowsPart2 m6OrchPfxSpecTable ++
-    (m6RowsPart3Pfx m6OrchPfxSpecTable ++ FullM6Proof.m6OrchTailRows fullM6SolveBytesSpec))
-
-/-- Closed `Env` for `m6Module` over `m6ExportTbl`. -/
-def m6ExportBaseEnv : Env :=
-  Env.ofTable m6ExportTbl
-
-end
-
-public section
-
-theorem m6ExportTbl_sigs :
-    m6ExportTbl.map (fun e => (e.name, e.as, e.rs)) = m6Fns.map Fn.sig := by
-  have hm123 : m6Fns =
-      m6FnsPart1 ++ (m6FnsPart2 ++ (m6FnsPart3.take 121 ++ m6FnsPart3.drop 121)) := by
-    rw [m6Fns, List.append_assoc, List.take_append_drop]
-  rw [hm123]
-  unfold m6ExportTbl
-  simp only [List.map_append]
-  rw [m6RowsPart1_sigs m6OrchPfxSpecTable_sigs, m6RowsPart2_sigs m6OrchPfxSpecTable_sigs,
-    m6RowsPart3Pfx_sigs m6OrchPfxSpecTable_sigs,
-    FullM6Proof.m6OrchTailRows_sigs fullM6SolveBytesSpec]
-
-theorem m6ExportTbl_nodup : (m6ExportTbl.map SpecEntry.name).Nodup := by
-  have hm := congrArg (List.map Prod.fst) m6ExportTbl_sigs
-  have hm' : m6ExportTbl.map SpecEntry.name = m6Module.fns.map Fn.name := by
-    dsimp only [m6Module]
-    simp only [List.map_map, Function.comp_def, Fn.sig] at hm
-    exact hm
-  exact tbl_nodup_of_sigs m6_acyclic hm'
-
-private theorem m6ExportTbl_tPfx_mem :
-    ∀ e ∈ m6OrchPfxSpecTable, e ∈ m6ExportTbl := by
-  intro e he
-  rcases List.mem_iff_getElem.mp he with ⟨i, hi, rfl⟩
-  have hi24 : i < 24 := m6OrchPfxSpecTable_length ▸ hi
-  unfold m6ExportTbl
-  rcases Nat.lt_or_ge i 10 with h10 | h10
-  · exact List.mem_append_left _ (m6RowsPart1_tPfx_mem h10 hi)
-  · apply List.mem_append_right
-    rcases Nat.lt_or_ge i 18 with h18 | h18
-    · exact List.mem_append_left _ (m6RowsPart2_tPfx_mem h10 h18 hi)
-    · exact List.mem_append_right _ (List.mem_append_left _
-        (m6RowsPart3Pfx_tPfx_mem h18 hi24 hi))
-
-private theorem m6ExportTbl_mem_lookup
-    (nm : String) (as bs : List Ty) (sp : Spec as bs)
-    (hmem : (⟨nm, as, bs, sp, true⟩ : SpecEntry) ∈ m6ExportTbl)
-    (hno : ∀ xs m Q X, sp xs m Q X → sp xs m Q (fun _ _ _ _ => False) := by
-      exact fun _ _ _ _ h => h) :
-    ∀ xs m Q X, sp xs m Q X → m6ExportBaseEnv nm as bs xs m Q X :=
-  fun xs m Q X hs => Env.ofTable_of_mem hmem m6ExportTbl_nodup (by
-    dsimp only [SpecEntry.eff]; simp only [ite_true]; exact hno xs m Q X hs)
-
-theorem m6ExportBaseEnv_full_backtrack :
-    ∀ a m Q X, Full.fullBacktrackSpec a m Q X →
-      m6ExportBaseEnv "full_backtrack" [i64, i64] [] a m Q X :=
-  m6ExportTbl_mem_lookup _ _ _ _ (m6Part1Callees_of_sub (tPfx := m6OrchPfxSpecTable)
-    (tbl := m6ExportTbl) fun _ he => by
-      unfold m6ExportTbl; exact List.mem_append_left _ he).backtrack
-
-theorem m6ExportBaseEnv_full_m6_mem_init :
-    ∀ a m Q X, fullM6MemInitExactSpec a m Q X →
-      m6ExportBaseEnv "full_m6_mem_init" [i64, i64, i64, i64, i64] [i64] a m Q X :=
-  m6ExportTbl_mem_lookup _ _ _ _ (m6Part1TailCallees_of_sub (tPfx := m6OrchPfxSpecTable)
-    (tbl := m6ExportTbl) fun _ he => by unfold m6ExportTbl; exact List.mem_append_left _ he).1
-    (fun _ _ _ _ h => fullM6MemInitExactSpec_monoX h)
-
-theorem m6ExportBaseEnv_full_parse_body_m6 :
-    ∀ a m Q X, Full.fullParseBodySpec a m Q X →
-      m6ExportBaseEnv "full_parse_body_m6" [i64, i64] [i64] a m Q X :=
-  m6ExportTbl_mem_lookup _ _ _ _ (m6Part1ExtCallees_of_sub (tPfx := m6OrchPfxSpecTable)
-    (tbl := m6ExportTbl) fun _ he => by
-      unfold m6ExportTbl; exact List.mem_append_left _ he).parseBodyM6
-
-theorem m6ExportBaseEnv_full_preprocess_m6 :
-    ∀ a m Q X, fullM6PreprocessSpec a m Q X →
-      m6ExportBaseEnv "full_preprocess_m6" [i64] [i64] a m Q X :=
-  m6ExportTbl_mem_lookup _ _ _ _ (m6ExportTbl_tPfx_mem _ (m6OrchPfxSpecTable_row_at 22 _))
-    (fun _ _ _ _ h => fullM6PreprocessSpec_monoX h)
-
-private theorem env_ofTable_mem_name : ∀ (tbl : List SpecEntry) {f : Sym} {as rs : List Ty}
-    {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost},
-    Env.ofTable tbl f as rs xs m Q X → f ∈ tbl.map SpecEntry.name
-  | [], _, _, _, _, _, _, _, h => by simp [Env.ofTable] at h
-  | _ :: es, _, _, _, _, _, _, _, h => by
-    unfold Env.ofTable at h
-    rcases h with ⟨he, _⟩ | ⟨_, htail⟩
-    · exact List.mem_cons.mpr (Or.inl he.1.symm)
-    · exact List.mem_cons_of_mem _ (env_ofTable_mem_name es htail)
-
-theorem m6ExportBaseEnv_mem_name {f : Sym} {as rs : List Ty}
-    {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
-    (h : m6ExportBaseEnv f as rs xs m Q X) : f ∈ m6Fns.map Fn.name := by
-  have hf := env_ofTable_mem_name m6ExportTbl h
-  have hs := congrArg (List.map Prod.fst) m6ExportTbl_sigs
-  have hm_eq : m6ExportTbl.map SpecEntry.name = m6Fns.map Fn.name := by
-    simpa [List.map_map, Function.comp_def, Fn.sig] using hs
-  rwa [← hm_eq]
-
-private theorem m6ExportTbl_orchPfxExtCallees :
-    M6OrchPfxExtCallees m6ExportBaseEnv := by
-  have sub1 : ∀ e ∈ m6RowsPart1 m6OrchPfxSpecTable, e ∈ m6ExportTbl :=
-    fun _ h => by unfold m6ExportTbl; exact List.mem_append_left _ h
-  have sub2 : ∀ e ∈ m6RowsPart2 m6OrchPfxSpecTable, e ∈ m6ExportTbl :=
-    fun _ h => by unfold m6ExportTbl; exact List.mem_append_right _ (List.mem_append_left _ h)
-  have sub3p : ∀ e ∈ m6RowsPart3Pfx m6OrchPfxSpecTable, e ∈ m6ExportTbl :=
-    fun _ h => by
-      unfold m6ExportTbl
-      exact List.mem_append_right _ (List.mem_append_right _ (List.mem_append_left _ h))
-  have hc1 := m6Part1Callees_of_sub sub1
-  have hc2 := m6Part2Callees_of_sub sub2
-  have ep1 := m6Part1ExtCallees_of_sub sub1
-  have ep2 := m6Part2ExtCallees_of_sub sub2
-  have ep3 := m6Part3ExtCallees_of_sub sub3p
-  refine ⟨ ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_
-         , ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_
-         , ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_ ⟩
-  · exact m6ExportTbl_mem_lookup _ _ _ _ ep1.wstackDefragM6
-  · exact m6ExportTbl_mem_lookup _ _ _ _ ep1.watchPushM6
-  · exact m6ExportTbl_mem_lookup _ _ _ _ ep1.rescaleM6
-  · exact m6ExportTbl_mem_lookup _ _ _ _ ep1.parseBodyM6
-  · exact m6ExportTbl_mem_lookup _ _ _ _ ep1.litRankM6
-  · exact m6ExportTbl_mem_lookup _ _ _ _ ep1.sweepBinsM6cf
-  · exact m6ExportTbl_mem_lookup _ _ _ _ ep1.rewatchArenaM6
-  · exact m6ExportTbl_mem_lookup _ _ _ _ ep1.arenaSweepM6
-  · exact m6ExportTbl_mem_lookup _ _ _ _ ep1.markReasonsM6
-  · exact m6ExportTbl_mem_lookup _ _ _ _ ep2.minShrinkM6
-  · exact m6ExportTbl_mem_lookup _ _ _ _ ep2.deduce1uipM6
-  · exact m6ExportTbl_mem_lookup _ _ _ _ ep2.walkM6
-  · exact m6ExportTbl_mem_lookup _ _ _ _ ep3.sweepDenseM5
-  · exact m6ExportTbl_mem_lookup _ _ _ _ hc1.isqrt
-  · exact m6ExportTbl_mem_lookup _ _ _ _ hc1.backtrack
-  · exact m6ExportTbl_mem_lookup _ _ _ _ hc1.propagate
-  · exact m6ExportTbl_mem_lookup _ _ _ _ ep1.recomputeTiers
-      (fun _ _ _ _ h => m6HdrW2aSpec_monoX h)
-  · exact m6ExportTbl_mem_lookup _ _ _ _ hc1.arenaNext
-  · exact m6ExportTbl_mem_lookup _ _ _ _ ep1.sortReds
-  · exact m6ExportTbl_mem_lookup _ _ _ _ hc1.ilog10
-  · exact m6ExportTbl_mem_lookup _ _ _ _ ep1.setWm
-      (fun _ _ _ _ h => m6HdrW2aSpec_monoX h)
-  · exact m6ExportTbl_mem_lookup _ _ _ _ ep2.analyzeLit
-  · exact m6ExportTbl_mem_lookup _ _ _ _ ep1.recordUsed
-      (fun _ _ _ _ h => m6HdrW2aSpec_monoX h)
-  · exact m6ExportTbl_mem_lookup _ _ _ _ ep2.clearAna
-  · exact m6ExportTbl_mem_lookup _ _ _ _ ep2.otfsBin
-  · exact m6ExportTbl_mem_lookup _ _ _ _ ep2.otfsSubsume
-  · exact m6ExportTbl_mem_lookup _ _ _ _ ep2.otfsLarge
-  · exact m6ExportTbl_mem_lookup _ _ _ _ ep2.oneLitConfl
-  · exact m6ExportTbl_mem_lookup _ _ _ _ ep2.anaFailedLit
-      (fun _ _ _ _ h => m6aAnaFailedLitSpec_monoX h)
-  · exact m6ExportTbl_mem_lookup _ _ _ _ ep2.restoreBumpAna
-      (fun _ _ _ _ h => m6aRestoreBumpAnaSpec_monoX h)
-  · exact m6ExportTbl_mem_lookup _ _ _ _ hc1.tickRel
-  · exact m6ExportTbl_mem_lookup _ _ _ _ hc1.emaUpdate
-  · exact m6ExportTbl_mem_lookup _ _ _ _ ep2.learnClause
-  · exact m6ExportTbl_mem_lookup _ _ _ _ ep1.extReady
-      (fun _ _ _ _ h => m6HdrExtReadySpec_monoX h)
-  · exact m6ExportTbl_mem_lookup _ _ _ _ ep1.getWm
-      (fun _ _ _ _ h => m6HdrW2aSpec_monoX h)
-  · exact m6ExportTbl_mem_lookup _ _ _ _ ep1.heapDown
-  · exact m6ExportTbl_mem_lookup _ _ _ _ hc1.log10Q16
-  · exact m6ExportTbl_mem_lookup _ _ _ _ ep3.reorderQueueM7
-  · exact m6ExportTbl_mem_lookup _ _ _ _ ep2.backboneM6
-  · exact m6ExportTbl_mem_lookup _ _ _ _ ep2.transitiveM6
-  · exact m6ExportTbl_mem_lookup _ _ _ _ ep3.minU64
-  · exact m6ExportTbl_mem_lookup _ _ _ _ ep2.probeRun
-  · exact m6ExportTbl_mem_lookup _ _ _ _ ep2.vivifyM6Hdr
-      (fun _ _ _ _ h => m6aVivifySpec_monoX h)
-  · exact m6ExportTbl_mem_lookup _ _ _ _ ep3.probeDticks
-      (fun _ _ _ _ h => m6HdrW2aSpec_monoX h)
-  · exact m6ExportTbl_mem_lookup _ _ _ _ hc1.scaleDeltaM5
-  · exact m6ExportTbl_mem_lookup _ _ _ _ hc2.enterDense
-  · exact m6ExportTbl_mem_lookup _ _ _ _ ep1.delaying
-      (fun _ _ _ _ h => m6HdrW2aSpec_monoX h)
-  · exact m6ExportTbl_mem_lookup _ _ _ _ ep2.congruenceDense
-  · exact m6ExportTbl_mem_lookup _ _ _ _ hc2.rebuildWatches
-  · exact m6ExportTbl_mem_lookup _ _ _ _ ep1.reduceDelay
-      (fun _ _ _ _ h => m6HdrW2aSpec_monoX h)
-  · exact m6ExportTbl_mem_lookup _ _ _ _ ep1.bumpDelay
-      (fun _ _ _ _ h => m6HdrW2aSpec_monoX h)
-  · exact m6ExportTbl_mem_lookup _ _ _ _ ep2.substitute
-  · exact m6ExportTbl_mem_lookup _ _ _ _ ep3.factor
-  · exact m6ExportTbl_mem_lookup _ _ _ _ ep2.lucky
-  · exact m6ExportTbl_mem_lookup _ _ _ _ ep3.compactNeeded
-  · exact m6ExportTbl_mem_lookup _ _ _ _ ep3.compact
-  · exact m6ExportTbl_mem_lookup _ _ _ _ ep3.eliminateM6
-
-theorem m6ExportBaseEnv_moduleOk : ModuleOk m6ExportBaseEnv m6Module := by
-  have hnd := m6ExportTbl_nodup
-  have hPfxLen : (m6Orch_fns.take 24).length = m6OrchPfxSpecTable.length :=
-    (m6ExportTbl_len_eq m6OrchPfxSpecTable_sigs).symm
-  have hPfxOk : TableImpl m6ExportBaseEnv (m6Orch_fns.take 24) m6OrchPfxSpecTable :=
-    FullM6Orch.m6OrchPfx_tableImpl hnd m6ExportTbl_tPfx_mem m6ExportTbl_orchPfxExtCallees
-  have hWalk : ∀ a m Q X, Full.fullWarmupSpec a m Q X →
-      m6ExportBaseEnv "full_walk" [i64] [] a m Q X :=
-    m6ExportTbl_mem_lookup _ _ _ _ (m6ExportTbl_tPfx_mem _ (m6OrchPfxSpecTable_row_at 15 _))
-  have sub1 : ∀ e ∈ m6RowsPart1 m6OrchPfxSpecTable, e ∈ m6ExportTbl :=
-    fun _ h => by unfold m6ExportTbl; exact List.mem_append_left _ h
-  have sub2 : ∀ e ∈ m6RowsPart2 m6OrchPfxSpecTable, e ∈ m6ExportTbl :=
-    fun _ h => by unfold m6ExportTbl; exact List.mem_append_right _ (List.mem_append_left _ h)
-  have sub3p : ∀ e ∈ m6RowsPart3Pfx m6OrchPfxSpecTable, e ∈ m6ExportTbl :=
-    fun _ h => by
-      unfold m6ExportTbl
-      exact List.mem_append_right _ (List.mem_append_right _ (List.mem_append_left _ h))
-  have sub3t : ∀ e ∈ FullM6Proof.m6OrchTailRows fullM6SolveBytesSpec, e ∈ m6ExportTbl :=
-    fun _ h => by
-      unfold m6ExportTbl
-      exact List.mem_append_right _ (List.mem_append_right _ (List.mem_append_right _ h))
-  have hc1 := m6Part1Callees_of_sub sub1
-  have hc1Tail := m6Part1TailCallees_of_sub sub1
-  have hc2 := m6Part2Callees_of_sub sub2
-  have hc2Tail := m6Part2TailCallees_of_sub sub2
-  have i1 := m6RowsPart1_tableImpl (tbl := m6ExportTbl) hnd hPfxLen hPfxOk m6ExportTbl_tPfx_mem
-    m6OrchPfxSpecTable_pfxSpecs sub1
-  have i2 := m6RowsPart2_tableImpl (tbl := m6ExportTbl) hnd hPfxLen hPfxOk m6ExportTbl_tPfx_mem
-    m6OrchPfxSpecTable_pfxSpecs hc1 hWalk sub2
-  have i3 := m6Part3_tableImpl (tPfx := m6OrchPfxSpecTable) (tbl := m6ExportTbl)
-    fullM6SolveBytesSpec
-    (fun _ _ _ _ hs => fullM6SolveBytesCoreModelSpec_of_spec hs)
-    (fun _ _ _ _ _ h => fullM6SolveBytesSpec_monoX h)
-    hnd m6OrchPfxSpecTable_sigs hPfxOk m6ExportTbl_tPfx_mem m6OrchPfxSpecTable_pfxSpecs hc1 hc2
-    hc1Tail.1 hc1Tail.2 hc2Tail.analyzeM6 hc2Tail.restartDue hc2Tail.restart
-    hc2Tail.rephaseM6 hc2Tail.hdrDecide hc2Tail.extend sub3p sub3t
-  have i23 := tableImpl_append (m6ExportTbl_len_eq (m6RowsPart2_sigs m6OrchPfxSpecTable_sigs)) i2 i3
-  exact moduleOk_of_two_segments m6_acyclic (List.append_assoc m6FnsPart1 m6FnsPart2 m6FnsPart3)
-    (m6ExportTbl_len_eq (m6RowsPart1_sigs m6OrchPfxSpecTable_sigs))
-    (allFns_of_mem fun f hf => m6Fns_wf f (List.mem_append_left _ (List.mem_append_left _ hf)))
-    (allFns_append
-      (allFns_of_mem fun f hf => m6Fns_wf f (List.mem_append_left _ (List.mem_append_right _ hf)))
-      (allFns_of_mem fun f hf => m6Fns_wf f (List.mem_append_right _ hf)))
-    i1 i23
-
-end
-
-end M6BaseEnv
 
 end LeanQbe.T.Examples.Kissat.ExportCnfEntryProof
