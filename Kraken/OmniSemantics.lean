@@ -35,22 +35,31 @@ theorem eventually_weaken {State : Type} (trans : State → Post → Prop) (p q 
   := by
     exact fun hp => eventually_trans trans p q initial hp fun s hs => .done s (h s hs)
 
--- A loop down to 0
-theorem reg_dec_loop {State : Type} (trans : State → Post → Prop) (post : Post) (initial : State) (invariant : Nat → Post) (n : Nat) :
-  -- if:
-  -- invariant holds before entering the loop
-  invariant n initial ∧
-  -- final iteration allows proving `post`
-  (∀ state, invariant 0 state → Eventually trans post state) ∧
-  -- while iterating, we eventually re-establish the invariant
-  (∀ state k, k ≠ 0 → invariant k state → Eventually trans (invariant (k - 1)) state) →
-  -- then: we can prove the post
-  Eventually trans post initial
-  := by
-    rintro ⟨hinv, hzero, hnz⟩
-    if h : n = 0 then
-      exact hzero initial (h ▸ hinv)
-    else
-      exact eventually_trans trans (invariant (n - 1)) post initial
-        (hnz initial n h hinv) fun s hs =>
-          reg_dec_loop trans post s invariant (n - 1) ⟨hs, hzero, hnz⟩
+-- Loop body postcondition for `tailrec_loop`: either exit the loop (`break`),
+-- or re-enter (`loop`) with a strictly smaller ghost state and an exit-postcondition update.
+inductive LoopPost {State : Type} {Ghost : Sort _}
+    (onLoop onExit : Ghost → Post)
+    (lt : Ghost → Ghost → Prop) (g : Ghost) (mid_s : State) : Prop where
+  | break (exit : onExit g mid_s)
+  | loop (g' : Ghost) (inv : onLoop g' mid_s)
+      (dec : lt g' g) (upd : ∀ t_s, onExit g' t_s → onExit g t_s)
+
+-- Tailrec-style loop rule
+theorem tailrec_loop {State : Type} {Ghost : Sort _}
+    {trans : State → Post → Prop} {post : Post} {initial : State}
+    (onLoop onExit : Ghost → Post)
+    (lt : Ghost → Ghost → Prop)
+    (Hwf : WellFounded lt)
+    (g0 : Ghost) :
+    onLoop g0 initial →
+    (∀ g state, onLoop g state →
+      Eventually trans (LoopPost onLoop onExit lt g) state) →
+    (∀ state, onExit g0 state → post state) →
+    Eventually trans post initial := by
+  intro hP hbody hpost
+  induction g0 using Hwf.induction generalizing initial with
+  | h g ih =>
+    refine eventually_trans trans _ post initial (hbody g initial hP) ?_
+    rintro mid_s (⟨hQ⟩ | ⟨g', hP', hlt, hQ'⟩)
+    · exact .done mid_s (hpost mid_s hQ)
+    · exact ih g' hlt hP' (fun t h => hpost t (hQ' t h))
