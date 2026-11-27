@@ -1458,9 +1458,13 @@ theorem fidTiers_tableImpl : TableImpl fidTiersEnv fidTiersRepls fidTiersSpecs :
 theorem fidTiers_solveBytes_mem : m6oSolveBytesFn ∈ fidTiersModule.fns := by
   change m6oSolveBytesFn ∈ PatchModule.patchFns fidTiersRepls [] fidBaseFns
   rw [PatchModule.patchFns_nil]
-  exact FullM7Splice.spliceFns_mem_of_ne fidBase_solveBytes_mem fun r hr => by
+  refine List.mem_map.mpr ⟨m6oSolveBytesFn, fidBase_solveBytes_mem, ?_⟩
+  have hnone : fidTiersRepls.find? (fun x => x.name == m6oSolveBytesFn.name) = none := by
+    rw [List.find?_eq_none]
+    intro r hr heq
     simp only [fidTiersRepls, List.mem_cons, List.not_mem_nil, or_false] at hr
-    rcases hr with rfl | rfl <;> decide
+    rcases hr with rfl | rfl <;> exact absurd (beq_iff_eq.mp heq) (by decide)
+  simp [hnone]
 
 private theorem fidTiersEnv_solveBytes_elim {xs : Tup Val [i64, i64, i64, i64, i64]}
     {m : Mem 64} {Q : Post [i64]} {X : XPost} :

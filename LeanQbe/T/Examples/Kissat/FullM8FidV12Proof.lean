@@ -405,9 +405,61 @@ private theorem m8Fid_worklist_wp_of_env {nm : Sym} {as bs : List Ty} {xs : Tup 
   | enqVar => exact absurd hnm (by decide)
   | evalGate => exact absurd hnm (by decide)
 
+private theorem pm_spliceFns_wf {repls fs : List Fn}
+    (hfs : ∀ f ∈ fs, f.Wf) (hr : ∀ r ∈ repls, r.Wf) :
+    ∀ f ∈ PatchModule.spliceFns repls fs, f.Wf := by
+  intro f hf
+  rcases List.mem_map.mp hf with ⟨g, hg, rfl⟩
+  cases h : repls.find? (fun x => x.name == g.name) with
+  | none => exact hfs g hg
+  | some r => exact hr r (List.mem_of_find?_eq_some h)
+
+private theorem pm_spliceFns_mem_of_ne {repls fs : List Fn} {g : Fn} (hg : g ∈ fs)
+    (hne : ∀ r ∈ repls, r.name ≠ g.name) : g ∈ PatchModule.spliceFns repls fs := by
+  refine List.mem_map.mpr ⟨g, hg, ?_⟩
+  cases h : repls.find? (fun x => x.name == g.name) with
+  | none => rfl
+  | some r =>
+    have hb : (r.name == g.name) = true :=
+      List.find?_some (p := fun x : Fn => x.name == g.name) h
+    exact absurd (beq_iff_eq.mp hb) (hne r (List.mem_of_find?_eq_some h))
+
+private theorem pm_spliceModule_moduleOk {Γ Γ' : Env} {M : LeanQbe.T.Module}
+    (hM : ModuleOk Γ M) {repls : List Fn}
+    (hchk : ({ M with fns := PatchModule.spliceFns repls M.fns } :
+      LeanQbe.T.Module).checkAcyclic = true)
+    (hrWf : ∀ r ∈ repls, r.Wf)
+    (hCallee : ∀ f as bs xs m Q X, Γ f as bs xs m Q X → Γ' f as bs xs m Q X)
+    (hFnWp : ∀ g ∈ M.fns, repls.find? (fun x => x.name == g.name) = none →
+      (∀ xs m Q X, Γ' g.name g.as g.rs xs m Q X → Func.wp Γ' g.body xs m Q X) ∨
+      (∀ xs m Q X, Γ' g.name g.as g.rs xs m Q X → Γ g.name g.as g.rs xs m Q X))
+    (hrWp : ∀ r ∈ repls, ∀ xs m Q X,
+      Γ' r.name r.as r.rs xs m Q X → Func.wp Γ' r.body xs m Q X) :
+    ModuleOk Γ' { M with fns := PatchModule.spliceFns repls M.fns } := by
+  have hwfOrig : ∀ f ∈ M.fns, f.Wf := fun f hf => by
+    obtain ⟨pre, post, hsplit⟩ := List.append_of_mem hf
+    exact (hM.fnsOk pre f post hsplit).1
+  refine LeanQbe.T.Module.moduleOk_of_checkAcyclic hchk (pm_spliceFns_wf hwfOrig hrWf) ?_
+  intro fn hmem
+  rcases List.mem_map.mp hmem with ⟨g, hg, rfl⟩
+  cases h : repls.find? (fun x => x.name == g.name) with
+  | some r =>
+    intro xs m Q X hspec
+    exact hrWp r (List.mem_of_find?_eq_some h) xs m Q X hspec
+  | none =>
+    intro xs m Q X hspec
+    rcases hFnWp g hg h with hNew | hPull
+    · exact hNew xs m Q X hspec
+    · obtain ⟨pre, post, hsplit⟩ := List.append_of_mem hg
+      have ⟨hwfG, hcallsG, hwpG⟩ := hM.fnsOk pre g post hsplit
+      exact wp_env_agree_of_callsOk
+        (hwfG Val (fun _ => Unit) Cont (fun _ => Unit) xs (Tup.units g.as))
+        hcallsG (fun f as bs _ => hCallee f as bs) m
+        (hwpG xs m Q X (hPull xs m Q X hspec))
+
 /-- Closed `ModuleOk m8FidV12Env m8FidV12Module` proof across all `413` functions (`0` sorry). -/
 theorem m8FidV12_moduleOk : ModuleOk m8FidV12Env m8FidV12Module := by
-  refine spliceModule_moduleOk m7Fidelity_moduleOk m8FidV12_acyclic m8FidV12Repls_wf
+  refine pm_spliceModule_moduleOk m7Fidelity_moduleOk m8FidV12_acyclic m8FidV12Repls_wf
     (fun _ _ _ _ _ _ _ h => M8FidV12Env.base h) ?_ ?_
   · intro g hg _hnone
     by_cases h1 : g.name = "full_cong_enq_var"
@@ -458,7 +510,7 @@ theorem m8FidV12_moduleOk : ModuleOk m8FidV12Env m8FidV12Module := by
 
 /-- Membership of `kissat_solve_bytes` in `m8FidV12Module.fns`. -/
 theorem m8FidV12_solveBytes_mem : FullM6Orch.m6oSolveBytesFn ∈ m8FidV12Module.fns :=
-  spliceFns_mem_of_ne m7Fidelity_solveBytes_mem fun r hr => by
+  pm_spliceFns_mem_of_ne m7Fidelity_solveBytes_mem fun r hr => by
     simp only [m8FidV12Repls, List.mem_cons, List.not_mem_nil, or_false] at hr
     rcases hr with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> decide
 
