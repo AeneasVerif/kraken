@@ -1,6 +1,7 @@
 module
 
 public import LeanQbe.T.LeanLCNF.LcnfC0FfiSpec
+import LeanQbe.T.LeanLCNF.LcnfC0ContainersProof2
 import LeanQbe.T.Logic.C0HeadStep
 import LeanQbe.T.Logic.ProofKit
 import LeanQbe.T.Logic.ControlComb
@@ -88,62 +89,17 @@ theorem rtC0Inv_store_s_end {rt : BitVec 64} {st : RtC0State} (newEnd : BitVec 6
           (baObj.totalBytes - (24 + baObj.scalarData.length)) ⋆ R)) m := sep_ac hm
   exact r2_c0_load_cell64_add8 hm1
 
-theorem align8_idemp_ffi (n : Nat) : align8 (align8 n) = align8 n := by
-  unfold align8; omega
-
-theorem region_pop_cell64_ffi {a : BitVec 64} {rem : Nat} (hrem : 8 ≤ rem) (hfit : rem ≤ 2 ^ 64)
-    {R : Mem 64 → Prop} {m : Mem 64} (hm : (region a rem ⋆ R) m) :
-    ∃ w : BitVec 64, (cell64 a w ⋆ region (a + 8#64) (rem - 8) ⋆ R) m := by
-  have heq : rem = 8 + (rem - 8) := by omega
-  rw [heq, region_split (by omega)] at hm
-  have hm1 : (region a 8 ⋆ (region (a + 8#64) (rem - 8) ⋆ R)) m := sep_ac hm
-  obtain ⟨w, hw⟩ := sep_ex_l.mp (sep_mono (fun _ hf => region_to_cell64 hf) hm1)
-  have hw1 : (cell64 a w ⋆ (region (a + 8#64) (rem - 8) ⋆ R)) m := sep_mono (fun _ h => h) hw
-  exact ⟨w, (sep_ac hw1 : (cell64 a w ⋆ region (a + 8#64) (rem - 8) ⋆ R) m)⟩
-
 theorem region_to_2cells_rem_ffi {p : BitVec 64} {bytes : Nat} (hge : 16 ≤ bytes)
     (hfit : bytes ≤ 2 ^ 64) {R : Mem 64 → Prop} {m : Mem 64}
     (hm : (region p bytes ⋆ R) m) :
     ∃ w0 w1 : BitVec 64,
       (cell64 p w0 ⋆ cell64 (p + 8#64) w1 ⋆ region (p + 16#64) (bytes - 16) ⋆ R) m := by
-  obtain ⟨w0, h0⟩ := region_pop_cell64_ffi (by omega) hfit hm
+  obtain ⟨w0, h0⟩ := region_pop_cell64 (by omega) hfit hm
   have h1in : (region (p + 8#64) (bytes - 8) ⋆ (cell64 p w0 ⋆ R)) m := sep_ac h0
-  obtain ⟨w1, h1⟩ := region_pop_cell64_ffi (by omega) (by omega) h1in
+  obtain ⟨w1, h1⟩ := region_pop_cell64 (by omega) (by omega) h1in
   rw [ptr_add_nat_r2, show bytes - 8 - 8 = bytes - 16 by omega] at h1
   exact ⟨w0, w1, (sep_ac h1 : (cell64 p w0 ⋆ cell64 (p + 8#64) w1 ⋆
     region (p + 16#64) (bytes - 16) ⋆ R) m)⟩
-
-theorem region_to_3cells_rem_ffi {p : BitVec 64} {bytes : Nat} (hge : 24 ≤ bytes)
-    (hfit : bytes ≤ 2 ^ 64) {R : Mem 64 → Prop} {m : Mem 64}
-    (hm : (region p bytes ⋆ R) m) :
-    ∃ w0 w1 w2 : BitVec 64,
-      (cell64 p w0 ⋆ cell64 (p + 8#64) w1 ⋆ cell64 (p + 16#64) w2 ⋆
-        region (p + 24#64) (bytes - 24) ⋆ R) m := by
-  obtain ⟨w0, w1, h1⟩ := region_to_2cells_rem_ffi (by omega) hfit hm
-  have h2in : (region (p + 16#64) (bytes - 16) ⋆ (cell64 p w0 ⋆ cell64 (p + 8#64) w1 ⋆ R)) m :=
-    sep_ac h1
-  obtain ⟨w2, h2⟩ := region_pop_cell64_ffi (by omega) (by omega) h2in
-  rw [ptr_add_nat_r2, show bytes - 16 - 8 = bytes - 24 by omega] at h2
-  exact ⟨w0, w1, w2, (sep_ac h2 : (cell64 p w0 ⋆ cell64 (p + 8#64) w1 ⋆ cell64 (p + 16#64) w2 ⋆
-    region (p + 24#64) (bytes - 24) ⋆ R) m)⟩
-
-theorem mkBaObj_mem_of_parts_ffi {r : BitVec 64} {cap : Nat} {data : List UInt8}
-    {R : Mem 64 → Prop} {m : Mem 64}
-    (hm : (cell64 r baHeaderWord ⋆
-      cell64 (r + 8#64) (BitVec.ofNat 64 data.length) ⋆
-      cell64 (r + 16#64) (BitVec.ofNat 64 cap) ⋆
-      bytes (r + 24#64) data ⋆
-      region (r + 24#64 + BitVec.ofNat 64 data.length) (baAllocBytes cap - 24 - data.length) ⋆
-      R) m) :
-    (lcnfObjMem (mkBaObj r 1#32 cap data) ⋆ R) m := by
-  have htb : (mkBaObj r 1#32 cap data).totalBytes = baAllocBytes cap := by
-    simp [LcnfObj.totalBytes, mkBaObj, sarrayTag, arrayTag, baAllocBytes]
-  rw [lcnfObjMem_sarray_eq rfl, mkBaObj_header, htb]
-  dsimp only [mkBaObj]
-  rw [show r + BitVec.ofNat 64 (24 + data.length) =
-      r + 24#64 + BitVec.ofNat 64 data.length from by rw [ptr_add_nat_r2],
-    ← Nat.sub_sub]
-  exact hm
 
 theorem ffi_ba_sz_mask_toNat (len : BitVec 64) (h : len.toNat ≤ ffiBaMaxCap) :
     ((24 + len + 7 &&& 18446744073709551608 : BitVec 64)).toNat = baAllocBytes len.toNat := by
@@ -412,7 +368,7 @@ theorem lcnf_ffi_ba_of_bytes_wp :
       apply BitVec.eq_of_toNat_eq
       rw [hbaEq, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]
     have hid : align8 (baAllocBytes len.toNat) = baAllocBytes len.toNat :=
-      align8_idemp_ffi (24 + len.toNat)
+      align8_idemp (24 + len.toNat)
     ffi_steps
     · exfalso; unfold ffiBaMaxCap at hvalid
       have hc : 268435416 < len.toNat := by assumption
@@ -431,7 +387,7 @@ theorem lcnf_ffi_ba_of_bytes_wp :
       refine ⟨st, bytes srcPtr srcData ⋆ R, by rw [← hbaEq]; exact hbaLe, hbounds.1, hbounds.2.1,
         Or.inr hvalid.2, (sep_ac hm : (rtC0Inv rt st ⋆ (bytes srcPtr srcData ⋆ R)) m),
         fun p st' m1 hp0 hp8 hpr hremLe hremLo hm1 => ?_⟩
-      obtain ⟨w0, w1, w2, hp3⟩ := region_to_3cells_rem_ffi hbounds.2.2.1 hbounds.2.2.2.1
+      obtain ⟨w0, w1, w2, hp3⟩ := region_to_3cells_rem hbounds.2.2.1 hbounds.2.2.2.1
         (sep_ac hm1 : (region p (baAllocBytes len.toNat) ⋆ (rtC0Inv rt st' ⋆
           bytes srcPtr srcData ⋆ R)) m1)
       have hpc : (cell64 p w0 ⋆ (cell64 (p + 8#64) w1 ⋆ cell64 (p + 16#64) w2 ⋆
@@ -474,7 +430,7 @@ theorem lcnf_ffi_ba_of_bytes_wp :
             (rtC0Inv rt st' ⋆ bytes srcPtr srcData ⋆ R)) m5 := by
           rw [hlen, show BitVec.ofNat 64 len.toNat = len from by simp]
           exact sep_ac hm5
-        have hbaMem := mkBaObj_mem_of_parts_ffi hmParts
+        have hbaMem := mkBaObj_mem_of_parts hmParts
         have hbaCanon : BaCanon (mkBaObj p 1#32 len.toNat srcData) :=
           mkBaObj_canon hp0 hp8 (by decide) (by omega)
             (by unfold ffiBaMaxCap baMaxCap at *; exact hvalid.1)
@@ -499,7 +455,7 @@ theorem lcnf_ffi_ba_of_bytes_wp :
             show p + 24#64 + len = p + 24#64 from by rw [hlenbv, BitVec.add_zero],
             Nat.sub_zero, sep_emp]
           exact sep_ac hm4
-        have hbaMem := mkBaObj_mem_of_parts_ffi hmParts
+        have hbaMem := mkBaObj_mem_of_parts hmParts
         have hbaCanon : BaCanon (mkBaObj p 1#32 len.toNat []) :=
           mkBaObj_canon hp0 hp8 (by decide) (by omega)
             (by unfold ffiBaMaxCap baMaxCap at *; exact hvalid.1)
