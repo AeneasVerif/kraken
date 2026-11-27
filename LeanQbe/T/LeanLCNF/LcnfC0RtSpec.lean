@@ -25,7 +25,7 @@ Defines the formal specification layer for `LeanQbe.T.LeanLCNF.LcnfC0Rt`:
    (`248`), `String` (`249`), and `MPZ` (`250`), plus Perceus reference-count soundness (`RcSound`).
 3. **Contracts (`Spec`) & Specification Environment (`rtC0SpecEntries`, `rtC0Env`)**:
    `lcnfAllocSpec`, `lcnfFreeObjSpec`, `lcnfDecRefColdSpec`, `lcnfMarkPersistentSpec`,
-   `lcnfCloUnderSpec`, `Spec.Mono` lemmas, `rtC0Env` lookup lemmas, and `rtC0Inv_init_satisfiable`.
+   `lcnfCloUnderSpec`, `rtC0Env` lookup lemmas, and `rtC0Inv_init_satisfiable`.
 -/
 
 set_option autoImplicit false
@@ -1296,52 +1296,6 @@ def lcnfCloUnderSpec : Spec [i64, i64, i64] [i64] := fun (rt, f, k, ()) m Q _ =>
           lcnfObjMem (fc.withRc rc')) ⋆
         lcnfHeap objs' ⋆ R) m' →
       Q (c, ()) m'
-
-/-- Monotonicity proofs for `Spec.Mono` and `Env.ofTable`. -/
-theorem lcnfAllocSpec_mono : lcnfAllocSpec.Mono := by
-  rintro ⟨rt, sz, ⟨⟩⟩ m Q Q' X X' hQ _ ⟨st, R, h1, h2, h3, h4, hm, hk⟩
-  exact ⟨st, R, h1, h2, h3, h4, hm, fun p st' m' hp1 hp2 hpr hrem hm' =>
-    hQ _ m' (hk p st' m' hp1 hp2 hpr hrem hm')⟩
-
-theorem lcnfFreeObjSpec_mono : lcnfFreeObjSpec.Mono := by
-  rintro ⟨rt, o, ⟨⟩⟩ m Q Q' X X' hQ _ h
-  dsimp only [lcnfFreeObjSpec] at h ⊢
-  split at h
-  · split
-    · rcases h with ⟨st, R, hm, hq⟩
-      exact ⟨st, R, hm, hQ _ m hq⟩
-    · contradiction
-  · split
-    · contradiction
-    · rcases h with ⟨st, hdr, bytes, R, h0, h1, h2, h3, h4, hm, hk⟩
-      exact ⟨st, hdr, bytes, R, h0, h1, h2, h3, h4, hm, fun st' m' hpr hrem hwb hm' =>
-        hQ _ m' (hk st' m' hpr hrem hwb hm')⟩
-
-theorem lcnfDecRefColdSpec_mono : lcnfDecRefColdSpec.Mono := by
-  rintro ⟨rt, o, ⟨⟩⟩ m Q Q' X X' hQ _ ⟨h0, st, objs, R, hcap, hm, hroot, hwf, hcl, hrc, hk⟩
-  exact ⟨h0, st, objs, R, hcap, hm, hroot, hwf, hcl, hrc, fun st' objs' m' hpr hrem hrel hm' =>
-    hQ _ m' (hk st' objs' m' hpr hrem hrel hm')⟩
-
-theorem lcnfMarkPersistentSpec_mono : lcnfMarkPersistentSpec.Mono := by
-  rintro ⟨rt, o, ⟨⟩⟩ m Q Q' X X' hQ _ h
-  dsimp only [lcnfMarkPersistentSpec] at h ⊢
-  split at h
-  · split
-    · rcases h with ⟨st, R, hm, hq⟩
-      exact ⟨st, R, hm, hQ _ m hq⟩
-    · contradiction
-  · split
-    · contradiction
-    · rcases h with ⟨st, objs, R, hcap, hm, hroot, hwf, hcl, hk⟩
-      exact ⟨st, objs, R, hcap, hm, hroot, hwf, hcl,
-        fun st' objs' m' hpr hrem hrel hm' => hQ _ m' (hk st' objs' m' hpr hrem hrel hm')⟩
-
-theorem lcnfCloUnderSpec_mono : lcnfCloUnderSpec.Mono := by
-  rintro ⟨rt, f, k, ⟨⟩⟩ m Q Q' X X' hQ _
-    ⟨st, fc, objs, R, h1, h2, h3, h4, h5, h6, h7, h8, h9, h10, h11, h12, h13, hm, hk⟩
-  exact ⟨st, fc, objs, R, h1, h2, h3, h4, h5, h6, h7, h8, h9, h10, h11, h12, h13, hm,
-    fun c st' objs' m' hc1 hc2 hpr hrem hrel hm' =>
-      hQ _ m' (hk c st' objs' m' hc1 hc2 hpr hrem hrel hm')⟩
 
 /-- Specification table and closed `Env` for `rtR0Mod`. -/
 def rtC0SpecEntries : List SpecEntry :=

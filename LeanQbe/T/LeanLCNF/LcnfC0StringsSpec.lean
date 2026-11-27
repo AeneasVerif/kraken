@@ -7,10 +7,10 @@ import all Kraken.Separation
 # Specifications for `LcnfC0Strings` (`rtR2bMod`)
 
 Defines canonical object predicates (`StrCanon`, `ListConsCanon`, `ExclListMem`, `IsListInHeap`,
-`MpzCanon`), pure UTF-8 / Char / decimal formatting semantics, `lcnfAllocRemSpec` (tracking
-arena progress `st.rem - bytes ≤ st'.rem` for multi-allocation routines), `Spec` contracts
-for the 6 `r2b_*` helpers, the 6 R2 `r2_*` externs, and 13 exported `lcnf_*` runtime functions,
-`Spec.Mono` proofs, and the closed specification table `rtR2bSpecEntries` / `rtR2bEnv`.
+`MpzCanon`), pure UTF-8 / Char / decimal formatting semantics, `Spec` contracts (using R0's
+progress-aware `lcnfAllocRemSpec` for multi-allocation routines) for the 6 `r2b_*` helpers,
+the 6 R2 `r2_*` externs, and 13 exported `lcnf_*` runtime functions, and the closed specification
+table `rtR2bSpecEntries` / `rtR2bEnv`.
 -/
 
 set_option autoImplicit false
@@ -701,7 +701,7 @@ def lcnfNatToStrSpec : Spec [i64, i64] [i64] := fun (rt, n, ()) m Q X =>
             StrCanon sObj → DecObjRel n objs objs' →
             (rtC0Inv rt st' ⋆ lcnfObjMem sObj ⋆ lcnfHeap objs' ⋆ R) m' → Q (s, ()) m'
 
-/-! ## 5. Closed Specification Table (`rtR2bEnv`) and `Spec.Mono` Proofs -/
+/-! ## 5. Closed Specification Table (`rtR2bEnv`) -/
 
 def rtR2bSpecEntries : List SpecEntry :=
   [ { name := "r2b_alloc_mpz", as := [i64, i64, i64], rs := [i64], spec := r2bAllocMpzSpec }
@@ -915,194 +915,5 @@ theorem rtR2bEnv_lcnf_mark_persistent {xs m Q X} :
     (by simp [rtR2bSpecEntries]) rtR2bSpecEntries_nodup
 
 end EnvLookups
-
-section SpecMono
-
-theorem lcnfAllocRemSpec_mono : Spec.Mono lcnfAllocRemSpec := by
-  intro ⟨rt, sz, ⟨⟩⟩ m Q₁ Q₂ X₁ X₂ hQ _ ⟨st, R, h1, h2, h3, h4, hm, hk⟩
-  exact ⟨st, R, h1, h2, h3, h4, hm, fun p st' m' hp0 hp8 hpr hr1 hr2 hm' =>
-    hQ _ _ (hk p st' m' hp0 hp8 hpr hr1 hr2 hm')⟩
-
-theorem r2bAllocMpzSpec_mono : Spec.Mono r2bAllocMpzSpec := by
-  intro ⟨rt, cap, sz, ⟨⟩⟩ m Q₁ Q₂ X₁ X₂ hQ hX h
-  dsimp only [r2bAllocMpzSpec] at h ⊢
-  by_cases hc : sz.toNat ≤ cap.toNat ∧ cap.toNat ≤ 33554429
-  · rw [ite_eq_left_of_eq_true _ _ (eq_true hc)] at h ⊢
-    rcases h with ⟨st, R, h1, hm, hk⟩
-    exact ⟨st, R, h1, hm, fun p st' m' hp0 hp8 hpr hr1 hr2 hm' =>
-      hQ _ _ (hk p st' m' hp0 hp8 hpr hr1 hr2 hm')⟩
-  · rw [ite_eq_right_of_eq_false _ _ (eq_false hc)] at h ⊢; exact hX _ _ _ _ h
-
-theorem r2bStrAllocCapSpec_mono : Spec.Mono r2bStrAllocCapSpec := by
-  intro ⟨rt, cap, sz, len, ⟨⟩⟩ m Q₁ Q₂ X₁ X₂ hQ hX h
-  dsimp only [r2bStrAllocCapSpec] at h ⊢
-  by_cases hc : sz.toNat < strMaxCap ∧ sz.toNat < cap.toNat ∧ cap.toNat ≤ strMaxCap
-  · rw [ite_eq_left_of_eq_true _ _ (eq_true hc)] at h ⊢
-    rcases h with ⟨st, R, h1, hm, hk⟩
-    exact ⟨st, R, h1, hm, fun p st' m' hp0 hp8 hpr hr1 hr2 hm' =>
-      hQ _ _ (hk p st' m' hp0 hp8 hpr hr1 hr2 hm')⟩
-  · rw [ite_eq_right_of_eq_false _ _ (eq_false hc)] at h ⊢; exact hX _ _ _ _ h
-
-theorem r2bUtf8LenSpec_mono : Spec.Mono r2bUtf8LenSpec := by
-  intro ⟨cp, ⟨⟩⟩ m Q₁ Q₂ X₁ X₂ hQ _ h; exact hQ _ _ h
-
-theorem r2bUtf8WriteSpec_mono : Spec.Mono r2bUtf8WriteSpec := by
-  intro ⟨dst, cp, ⟨⟩⟩ m Q₁ Q₂ X₁ X₂ hQ _ ⟨rcap, R, hlen, hfit, hm, hk⟩
-  exact ⟨rcap, R, hlen, hfit, hm, fun m' hm' => hQ _ _ (hk m' hm')⟩
-
-theorem r2bUtf8DecodeStepSpec_mono : Spec.Mono r2bUtf8DecodeStepSpec := by
-  intro ⟨data, sz, idx, ⟨⟩⟩ m Q₁ Q₂ X₁ X₂ hQ _ ⟨bs, R, hlen, hm, hk⟩
-  exact ⟨bs, R, hlen, hm, hQ _ _ hk⟩
-
-theorem r2bUtf8DecodeCpSpec_mono : Spec.Mono r2bUtf8DecodeCpSpec := by
-  intro ⟨data, sz, idx, ⟨⟩⟩ m Q₁ Q₂ X₁ X₂ hQ _ ⟨bs, R, hlen, hm, hk⟩
-  exact ⟨bs, R, hlen, hm, hQ _ _ hk⟩
-
-theorem lcnfStrAllocSpec_mono : Spec.Mono lcnfStrAllocSpec := by
-  intro ⟨rt, sz, len, ⟨⟩⟩ m Q₁ Q₂ X₁ X₂ hQ hX h
-  dsimp only [lcnfStrAllocSpec] at h ⊢
-  by_cases hc : strMaxCap ≤ sz.toNat
-  · rw [ite_eq_left_of_eq_true _ _ (eq_true hc)] at h ⊢; exact hX _ _ _ _ h
-  · rw [ite_eq_right_of_eq_false _ _ (eq_false hc)] at h ⊢
-    rcases h with ⟨st, R, h1, hm, hk⟩
-    exact ⟨st, R, h1, hm, fun p st' m' hp0 hp8 hpr hr1 hr2 hm' =>
-      hQ _ _ (hk p st' m' hp0 hp8 hpr hr1 hr2 hm')⟩
-
-theorem lcnfCharOpSpec_mono : Spec.Mono lcnfCharOpSpec := by
-  intro ⟨rt, op, arg, ⟨⟩⟩ m Q₁ Q₂ X₁ X₂ hQ hX h
-  dsimp only [lcnfCharOpSpec] at h ⊢
-  by_cases hc : op = 0#64 ∨ op = 1#64
-  · rw [ite_eq_left_of_eq_true _ _ (eq_true hc)] at h ⊢; exact hQ _ _ h
-  · rw [ite_eq_right_of_eq_false _ _ (eq_false hc)] at h ⊢; exact hX _ _ _ _ h
-
-theorem lcnfStringPushSpec_mono : Spec.Mono lcnfStringPushSpec := by
-  intro ⟨rt, s, c, ⟨⟩⟩ m Q₁ Q₂ X₁ X₂ hQ hX ⟨st, sObj, R, ha, hc, hm, h⟩
-  refine ⟨st, sObj, R, ha, hc, hm, ?_⟩
-  dsimp only at h ⊢
-  by_cases hov :
-      strMaxCap ≤ (strPayload sObj ++ utf8EncodeBytes (c &&& 0xffffffff#64).toNat).length
-  · rw [ite_eq_left_of_eq_true _ _ (eq_true hov)] at h ⊢; exact hX _ _ _ _ h
-  · rw [ite_eq_right_of_eq_false _ _ (eq_false hov)] at h ⊢
-    exact ⟨h.1, fun r st' m' hr0 hr8 hpr hrem hin hcan hm' =>
-      hQ _ _ (h.2 r st' m' hr0 hr8 hpr hrem hin hcan hm')⟩
-
-theorem lcnfStringAppendSpec_mono : Spec.Mono lcnfStringAppendSpec := by
-  intro ⟨rt, s1, s2, ⟨⟩⟩ m Q₁ Q₂ X₁ X₂ hQ hX
-    ⟨st, s1Obj, s2Obj, objs, R, h1, h2, h3, h4, h5, h6, hwf, hm, h⟩
-  refine ⟨st, s1Obj, s2Obj, objs, R, h1, h2, h3, h4, h5, h6, hwf, hm, ?_⟩
-  dsimp only at h ⊢
-  by_cases hz : (strPayload s2Obj).length = 0
-  · rw [ite_eq_left_of_eq_true _ _ (eq_true hz)] at h ⊢; exact hQ _ _ h
-  · rw [ite_eq_right_of_eq_false _ _ (eq_false hz)] at h ⊢
-    by_cases hov : strMaxCap ≤ (strPayload s1Obj).length + (strPayload s2Obj).length
-    · rw [ite_eq_left_of_eq_true _ _ (eq_true hov)] at h ⊢; exact hX _ _ _ _ h
-    · rw [ite_eq_right_of_eq_false _ _ (eq_false hov)] at h ⊢
-      exact ⟨h.1, fun r st' objs' m' hr0 hr8 hpr hrem hin hni hm' =>
-        hQ _ _ (h.2 r st' objs' m' hr0 hr8 hpr hrem hin hni hm')⟩
-
-theorem lcnfStringCmpOpSpec_mono : Spec.Mono lcnfStringCmpOpSpec := by
-  intro ⟨rt, op, s1, s2, ⟨⟩⟩ m Q₁ Q₂ X₁ X₂ hQ hX h
-  dsimp only [lcnfStringCmpOpSpec] at h ⊢
-  by_cases hop : op = 0#64 ∨ op = 1#64 ∨ op = 2#64
-  · rw [ite_eq_left_of_eq_true _ _ (eq_true hop)] at h ⊢
-    by_cases heq : s1 = s2
-    · rw [ite_eq_left_of_eq_true _ _ (eq_true heq)] at h ⊢; exact hQ _ _ h
-    · rw [ite_eq_right_of_eq_false _ _ (eq_false heq)] at h ⊢
-      rcases h with ⟨s1Obj, s2Obj, R, h1, h2, h3, h4, hm, hk⟩
-      exact ⟨s1Obj, s2Obj, R, h1, h2, h3, h4, hm, hQ _ _ hk⟩
-  · rw [ite_eq_right_of_eq_false _ _ (eq_false hop)] at h ⊢; exact hX _ _ _ _ h
-
-theorem lcnfStringPosOpSpec_mono : Spec.Mono lcnfStringPosOpSpec := by
-  intro ⟨rt, op, s, idxV, endV, ⟨⟩⟩ m Q₁ Q₂ X₁ X₂ hQ hX
-    ⟨st, sObj, objs, R, h1, h2, h3, h4, hm, h⟩
-  refine ⟨st, sObj, objs, R, h1, h2, h3, h4, hm, ?_⟩
-  dsimp only at h ⊢
-  by_cases hop : op = 0#64 ∨ op = 1#64 ∨ op = 2#64 ∨ op = 4#64 ∨ op = 5#64
-  · rw [ite_eq_left_of_eq_true _ _ (eq_true hop)] at h ⊢
-    exact fun m' hm' => hQ _ _ (h m' hm')
-  · rw [ite_eq_right_of_eq_false _ _ (eq_false hop)] at h ⊢
-    by_cases h3 : op = 3#64
-    · rw [ite_eq_left_of_eq_true _ _ (eq_true h3)] at h ⊢
-      exact ⟨h.1, fun r st' m' hr0 hr8 hpr hrem hcan hm' =>
-        hQ _ _ (h.2 r st' m' hr0 hr8 hpr hrem hcan hm')⟩
-    · rw [ite_eq_right_of_eq_false _ _ (eq_false h3)] at h ⊢; exact hX _ _ _ _ h
-
-theorem lcnfStringToListSpec_mono : Spec.Mono lcnfStringToListSpec := by
-  intro ⟨rt, s, ⟨⟩⟩ m Q₁ Q₂ X₁ X₂ hQ _ ⟨st, sObj, objs, R, h1, h2, h3, h4, h5, h6, hm, hk⟩
-  refine ⟨st, sObj, objs, R, h1, h2, h3, h4, h5, h6, hm, ?_⟩
-  intro res st' resObjs objs' m' hpr hrem hel hdec hm'
-  exact hQ _ _ (hk res st' resObjs objs' m' hpr hrem hel hdec hm')
-
-theorem lcnfStringMkSpec_mono : Spec.Mono lcnfStringMkSpec := by
-  intro ⟨rt, cs, ⟨⟩⟩ m Q₁ Q₂ X₁ X₂ hQ hX ⟨st, cps, objs, R, h1, h2, h3, hm, h⟩
-  refine ⟨st, cps, objs, R, h1, h2, h3, hm, ?_⟩
-  dsimp only at h ⊢
-  by_cases hov : strMaxCap ≤ (utf8EncodeList cps).length
-  · rw [ite_eq_left_of_eq_true _ _ (eq_true hov)] at h ⊢; exact hX _ _ _ _ h
-  · rw [ite_eq_right_of_eq_false _ _ (eq_false hov)] at h ⊢
-    exact ⟨h.1, fun r st' objs' m' hr0 hr8 hpr hrem hcan hdec hm' =>
-      hQ _ _ (h.2 r st' objs' m' hr0 hr8 hpr hrem hcan hdec hm')⟩
-
-theorem lcnfBaDataSpec_mono : Spec.Mono lcnfBaDataSpec := by
-  intro ⟨rt, ba, ⟨⟩⟩ m Q₁ Q₂ X₁ X₂ hQ hX ⟨st, baObj, objs, R, h1, h2, h3, h4, h5, hm, h⟩
-  refine ⟨st, baObj, objs, R, h1, h2, h3, h4, h5, hm, ?_⟩
-  dsimp only at h ⊢
-  by_cases hov : arrMaxCap < baObj.scalarData.length
-  · rw [ite_eq_left_of_eq_true _ _ (eq_true hov)] at h ⊢; exact hX _ _ _ _ h
-  · rw [ite_eq_right_of_eq_false _ _ (eq_false hov)] at h ⊢
-    exact ⟨h.1, fun arr st' objs' m' ha0 ha8 hpr hrem hcan hdec hm' =>
-      hQ _ _ (h.2 arr st' objs' m' ha0 ha8 hpr hrem hcan hdec hm')⟩
-
-theorem lcnfArrayMkSpec_mono : Spec.Mono lcnfArrayMkSpec := by
-  intro ⟨rt, list, ⟨⟩⟩ m Q₁ Q₂ X₁ X₂ hQ hX ⟨st, elems, objs, R, h1, h2, h3, hm, h⟩
-  refine ⟨st, elems, objs, R, h1, h2, h3, hm, ?_⟩
-  dsimp only at h ⊢
-  by_cases hov : arrMaxCap < elems.length
-  · rw [ite_eq_left_of_eq_true _ _ (eq_true hov)] at h ⊢; exact hX _ _ _ _ h
-  · rw [ite_eq_right_of_eq_false _ _ (eq_false hov)] at h ⊢
-    exact ⟨h.1, h.2.1, fun arr st' objs' m' ha0 ha8 hpr hrem hcan hdec hm' =>
-      hQ _ _ (h.2.2 arr st' objs' m' ha0 ha8 hpr hrem hcan hdec hm')⟩
-
-theorem lcnfArrayToListSpec_mono : Spec.Mono lcnfArrayToListSpec := by
-  intro ⟨rt, arr, ⟨⟩⟩ m Q₁ Q₂ X₁ X₂ hQ _
-    ⟨st, arrObj, objs, R, h1, h2, h3, h4, h5, h6, h7, hm, hk⟩
-  exact ⟨st, arrObj, objs, R, h1, h2, h3, h4, h5, h6, h7, hm,
-    fun res st' resObjs objs' m' hpr hrem hel hdec hm' =>
-      hQ _ _ (hk res st' resObjs objs' m' hpr hrem hel hdec hm')⟩
-
-theorem lcnfArrayReplicateSpec_mono : Spec.Mono lcnfArrayReplicateSpec := by
-  intro ⟨rt, n, v, ⟨⟩⟩ m Q₁ Q₂ X₁ X₂ hQ hX h
-  dsimp only [lcnfArrayReplicateSpec] at h ⊢
-  by_cases hbad : (n &&& 1#64) = 0#64 ∨ arrMaxCap < (n >>> 1).toNat
-  · rw [ite_eq_left_of_eq_true _ _ (eq_true hbad)] at h ⊢; exact hX _ _ _ _ h
-  · rw [ite_eq_right_of_eq_false _ _ (eq_false hbad)] at h ⊢
-    rcases h with ⟨st, objs, R, h1, h2, h3, h4, hm, hk⟩
-    exact ⟨st, objs, R, h1, h2, h3, h4, hm,
-      fun arr st' objs' m' ha0 ha8 hpr hrem hcan hd0 hd1 hd2 hm' =>
-        hQ _ _ (hk arr st' objs' m' ha0 ha8 hpr hrem hcan hd0 hd1 hd2 hm')⟩
-
-theorem lcnfNatToStrSpec_mono : Spec.Mono lcnfNatToStrSpec := by
-  intro ⟨rt, n, ⟨⟩⟩ m Q₁ Q₂ X₁ X₂ hQ hX ⟨st, val, objs, R, hnat, hwf, hm, h⟩
-  refine ⟨st, val, objs, R, hnat, hwf, hm, ?_⟩
-  dsimp only at h ⊢
-  by_cases hsc : (n &&& 1#64) ≠ 0#64
-  · rw [ite_eq_left_of_eq_true _ _ (eq_true hsc)] at h ⊢
-    exact ⟨h.1, fun s st' m' hs0 hs8 hpr hrem hcan hm' =>
-      hQ _ _ (h.2 s st' m' hs0 hs8 hpr hrem hcan hm')⟩
-  · rw [ite_eq_right_of_eq_false _ _ (eq_false hsc)] at h ⊢
-    rcases h with ⟨nObj, h1, h2, h3, h4, h5⟩
-    refine ⟨nObj, h1, h2, h3, h4, ?_⟩
-    by_cases hz : trimZeroLimbsLen nObj.limbs nObj.arrSize = 0
-    · rw [ite_eq_left_of_eq_true _ _ (eq_true hz)] at h5 ⊢
-      exact ⟨h5.1, fun s st' objs' m' hs0 hs8 hpr hrem hcan hdec hm' =>
-        hQ _ _ (h5.2 s st' objs' m' hs0 hs8 hpr hrem hcan hdec hm')⟩
-    · rw [ite_eq_right_of_eq_false _ _ (eq_false hz)] at h5 ⊢
-      by_cases hbig : mpzMaxLimbsNat < trimZeroLimbsLen nObj.limbs nObj.arrSize
-      · rw [ite_eq_left_of_eq_true _ _ (eq_true hbig)] at h5 ⊢; exact hX _ _ _ _ h5
-      · rw [ite_eq_right_of_eq_false _ _ (eq_false hbig)] at h5 ⊢
-        exact ⟨h5.1, fun s st' objs' m' hs0 hs8 hpr hrem hcan hdec hm' =>
-          hQ _ _ (h5.2 s st' objs' m' hs0 hs8 hpr hrem hcan hdec hm')⟩
-
-end SpecMono
 
 end LeanQbe.T.LeanLCNF
