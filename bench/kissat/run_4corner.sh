@@ -22,13 +22,10 @@ export PYTHONDONTWRITEBYTECODE=1
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
-if [ -f "$ROOT/LeanQbe/T/Amd64/KissatFidelity.lean" ] && \
-   [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityAssembly.lean" ]; then
+if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityAssemblyStep12.lean" ]; then
   MODULES=(KissatFidelity)
-elif [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM7FidelityAssembly.lean" ]; then
-  MODULES=(FullM7Fidelity)
 else
-  MODULES=(Full FullFast FullM3 FullM4)
+  MODULES=(Plain)
 fi
 WORK_BYTES="${WORK_BYTES:-67108864}"
 FUEL="${FUEL:-200000000}"
@@ -46,8 +43,8 @@ FILTER=""
 usage() {
   cat <<'EOF'
 usage: bench/kissat/run_4corner.sh [options]
-  --module <KissatFidelity|KissatM8Opt|Plain|FullM7Fidelity|Full|FullFast|FullM3|FullM4|Both|All>
-                                            Module(s) to benchmark (default: auto KissatFidelity/FullM7Fidelity)
+  --module <KissatFidelity|KissatM8Opt|Plain|Full|FullFast|FullM3|FullM4|Both|All>
+                                            Module(s) to benchmark (default: auto KissatFidelity/Plain)
   --kissat <bin>                            Optional upstream Kissat 4.0.4 binary (C1)
   --no-kissat                               Disable C1 even if kissat is in PATH/KISSAT_BIN
   --c2-flags "<flags>"                      Flag-matched Kissat 4.0.4 corner (C2)
@@ -68,10 +65,9 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --module)
       case "${2,,}" in
-        kissatfidelity|fullfidelity|fidelity|fid) MODULES=(KissatFidelity) ;;
+        kissatfidelity|fullfidelity|fidelity|fid|step12) MODULES=(KissatFidelity) ;;
         kissatm8opt|fullm8opt|m8opt|opt|fullm8|m8) MODULES=(KissatM8Opt) ;;
         plain|kissatplain) MODULES=(Plain) ;;
-        fullm7fidelity|m7fidelity|m7fid) MODULES=(FullM7Fidelity) ;;
         full) MODULES=(Full) ;;
         fullfast) MODULES=(FullFast) ;;
         fullm3|m3) MODULES=(FullM3) ;;
@@ -80,11 +76,7 @@ while [ $# -gt 0 ]; do
         all)
           MODULES=()
           [ -f "$ROOT/LeanQbe/T/Examples/Kissat/Plain.lean" ] && MODULES+=(Plain)
-          if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityAssembly.lean" ]; then
-            MODULES+=(KissatFidelity)
-          elif [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM7FidelityAssembly.lean" ]; then
-            MODULES+=(FullM7Fidelity)
-          fi
+          [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityAssemblyStep12.lean" ] && MODULES+=(KissatFidelity)
           [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM8OptAssembly.lean" ] && MODULES+=(KissatM8Opt)
           ;;
         *) echo "ERROR: unknown module '$2'" >&2; exit 2 ;;
@@ -139,7 +131,7 @@ run_lean_env() {
 mod_lean() {
   case "$1" in
     KissatFidelity)
-      local deps=("LeanQbe.T.Examples.Kissat.FullFidelityAssembly")
+      local deps=("LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12")
       if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityInlPolicy.lean" ]; then
         deps+=("LeanQbe.T.MainInline" "LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy")
       fi
@@ -148,12 +140,6 @@ mod_lean() {
       local deps=("LeanQbe.T.Examples.Kissat.FullM8OptAssembly")
       if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM8InlPolicy.lean" ]; then
         deps+=("LeanQbe.T.MainInline" "LeanQbe.T.Examples.Kissat.FullM8InlPolicy")
-      fi
-      echo "${deps[*]}" ;;
-    FullM7Fidelity)
-      local deps=("LeanQbe.T.Examples.Kissat.FullM7FidelityAssembly")
-      if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM7InlPolicy.lean" ]; then
-        deps+=("LeanQbe.T.MainInline" "LeanQbe.T.Examples.Kissat.FullM7InlPolicy")
       fi
       echo "${deps[*]}" ;;
     Plain|Full|FullFast|FullM3|FullM4)
@@ -178,9 +164,8 @@ fi
 
 mod_expr() {
   case "$1" in
-    KissatFidelity) echo "LeanQbe.T.Examples.Kissat.FullFidelityAssembly.fidModule" ;;
+    KissatFidelity) echo "LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12.fidStep12Module" ;;
     KissatM8Opt) echo "LeanQbe.T.Examples.Kissat.FullM8OptAssembly.m8OptModule" ;;
-    FullM7Fidelity) echo "LeanQbe.T.Examples.Kissat.FullM7Fidelity.m7FidelityModule" ;;
     Plain) echo "LeanQbe.T.Examples.Kissat.Plain.plainModule" ;;
     Full) echo "LeanQbe.T.Examples.Kissat.Full.fullModule" ;;
     FullFast) echo "LeanQbe.T.Examples.Kissat.FullFast.fastModule" ;;
@@ -200,12 +185,6 @@ mod_inl_fns() {
     KissatM8Opt)
       if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM8InlPolicy.lean" ]; then
         echo "(m.optInlinePolicy LeanQbe.T.Examples.Kissat.FullM8InlPolicy.m8InlPolicy).fns"
-      else
-        echo "m.fns"
-      fi ;;
-    FullM7Fidelity)
-      if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM7InlPolicy.lean" ]; then
-        echo "(m.optInlinePolicy LeanQbe.T.Examples.Kissat.FullM7InlPolicy.m7InlPolicy).fns"
       else
         echo "m.fns"
       fi ;;
@@ -331,7 +310,6 @@ CPP
   case "$m" in
     Plain) CHECK_ARGS+=(--plain-c4 "$OUT/c4_Plain" --plain-c3b "$OUT/c3b_Plain") ;;
     KissatFidelity) CHECK_ARGS+=(--fid-c4 "$OUT/c4_KissatFidelity" --fid-c3b "$OUT/c3b_KissatFidelity") ;;
-    FullM7Fidelity) CHECK_ARGS+=(--m7fid-c4 "$OUT/c4_FullM7Fidelity" --m7fid-c3b "$OUT/c3b_FullM7Fidelity") ;;
     KissatM8Opt) CHECK_ARGS+=(--opt-c4 "$OUT/c4_KissatM8Opt" --opt-c3b "$OUT/c3b_KissatM8Opt") ;;
     Full) CHECK_ARGS+=(--full-c4 "$OUT/c4_Full" --full-c3b "$OUT/c3b_Full") ;;
     FullFast) CHECK_ARGS+=(--fast-c4 "$OUT/c4_FullFast" --fast-c3b "$OUT/c3b_FullFast") ;;

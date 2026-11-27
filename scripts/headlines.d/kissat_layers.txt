@@ -1,0 +1,37 @@
+# One per line: <module to import> <fully qualified constant>.
+# Live Kissat C0/proof base layers underlying KissatFidelity (Full, M3, M4, M5, M7Fidelity).
+LeanQbe.T.Examples.Kissat.FullDeduce1UipLemmas LeanQbe.T.Examples.Kissat.Full.full_deduce_1uip_wp
+LeanQbe.T.Examples.Kissat.FullDeduce1UipLemmas LeanQbe.T.Examples.Kissat.Full.full_deduce_1uip_mk_ok
+LeanQbe.T.Examples.Kissat.FullDeduce1UipLemmas LeanQbe.T.Examples.Kissat.Full.full_deduce_1uip_bridge_wp
+LeanQbe.T.Examples.Kissat.FullDeduce1UipNv LeanQbe.T.Examples.Kissat.Full.nv_full_deduce_1uip
+LeanQbe.T.Examples.Kissat.FullProof LeanQbe.T.Examples.Kissat.Full.mkFullEnv_moduleOk
+LeanQbe.T.Examples.Kissat.FullProof LeanQbe.T.Examples.Kissat.Full.fullEnv_moduleOk
+LeanQbe.T.Examples.Kissat.FullProof LeanQbe.T.Examples.Kissat.Full.fullUnsatEnv_moduleOk
+LeanQbe.T.Examples.Kissat.FullProof LeanQbe.T.Examples.Kissat.Full.full_solve_bytes_correct
+LeanQbe.T.Examples.Kissat.FullProof LeanQbe.T.Examples.Kissat.Full.full_unsat_nonvacuous
+LeanQbe.T.Examples.Kissat.FullM3Proof LeanQbe.T.Examples.Kissat.FullM3.mkM3Env_moduleOk
+LeanQbe.T.Examples.Kissat.FullM3Proof LeanQbe.T.Examples.Kissat.FullM3.m3Env_moduleOk
+LeanQbe.T.Examples.Kissat.FullM3Proof LeanQbe.T.Examples.Kissat.FullM3.m3UnsatEnv_moduleOk
+LeanQbe.T.Examples.Kissat.FullM3Proof LeanQbe.T.Examples.Kissat.FullM3.m3_solve_bytes_correct
+LeanQbe.T.Examples.Kissat.FullM3Proof LeanQbe.T.Examples.Kissat.FullM3.m3_unsat_nonvacuous
+LeanQbe.T.Examples.Kissat.FullM4Proof LeanQbe.T.Examples.Kissat.FullM4.mkM4Env_moduleOk
+LeanQbe.T.Examples.Kissat.FullM4Proof LeanQbe.T.Examples.Kissat.FullM4.m4Env_moduleOk
+LeanQbe.T.Examples.Kissat.FullM4Proof LeanQbe.T.Examples.Kissat.FullM4.m4UnsatEnv_moduleOk
+LeanQbe.T.Examples.Kissat.FullM4Proof1 LeanQbe.T.Examples.Kissat.FullM4.m4_solve_bytes_correct
+LeanQbe.T.Examples.Kissat.FullM4Proof1 LeanQbe.T.Examples.Kissat.FullM4.m4_unsat_nonvacuous
+LeanQbe.T.Examples.Kissat.FullM5Proof LeanQbe.T.Examples.Kissat.FullM5.mkM5Env_moduleOk
+LeanQbe.T.Examples.Kissat.FullM5Proof LeanQbe.T.Examples.Kissat.FullM5.m5Env_moduleOk
+LeanQbe.T.Examples.Kissat.FullM5Proof LeanQbe.T.Examples.Kissat.FullM5.m5UnsatEnv_moduleOk
+LeanQbe.T.Examples.Kissat.FullM5Proof LeanQbe.T.Examples.Kissat.FullM5.m5_solve_bytes_correct
+LeanQbe.T.Examples.Kissat.FullM5Proof LeanQbe.T.Examples.Kissat.FullM5.m5_unsat_nonvacuous
+LeanQbeTest.T.KissatM5Test m5_wf_ok
+LeanQbeTest.T.KissatM5Test m5_acyclic_ok
+LeanQbeTest.T.KissatM5Test m5_mod_ok
+LeanQbeTest.T.KissatM5Test m5_unsat_mod_ok
+LeanQbeTest.T.KissatM5Test m5_solve_ok
+LeanQbeTest.T.KissatM5Test m5_unsat_nv
+LeanQbeTest.T.KissatM5Test m5_fwd_nv
+LeanQbe.T.Examples.Kissat.FullM7FidelityAssemblyProof m7f_len
+LeanQbe.T.Examples.Kissat.FullM7FidelityAssemblyProof m7f_nx
+LeanQbe.T.Examples.Kissat.FullM7FidelityAssemblyProof m7f_mod
+LeanQbe.T.Examples.Kissat.FullM7FidelityAssemblyProof m7f_nv

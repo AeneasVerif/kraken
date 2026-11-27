@@ -74,11 +74,9 @@ def load_solvers_registry():
 
 
 def default_module():
-    if (ROOT / "LeanQbe/T/Amd64/KissatFidelity.lean").is_file() and (
-        ROOT / "LeanQbe/T/Examples/Kissat/FullFidelityAssembly.lean"
-    ).is_file():
+    if (ROOT / "LeanQbe/T/Examples/Kissat/FullFidelityAssemblyStep12.lean").is_file():
         return "KissatFidelity"
-    return "FullM7Fidelity"
+    return "Plain"
 
 
 def resolve_module_spec(raw_name):
@@ -92,7 +90,7 @@ def resolve_module_spec(raw_name):
     if not matched:
         raise SystemExit(
             f"ERROR: unknown --module '{raw_name}' "
-            "(expected KissatFidelity|KissatM8Opt|Plain|FullM7Fidelity|FullM7Plus|FullM7|FullM6|FullM5)"
+            "(expected KissatFidelity|KissatM8Opt|Plain)"
         )
     mod = matched["module"]
     kdir = ROOT / "LeanQbe/T/Examples/Kissat"
@@ -109,14 +107,14 @@ def resolve_module_spec(raw_name):
         if (kdir / "FullFidelityInlPolicy.lean").is_file():
             extra_imports = ["LeanQbe.T.MainInline", "LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy"]
             fns_expr = (
-                "((LeanQbe.T.Examples.Kissat.FullFidelityAssembly.fidModule).optInlinePolicy "
+                f"(({matched['mod_expr']}).optInlinePolicy "
                 "LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy.fidInlPolicy).fns"
             )
             policy_desc = "fidInlPolicy"
         else:
             extra_imports = []
             fns_expr = f"({matched['mod_expr']}).fns"
-            policy_desc = "uninlined fidModule.fns (FullFidelityInl / Policy not present)"
+            policy_desc = "uninlined fidStep12Module.fns (FullFidelityInl / Policy not present)"
     elif mod == "KissatM8Opt":
         if (kdir / "FullM8InlPolicy.lean").is_file():
             extra_imports = ["LeanQbe.T.MainInline", "LeanQbe.T.Examples.Kissat.FullM8InlPolicy"]
@@ -129,30 +127,6 @@ def resolve_module_spec(raw_name):
             extra_imports = []
             fns_expr = f"({matched['mod_expr']}).fns"
             policy_desc = "uninlined m8OptModule.fns (FullM8OptInl / Policy not present)"
-    elif mod == "FullM7":
-        if (kdir / "FullM7InlPolicy.lean").is_file():
-            extra_imports = ["LeanQbe.T.MainInline", "LeanQbe.T.Examples.Kissat.FullM7InlPolicy"]
-            fns_expr = (
-                "((LeanQbe.T.Examples.Kissat.FullM7.m7Module).optInlinePolicy "
-                "LeanQbe.T.Examples.Kissat.FullM7InlPolicy.m7InlPolicy).fns"
-            )
-            policy_desc = "m7InlPolicy"
-    elif mod == "FullM7Plus":
-        if (kdir / "FullM7InlPolicy.lean").is_file():
-            extra_imports = ["LeanQbe.T.MainInline", "LeanQbe.T.Examples.Kissat.FullM7InlPolicy"]
-            fns_expr = (
-                "((LeanQbe.T.Examples.Kissat.FullM7Plus.m7PlusModule).optInlinePolicy "
-                "LeanQbe.T.Examples.Kissat.FullM7InlPolicy.m7InlPolicy).fns"
-            )
-            policy_desc = "m7InlPolicy"
-    elif mod == "FullM7Fidelity":
-        if (kdir / "FullM7InlPolicy.lean").is_file():
-            extra_imports = ["LeanQbe.T.MainInline", "LeanQbe.T.Examples.Kissat.FullM7InlPolicy"]
-            fns_expr = (
-                "((LeanQbe.T.Examples.Kissat.FullM7Fidelity.m7FidelityModule).optInlinePolicy "
-                "LeanQbe.T.Examples.Kissat.FullM7InlPolicy.m7InlPolicy).fns"
-            )
-            policy_desc = "m7InlPolicy"
 
     return {
         "module": mod,
@@ -1226,8 +1200,8 @@ def main():
     )
     ap.add_argument(
         "--module", default=None,
-        help="Solver module (default: KissatFidelity if present, else FullM7Fidelity; "
-             "supports KissatFidelity, KissatM8Opt, Plain, FullM7Fidelity, FullM7Plus, FullM7, FullM6, FullM5)",
+        help="Solver module (default: KissatFidelity if present, else Plain; "
+             "supports KissatFidelity, KissatM8Opt, Plain)",
     )
     ap.add_argument(
         "--mode", choices=["compiler", "extensions"], default="compiler",

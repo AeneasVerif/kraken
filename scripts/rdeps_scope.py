@@ -48,7 +48,7 @@ SAFE_NONLEAN_RE = re.compile(
     r"^(?:(?:LeanQbe-)?README\.md|NOTES\.md|DEVELOPER\.md|CONTRIBUTING\.md"
     r"|docs/.*|bench/.*"
     r"|test/.*\.(?:c|h|py|sh|cnf|lrat|qbe|txt)"
-    r"|scripts/(?:fast_land|tier3_check|all|preflight)\.sh"
+    r"|scripts/(?:fast_land|all|preflight)\.sh"
     r"|scripts/(?:gen_cert_slices|test_gen_cert_slices|test_infra_speedup"
     r"|merge_lean_imports|select_tests)\.py)$"
 )
@@ -92,14 +92,11 @@ def _collect_headline_seeds(
     root: Path,
     rel_str: str,
     base: str | None,
-    include_legacy: bool,
 ) -> set[str] | None:
     """Return module seeds for a modified `scripts/headlines.d/*.txt`, or None to fail closed."""
     path = root / rel_str
     if not path.is_file():
         return None
-    if ("legacy" in path.name) and not include_legacy:
-        return set()
     all_mods = _read_headline_modules(path.read_text(encoding="utf-8").splitlines())
     if (not _is_tracked(root, rel_str)) or len(all_mods) <= MAX_SMALL_HEADLINE_MODS:
         seeds = all_mods
@@ -120,7 +117,6 @@ def compute_rdeps(
     *,
     max_rdeps: int = 250,
     base: str | None = None,
-    include_legacy: bool = False,
 ) -> list[str] | None:
     """Return sorted affected module names, or `None` when failing closed to `full`."""
     if not changed:
@@ -145,7 +141,7 @@ def compute_rdeps(
             if mod not in BARRELS:
                 lean_changed.add(mod)
         elif HEADLINES_D_RE.fullmatch(f):
-            hseeds = _collect_headline_seeds(root, f, base, include_legacy)
+            hseeds = _collect_headline_seeds(root, f, base)
             if hseeds is None:
                 return None
             headline_seeds.update(hseeds)
@@ -162,7 +158,6 @@ def compute_rdeps(
         root,
         seeds,
         barrels=BARRELS,
-        include_legacy=include_legacy,
         max_rdeps=max_rdeps,
     )
 
@@ -189,11 +184,6 @@ def main(argv: list[str] | None = None) -> int:
         help="Fail closed to full if |rdeps| exceeds this cap (default: 250).",
     )
     ap.add_argument(
-        "--include-legacy",
-        action="store_true",
-        help="Include LeanQbeLegacy* modules in reverse-dependency traversal.",
-    )
-    ap.add_argument(
         "--out-headlines",
         default=None,
         help="Optional output path for affected headline module filter list.",
@@ -217,7 +207,6 @@ def main(argv: list[str] | None = None) -> int:
         changed,
         max_rdeps=args.max_rdeps,
         base=args.base,
-        include_legacy=args.include_legacy,
     )
     if mods is None:
         return 1

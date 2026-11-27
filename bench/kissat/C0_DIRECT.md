@@ -13,12 +13,11 @@ elaboration, `LeanQbe.T.Module`, `PrintCpp`, and `clang++`.
      `{ name := "export_name", ..., body := orig_body }`), `List Fn` splice definitions
      (`++`, `.take`, `.drop`, `[...]`, `spliceFns`, `patchFns`), and `patchFns` insertion
      plans (`List (Sym × List Fn)`: `[("anchor", <List Fn>), ...]`, named plans, `++`).
-   - Evaluates `FullFidelityAssemblyStep7.fidStep7Fns` (`501` functions, default
-     `--target fidelity`, alias `fid`; falls back to Step-6 `FullFidelityAssembly.fidFns`
-     when Step-7 is not present, with explicit `fidelity-step7` / `fidelity-step6`),
-     `FullM8OptAssembly.m8OptFns` (`--target m8opt`, aliases `opt`, `m8`),
-     `Plain.plainFns` (`59` functions, `--target plain`), or legacy/transitional targets
-     (`m7fidelity`, `m7plus`, `m7`, `m6`, `m5`) in exact topological splice order.
+   - Evaluates `FullFidelityAssemblyStep12.fidStep12Fns` (`517` functions, default
+     `--target fidelity`, alias `fid`, `step12`; falls back through Step-11..Step-6 when
+     earlier assemblies are selected via `fidelity-step7` / `fidelity-step6`),
+     `FullM8OptAssembly.m8OptFns` (`--target m8opt`, aliases `opt`, `m8`), or
+     `Plain.plainFns` (`59` functions, `--target plain`) in exact topological splice order.
    - Supports `--check-fns <file|lean|csv>` to assert 1-to-1 ordered name parity.
    - Supports `--split-dir <dir>` to emit a shared `kissat_common.h`, one `src_<Stem>.c`
      per Kissat C0 source file (keeping per-block `#define` scoping inside each TU so

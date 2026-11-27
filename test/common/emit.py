@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Unified target-parameterized assembly emitter CLI (`test/common/emit.py`).
 
-Replaces the double-spawning `lake env lean --run test/common/emit.lean` wrapper with
-a direct Python launcher that:
+Direct Python launcher for emitting target assembly that:
   - Avoids an outer `import Lean` process startup on every invocation
   - Uses `tempfile.TemporaryDirectory` + signal cleanup (zero leaked `/tmp/leanqbe_emit_*.lean`)
   - Respects `STAGE_LEAN_PATH` and `LEAN_PATH`
@@ -65,47 +64,6 @@ public def main (args : List String) : IO Unit := do
   let pp := fun c =>
     ".p2align 2\\n" ++ String.intercalate "\\n" (c.map Kraken.AArch64.Print.directive)
   IO.FS.writeFile outPath (Driver.emitAsm (fun c => pp c ++ "\\n") kissatFns dirs)
-""",
-    ("x64", "coreplus"): """\
-import LeanQbe.T.Examples.Kissat.CorePlus
-import LeanQbe.T.Driver
-import LeanQbe.T.Amd64.Targ
-import LeanQbe.T.Amd64.PrintATTAlign
-
-set_option autoImplicit false
-
-open LeanQbe.T LeanQbe.T.Examples.Kissat.CorePlus LeanQbe.T.Amd64
-
-public def main (args : List String) : IO Unit := do
-  let outPath : System.FilePath := match args with
-    | p :: _ => p
-    | [] => "/tmp/coreplus_x64.s"
-  let hints := coreplusFns.map (Fn.computeHints x64Target.toIsa x64LegalTarget)
-  let dirs ← match LeanQbe.T.compile x64Target.toIsa x64LegalTarget coreplusFns hints with
-    | .ok d => pure d
-    | .error e => throw (IO.userError e)
-  let asm := Driver.emitAsm (fun c => toATTAligned c ++ "\\n") coreplusFns dirs
-  IO.FS.writeFile outPath asm
-""",
-    ("arm64", "coreplus"): """\
-import LeanQbe.T.Examples.Kissat.CorePlus
-import LeanQbe.T.Driver
-import LeanQbe.T.Arm64.Targ
-import Kraken.AArch64.Print
-
-open LeanQbe.T LeanQbe.T.Examples.Kissat.CorePlus LeanQbe.T.Arm64
-
-public def main (args : List String) : IO Unit := do
-  let outPath : System.FilePath := match args with
-    | p :: _ => p
-    | [] => "/tmp/coreplus_arm64.s"
-  let hints := coreplusFns.map (Fn.computeHints armTarget.toIsa armLegalTarget)
-  let dirs ← match LeanQbe.T.compile armTarget.toIsa armLegalTarget coreplusFns hints with
-    | .ok d => pure d
-    | .error e => throw (IO.userError e)
-  let pp := fun c =>
-    ".p2align 2\\n" ++ String.intercalate "\\n" (c.map Kraken.AArch64.Print.directive)
-  IO.FS.writeFile outPath (Driver.emitAsm (fun c => pp c ++ "\\n") coreplusFns dirs)
 """,
     ("x64", "plain"): """\
 import LeanQbe.T.Examples.Kissat.Plain

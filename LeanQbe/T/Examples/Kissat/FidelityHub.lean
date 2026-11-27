@@ -159,9 +159,6 @@ public import LeanQbe.T.Examples.Kissat.FullFidelityStep8ProofWalkDel
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep8ProofWatch0
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep8ProofWatch1
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep9
-public import LeanQbe.T.Examples.Kissat.FullFidelityStep9MemShrink
-public import LeanQbe.T.Examples.Kissat.FullFidelityStep9MemShrinkProof
-public import LeanQbe.T.Examples.Kissat.FullFidelityStep9MemShrinkProof0
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep9ProofBva
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep9ProofBva0
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep9ProofBva1

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Self-contained verification for bench/kissat/build_solver.sh and bench/kissat/kissat_cli.c.
 #
-# Builds FullM5 (certified SAT+UNSAT), FullM6 (certified UNSAT + runtime-checked SAT), and
-# FullM7 (--allow-uncertified until KissatM7 certs land) on both x64 and arm64 (qemu-aarch64),
-# verifying SAT/UNSAT/UNKNOWN exit codes, DIMACS `v ... 0` models on sat_unit/sat_chain/multi-clause
-# SAT canary, `-n`/`--no-model`, stdin `-`, and guard-page safety.
+# Builds Plain (certified SAT+UNSAT) and KissatFidelity (--allow-uncertified until Step-12
+# KissatFidelity certs land) on both x64 and arm64 (qemu-aarch64), verifying SAT/UNSAT/UNKNOWN
+# exit codes, DIMACS `v ... 0` models on sat_unit/sat_chain/multi-clause SAT canary,
+# `-n`/`--no-model`, stdin `-`, and guard-page safety.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -17,7 +17,7 @@ TMP="$(mktemp -d "${TMPDIR:-/tmp}/kissat-cli-test.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 
 echo "== [1/4] certification gating & CLI argument checks =="
-for mod_pair in "FullM6:KissatM6" "FullM7:KissatM7"; do
+for mod_pair in "KissatFidelity:KissatFidelity" "KissatM8Opt:KissatM8Opt"; do
   mod="${mod_pair%%:*}"
   cert="${mod_pair#*:}"
   for pair in "x64:Amd64" "arm64:Arm64"; do
@@ -43,33 +43,25 @@ for mod_pair in "FullM6:KissatM6" "FullM7:KissatM7"; do
   done
 done
 
-echo "== [2/4] build FullM5 (certified), FullM6 (certified), and FullM7 on x64 + arm64 =="
+echo "== [2/4] build Plain (certified) and KissatFidelity on x64 + arm64 =="
 if [ -z "${STAGE_LEAN_PATH:-}" ]; then
   if [ "${SKIP_BUILD:-0}" != "1" ]; then
-    EXTRA_BUILD_MODS=()
-    [ ! -f "LeanQbe/T/Examples/Kissat/FullM7Inl.lean" ] || \
-      EXTRA_BUILD_MODS+=(LeanQbe.T.Examples.Kissat.FullM7Inl)
-    [ ! -f "LeanQbe/T/Examples/Kissat/FullM7InlPolicy.lean" ] || \
-      EXTRA_BUILD_MODS+=(LeanQbe.T.Examples.Kissat.FullM7InlPolicy)
     timeout "$BUILD_TIMEOUT" lake build --wfail \
-      LeanQbe.T.Examples.Kissat.FullM5 LeanQbe.T.Examples.Kissat.FullM6 \
-      LeanQbe.T.Examples.Kissat.FullM7 LeanQbe.T.Opt LeanQbe.T.Driver \
-      LeanQbe.T.MainInline LeanQbe.T.Examples.Kissat.FullM6Inl \
+      LeanQbe.T.Examples.Kissat.Plain \
+      LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12 \
+      LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy \
+      LeanQbe.T.Opt LeanQbe.T.Driver LeanQbe.T.MainInline \
       LeanQbe.T.Amd64.Targ LeanQbe.T.Amd64.PrintATTAlign \
-      LeanQbe.T.Arm64.Targ Kraken.AArch64.Print "${EXTRA_BUILD_MODS[@]}"
+      LeanQbe.T.Arm64.Targ Kraken.AArch64.Print
   fi
   STAGE_LEAN_PATH="$(timeout "$RUN_TIMEOUT" lake env printenv LEAN_PATH)"
   export STAGE_LEAN_PATH
 fi
 
-M6_X64_FLAGS=()
-[ -f "LeanQbe/T/Amd64/KissatM6.lean" ] || [ -f "LeanQbe/T/Amd64/KissatM6Sound.lean" ] || M6_X64_FLAGS=(--allow-uncertified)
-M6_ARM64_FLAGS=()
-[ -f "LeanQbe/T/Arm64/KissatM6.lean" ] || [ -f "LeanQbe/T/Arm64/KissatM6Sound.lean" ] || M6_ARM64_FLAGS=(--allow-uncertified)
-M7_X64_FLAGS=()
-[ -f "LeanQbe/T/Amd64/KissatM7.lean" ] || [ -f "LeanQbe/T/Amd64/KissatM7Sound.lean" ] || M7_X64_FLAGS=(--allow-uncertified)
-M7_ARM64_FLAGS=()
-[ -f "LeanQbe/T/Arm64/KissatM7.lean" ] || [ -f "LeanQbe/T/Arm64/KissatM7Sound.lean" ] || M7_ARM64_FLAGS=(--allow-uncertified)
+FID_X64_FLAGS=()
+[ -f "LeanQbe/T/Amd64/KissatFidelity.lean" ] || [ -f "LeanQbe/T/Amd64/KissatFidelitySound.lean" ] || FID_X64_FLAGS=(--allow-uncertified)
+FID_ARM64_FLAGS=()
+[ -f "LeanQbe/T/Arm64/KissatFidelity.lean" ] || [ -f "LeanQbe/T/Arm64/KissatFidelitySound.lean" ] || FID_ARM64_FLAGS=(--allow-uncertified)
 
 run_build_wave() {
   local pids=() tags=() logs=()
@@ -102,18 +94,12 @@ run_build_wave() {
 }
 
 run_build_wave \
-  "m7-x64" --module FullM7 --arch x64 ${M7_X64_FLAGS[@]+"${M7_X64_FLAGS[@]}"} \
-    -o "$TMP/kissat-m7-x64" :: \
-  "m7-arm64" --module m7 --arch arm64 ${M7_ARM64_FLAGS[@]+"${M7_ARM64_FLAGS[@]}"} \
-    -o "$TMP/kissat-m7-arm64" :: \
-  "m5-x64" --module FullM5 --arch x64 -o "$TMP/kissat-m5-x64"
-
-run_build_wave \
-  "m5-arm64" --module m5 --arch arm64 -o "$TMP/kissat-m5-arm64" :: \
-  "m6-x64" --module FullM6 --arch x64 ${M6_X64_FLAGS[@]+"${M6_X64_FLAGS[@]}"} \
-    -o "$TMP/kissat-m6-x64" :: \
-  "m6-arm64" --module m6 --arch arm64 ${M6_ARM64_FLAGS[@]+"${M6_ARM64_FLAGS[@]}"} \
-    -o "$TMP/kissat-m6-arm64"
+  "plain-x64" --module Plain --arch x64 -o "$TMP/kissat-plain-x64" :: \
+  "plain-arm64" --module plain --arch arm64 -o "$TMP/kissat-plain-arm64" :: \
+  "fid-x64" --module KissatFidelity --arch x64 ${FID_X64_FLAGS[@]+"${FID_X64_FLAGS[@]}"} \
+    -o "$TMP/kissat-fid-x64" :: \
+  "fid-arm64" --module fidelity --arch arm64 ${FID_ARM64_FLAGS[@]+"${FID_ARM64_FLAGS[@]}"} \
+    -o "$TMP/kissat-fid-arm64"
 
 echo "== [3/4] generate SAT/UNSAT/UNKNOWN/guard-page CNF corpus =="
 CDIR="$TMP/cnfs"
@@ -214,12 +200,10 @@ def run_bin(base_cmd, args, stdin_bytes=None):
     )
 
 targets = [
-    ("FullM5-x64", [f"{tmp}/kissat-m5-x64"]),
-    ("FullM5-arm64", ["qemu-aarch64", "-L", "/usr/aarch64-linux-gnu", f"{tmp}/kissat-m5-arm64"]),
-    ("FullM6-x64", [f"{tmp}/kissat-m6-x64"]),
-    ("FullM6-arm64", ["qemu-aarch64", "-L", "/usr/aarch64-linux-gnu", f"{tmp}/kissat-m6-arm64"]),
-    ("FullM7-x64", [f"{tmp}/kissat-m7-x64"]),
-    ("FullM7-arm64", ["qemu-aarch64", "-L", "/usr/aarch64-linux-gnu", f"{tmp}/kissat-m7-arm64"]),
+    ("Plain-x64", [f"{tmp}/kissat-plain-x64"]),
+    ("Plain-arm64", ["qemu-aarch64", "-L", "/usr/aarch64-linux-gnu", f"{tmp}/kissat-plain-arm64"]),
+    ("KissatFidelity-x64", [f"{tmp}/kissat-fid-x64"]),
+    ("KissatFidelity-arm64", ["qemu-aarch64", "-L", "/usr/aarch64-linux-gnu", f"{tmp}/kissat-fid-arm64"]),
 ]
 
 for label, cmd in targets:

@@ -1,5 +1,5 @@
 # One per line: <module to import> <fully qualified constant>.
-# Kissat Fidelity Step 9 (`fidStep9Module` 504/504 UNSAT-only + standalone `MemShrinkV5` 16/16).
+# Kissat Fidelity Step 9 (`fidStep9Module` 504/504 UNSAT-only).
 # Constant FQNs kept `<= 56c` so `#print axioms` stays single-line (`< 120c`) without wrapping.
 LeanQbeTest.T.KissatFidelityStep9Test LeanQbeTest.T.KissatFidelityStep9Test.fidStep9_cnf_def
 LeanQbeTest.T.KissatFidelityStep9Test LeanQbeTest.T.KissatFidelityStep9Test.fidStep9_shape
@@ -11,8 +11,3 @@ LeanQbeTest.T.KissatFidelityStep9Test LeanQbeTest.T.KissatFidelityStep9Test.fidS
 LeanQbeTest.T.KissatFidelityStep9Test LeanQbeTest.T.KissatFidelityStep9Test.fidStep9_unsat
 LeanQbeTest.T.KissatFidelityStep9Test LeanQbeTest.T.KissatFidelityStep9Test.fidStep9_host_ok
 LeanQbeTest.T.KissatFidelityStep9Test LeanQbeTest.T.KissatFidelityStep9Test.fidStep9_nv
-LeanQbeTest.T.KissatFidelityStep9Test LeanQbeTest.T.KissatFidelityStep9Test.fidStep9_ms_solo
-LeanQbeTest.T.KissatFidelityStep9Test LeanQbeTest.T.KissatFidelityStep9Test.fidStep9_ms_ok
-LeanQbeTest.T.KissatFidelityStep9Test LeanQbeTest.T.KissatFidelityStep9Test.fidStep9_ms_nv
-LeanQbeTest.T.KissatFidelityStep9Test LeanQbeTest.T.KissatFidelityStep9Test.fidStep9_ms_tiny
-LeanQbeTest.T.KissatFidelityStep9Test LeanQbeTest.T.KissatFidelityStep9Test.fidStep9_ms_4k
