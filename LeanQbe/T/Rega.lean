@@ -2314,24 +2314,24 @@ structure LabelClean (I : Isa) : Prop where
     by intro _ _ _ h; cases h
   mulHi : ∀ fn isSigned n pa pb rd c cl,
     I.gpr.mulHi? = some fn → fn isSigned n pa pb rd = some (c, cl) → NoLab I c :=
-    by intro _ _ _ _ _ _ _ _ h; cases h
+    by intros; contradiction
   storeScr : ∀ fn scr t pa a c cl scrOut,
     I.gpr.storeScr? = some fn → fn scr t pa a = some (c, cl, scrOut) → NoLab I c :=
-    by intro _ _ _ _ _ _ _ _ h; cases h
+    by intros; contradiction
   storeZextIdxScr : ∀ fn scr t pa base idx sc disp c cl scrOut,
     I.gpr.storeZextIdxScr? = some fn → fn scr t pa base idx sc disp = some (c, cl, scrOut) →
     NoLab I c :=
-    by intro _ _ _ _ _ _ _ _ _ _ _ h; cases h
+    by intros; contradiction
   loadScr : ∀ fn scr t r a c cl scrOut,
     I.gpr.loadScr? = some fn → fn scr t r a = some (c, cl, scrOut) → NoLab I c :=
-    by intro _ _ _ _ _ _ _ _ h; cases h
+    by intros; contradiction
   loadZextIdxScr : ∀ fn scr t rd base idx sc disp c cl scrOut,
     I.gpr.loadZextIdxScr? = some fn → fn scr t rd base idx sc disp = some (c, cl, scrOut) →
     NoLab I c :=
-    by intro _ _ _ _ _ _ _ _ _ _ _ h; cases h
+    by intros; contradiction
   opScr : ∀ fn scr {sig rs : List Ty} (code : OpCode sig rs) pas dsts vh c cl scrOut,
     I.gpr.opScr? = some fn → fn scr code pas dsts vh = some (c, cl, scrOut) → NoLab I c :=
-    by intro _ _ _ _ _ _ _ _ _ _ h; cases h
+    by intros; contradiction
   (load : ∀ t r a c cl, I.gpr.load t r a = some (c, cl) → NoLab I c)
   (store : ∀ t pa a c cl, I.gpr.store t pa a = some (c, cl) → NoLab I c)
   (clearFlags : NoLab I I.gpr.clearFlags) (vmov : ∀ w d s, NoLab I (I.vec.vmov w d s))
