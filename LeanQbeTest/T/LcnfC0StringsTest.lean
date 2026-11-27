@@ -18,7 +18,7 @@ meta import LeanQbe.T.PrintQbe
 /-!
 # Verification & Execution Tests for `LcnfC0Strings` (R2b + `lcnf_clo_under`)
 
-* Structural checks on `rtR2bMod` (`25` functions, acyclicity, zero duplicate names)
+* Structural checks on `rtR2bMod` (`19` functions, acyclicity, zero duplicate names)
 * `Lower.rtCalls` coverage audit: `rtR0Mod` + `rtR2Mod` + `rtR2bMod` cover all `32/38`
   non-bignum/non-float runtime calls (including all `13` R2b calls and `lcnf_clo_under`)
 * `PrintCpp.ppTModule` and `PrintQbe.module` emission checks
@@ -36,16 +36,17 @@ namespace LeanQbeTest.T.LcnfC0StringsTest
 open LeanQbe.T
 open LeanQbe.T.LeanLCNF
 
-/-- Combined R0 + R2b module for standalone concrete interpreter execution. -/
+/-- Combined R0 + R2 + R2b module for standalone concrete interpreter execution (R2b calls R2's
+`r2_*` RC/memcpy/alloc helpers). -/
 def rtR0R2bMod : Module :=
-  { fns := rtR0Mod.fns ++ rtR2bMod.fns, externs := [], exits := ["lcnf_panic"] }
+  { fns := rtR0Mod.fns ++ rtR2Mod.fns ++ rtR2bMod.fns, externs := [], exits := ["lcnf_panic"] }
 
 /-- Combined R0 + R2 + R2b runtime module covering all non-bignum/non-float `Lower.rtCalls`. -/
 def rtR0R2R2bMod : Module :=
   { fns := rtR0Mod.fns ++ rtR2Mod.fns ++ rtR2bMod.fns,
     externs := [], exits := ["lcnf_panic"] }
 
-#guard rtR2bMod.fns.length == 25
+#guard rtR2bMod.fns.length == 19
 #guard rtR2bMod.checkAcyclic
 #guard rtR0R2bMod.checkAcyclic
 #guard rtR0R2R2bMod.checkAcyclic
