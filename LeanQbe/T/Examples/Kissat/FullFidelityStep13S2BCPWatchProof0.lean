@@ -67,6 +67,7 @@ plus `s'.scratch.red_refs = s.scratch.red_refs` so probing/vivification BCP call
       ∀ (_ : Unit) (ext' : List (BitVec 64)) (s' : FullState) (m' : Mem 64),
         s'.core = s.core → s'.LengthsOk c → M6HdrScratchPres s s' →
         s'.scratch.red_refs = s.scratch.red_refs →
+        s'.scratch.delayed_len = s.scratch.delayed_len →
         M6HdrExtOk ext' → (M6HdrExtInitOk ext → M6HdrExtInitOk ext' ∧ M6ExtW2bPres ext ext') →
         (FullM6HdrMem c ext' s' ⋆ R) m' → Q () m'
 
@@ -82,6 +83,7 @@ theorem step13AddTicksSpec_of {c : FullCfg} {ext : List (BitVec 64)} {s : FullSt
     (hQ : ∀ (_ : Unit) (ext' : List (BitVec 64)) (s' : FullState) (m' : Mem 64),
       s'.core = s.core → s'.LengthsOk c → M6HdrScratchPres s s' →
       s'.scratch.red_refs = s.scratch.red_refs →
+      s'.scratch.delayed_len = s.scratch.delayed_len →
       M6HdrExtOk ext' → (M6HdrExtInitOk ext → M6HdrExtInitOk ext' ∧ M6ExtW2bPres ext ext') →
       (FullM6HdrMem c ext' s' ⋆ R) m' → Q () m') :
     step13AddTicksSpec (c.hdr, ticks, ()) m Q X :=
@@ -95,6 +97,7 @@ theorem step13AddTicksSpec_elim {h ticks : BitVec 64} {m : Mem 64} {Q : Post []}
       ∀ (_ : Unit) (ext' : List (BitVec 64)) (s' : FullState) (m' : Mem 64),
         s'.core = s.core → s'.LengthsOk c → M6HdrScratchPres s s' →
         s'.scratch.red_refs = s.scratch.red_refs →
+        s'.scratch.delayed_len = s.scratch.delayed_len →
         M6HdrExtOk ext' → (M6HdrExtInitOk ext → M6HdrExtInitOk ext' ∧ M6ExtW2bPres ext ext') →
         (FullM6HdrMem c ext' s' ⋆ R) m' → Q () m' :=
   hs
@@ -128,6 +131,7 @@ theorem step13AddTicksSpec_elim {h ticks : BitVec 64} {m : Mem 64} {Q : Post []}
           search_ticks := sc'.search_ticks, wsort := sc'.wsort,
           phases := sc'.phases, delayed := sc'.delayed } } s' →
         sc'.red_refs = s.scratch.red_refs →
+        sc'.delayed_len = s.scratch.delayed_len →
         (s.core.probing = 0#64 → sc' = { s.scratch with
           search_ticks := sc'.search_ticks, wsort := sc'.wsort,
           phases := sc'.phases, delayed := sc'.delayed }) →
@@ -174,6 +178,7 @@ theorem step13PropagateIgnoreM6Spec_monoX {xs : Tup Val [i64, i64]} {m : Mem 64}
           search_ticks := sc'.search_ticks, wsort := sc'.wsort,
           phases := sc'.phases, delayed := sc'.delayed } } s' →
         sc'.red_refs = s.scratch.red_refs →
+        sc'.delayed_len = s.scratch.delayed_len →
         (s.core.probing = 0#64 → sc' = { s.scratch with
           search_ticks := sc'.search_ticks, wsort := sc'.wsort,
           phases := sc'.phases, delayed := sc'.delayed }) →
@@ -217,6 +222,7 @@ that skips all binary and large conflicts without ever setting conflict fields o
           search_ticks := sc'.search_ticks, wsort := sc'.wsort,
           phases := sc'.phases, delayed := sc'.delayed } } s' →
         sc'.red_refs = s.scratch.red_refs →
+        sc'.delayed_len = s.scratch.delayed_len →
         (s.core.probing = 0#64 → sc' = { s.scratch with
           search_ticks := sc'.search_ticks, wsort := sc'.wsort,
           phases := sc'.phases, delayed := sc'.delayed }) →

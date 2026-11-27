@@ -675,7 +675,9 @@ theorem s13_ins_body_wp {Γ : Env} {Q : Post [i64]} {X : XPost} {c : FullCfg}
   sg.core.cur_vars = s.core.cur_vars ∧ sg.core.fuel.toNat ≤ s.core.fuel.toNat ∧
   sg.core.tmp = tmp_sw ∧ sg.core.tmp_len = s.core.tmp_len ∧
   sg.core.vals = vals_bt ∧ sg.core.lvl = lvl_bt ∧ sg.core.trl = trl_bt ∧
-  sg.core.trail_end = te_bt ∧ sg.scratch.work_stk2 = s.scratch.work_stk2
+  sg.core.trail_end = te_bt ∧ sg.core.probing = s.core.probing ∧
+  sg.core.min_clr_len = s.core.min_clr_len ∧ sg.scratch.work_stk1 = s.scratch.work_stk1 ∧
+  sg.scratch.work_stk2 = s.scratch.work_stk2
 
 @[expose] def S13NrSpec (F_cur : List (List Nat)) (s : FullState) (uip wm : BitVec 32)
     (tmp_sw : List (BitVec 32)) (sac : FullState) (r_ac : BitVec 64) : Prop :=
@@ -718,8 +720,8 @@ theorem s13_add_call_wp {Γ : Env} {Q : Post [i64]} {X : XPost} {c : FullCfg} {F
         (Arg.var c.hdr, Arg.var ((BitVec.ofNat 64 sg.core.tmp_len).setWidth 32),
           Arg.var (glue.setWidth 32), Arg.imm true, ()) k) mg := by
   have _ := hextg
-  obtain ⟨hsp, hcl_s, hcv_s, hfu_s, htmp_s, htl_s, hvals_s, hlvl_s, htrl_s, hte_s, hws2_s⟩ :=
-    hsg_pre
+  obtain ⟨hsp, hcl_s, hcv_s, hfu_s, htmp_s, htl_s, hvals_s, hlvl_s, htrl_s, hte_s,
+    hprb_s, hmcl_s, hws1_s, hws2_s⟩ := hsg_pre
   have hlen_s := hsp.1
   have hmv := c.hmaxv; unfold dimacsBound at hmv
   have har_cap := c.harena; unfold dimacsBound at har_cap
@@ -761,7 +763,7 @@ theorem s13_add_call_wp {Γ : Env} {Q : Post [i64]} {X : XPost} {c : FullCfg} {F
         rw [htl2, s13_tmp_take2_eq hlen2_sw hsw_0 hsw_1] at hent_sw
         exact hent_sw
     exact hk r_ac s_ac m_ac ⟨hac_sp, hcl_s, hcv_s, hfu_s, htmp_s, htl_s, hvals_s, hlvl_s,
-      htrl_s, hte_s, hws2_s⟩ hnr (fullM6HdrMem_unfocus_full hm_ac)
+      htrl_s, hte_s, hprb_s, hmcl_s, hws1_s, hws2_s⟩ hnr (fullM6HdrMem_unfocus_full hm_ac)
   · simp only [htl2, ↓reduceIte]
     intro r_ac arena_a alen_a wvec_a wstk_a wlen_a wu_a fred_a ni_a nr_a wsort_a m_ac
       hr_ac hac_len hac_w hrefs_sub hnd_imp hok_a hm_ac
@@ -807,7 +809,7 @@ theorem s13_add_call_wp {Γ : Env} {Q : Post [i64]} {X : XPost} {c : FullCfg} {F
         exact ⟨uip, List.mem_iff_getElem.mpr ⟨0, by rw [List.length_take]; omega,
           by rw [List.getElem_take]; exact hu_sw⟩, rfl⟩
     exact hk r_ac s_ac m_ac ⟨hac_sp, hcl_s, hcv_s, hfu_s, htmp_s, htl_s, hvals_s, hlvl_s,
-      htrl_s, hte_s, hws2_s⟩ hnr (fullM6HdrMem_unfocus_full hm_ac)
+      htrl_s, hte_s, hprb_s, hmcl_s, hws1_s, hws2_s⟩ hnr (fullM6HdrMem_unfocus_full hm_ac)
 
 /-! ## 3. Post-Add-Clause Assignment (`jumpreasons`) + Eager Subsume -/
 
@@ -979,7 +981,8 @@ theorem s13_learn_clause_post_ac_wp {Γ X} {Q : Post [i64]} {c : FullCfg} {F0 : 
     (hQ : ∀ r s' m',
       s'.LengthsOk c → (r = 0#64 ∨ r = 1#64 ∨ r = 20#64) →
       s'.core.cur_vars = s.core.cur_vars → s'.core.fuel.toNat ≤ s.core.fuel.toNat →
-      s'.scratch.work_stk2 = s.scratch.work_stk2 →
+      s'.core.probing = s.core.probing → s'.core.min_clr_len = s.core.min_clr_len →
+      s'.scratch.work_stk1 = s.scratch.work_stk1 → s'.scratch.work_stk2 = s.scratch.work_stk2 →
       (r = 20#64 → F0.Unsat ∧ FullSparseInvW c F0 F_cur s' ∧
         s'.core.cur_level < s.core.cur_level) →
       (r = 0#64 → FullSparseInvW c F0 F_cur s') →
@@ -991,6 +994,8 @@ theorem s13_learn_clause_post_ac_wp {Γ X} {Q : Post [i64]} {c : FullCfg} {F0 : 
     (hmax_lt28 : max_lvl < 2 * 2 ^ 28)
     (hcv_eq : s_ac.core.cur_vars = s.core.cur_vars)
     (hfuel : s_ac.core.fuel.toNat ≤ s.core.fuel.toNat)
+    (hprb : s_ac.core.probing = s.core.probing) (hmcl : s_ac.core.min_clr_len = s.core.min_clr_len)
+    (hws1 : s_ac.scratch.work_stk1 = s.scratch.work_stk1)
     (hws2 : s_ac.scratch.work_stk2 = s.scratch.work_stk2)
     (htmp_eq : s_ac.core.tmp = tmp_sw) (htlen_eq : s_ac.core.tmp_len = s.core.tmp_len)
     (hsw_1 : tmp_sw[1]? = some wm)
@@ -1016,13 +1021,13 @@ theorem s13_learn_clause_post_ac_wp {Γ X} {Q : Post [i64]} {c : FullCfg} {F0 : 
     rw [hcl.vals_len]; have := hcl.cur_vars_le; omega
   c0_split
   · c0_steps
-    exact hQ 0#64 s_ac m_ac hac_len (Or.inl rfl) hcv_eq hfuel hws2
+    exact hQ 0#64 s_ac m_ac hac_len (Or.inl rfl) hcv_eq hfuel hprb hmcl hws1 hws2
       (fun h => by cases h) (fun _ => hac_sparse) (fun h => by cases h) hm_ac
   · have hne_ff : new_ref64 ≠ 0xFFFFFFFF#64 := by assumption
     have hnr_ok := (hr_spec.resolve_left hne_ff).2
     c0_split
     · c0_steps
-      exact hQ 0#64 s_ac m_ac hac_len (Or.inl rfl) hcv_eq hfuel hws2
+      exact hQ 0#64 s_ac m_ac hac_len (Or.inl rfl) hcv_eq hfuel hprb hmcl hws1 hws2
         (fun h => by cases h) (fun _ => hac_sparse) (fun h => by cases h) hm_ac
     · have huip_z : s_ac.core.vals[uip_lit.toNat]?.getD 0#8 = 0#8 := by
         rw [List.getElem?_eq_getElem huip_vlen, Option.getD_some]
@@ -1124,9 +1129,10 @@ theorem s13_learn_clause_post_ac_wp {Γ X} {Q : Post [i64]} {c : FullCfg} {F0 : 
             · simp only [hfe, ↓reduceIte] at hnr_ok
               change new_ref64.toNat ∈ fullArenaClauseRefs s_u
               rw [hrefs_u]; exact hnr_ok.2.1
-          · intro ar' ag' _nr' sc' m_fin _ hfin_sparse hws2' hm_fin
+          · intro ar' ag' _nr' sc' m_fin _ hfin_sparse hws1' hws2' hm_fin
             c0_steps
-            exact hQ 1#64 _ m_fin hfin_sparse.1 (Or.inr (Or.inl rfl)) hcv_eq hfuel
+            exact hQ 1#64 _ m_fin hfin_sparse.1 (Or.inr (Or.inl rfl)) hcv_eq hfuel hprb hmcl
+              (hws1'.trans (by simp [s_as, s_u, hws1]))
               (hws2'.trans (by simp [s_as, s_u, hws2])) (fun h => by cases h)
               (fun h => by cases h) (fun _ => ⟨hfin_sparse, hcur_lt⟩) hm_fin
         · intro Jrsn hJrsn; c0_split

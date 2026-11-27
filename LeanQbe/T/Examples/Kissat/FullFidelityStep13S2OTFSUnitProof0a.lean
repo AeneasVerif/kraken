@@ -108,7 +108,8 @@ theorem step13OtfsLargeSpec_monoX {xs : Tup Val [i64, i32, i32]} {m : Mem 64} {Q
           { s with
             core := { s.core with arena := arena', arena_garbage := ag', num_redundant := nr' }
             scratch := sc' }
-        FullSparseInvW c F0 F_cur s' → sc'.work_stk2 = s.scratch.work_stk2 →
+        FullSparseInvW c F0 F_cur s' → sc'.work_stk1 = s.scratch.work_stk1 →
+        sc'.work_stk2 = s.scratch.work_stk2 →
         (FullMem c s' ⋆ R) m' → Q () m'
 
 theorem step13EagerSubsumeSpec_monoX {xs : Tup Val [i64, i64]} {m : Mem 64} {Q : Post []}
@@ -163,9 +164,81 @@ theorem step13AddClauseSpec_monoX {xs : Tup Val [i64, i32, i32, .bool]} {m : Mem
     step13AddClauseSpec xs m Q X' := by
   rcases xs with ⟨_, _, _, _, ⟨⟩⟩; exact h
 
+/-- Step-13 strengthened `full_reduce_m6` contract exposing `probing`, `min_clr_len`, and
+`work_stk1` preservation on top of `m6ReduceSpec`. -/
+@[expose] def step13ReduceM6Spec : Spec [i64, .bool] [i64] := fun (h, _force, ()) m Q _ =>
+  ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (ext : List (BitVec 64))
+    (s : FullState) (R : Mem 64 → Prop),
+    h = c.hdr ∧ FullM6HdrInvW c F0 F_cur ext s ∧ (FullM6HdrMem c ext s ⋆ R) m ∧
+    ∀ r ext' s' m',
+      FullM6HdrInvW c F0 F_cur ext' s' → (r = 0#64 ∨ r = 1#64 ∨ r = 20#64) →
+      s'.core.cur_level ≤ s.core.cur_level → s'.core.fuel.toNat ≤ s.core.fuel.toNat →
+      s'.core.cur_vars = s.core.cur_vars → s'.core.tmp = s.core.tmp →
+      s'.core.tmp_len = s.core.tmp_len → s'.core.probing = s.core.probing →
+      s'.core.min_clr_len = s.core.min_clr_len →
+      s'.scratch.work_stk1 = s.scratch.work_stk1 → s'.scratch.work_stk2 = s.scratch.work_stk2 →
+      (r = 20#64 → F0.Unsat) →
+      (r = 1#64 → s.core.oom = 0#64 → s'.core.oom = 0#64) →
+      (r = 1#64 → 0 < s'.core.cur_level →
+        s'.core.cur_level = s.core.cur_level ∧ s'.core.vals = s.core.vals ∧
+        s'.core.lvl = s.core.lvl ∧ s'.core.trl = s.core.trl ∧
+        s'.core.trail_pos = s.core.trail_pos ∧ s'.core.trail_end = s.core.trail_end) →
+      (FullM6HdrMem c ext' s' ⋆ R) m' → Q (r, ()) m'
+
+theorem step13ReduceM6Spec_of {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
+    {ext : List (BitVec 64)} {s : FullState} {R : Mem 64 → Prop} {m : Mem 64}
+    {force : Bool} {Q : Post [i64]} {X : XPost}
+    (hinv : FullM6HdrInvW c F0 F_cur ext s) (hm : (FullM6HdrMem c ext s ⋆ R) m)
+    (hQ : ∀ r ext' s' m',
+      FullM6HdrInvW c F0 F_cur ext' s' → (r = 0#64 ∨ r = 1#64 ∨ r = 20#64) →
+      s'.core.cur_level ≤ s.core.cur_level → s'.core.fuel.toNat ≤ s.core.fuel.toNat →
+      s'.core.cur_vars = s.core.cur_vars → s'.core.tmp = s.core.tmp →
+      s'.core.tmp_len = s.core.tmp_len → s'.core.probing = s.core.probing →
+      s'.core.min_clr_len = s.core.min_clr_len →
+      s'.scratch.work_stk1 = s.scratch.work_stk1 → s'.scratch.work_stk2 = s.scratch.work_stk2 →
+      (r = 20#64 → F0.Unsat) →
+      (r = 1#64 → s.core.oom = 0#64 → s'.core.oom = 0#64) →
+      (r = 1#64 → 0 < s'.core.cur_level →
+        s'.core.cur_level = s.core.cur_level ∧ s'.core.vals = s.core.vals ∧
+        s'.core.lvl = s.core.lvl ∧ s'.core.trl = s.core.trl ∧
+        s'.core.trail_pos = s.core.trail_pos ∧ s'.core.trail_end = s.core.trail_end) →
+      (FullM6HdrMem c ext' s' ⋆ R) m' → Q (r, ()) m') :
+    step13ReduceM6Spec (c.hdr, force, ()) m Q X :=
+  ⟨c, F0, F_cur, ext, s, R, rfl, hinv, hm, hQ⟩
+
+theorem step13ReduceM6Spec_monoX {xs : Tup Val [i64, .bool]} {m : Mem 64} {Q : Post [i64]}
+    {X X' : XPost} (h : step13ReduceM6Spec xs m Q X) : step13ReduceM6Spec xs m Q X' := by
+  rcases xs with ⟨_, _, ⟨⟩⟩; exact h
+
+/-- Step-13 strengthened `full_reduce_purge_c0` contract exposing `probing`, `min_clr_len`, and
+`work_stk1` preservation on top of `fullReducePurgeC0Spec`. -/
+@[expose] def step13ReducePurgeC0M6Spec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
+  ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
+    h = c.hdr ∧ FullSparseInvW c F0 F_cur s ∧ (FullMem c s ⋆ R) m ∧
+    ∀ r s' m',
+      FullSparseInvW c F0 F_cur s' → (r = 0#64 ∨ r = 1#64 ∨ r = 20#64) →
+      s'.core.cur_level ≤ s.core.cur_level → s'.core.fuel.toNat ≤ s.core.fuel.toNat →
+      s'.core.cur_vars = s.core.cur_vars → s'.core.tmp = s.core.tmp →
+      s'.core.tmp_len = s.core.tmp_len → s'.core.probing = s.core.probing →
+      s'.core.min_clr_len = s.core.min_clr_len →
+      s'.scratch.work_stk1 = s.scratch.work_stk1 → s'.scratch.work_stk2 = s.scratch.work_stk2 →
+      (r = 20#64 → F0.Unsat) →
+      (r = 1#64 → s.core.oom = 0#64 → s'.core.oom = 0#64) →
+      (r = 1#64 → 0 < s'.core.cur_level →
+        s'.core.cur_level = s.core.cur_level ∧ s'.core.vals = s.core.vals ∧
+        s'.core.lvl = s.core.lvl ∧ s'.core.trl = s.core.trl ∧
+        s'.core.trail_pos = s.core.trail_pos ∧ s'.core.trail_end = s.core.trail_end) →
+      (FullMem c s' ⋆ R) m' → Q (r, ()) m'
+
+theorem step13ReducePurgeC0M6Spec_monoX {xs : Tup Val [i64]} {m : Mem 64} {Q : Post [i64]}
+    {X X' : XPost} (h : step13ReducePurgeC0M6Spec xs m Q X) :
+    step13ReducePurgeC0M6Spec xs m Q X' := by
+  rcases xs with ⟨_, ⟨⟩⟩; exact h
+
 /-- Step-13 `FullM6HdrMem`-threaded contract for `full_learn_clause_m6`: matches
 `step10LearnClauseM6Spec` while dropping the unused `lv ≤ lvl[tmp[tmp_len - 1]]` precondition
-after `S4`'s `full_min_shrink_m6` reversal to descending level order. -/
+after `S4`'s `full_min_shrink_m6` reversal to descending level order, and exposing `probing`,
+`min_clr_len`, and `work_stk1` preservation for post-learn bumping (`S4`). -/
 @[expose] def step13LearnClauseM6Spec : Spec [i64, i64] [i64] :=
   fun (h, _glue, ()) m Q _ =>
     ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (ext : List (BitVec 64))
@@ -186,7 +259,8 @@ after `S4`'s `full_min_shrink_m6` reversal to descending level order. -/
       ∀ (r : BitVec 64) (ext' : List (BitVec 64)) (s' : FullState) (m' : Mem 64),
         M6HdrExtOk ext' → s'.LengthsOk c → (r = 0#64 ∨ r = 1#64 ∨ r = 20#64) →
         s'.core.cur_vars = s.core.cur_vars → s'.core.fuel.toNat ≤ s.core.fuel.toNat →
-        s'.scratch.work_stk2 = s.scratch.work_stk2 →
+        s'.core.probing = s.core.probing → s'.core.min_clr_len = s.core.min_clr_len →
+        s'.scratch.work_stk1 = s.scratch.work_stk1 → s'.scratch.work_stk2 = s.scratch.work_stk2 →
         (r = 20#64 →
           F0.Unsat ∧ FullSparseInvW c F0 F_cur s' ∧ s'.core.cur_level < s.core.cur_level) →
         (r = 0#64 → FullSparseInvW c F0 F_cur s') →

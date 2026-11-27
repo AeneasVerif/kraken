@@ -803,7 +803,8 @@ private theorem s13_esub_loop4_wp {Γ X} {Q : Post []} {c : FullCfg} {F0 : CNF N
         { s with
           core := { s.core with arena := arena', arena_garbage := ag', num_redundant := nr' }
           scratch := sc' }
-      FullSparseInvW c F0 F_cur s' → sc'.work_stk2 = s.scratch.work_stk2 →
+      FullSparseInvW c F0 F_cur s' → sc'.work_stk1 = s.scratch.work_stk1 →
+      sc'.work_stk2 = s.scratch.work_stk2 →
       (FullMem c s' ⋆ R) m' → Q () m') :
     wp Γ Q X
       (Expr.group (sig := [[]])
@@ -908,7 +909,7 @@ private theorem s13_esub_loop4_wp {Γ X} {Q : Post []} {c : FullCfg} {F0 : CNF N
           (congrArg (fun lm' => (FullMem c { s_fin with core :=
               { s_fin.core with lit_mark := lm' } } ⋆ R) m) hlm3_eq).mp hm
         exact hQ ar2 ag2 nr2 s_fin.scratch m
-          ⟨hs_fin, hwc, hclrc, hndc, ⟨hll_fin_in, hext2⟩, hdm⟩ hwork2 hm_fin
+          ⟨hs_fin, hwc, hclrc, hndc, ⟨hll_fin_in, hext2⟩, hdm⟩ rfl hwork2 hm_fin
     · intro J4 hJ4; c0_steps
       exact hJ4 3 (3#64, ()) m_c ⟨ll_c, Nat.le_refl _, rfl, hllc_len, hllc_in, hm_c⟩
   · c0_steps
@@ -916,7 +917,7 @@ private theorem s13_esub_loop4_wp {Γ X} {Q : Post []} {c : FullCfg} {F0 : CNF N
       (congrArg (fun lm' => (FullMem c { sc_fin with core :=
           { sc_fin.core with lit_mark := lm' } } ⋆ R) m_c) hlm3_eq).mp hm_c
     exact hQ ar2 ag2 nr2 sc_fin.scratch m_c
-      ⟨hsc_len, hwc, hclrc, hndc, ⟨hllc_in, hext2⟩, hdm⟩ hwork2 hmc_fin
+      ⟨hsc_len, hwc, hclrc, hndc, ⟨hllc_in, hext2⟩, hdm⟩ rfl hwork2 hmc_fin
 
 /-- `full_eager_subsume` satisfies `step13EagerSubsumeSpec` parametrically in `Γ` and `X`
 (including the Step-13 `if (h->num_redundant > 0ULL) h->num_redundant -= 1ULL;` update). -/

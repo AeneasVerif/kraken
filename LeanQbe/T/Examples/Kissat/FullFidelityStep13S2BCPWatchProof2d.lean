@@ -574,9 +574,9 @@ theorem full_propagate_ignore_hot_step13_wp (Γ : Env)
     hdense0, hm0, hQ⟩
   have hQ' : S13HQ false c F0 F_cur ext0 s ignore_ref R Q := fun r ext' v' f' l' rs' tr' tp' te'
       pr' un' uf' wv' ar' ws' wl' wu' fl' ct' cr' c0' c1' om' sc' m' hx hw2 hl hwf htr hpm hpr hrr
-      hnp hd0 hfl hr hbcf hr0 hr1 h2 hno hm =>
+      hdl hnp hd0 hfl hr hbcf hr0 hr1 h2 hno hm =>
     hQ r ext' v' f' l' rs' tr' tp' te' pr' un' uf' wv' ar' ws' wl' wu' fl' ct' cr' c0' c1' om' sc'
-      m' hx hw2 hl hwf htr hpm hpr hrr hnp hd0 hfl hr
+      m' hx hw2 hl hwf htr hpm hpr hrr hdl hnp hd0 hfl hr
       (fun h0 => let x := hr0 h0; ⟨x.1, x.2.1 rfl, x.2.2⟩) (hr1 rfl) h2 hno hm
   have hmaxv := c.hmaxv; have har := c.harena; have hwc := c.hwcap; have hdelc := c.hdel
   unfold dimacsBound at hmaxv har hwc hdelc
@@ -604,7 +604,7 @@ theorem full_propagate_ignore_hot_step13_wp (Γ : Env)
       rwa [Nat.mod_eq_of_lt hte0_lt64, Nat.mod_eq_of_lt hpr0_lt64] at hh
     have hpe := Nat.le_antisymm hlen0.core_ok.propagated_le hge
     exact s13_exit_hQ hQ' hext0 (fun h => ⟨h, .refl _⟩) (.refl _ _) (s13_probePres_of_S13Scr rfl)
-      rfl (fun _ => rfl) hlen0 hw0 (s13_trail_refl s.core) (s13_perm_refl s.core) (fun _ => rfl)
+      rfl rfl (fun _ => rfl) hlen0 hw0 (s13_trail_refl s.core) (s13_perm_refl s.core) (fun _ => rfl)
       (Nat.le_refl _) (Or.inl rfl) (fun h => absurd h (by decide))
       (fun _ => ⟨hpe, fun _ => rfl, fun h => h, fun hlt => absurd hlt (by omega)⟩)
       (fun _ h => absurd h (by decide)) (fun h => absurd h (by decide)) (fun _ => ⟨rfl, rfl, rfl⟩)
@@ -614,7 +614,7 @@ theorem full_propagate_ignore_hot_step13_wp (Γ : Env)
       rwa [Nat.mod_eq_of_lt hte0_lt64, Nat.mod_eq_of_lt hpr0_lt64, Nat.not_le] at hh
     s13_hsplit
     · exact s13_exit_hQ hQ' hext0 (fun h => ⟨h, .refl _⟩) (.refl _ _)
-        (s13_probePres_of_S13Scr rfl) rfl (fun _ => rfl) hlen0 hw0
+        (s13_probePres_of_S13Scr rfl) rfl rfl (fun _ => rfl) hlen0 hw0
         (s13_trail_refl s.core) (s13_perm_refl s.core) (fun _ => rfl) (Nat.le_refl _)
         (Or.inr (Or.inr rfl)) (fun h => absurd h (by decide)) (fun h => absurd h (by decide))
         (fun _ h => absurd h (by decide)) (fun _ => Or.inl hc)

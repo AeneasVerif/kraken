@@ -102,6 +102,7 @@ abbrev S13HQ (isBeyond : Bool) (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List 
       search_ticks := sc'.search_ticks, wsort := sc'.wsort,
       phases := sc'.phases, delayed := sc'.delayed } } s' →
     sc'.red_refs = s.scratch.red_refs →
+    sc'.delayed_len = s.scratch.delayed_len →
     (s.core.probing = 0#64 → sc' = { s.scratch with
       search_ticks := sc'.search_ticks, wsort := sc'.wsort,
       phases := sc'.phases, delayed := sc'.delayed }) →
@@ -131,6 +132,7 @@ theorem s13_exit_hQ {isBeyond : Bool} {c : FullCfg} {F0 : CNF Nat} {F_cur : List
       search_ticks := st.scratch.search_ticks, wsort := st.scratch.wsort,
       phases := st.scratch.phases, delayed := st.scratch.delayed } } st)
     (hred : st.scratch.red_refs = s.scratch.red_refs)
+    (hdlen : st.scratch.delayed_len = s.scratch.delayed_len)
     (hnp : s.core.probing = 0#64 → st.scratch = { s.scratch with
       search_ticks := st.scratch.search_ticks, wsort := st.scratch.wsort,
       phases := st.scratch.phases, delayed := st.scratch.delayed })
@@ -173,7 +175,7 @@ theorem s13_exit_hQ {isBeyond : Bool} {c : FullCfg} {F0 : CNF Nat} {F_cur : List
     st.core.confl_type st.core.confl_ref st.core.confl_lit0 st.core.confl_lit1 st.core.oom
     st.scratch m' hext' hw2b (hst_eq.symm ▸ hlen) (hst_eq.symm ▸ hw)
     (hst_eq.symm ▸ htr) (hst_eq.symm ▸ hperm)
-    hpres hred hnp hd0 hfuel hr hbcf hr0
+    hpres hred hdlen hnp hd0 hfuel hr hbcf hr0
     (fun hb h1 => by
       obtain ⟨h1a, h1b, h1c, h1d⟩ := hr1 hb h1
       refine ⟨h1a, h1b, ?_, h1d⟩
@@ -350,51 +352,47 @@ theorem s13_post_ticks_wp {Γ : Env} {isBeyond : Bool} {c : FullCfg} {F0 : CNF N
       FullProbeScratchPres { s with scratch := { s.scratch with
         search_ticks := st2.scratch.search_ticks, wsort := st2.scratch.wsort,
         phases := st2.scratch.phases, delayed := st2.scratch.delayed } } st2 ∧
-      st2.scratch.red_refs = s.scratch.red_refs ∧
+      st2.scratch.red_refs = s.scratch.red_refs ∧ st2.scratch.delayed_len = s.scratch.delayed_len ∧
       (s.core.probing = 0#64 → st2.scratch = { s.scratch with
         search_ticks := st2.scratch.search_ticks, wsort := st2.scratch.wsort,
         phases := st2.scratch.phases, delayed := st2.scratch.delayed }) ∧
       (c.delayed_cap = 0 → st2.scratch.delayed = s.scratch.delayed) ∧
       (FullM6HdrMem c ext2 st2 ⋆ R) m2) ?_ ?_
-  · rintro _ ⟨⟩ m2 ⟨ext2, st2, hext2, hw2b2, hcore2, hlen2, hpres2, hred2, hnp2, hd0_2, hm2⟩
+  · rintro _ ⟨⟩ m2 ⟨ext2, st2, hext2, hw2b2, hcore2, hlen2, hpres2, hred2, hdlen2,
+      hnp2, hd0_2, hm2⟩
     s13_hsteps
-    exact s13_exit_hQ hQ hext2 hw2b2 (hcore2 ▸ hag) hpres2 hred2 hnp2 hlen2 (hcore2 ▸ hw)
-      (hcore2 ▸ htr) (hcore2 ▸ hperm) hd0_2 (by rw [hcore2]; exact hfuel) hr
+    exact s13_exit_hQ hQ hext2 hw2b2 (hcore2 ▸ hag) hpres2 hred2 hdlen2 hnp2 hlen2
+      (hcore2 ▸ hw) (hcore2 ▸ htr) (hcore2 ▸ hperm) hd0_2 (by rw [hcore2]; exact hfuel) hr
       (fun hb => by rw [hcore2]; exact hbcf hb) (fun h => by rw [hcore2]; exact hr0 h)
-      (fun hb h => by rw [hcore2]; exact hr1 hb h)
-      (fun h => by rw [hcore2]; exact hr2 h)
+      (fun hb h => by rw [hcore2]; exact hr1 hb h) (fun h => by rw [hcore2]; exact hr2 h)
       (fun h => absurd h (Nat.ne_of_lt hpr_lt)) hm2
   · intro Jt hJt
-    rw [fullM6HdrMem_iff] at hm
-    s13_hsteps_nogrp
-    s13_hsplit
+    rw [fullM6HdrMem_iff] at hm; s13_hsteps_nogrp; s13_hsplit
     · have hm_hdr : (FullM6HdrMem c ext1 st ⋆ R) m := (fullM6HdrMem_iff ..).mpr hm
       c0_call hAddTicks
       refine step13AddTicksSpec_of rfl hcfg hext1 hlen hm_hdr
-        fun _ ext2 st2 m2 hcore2 hlen2 hpres2 hred2_in hext2 hw2b2 hm2 => ?_
+        fun _ ext2 st2 m2 hcore2 hlen2 hpres2 hred2_in hdlen2_in hext2 hw2b2 hm2 => ?_
       have hpres_s := s13_probePres_of_step hsc hpres2.probePres
       have hprob_ne : s.core.probing ≠ 0#64 := by
         have hpr_st : st.core.probing = s.core.probing := hag.get FullCoreState.probing
         rw [← hpr_st]; exact hc
-      have hred2 : st2.scratch.red_refs = s.scratch.red_refs :=
-        hred2_in.trans (by rw [hsc])
+      have hred2 : st2.scratch.red_refs = s.scratch.red_refs := hred2_in.trans (by rw [hsc])
+      have hdlen2 : st2.scratch.delayed_len = s.scratch.delayed_len := hdlen2_in.trans (by rw [hsc])
       have hdel2 : c.delayed_cap = 0 → st2.scratch.delayed = s.scratch.delayed := fun h0 =>
         ((List.eq_nil_of_length_eq_zero
-            (by simpa only [h0] using hlen2.scratch_ok.delayed_len_arr)).trans
+          (by simpa only [h0] using hlen2.scratch_ok.delayed_len_arr)).trans
           (List.eq_nil_of_length_eq_zero
             (by simpa only [h0] using hlen.scratch_ok.delayed_len_arr)).symm).trans (hd0 h0)
       exact hJt () m2 ⟨ext2, st2, hext2,
         fun hi => let ⟨h1, h2⟩ := hw2b1 hi; let ⟨h3, h4⟩ := hw2b2 h1; ⟨h3, h2.trans h4⟩,
-        hcore2, hlen2, hpres_s, hred2, fun h0 => absurd h0 hprob_ne, hdel2, hm2⟩
+        hcore2, hlen2, hpres_s, hred2, hdlen2, fun h0 => absurd h0 hprob_ne, hdel2, hm2⟩
     · s13_hsteps
       let st2 : FullState :=
         { st with scratch := { st.scratch with search_ticks := st.scratch.search_ticks + tk_b } }
-      have hlen2 : st2.LengthsOk c := ⟨hlen.core_ok, { hlen.scratch_ok with }⟩
-      have hsc2 : S13Scr s st2 := by
-        unfold S13Scr at hsc ⊢; dsimp only [st2]; rw [hsc]
-      have hred2 : st2.scratch.red_refs = s.scratch.red_refs := by rw [hsc2]
-      exact hJt () _ ⟨ext1, st2, hext1, hw2b1, rfl, hlen2, s13_probePres_of_S13Scr hsc2,
-        hred2, fun _ => hsc2, hd0, (fullM6HdrMem_iff ..).mpr (by assumption)⟩
+      have hsc2 : S13Scr s st2 := by unfold S13Scr at hsc ⊢; dsimp only [st2]; rw [hsc]
+      exact hJt () _ ⟨ext1, st2, hext1, hw2b1, rfl, ⟨hlen.core_ok, { hlen.scratch_ok with }⟩,
+        s13_probePres_of_S13Scr hsc2, by rw [hsc2], by rw [hsc2], fun _ => hsc2, hd0,
+        (fullM6HdrMem_iff ..).mpr (by assumption)⟩
 
 theorem s13_outer_flush_ret {Γ : Env} {isBeyond : Bool} {c : FullCfg} {F0 : CNF Nat}
     {F_cur : List (List Nat)} {ext0 ext1 : List (BitVec 64)} {s sem : FullState}

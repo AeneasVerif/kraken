@@ -96,6 +96,9 @@ private theorem s13_learn_unit_iter_wp {Γ X} {Q : Post [i64]} {c : FullCfg} {F0
     (hcur_lt : s_fin.core.cur_level < s.core.cur_level)
     (hcv_eq : s_fin.core.cur_vars = s.core.cur_vars)
     (hfu_le : s_fin.core.fuel.toNat ≤ s.core.fuel.toNat)
+    (hprb_eq : s_fin.core.probing = s.core.probing)
+    (hmcl_eq : s_fin.core.min_clr_len = s.core.min_clr_len)
+    (hws1_eq : s_fin.scratch.work_stk1 = s.scratch.work_stk1)
     (hws2_eq : s_fin.scratch.work_stk2 = s.scratch.work_stk2)
     (htl_eq : s_fin.core.tmp_len = 1) (htmp0 : s_fin.core.tmp[0]? = some uip)
     (huip_lt : uip.toNat < 2 * s.core.cur_vars)
@@ -103,7 +106,8 @@ private theorem s13_learn_unit_iter_wp {Γ X} {Q : Post [i64]} {c : FullCfg} {F0
     (hQ : ∀ r ext' s' m',
       M6HdrExtOk ext' → s'.LengthsOk c → (r = 0#64 ∨ r = 1#64 ∨ r = 20#64) →
       s'.core.cur_vars = s.core.cur_vars → s'.core.fuel.toNat ≤ s.core.fuel.toNat →
-      s'.scratch.work_stk2 = s.scratch.work_stk2 →
+      s'.core.probing = s.core.probing → s'.core.min_clr_len = s.core.min_clr_len →
+      s'.scratch.work_stk1 = s.scratch.work_stk1 → s'.scratch.work_stk2 = s.scratch.work_stk2 →
       (r = 20#64 → F0.Unsat ∧ FullSparseInvW c F0 F_cur s' ∧
         s'.core.cur_level < s.core.cur_level) →
       (r = 0#64 → FullSparseInvW c F0 F_cur s') →
@@ -151,10 +155,10 @@ private theorem s13_learn_unit_iter_wp {Γ X} {Q : Post [i64]} {c : FullCfg} {F0
     c0_clean; c0_call hEsub
     refine ⟨c, F0, F_cur, s_it, Rext, rfl, hit_sp, htmp_it_lt, fun hlt => absurd hlt (by decide),
       hm_it, ?_⟩
-    intro ar' ag' _nr' sc'' m_sub _ hsub_sp hws2' hm_sub
+    intro ar' ag' _nr' sc'' m_sub _ hsub_sp hws1' hws2' hm_sub
     c0_steps
-    exact hQ 1#64 ext _ m_sub hext hsub_sp.1 (Or.inr (Or.inl rfl)) hcv_eq hfu_le
-      (hws2'.trans hws2_eq) (fun h => by cases h) (fun h => by cases h)
+    exact hQ 1#64 ext _ m_sub hext hsub_sp.1 (Or.inr (Or.inl rfl)) hcv_eq hfu_le hprb_eq hmcl_eq
+      (hws1'.trans hws1_eq) (hws2'.trans hws2_eq) (fun h => by cases h) (fun h => by cases h)
       (fun _ => ⟨hsub_sp, hcur_lt⟩) (fullM6HdrMem_unfocus_full hm_sub)
   · intro Jit hJit
     c0_clean; c0_split
@@ -186,7 +190,8 @@ private theorem s13_learn_unit_wp {Γ X} {Q : Post [i64]} {c : FullCfg} {F0 : CN
     (hQ : ∀ r ext' s' m',
       M6HdrExtOk ext' → s'.LengthsOk c → (r = 0#64 ∨ r = 1#64 ∨ r = 20#64) →
       s'.core.cur_vars = s.core.cur_vars → s'.core.fuel.toNat ≤ s.core.fuel.toNat →
-      s'.scratch.work_stk2 = s.scratch.work_stk2 →
+      s'.core.probing = s.core.probing → s'.core.min_clr_len = s.core.min_clr_len →
+      s'.scratch.work_stk1 = s.scratch.work_stk1 → s'.scratch.work_stk2 = s.scratch.work_stk2 →
       (r = 20#64 → F0.Unsat ∧ FullSparseInvW c F0 F_cur s' ∧
         s'.core.cur_level < s.core.cur_level) →
       (r = 0#64 → FullSparseInvW c F0 F_cur s') →
@@ -259,9 +264,9 @@ private theorem s13_learn_unit_wp {Γ X} {Q : Post [i64]} {c : FullCfg} {F0 : CN
     have hvl := hbt_len.core_ok.vals_len; dsimp only [s_bt] at hvl; omega
   c0_clean; c0_split
   · c0_clean; c0_steps
-    exact hQ 0#64 ext s_bt m_bt hext hbt_len (Or.inl rfl) rfl (Nat.le_refl _) hbt_pres.2.2.1
-      (fun h => by cases h) (fun _ => hbt_sparse) (fun h => by cases h)
-      (fullM6HdrMem_unfocus_full hm_bt)
+    exact hQ 0#64 ext s_bt m_bt hext hbt_len (Or.inl rfl) rfl (Nat.le_refl _) rfl rfl
+      hbt_pres.2.1 hbt_pres.2.2.1 (fun h => by cases h) (fun _ => hbt_sparse)
+      (fun h => by cases h) (fullM6HdrMem_unfocus_full hm_bt)
   · have huip_z : vals'[uip.toNat]?.getD 0#8 = 0#8 := by
       rw [List.getElem?_eq_getElem huip_vlen, Option.getD_some]
       exact (i8_sext32_eq0 _).mp (by assumption)
@@ -299,7 +304,8 @@ private theorem s13_learn_unit_wp {Γ X} {Q : Post [i64]} {c : FullCfg} {F0 : CN
       simpa only [s_fin, s_f0, s_bt, v, hrsn_let, hunfl_let,
         show (0 : BitVec 32) = 0#32 from rfl] using hm_f
     exact s13_learn_unit_iter_wp (s := s) (s_fin := s_fin) hEsub hext hfin_sparse
-      (by dsimp only [s_fin, s_bt]; rw [hcl_nl]; exact hnlvl_lt) rfl (Nat.le_refl _)
+      (by dsimp only [s_fin, s_bt]; rw [hcl_nl]; exact hnlvl_lt) rfl (Nat.le_refl _) rfl rfl
+      (by dsimp only [s_fin, s_bt]; exact hbt_pres.2.1)
       (by dsimp only [s_fin, s_bt]; exact hbt_pres.2.2.1) htl_is1
       (by dsimp only [s_fin, s_bt]; exact huip_0) huip_lt hm_f' hQ
 
@@ -311,7 +317,7 @@ private theorem s13_learn_pre_gc_wp {Γ X} {Q : Post [i64]} {c : FullCfg} {F0 : 
     {lvl_bt trl_bt : List (BitVec 32)} {te_bt : Nat} {R : Mem 64 → Prop} {m_bt : Mem 64}
     (hDefrag : ∀ a m Q X, fullWstackDefragSpec a m Q X →
       Γ "full_wstack_defrag" [i64] [] a m Q X)
-    (hRedM6 : ∀ a m Q X, m6ReduceSpec a m Q X →
+    (hRedM6 : ∀ a m Q X, step13ReduceM6Spec a m Q X →
       Γ "full_reduce_m6" [i64, .bool] [i64] a m Q X)
     (hcfg : FullM6HdrCfgOk c) (hext : M6HdrExtOk ext)
     (hbt_pre : S13AddClPre c F0 F_cur s nlvl tmp_sw vals_bt lvl_bt trl_bt te_bt s_bt)
@@ -322,7 +328,8 @@ private theorem s13_learn_pre_gc_wp {Γ X} {Q : Post [i64]} {c : FullCfg} {F0 : 
     (hQ : ∀ r ext' s' m',
       M6HdrExtOk ext' → s'.LengthsOk c → (r = 0#64 ∨ r = 1#64 ∨ r = 20#64) →
       s'.core.cur_vars = s.core.cur_vars → s'.core.fuel.toNat ≤ s.core.fuel.toNat →
-      s'.scratch.work_stk2 = s.scratch.work_stk2 →
+      s'.core.probing = s.core.probing → s'.core.min_clr_len = s.core.min_clr_len →
+      s'.scratch.work_stk1 = s.scratch.work_stk1 → s'.scratch.work_stk2 = s.scratch.work_stk2 →
       (r = 20#64 → F0.Unsat ∧ FullSparseInvW c F0 F_cur s' ∧
         s'.core.cur_level < s.core.cur_level) →
       (r = 0#64 → FullSparseInvW c F0 F_cur s') →
@@ -463,7 +470,7 @@ private theorem s13_learn_pre_gc_wp {Γ X} {Q : Post [i64]} {c : FullCfg} {F0 : 
                     args := (Arg.var pd.1, Arg.imm 32, ()) } fun cmp2 =>
                 Expr.jnz (Arg.var cmp2.1) (Expr.jump J_in.1 ()) (Expr.jump Jgc.1 ()))))) m_bt := by
   have ⟨hbt_sp, hcl_bt, hbt_cv, hbt_fu, hbt_tmp, hbt_tl, hbt_vals, hbt_lvl, hbt_trl, hbt_te,
-    hbt_ws2⟩ := hbt_pre
+    hbt_prb, hbt_mcl, hbt_ws1, hbt_ws2⟩ := hbt_pre
   have hbt_len := hbt_sp.1
   have hmv := c.hmaxv; unfold dimacsBound at hmv
   let Rext : Mem 64 → Prop := m6ExtMem (m6ExtAddr c.hdr) ext ⋆ R
@@ -506,15 +513,18 @@ private theorem s13_learn_pre_gc_wp {Γ X} {Q : Post [i64]} {c : FullCfg} {F0 : 
           c0_steps; exact hJgc () m_3 ⟨ext_3, s_3, hext_3, h3_pre, hm_3⟩
         · intro J3 hJ3; c0_split
           · c0_to_group; c0_call hRedM6
-            refine m6ReduceSpec_of (FullM6HdrInvW.mk_inv hcfg hext hd_sp)
+            refine step13ReduceM6Spec_of (FullM6HdrInvW.mk_inv hcfg hext hd_sp)
               (fullM6HdrMem_unfocus_full hm_d) ?_
-            intro rr ext_r s_r m_r hr_inv hr_dom hr_cl hr_fu hr_cv hr_tmp hr_tl hr_ws2
-              hr_20 _ hr_pos hm_r
+            intro rr ext_r s_r m_r hr_inv hr_dom hr_cl hr_fu hr_cv hr_tmp hr_tl hr_prb hr_mcl
+              hr_ws1 hr_ws2 hr_20 _ hr_pos hm_r
             have hr_sp : FullSparseInvW c F0 F_cur s_r := hr_inv.sparseW
             have hext_r : M6HdrExtOk ext_r := hr_inv.extOk
-            dsimp only [s_d] at hr_cl hr_fu hr_cv hr_tmp hr_tl hr_ws2 hr_pos
+            dsimp only [s_d] at hr_cl hr_fu hr_cv hr_tmp hr_tl hr_prb hr_mcl hr_ws1 hr_ws2 hr_pos
             have hr_cv' : s_r.core.cur_vars = s.core.cur_vars := hr_cv.trans hbt_cv
             have hr_fu' : s_r.core.fuel.toNat ≤ s.core.fuel.toNat := Nat.le_trans hr_fu hbt_fu
+            have hr_prb' : s_r.core.probing = s.core.probing := hr_prb.trans hbt_prb
+            have hr_mcl' : s_r.core.min_clr_len = s.core.min_clr_len := hr_mcl.trans hbt_mcl
+            have hr_ws1' : s_r.scratch.work_stk1 = s.scratch.work_stk1 := hr_ws1.trans hbt_ws1
             have hr_ws2' : s_r.scratch.work_stk2 = s.scratch.work_stk2 := hr_ws2.trans hbt_ws2
             have hr_tmp' : s_r.core.tmp = tmp_sw := hr_tmp.trans hbt_tmp
             have hr_tl' : s_r.core.tmp_len = s.core.tmp_len := hr_tl.trans hbt_tl
@@ -522,12 +532,14 @@ private theorem s13_learn_pre_gc_wp {Γ X} {Q : Post [i64]} {c : FullCfg} {F0 : 
             c0_hsplit
             · c0_hsteps
               exact hQ 20#64 ext_r s_r m_r hext_r hr_sp.1 (Or.inr (Or.inr rfl)) hr_cv' hr_fu'
-                hr_ws2' (fun _ => ⟨hr_20 (by simpa [bv_c0] using hc), hr_sp, by omega⟩)
+                hr_prb' hr_mcl' hr_ws1' hr_ws2'
+                (fun _ => ⟨hr_20 (by simpa [bv_c0] using hc), hr_sp, by omega⟩)
                 (fun h => by cases h) (fun h => by cases h) hm_r
             · c0_hsplit
               · c0_hsteps
-                exact hQ 0#64 ext_r s_r m_r hext_r hr_sp.1 (Or.inl rfl) hr_cv' hr_fu' hr_ws2'
-                  (fun h => by cases h) (fun _ => hr_sp) (fun h => by cases h) hm_r
+                exact hQ 0#64 ext_r s_r m_r hext_r hr_sp.1 (Or.inl rfl) hr_cv' hr_fu' hr_prb'
+                  hr_mcl' hr_ws1' hr_ws2' (fun h => by cases h) (fun _ => hr_sp)
+                  (fun h => by cases h) hm_r
               · have hrr1 : rr = 1#64 := by
                   rcases hr_dom with rfl | rfl | rfl
                   · exfalso; simp [bv_c0] at hc
@@ -536,8 +548,8 @@ private theorem s13_learn_pre_gc_wp {Γ X} {Q : Post [i64]} {c : FullCfg} {F0 : 
                 c0_hsplit
                 · c0_hsteps
                   exact hQ 1#64 ext_r s_r m_r hext_r hr_sp.1 (Or.inr (Or.inl rfl)) hr_cv'
-                    hr_fu' hr_ws2' (fun h => by cases h) (fun h => by cases h)
-                    (fun _ => ⟨hr_sp, by omega⟩) hm_r
+                    hr_fu' hr_prb' hr_mcl' hr_ws1' hr_ws2' (fun h => by cases h)
+                    (fun h => by cases h) (fun _ => ⟨hr_sp, by omega⟩) hm_r
                 · have hcl_eq : s_r.core.cur_level = nlvl.toNat := by
                     have hbv : BitVec.ofNat 64 s_r.core.cur_level = nlvl := by
                       simpa [bv_c0] using hc
@@ -553,19 +565,20 @@ private theorem s13_learn_pre_gc_wp {Γ X} {Q : Post [i64]} {c : FullCfg} {F0 : 
                   c0_hsplit
                   · c0_hsteps
                     exact hQ 1#64 ext_r s_r m_r hext_r hr_sp.1 (Or.inr (Or.inl rfl)) hr_cv'
-                      hr_fu' hr_ws2' (fun h => by cases h) (fun h => by cases h)
-                      (fun _ => ⟨hr_sp, by omega⟩) hm_r
+                      hr_fu' hr_prb' hr_mcl' hr_ws1' hr_ws2' (fun h => by cases h)
+                      (fun h => by cases h) (fun _ => ⟨hr_sp, by omega⟩) hm_r
                   · obtain ⟨_, hr_vals, hr_lvl, hr_trl, _, hr_te⟩ :=
                       hr_pos hrr1 (hcl_eq ▸ hnlvl_pos)
                     c0_hsteps
                     exact hJ3 () m_r ⟨ext_r, s_r, hext_r,
                       ⟨hr_sp, hcl_eq, hr_cv', hr_fu', hr_tmp', hr_tl', hr_vals.trans hbt_vals,
-                        hr_lvl.trans hbt_lvl, hr_trl.trans hbt_trl, hr_te.trans hbt_te, hr_ws2'⟩,
+                        hr_lvl.trans hbt_lvl, hr_trl.trans hbt_trl, hr_te.trans hbt_te,
+                        hr_prb', hr_mcl', hr_ws1', hr_ws2'⟩,
                       hm_r⟩
           · c0_steps
             exact hJ3 () m_d ⟨ext, s_d, hext,
               ⟨hd_sp, hd_cl, hbt_cv, hbt_fu, hbt_tmp, hbt_tl, hbt_vals, hbt_lvl, hbt_trl,
-                hbt_te, hbt_ws2⟩,
+                hbt_te, hbt_prb, hbt_mcl, hbt_ws1, hbt_ws2⟩,
               fullM6HdrMem_unfocus_full hm_d⟩
       · intro Jdef hJdef; c0_split
         · have hbt_lay : WatchStackLayout s_bt.core := by
@@ -611,10 +624,10 @@ private theorem s13_learn_retry_step_wp {Γ X} {Q : Post [i64]} {c : FullCfg} {F
     {R : Mem 64 → Prop} {mL : Mem 64}
     (hDefrag : ∀ a m Q X, fullWstackDefragSpec a m Q X →
       Γ "full_wstack_defrag" [i64] [] a m Q X)
-    (hRedM6 : ∀ a m Q X, m6ReduceSpec a m Q X →
+    (hRedM6 : ∀ a m Q X, step13ReduceM6Spec a m Q X →
       Γ "full_reduce_m6" [i64, .bool] [i64] a m Q X)
-    (hRedPurge : ∀ h m Q X, Full.fullReduceSpec (h, true, ()) m Q X →
-      Γ "full_reduce_purge_c0" [i64] [i64] (h, ()) m Q X)
+    (hRedPurge : ∀ a m Q X, step13ReducePurgeC0M6Spec a m Q X →
+      Γ "full_reduce_purge_c0" [i64] [i64] a m Q X)
     (hcfg : FullM6HdrCfgOk c) (hext_lp : M6HdrExtOk ext_lp)
     (hlp_pre : S13AddClPre c F0 F_cur s nlvl tmp_sw vals_bt lvl_bt trl_bt te_bt s_lp)
     (huip_lt : uip.toNat < 2 * s.core.cur_vars)
@@ -623,7 +636,8 @@ private theorem s13_learn_retry_step_wp {Γ X} {Q : Post [i64]} {c : FullCfg} {F
     (hQ : ∀ r ext' s' m',
       M6HdrExtOk ext' → s'.LengthsOk c → (r = 0#64 ∨ r = 1#64 ∨ r = 20#64) →
       s'.core.cur_vars = s.core.cur_vars → s'.core.fuel.toNat ≤ s.core.fuel.toNat →
-      s'.scratch.work_stk2 = s.scratch.work_stk2 →
+      s'.core.probing = s.core.probing → s'.core.min_clr_len = s.core.min_clr_len →
+      s'.scratch.work_stk1 = s.scratch.work_stk1 → s'.scratch.work_stk2 = s.scratch.work_stk2 →
       (r = 20#64 → F0.Unsat ∧ FullSparseInvW c F0 F_cur s' ∧
         s'.core.cur_level < s.core.cur_level) →
       (r = 0#64 → FullSparseInvW c F0 F_cur s') →
@@ -716,7 +730,7 @@ private theorem s13_learn_retry_step_wp {Γ X} {Q : Post [i64]} {c : FullCfg} {F
       c0_steps; exact hJ1 m_d ⟨ext_lp, s_d, hext_lp, hd_pre, hm_d⟩
     · intro Jd hJd
       have ⟨hlp_sp, hlp_cl, hlp_cv, hlp_fu, hlp_tmp, hlp_tl, hlp_vals, hlp_lvl, hlp_trl, hlp_te,
-        hlp_ws2⟩ := hlp_pre
+        hlp_prb, hlp_mcl, hlp_ws1, hlp_ws2⟩ := hlp_pre
       c0_split
       · have hlp_lay : WatchStackLayout s_lp.core := by
           have hm_w := hlp_sp.2.1.watches
@@ -736,7 +750,8 @@ private theorem s13_learn_retry_step_wp {Γ X} {Q : Post [i64]} {c : FullCfg} {F
             hd_len hd_lay hd_pres)
         c0_steps
         exact hJd () m_d ⟨s_d, ⟨hd_sp, hlp_cl, hlp_cv, hlp_fu, hlp_tmp, hlp_tl, hlp_vals,
-          hlp_lvl, hlp_trl, hlp_te, hlp_ws2⟩, fullM6HdrMem_unfocus_full hm_d⟩
+          hlp_lvl, hlp_trl, hlp_te, hlp_prb, hlp_mcl, hlp_ws1, hlp_ws2⟩,
+          fullM6HdrMem_unfocus_full hm_d⟩
       · have hwuz : s_lp.core.wusable = 0#64 := by apply BitVec.eq_of_toNat_eq; bv_omega
         c0_steps
         exact hJd () mL ⟨s_lp, hlp_pre, by simpa only [hwuz] using hmL⟩
@@ -747,6 +762,8 @@ private theorem s13_learn_retry_step_wp {Γ X} {Q : Post [i64]} {c : FullCfg} {F
           s_r.core.cur_level ≤ s_lp.core.cur_level ∧
           s_r.core.fuel.toNat ≤ s_lp.core.fuel.toNat ∧ s_r.core.cur_vars = s_lp.core.cur_vars ∧
           s_r.core.tmp = s_lp.core.tmp ∧ s_r.core.tmp_len = s_lp.core.tmp_len ∧
+          s_r.core.probing = s_lp.core.probing ∧ s_r.core.min_clr_len = s_lp.core.min_clr_len ∧
+          s_r.scratch.work_stk1 = s_lp.scratch.work_stk1 ∧
           s_r.scratch.work_stk2 = s_lp.scratch.work_stk2 ∧ (gr = 20#64 → F0.Unsat) ∧
           (gr = 1#64 → 0 < s_r.core.cur_level →
             s_r.core.cur_level = s_lp.core.cur_level ∧ s_r.core.vals = s_lp.core.vals ∧
@@ -754,24 +771,28 @@ private theorem s13_learn_retry_step_wp {Γ X} {Q : Post [i64]} {c : FullCfg} {F
             s_r.core.trail_pos = s_lp.core.trail_pos ∧ s_r.core.trail_end = s_lp.core.trail_end) ∧
           (FullM6HdrMem c ext_r s_r ⋆ R) m_r) ?_ ?_
     · rintro _ ⟨gr, ⟨⟩⟩ m_r ⟨ext_r, s_r, hext_r, hr_sp, hr_dom, hr_cl, hr_fu, hr_cv,
-        hr_tmp, hr_tl, hr_ws2, hr_20, hr_pos, hm_r⟩
+        hr_tmp, hr_tl, hr_prb, hr_mcl, hr_ws1, hr_ws2, hr_20, hr_pos, hm_r⟩
       have ⟨_hlp_sp, hlp_cl, hlp_cv, hlp_fu, hlp_tmp, hlp_tl, hlp_vals, hlp_lvl, hlp_trl, hlp_te,
-        hlp_ws2⟩ := hlp_pre
+        hlp_prb, hlp_mcl, hlp_ws1, hlp_ws2⟩ := hlp_pre
       have hr_cv' : s_r.core.cur_vars = s.core.cur_vars := hr_cv.trans hlp_cv
       have hr_fu' : s_r.core.fuel.toNat ≤ s.core.fuel.toNat := Nat.le_trans hr_fu hlp_fu
+      have hr_prb' : s_r.core.probing = s.core.probing := hr_prb.trans hlp_prb
+      have hr_mcl' : s_r.core.min_clr_len = s.core.min_clr_len := hr_mcl.trans hlp_mcl
+      have hr_ws1' : s_r.scratch.work_stk1 = s.scratch.work_stk1 := hr_ws1.trans hlp_ws1
       have hr_ws2' : s_r.scratch.work_stk2 = s.scratch.work_stk2 := hr_ws2.trans hlp_ws2
       have hcl_lt_s : s_r.core.cur_level < s.core.cur_level := by
         have := hr_cl; have := hlp_cl; omega
       have _hm_rf := fullM6HdrMem_focus_full hm_r
       c0_hsplit
       · c0_hsteps
-        exact hQ 20#64 ext_r s_r m_r hext_r hr_sp.1 (Or.inr (Or.inr rfl)) hr_cv' hr_fu' hr_ws2'
+        exact hQ 20#64 ext_r s_r m_r hext_r hr_sp.1 (Or.inr (Or.inr rfl)) hr_cv' hr_fu' hr_prb'
+          hr_mcl' hr_ws1' hr_ws2'
           (fun _ => ⟨hr_20 (by simpa [bv_c0] using hc), hr_sp, hcl_lt_s⟩)
           (fun h => by cases h) (fun h => by cases h) hm_r
       · c0_hsplit
         · c0_hsteps
-          exact hQ 0#64 ext_r s_r m_r hext_r hr_sp.1 (Or.inl rfl) hr_cv' hr_fu' hr_ws2'
-            (fun h => by cases h) (fun _ => hr_sp) (fun h => by cases h) hm_r
+          exact hQ 0#64 ext_r s_r m_r hext_r hr_sp.1 (Or.inl rfl) hr_cv' hr_fu' hr_prb' hr_mcl'
+            hr_ws1' hr_ws2' (fun h => by cases h) (fun _ => hr_sp) (fun h => by cases h) hm_r
         · have hgr1 : gr = 1#64 := by
             rcases hr_dom with rfl | rfl | rfl
             · exfalso; simp [bv_c0] at hc
@@ -780,8 +801,8 @@ private theorem s13_learn_retry_step_wp {Γ X} {Q : Post [i64]} {c : FullCfg} {F
           c0_hsplit
           · c0_hsteps
             exact hQ 1#64 ext_r s_r m_r hext_r hr_sp.1 (Or.inr (Or.inl rfl)) hr_cv' hr_fu'
-              hr_ws2' (fun h => by cases h) (fun h => by cases h) (fun _ => ⟨hr_sp, hcl_lt_s⟩)
-              hm_r
+              hr_prb' hr_mcl' hr_ws1' hr_ws2' (fun h => by cases h) (fun h => by cases h)
+              (fun _ => ⟨hr_sp, hcl_lt_s⟩) hm_r
           · have hcl_eq : s_r.core.cur_level = nlvl.toNat := by
               have hbv : BitVec.ofNat 64 s_r.core.cur_level = nlvl := by simpa [bv_c0] using hc
               have hsr_lt64 : s_r.core.cur_level < 2 ^ 64 := by
@@ -797,31 +818,32 @@ private theorem s13_learn_retry_step_wp {Γ X} {Q : Post [i64]} {c : FullCfg} {F
             c0_hsplit
             · c0_hsteps
               exact hQ 1#64 ext_r s_r m_r hext_r hr_sp.1 (Or.inr (Or.inl rfl)) hr_cv' hr_fu'
-                hr_ws2' (fun h => by cases h) (fun h => by cases h)
+                hr_prb' hr_mcl' hr_ws1' hr_ws2' (fun h => by cases h) (fun h => by cases h)
                 (fun _ => ⟨hr_sp, hcl_lt_s⟩) hm_r
             · obtain ⟨_, hr_vals, hr_lvl, hr_trl, _, hr_te⟩ :=
                 hr_pos hgr1 (hcl_eq ▸ hnlvl_pos)
               c0_hsteps
               exact hJ1 m_r ⟨ext_r, s_r, hext_r, ⟨hr_sp, hcl_eq, hr_cv', hr_fu',
                 hr_tmp.trans hlp_tmp, hr_tl.trans hlp_tl, hr_vals.trans hlp_vals,
-                hr_lvl.trans hlp_lvl, hr_trl.trans hlp_trl, hr_te.trans hlp_te, hr_ws2'⟩, hm_r⟩
+                hr_lvl.trans hlp_lvl, hr_trl.trans hlp_trl, hr_te.trans hlp_te,
+                hr_prb', hr_mcl', hr_ws1', hr_ws2'⟩, hm_r⟩
     · intro Jr hJr
       c0_split
       · c0_call hRedM6
-        refine m6ReduceSpec_of (FullM6HdrInvW.mk_inv hcfg hext_lp hlp_pre.1) hmL ?_
-        intro rr ext_r s_r m_r hr_inv hr_dom hr_cl hr_fu hr_cv hr_tmp hr_tl hr_ws2
-          hr_20 _ hr_pos hm_r
+        refine step13ReduceM6Spec_of (FullM6HdrInvW.mk_inv hcfg hext_lp hlp_pre.1) hmL ?_
+        intro rr ext_r s_r m_r hr_inv hr_dom hr_cl hr_fu hr_cv hr_tmp hr_tl hr_prb hr_mcl
+          hr_ws1 hr_ws2 hr_20 _ hr_pos hm_r
         c0_steps
         exact hJr (rr, ()) m_r ⟨ext_r, s_r, hr_inv.extOk, hr_inv.sparseW, hr_dom, hr_cl, hr_fu,
-          hr_cv, hr_tmp, hr_tl, hr_ws2, hr_20, hr_pos, hm_r⟩
+          hr_cv, hr_tmp, hr_tl, hr_prb, hr_mcl, hr_ws1, hr_ws2, hr_20, hr_pos, hm_r⟩
       · c0_call hRedPurge
         refine ⟨c, F0, F_cur, s_lp, m6ExtMem (m6ExtAddr c.hdr) ext_lp ⋆ R,
           rfl, hlp_pre.1, hmLf, ?_⟩
-        intro rr s_r m_r hr_sp hr_dom hr_cl hr_fu hr_cv hr_tmp hr_tl hr_ws2
+        intro rr s_r m_r hr_sp hr_dom hr_cl hr_fu hr_cv hr_tmp hr_tl hr_prb hr_mcl hr_ws1 hr_ws2
           hr_20 _ hr_pos hm_r
         c0_steps
         exact hJr (rr, ()) m_r ⟨ext_lp, s_r, hext_lp, hr_sp, hr_dom, hr_cl, hr_fu, hr_cv, hr_tmp,
-          hr_tl, hr_ws2, hr_20, hr_pos, fullM6HdrMem_unfocus_full hm_r⟩
+          hr_tl, hr_prb, hr_mcl, hr_ws1, hr_ws2, hr_20, hr_pos, fullM6HdrMem_unfocus_full hm_r⟩
 
 private theorem s13_learn_post_ac_m6_wp {Γ X} {Q : Post [i64]} {c : FullCfg} {F0 : CNF Nat}
     {F_cur : List (List Nat)} {ext_ex : List (BitVec 64)} {s s_ex : FullState}
@@ -850,7 +872,8 @@ private theorem s13_learn_post_ac_m6_wp {Γ X} {Q : Post [i64]} {c : FullCfg} {F
     (hQ : ∀ r ext' s' m',
       M6HdrExtOk ext' → s'.LengthsOk c → (r = 0#64 ∨ r = 1#64 ∨ r = 20#64) →
       s'.core.cur_vars = s.core.cur_vars → s'.core.fuel.toNat ≤ s.core.fuel.toNat →
-      s'.scratch.work_stk2 = s.scratch.work_stk2 →
+      s'.core.probing = s.core.probing → s'.core.min_clr_len = s.core.min_clr_len →
+      s'.scratch.work_stk1 = s.scratch.work_stk1 → s'.scratch.work_stk2 = s.scratch.work_stk2 →
       (r = 20#64 → F0.Unsat ∧ FullSparseInvW c F0 F_cur s' ∧
         s'.core.cur_level < s.core.cur_level) →
       (r = 0#64 → FullSparseInvW c F0 F_cur s') →
@@ -858,23 +881,24 @@ private theorem s13_learn_post_ac_m6_wp {Γ X} {Q : Post [i64]} {c : FullCfg} {F
       (FullM6HdrMem c ext' s' ⋆ R) m' → Q (r, ()) m') :
     wp Γ Q X (s13PostAcExpr c uip_lit new_ref64 max_lvl) m_ex := by
   rcases hex_pre with ⟨hex_sp, hex_cl, hex_cv, hex_fu, hex_tmp, hex_tl,
-    hex_vals, hex_lvl, hex_trl, hex_te, hex_ws2⟩
+    hex_vals, hex_lvl, hex_trl, hex_te, hex_prb, hex_mcl, hex_ws1, hex_ws2⟩
   have hmv := c.hmaxv; unfold dimacsBound at hmv
   have _hm_exf := fullM6HdrMem_focus_full hm_ex
   exact s13_learn_clause_post_ac_wp (c := c) (F0 := F0) (F_cur := F_cur) (s := s) (s_ac := s_ex)
     (R := m6ExtMem (m6ExtAddr c.hdr) ext_ex ⋆ R) (m_ac := m_ex)
     (uip_lit := uip_lit) (wm := wm) (new_ref64 := new_ref64) (max_lvl := max_lvl)
     (tmp_sw := tmp_sw) hAsgn hEsub
-    (fun r s' m' a1 a2 a3 a4 a5 a6 a7 a8 hm' =>
-      hQ r ext_ex s' m' hext_ex a1 a2 a3 a4 a5 a6 a7 a8 (fullM6HdrMem_unfocus_full hm'))
+    (fun r s' m' a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 hm' =>
+      hQ r ext_ex s' m' hext_ex a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11
+        (fullM6HdrMem_unfocus_full hm'))
     hex_sp (by rw [hex_cl]; exact hnlvl_lt) hml_pos (by rw [hex_cl]; exact hnlvl_ge)
     (by
       have := hex_sp.1.core_ok.cur_vars_le
       have := hex_sp.2.1.cur_level_le
       have := hex_sp.1.core_ok.trail_end_le
       omega)
-    hex_cv hex_fu hex_ws2 hex_tmp hex_tl hsw_1 htl_ge2 htl_cv huip_lt hwm_lt htmp_sw_lt
-    (by rw [hex_trl, hex_lvl, hex_te]; exact hwm_on_bt)
+    hex_cv hex_fu hex_prb hex_mcl hex_ws1 hex_ws2 hex_tmp hex_tl hsw_1 htl_ge2 htl_cv huip_lt
+    hwm_lt htmp_sw_lt (by rw [hex_trl, hex_lvl, hex_te]; exact hwm_on_bt)
     (by rw [hex_trl, hex_lvl, hex_te]; exact hlow_bt)
     hex_nr _hm_exf
 
@@ -892,9 +916,9 @@ theorem full_learn_clause_m6_step13_wp (Γ : Env)
       Γ "full_det_new_level" [i64, i64] [i64] a m Q X)
     (hDefrag : ∀ a m Q X, fullWstackDefragSpec a m Q X →
       Γ "full_wstack_defrag" [i64] [] a m Q X)
-    (hRedM6 : ∀ a m Q X, m6ReduceSpec a m Q X →
+    (hRedM6 : ∀ a m Q X, step13ReduceM6Spec a m Q X →
       Γ "full_reduce_m6" [i64, .bool] [i64] a m Q X)
-    (hRedPurge : ∀ a m Q X, fullReducePurgeC0Spec a m Q X →
+    (hRedPurge : ∀ a m Q X, step13ReducePurgeC0M6Spec a m Q X →
       Γ "full_reduce_purge_c0" [i64] [i64] a m Q X)
     (hAddCl : ∀ a m Q X, step13AddClauseSpec a m Q X →
       Γ "full_add_clause" [i64, i32, i32, .bool] [i64] a m Q X)
@@ -1074,7 +1098,8 @@ theorem full_learn_clause_m6_step13_wp (Γ : Env)
     clear hDnl hBt htmp_vals htmp_lvls hent hm_sw' hm2 hbt_keep hbt_otfs hkeep_v hkeep_l
       hsw_mem hlow_on_bt
     have hbt_pre : S13AddClPre c F0 F_cur s nlvl tmp_sw vals_bt lvl_bt trl_bt te_bt s_bt :=
-      ⟨hbt_sparse, hcl_bt, rfl, Nat.le_refl _, rfl, rfl, rfl, rfl, rfl, rfl, hbt_pres.2.2.1⟩
+      ⟨hbt_sparse, hcl_bt, rfl, Nat.le_refl _, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
+        hbt_pres.2.1, hbt_pres.2.2.1⟩
     refine s13_learn_pre_gc_wp hDefrag hRedM6 hcfg hext hbt_pre huip_in huip_0 huip_lt
       (by omega) hnlvl_lt
       (fullM6HdrMem_unfocus_full hm_bt) hQ fun ext_gc s_gc m_gc hext_gc hgc_pre hm_gc => ?_
@@ -1135,8 +1160,7 @@ theorem full_learn_clause_m6_step13_wp (Γ : Env)
             exact hLoop (nr', step + 1#64, ()) mac' (by dsimp only; rw [hstep1]; omega)
               ⟨by omega, ext_pre, sac', hext_pre, hsac', hnr', hmac'⟩
           · intro J1 hJ1
-            exact s13_learn_retry_step_wp hDefrag hRedM6
-              (fun _ m Q X hs => hRedPurge _ m Q X (fullReducePurgeC0Spec_of_full hs))
+            exact s13_learn_retry_step_wp hDefrag hRedM6 hRedPurge
               hcfg hext_lp hlp_pre huip_lt (by omega) hnlvl_lt hmL hQ J1
               (fun m_pre h => hJ1 () m_pre h)
         · c0_hsteps; exact hJ_post () mL ⟨ext_lp, s_lp, hext_lp, hlp_pre, hlp_nr, hmL⟩

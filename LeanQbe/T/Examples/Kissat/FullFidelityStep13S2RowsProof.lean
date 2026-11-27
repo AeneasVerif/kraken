@@ -240,9 +240,9 @@ theorem full_learn_clause_m6_s13_impl (Γ : Env)
       Γ "full_det_new_level" [i64, i64] [i64] a m Q X)
     (hDefrag : ∀ a m Q X, fullWstackDefragSpec a m Q X →
       Γ "full_wstack_defrag" [i64] [] a m Q X)
-    (hRedM6 : ∀ a m Q X, m6ReduceSpec a m Q X →
+    (hRedM6 : ∀ a m Q X, step13ReduceM6Spec a m Q X →
       Γ "full_reduce_m6" [i64, .bool] [i64] a m Q X)
-    (hRedPurge : ∀ a m Q X, fullReducePurgeC0Spec a m Q X →
+    (hRedPurge : ∀ a m Q X, step13ReducePurgeC0M6Spec a m Q X →
       Γ "full_reduce_purge_c0" [i64] [i64] a m Q X)
     (hAddCl : ∀ a m Q X, step13AddClauseSpec a m Q X →
       Γ "full_add_clause" [i64, i32, i32, .bool] [i64] a m Q X)

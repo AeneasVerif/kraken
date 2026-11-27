@@ -73,10 +73,10 @@ theorem full_propagate_beyond_m7_step13_wp (Γ : Env)
     hdense0, hm0, hQ⟩
   have hQ' : S13HQ true c F0 F_cur ext0 s 0xFFFFFFFF#64 R Q := fun r ext' v' f' l' rs' tr' tp'
       te' pr' un' uf' wv' ar' ws' wl' wu' fl' ct' cr' c0' c1' om' sc' m' hx hw2 hl hwf htr hpm
-      hpr hrr hnp hd0 hfl hr hbcf hr0 hr1 h2 hno hm => by
+      hpr hrr hdl hnp hd0 hfl hr hbcf hr0 hr1 h2 hno hm => by
     rcases hbcf rfl with ⟨rfl, rfl, rfl, rfl⟩
     refine hQ r ext' v' f' l' rs' tr' tp' te' pr' un' uf' wv' ar' ws' wl' wu' fl' om' sc' m'
-      hx hw2 hl hwf htr hpm hpr hrr hnp hd0 hfl ?_ (fun h0 => let x := hr0 h0; ⟨x.1, x.2.2⟩)
+      hx hw2 hl hwf htr hpm hpr hrr hdl hnp hd0 hfl ?_ (fun h0 => let x := hr0 h0; ⟨x.1, x.2.2⟩)
       h2 ?_ hm
     · rcases hr with rfl | rfl
       · exact Or.inl rfl
@@ -111,7 +111,7 @@ theorem full_propagate_beyond_m7_step13_wp (Γ : Env)
     have hpe : s.core.propagated = s.core.trail_end :=
       Nat.le_antisymm hlen0.core_ok.propagated_le hge
     exact s13_exit_hQ hQ' hext0 (fun h => ⟨h, .refl _⟩) (.refl _ _)
-      (s13_probePres_of_S13Scr rfl) rfl (fun _ => rfl) hlen0 hw0
+      (s13_probePres_of_S13Scr rfl) rfl rfl (fun _ => rfl) hlen0 hw0
       (s13_trail_refl_b s.core) (s13_perm_refl_b s.core)
       (fun _ => rfl) (Nat.le_refl _) (Or.inl rfl) (fun _ => ⟨rfl, rfl, rfl, rfl⟩)
       (fun _ => ⟨hpe, fun _ => rfl, fun h => h, fun hlt => absurd hlt (by omega)⟩)
@@ -122,7 +122,7 @@ theorem full_propagate_beyond_m7_step13_wp (Γ : Env)
       rwa [Nat.mod_eq_of_lt hte0_lt64, Nat.mod_eq_of_lt hpr0_lt64, Nat.not_le] at hh
     s13_hsplit
     · exact s13_exit_hQ hQ' hext0 (fun h => ⟨h, .refl _⟩) (.refl _ _)
-        (s13_probePres_of_S13Scr rfl) rfl (fun _ => rfl) hlen0 hw0
+        (s13_probePres_of_S13Scr rfl) rfl rfl (fun _ => rfl) hlen0 hw0
         (s13_trail_refl_b s.core) (s13_perm_refl_b s.core)
         (fun _ => rfl) (Nat.le_refl _) (Or.inr rfl) (fun _ => ⟨rfl, rfl, rfl, rfl⟩)
         (fun h => absurd h (by decide)) (fun _ h => absurd h (by decide)) (fun _ => Or.inl hc)
