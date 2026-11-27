@@ -277,8 +277,12 @@ def isTrivialTerm : Tree → Bool
   | .jump .. | .ret .. | .exit .. | .stop _ => true
   | _ => false
 
+def mapRematVars (rematRoot : Trie Nat) (xs : List Nat) : List Nat :=
+  dedup (xs.map fun x => rematRoot.getD x x)
+
 mutual
-def gatherAt {I : Isa} (c : Ctx I) (blk? : Option Nat) :
+def gatherAt {I : Isa} (c : Ctx I) (blk? : Option Nat)
+    (rematRoot : Trie Nat := .empty) (rematOpIps : Trie Bool := .empty) :
     List Nat → List Nat → Nat → Trie Bool → Tree → GatherAcc → GatherAcc
   | lps, lr, mult, isZ32, .let_ lv ip nv0 ts op k, acc =>
     let la := k.lv
@@ -301,8 +305,10 @@ def gatherAt {I : Isa} (c : Ctx I) (blk? : Option Nat) :
     let laFor (x : Nat) := match zextSrc? with
       | some zx => if Nat.beq x nv0 then erase zx la else la
       | none => la
+    let isRemOp := rematOpIps.getD ip false
     let di := defs.foldl (fun d x =>
-      if natMem x la || Nat.ble 2 defs.length then (x, union defs (laFor x)) :: d else d)
+      if isRemOp then (x, union defs (union (laFor x) uses)) :: d
+      else if natMem x la || Nat.ble 2 defs.length then (x, union defs (laFor x)) :: d else d)
       acc.defInterf
     let (gLv, vLv) := splitBank c.banks c.flagHome lv
     let (gLa, vLa) := splitBank c.banks c.flagHome la
@@ -320,7 +326,7 @@ def gatherAt {I : Isa} (c : Ctx I) (blk? : Option Nat) :
       | none => (acc.zextElide, acc.zextEdges)
     let isZ32' :=
       if opProducesZ32Static I c.r0? op then isZ32.insert nv0 true else isZ32
-    gatherAt c blk? lps lr mult isZ32' k { acc with
+    gatherAt c blk? rematRoot rematOpIps lps lr mult isZ32' k { acc with
       ipW := acc.ipW.insert ip mult,
       weights := (mult, defs ++ uses) :: acc.weights, defInterf := di, affEdges := aff,
       gprPts := gPts, gprPtBlks := gBlks, gprPtIps := gIps, vecPts := vPts, defWT := dw,
@@ -343,7 +349,7 @@ def gatherAt {I : Isa} (c : Ctx I) (blk? : Option Nat) :
       if (I.gpr.zeroExtLoad && isGprTy I t) || (I.gpr.zeroUpper32Load && tyEq t (.bits 32)) then
         isZ32.insert x true
       else isZ32
-    gatherAt c blk? lps lr mult isZ32' k { acc with
+    gatherAt c blk? rematRoot rematOpIps lps lr mult isZ32' k { acc with
       ipW := acc.ipW.insert ip mult,
       weights := (mult, x :: uses) :: acc.weights, defInterf := di,
       gprPts := gPts, gprPtBlks := gBlks, gprPtIps := gIps, vecPts := vPts,
@@ -354,7 +360,7 @@ def gatherAt {I : Isa} (c : Ctx I) (blk? : Option Nat) :
     let (gUse, vUse) := splitBank c.banks c.flagHome uses
     let (gPts, gBlks, gIps) := addGprPtBlk blk? ip c.nGpr gUse (eraseMany gUse gLv)
       acc.gprPts acc.gprPtBlks acc.gprPtIps
-    gatherAt c blk? lps lr mult isZ32 k { acc with
+    gatherAt c blk? rematRoot rematOpIps lps lr mult isZ32 k { acc with
       ipW := acc.ipW.insert ip mult,
       weights := addWeight mult uses acc.weights, gprPts := gPts, gprPtBlks := gBlks,
       gprPtIps := gIps,
@@ -379,9 +385,10 @@ def gatherAt {I : Isa} (c : Ctx I) (blk? : Option Nat) :
       else across.foldl (fun t x => t.insert x true) acc.loopCall
     let isZ32' := (defs.zip bs).foldl (fun z (d, t) =>
       if isGprTy I t then z.insert d true else z) isZ32
-    gatherAt c blk? lps lr mult isZ32' k { acc with
+    gatherAt c blk? rematRoot rematOpIps lps lr mult isZ32' k { acc with
       ipW := acc.ipW.insert ip mult,
-      weights := addWeight mult (defs ++ tupVarIds args) acc.weights, defInterf := di,
+      weights := addWeight mult (defs ++ mapRematVars rematRoot (tupVarIds args)) acc.weights,
+      defInterf := di,
       abiGpr := ag2, abiVec := av2, callW := addWeight mult across acc.callW,
       loopCall := lc, defWT := dw }
   | lps, lr, mult, isZ32, .jnz lv ip cx _ t e, acc =>
@@ -421,22 +428,25 @@ def gatherAt {I : Isa} (c : Ctx I) (blk? : Option Nat) :
         else (halfM, remHalf)
     let (gPts, gBlks, gIps) := addGprPtBlk blk? ip c.nGpr gUse (eraseMany gUse gLv)
       acc.gprPts acc.gprPtBlks acc.gprPtIps
-    let acc1 := gatherAt c blk? lps lr mE isZ32 e { acc with
+    let acc1 := gatherAt c blk? rematRoot rematOpIps lps lr mE isZ32 e { acc with
       weights := (mult, [cx]) :: acc.weights, gprPts := gPts, gprPtBlks := gBlks,
       gprPtIps := gIps,
       brW := acc.brW.insert ip (mult, mT, mE),
       invertJnz := if Nat.blt mE mT then acc.invertJnz.insert ip true else acc.invertJnz }
-    gatherAt c blk? lps lr mT isZ32 t acc1
-  | lps, lr, mult, isZ32, .skip _ _ k, acc => gatherAt c blk? lps lr mult isZ32 k acc
+    gatherAt c blk? rematRoot rematOpIps lps lr mT isZ32 t acc1
+  | lps, lr, mult, isZ32, .skip _ _ k, acc =>
+    gatherAt c blk? rematRoot rematOpIps lps lr mult isZ32 k acc
   | lps, _, mult, _, .jump _ ip j _ args, acc =>
     let acc := { acc with
       jmpW := acc.jmpW.insert ip mult, inW := acc.inW.insert j (acc.inW.getD j 0 + mult) }
     let as := tupArgsToList args
     let ps := c.bparams.getD j []
-    let nonSelf := if ps.isEmpty then tupVarIds args else
+    let nonSelf := if ps.isEmpty then mapRematVars rematRoot (tupVarIds args) else
       dedup ((as.zip ps).foldl (fun a (ao, p) =>
         match ao with
-        | some x => if Nat.beq x p then a else x :: p :: a
+        | some x =>
+          let x' := rematRoot.getD x x
+          if Nat.beq x' p then a else x' :: p :: a
         | none => p :: a) [])
     let (aff', anti') :=
       if c.cfg.backEdgeCoal then
@@ -451,21 +461,23 @@ def gatherAt {I : Isa} (c : Ctx I) (blk? : Option Nat) :
         addAbiArgs (tupArgsToList vs) (abiIdList c.allGpr c.allVec locs) (4 * mult)
           acc.abiGpr acc.abiVec
       | none => (acc.abiGpr, acc.abiVec)
-    { acc with weights := addWeight mult (tupVarIds vs) acc.weights, abiGpr := ag, abiVec := av,
-               ipW := acc.ipW.insert ip mult }
+    { acc with weights := addWeight mult (mapRematVars rematRoot (tupVarIds vs)) acc.weights,
+               abiGpr := ag, abiVec := av, ipW := acc.ipW.insert ip mult }
   | _, _, mult, _, .exit _ ip _ as args, acc =>
     let (ag, av) := match I.assignArgs as with
       | some locs =>
         addAbiArgs (tupArgsToList args) (abiIdList c.allGpr c.allVec locs) (4 * mult)
           acc.abiGpr acc.abiVec
       | none => (acc.abiGpr, acc.abiVec)
-    { acc with weights := addWeight mult (tupVarIds args) acc.weights, abiGpr := ag, abiVec := av,
-               ipW := acc.ipW.insert ip mult }
+    { acc with weights := addWeight mult (mapRematVars rematRoot (tupVarIds args)) acc.weights,
+               abiGpr := ag, abiVec := av, ipW := acc.ipW.insert ip mult }
   | _, _, _, _, .stop _, acc => acc
   | lps, lr, mult, isZ32, .group _ bs k, acc =>
-    gatherAtB c lps lr mult bs (gatherAt c blk? lps lr mult isZ32 k acc)
+    gatherAtB c rematRoot rematOpIps lps lr mult bs
+      (gatherAt c blk? rematRoot rematOpIps lps lr mult isZ32 k acc)
 
-def gatherAtB {I : Isa} (c : Ctx I) :
+def gatherAtB {I : Isa} (c : Ctx I) (rematRoot : Trie Nat := .empty)
+    (rematOpIps : Trie Bool := .empty) :
     List Nat → List Nat → Nat → TreeBlocks → GatherAcc → GatherAcc
   | _, _, _, .nil, acc => acc
   | lps, lr, mult, .cons l ps b bs, acc =>
@@ -489,15 +501,16 @@ def gatherAtB {I : Isa} (c : Ctx I) :
     let dw := pvars.foldl (fun t p => t.insert p mB) acc.defWT
     let bp := pvars.foldl (fun t p => t.insert p true) acc.isBP
     let pW := if !lps'.isEmpty then max (baseMult / 4) (mB / 4) else baseMult / 4
-    gatherAtB c lps lr mult bs
-      (gatherAt c (some l) lps' lr' mB .empty b { acc with
+    gatherAtB c rematRoot rematOpIps lps lr mult bs
+      (gatherAt c (some l) rematRoot rematOpIps lps' lr' mB .empty b { acc with
         weights := addWeight pW pvars acc.weights,
         defInterf := di, defWT := dw, isBP := bp })
 end
 
 def gather {I : Isa} (c : Ctx I) (lps lr : List Nat) (mult : Nat) (isZ32 : Trie Bool)
-    (t : Tree) (acc : GatherAcc) : GatherAcc :=
-  gatherAt c none lps lr mult isZ32 t acc
+    (t : Tree) (acc : GatherAcc) (rematRoot : Trie Nat := .empty)
+    (rematOpIps : Trie Bool := .empty) : GatherAcc :=
+  gatherAt c none rematRoot rematOpIps lps lr mult isZ32 t acc
 
 def triePush {α : Type} (t : Trie (List α)) (k : Nat) (v : α) : Trie (List α) :=
   t.insert k (v :: t.getD k [])
@@ -1539,6 +1552,299 @@ def usedSlotCount {I : Isa} (nip nl : Nat) (st : EmitSt I) : Nat :=
     | some en => maxSlotInLocs (en.live.map Prod.snd) (maxSlotInLocs en.ploc m)
     | none => m) m1
 
+/-! ## `Base + ConstDisp` Rematerialization Oracle (untrusted) -/
+
+/-- `true` when `I` rematerializes `rd := rb + disp` in 1 flag-preserving instruction for both
+distinct (`rb ≠ rd`) and in-place (`rb = rd`) GPRs. -/
+def remat1InsnOk (I : Isa) (disp : BitVec 64) : Bool :=
+  match I.frame.allocatable with
+  | r0 :: r1 :: _ =>
+    (rematAddImm64 I r0 r1 disp).map (fun c => Nat.beq c.length 1) == some true &&
+    (rematAddImm64 I r0 r0 disp).map (fun c => Nat.beq c.length 1) == some true
+  | r0 :: [] =>
+    (rematAddImm64 I r0 r0 disp).map (fun c => Nat.beq c.length 1) == some true
+  | [] => false
+
+structure RematDef where
+  x : Nat
+  ip : Nat
+  base : Nat
+  disp : BitVec 64
+
+structure RematUse where
+  ip : Nat
+  dst? : Option Nat
+  otherVars : List Nat
+  isCmpEqImm : Bool
+  isAdd64 : Bool
+  isDirect : Bool
+  isSlotOpOk : Bool
+  isTerm : Bool
+  isAddr : Bool
+  addrTy? : Option Ty
+
+structure RematScan where
+  cands : List RematDef := []
+  uses : Trie (List RematUse) := .empty
+  bad : Trie Bool := .empty
+
+def addRematUse (u : Nat) (ru : RematUse) (st : RematScan) : RematScan :=
+  { st with uses := st.uses.insert u (ru :: st.uses.getD u []) }
+
+def markRematBad (xs : List Nat) (st : RematScan) : RematScan :=
+  { st with bad := xs.foldl (fun b x => b.insert x true) st.bad }
+
+def opIsCmpEqImm64 {ts : List Ty} (op : Op VNat ts) : Bool :=
+  let { sig := _, code, args } := op
+  match code, args with
+  | .cmp co (.bits 64) .bool _, (.var _, .imm _, ())
+  | .cmp co (.bits 64) .bool _, (.imm _, .var _, ()) => co == .eq || co == .ne
+  | _, _ => false
+
+def opIsAdd64VV {ts : List Ty} (op : Op VNat ts) : Bool :=
+  let { sig := _, code, args } := op
+  match code, args with
+  | .add (.bits 64), (.var _, .var _, ()) => true
+  | _, _ => false
+
+def opRematSlotOk (I : Isa) {ts : List Ty} (op : Op VNat ts) : Bool :=
+  let { sig := _, code, args } := op
+  match I.frame.allocatable.head?, code, args with
+  | some r0, .cmp co (.bits 64) .bool _, (.var _, .var _, ()) =>
+    I.supportsCmpMem i64 &&
+    (I.gpr.cmpMem co 64 (.baseDisp I.frame.sp 0) (.gpr r0) (.gpr r0)).isSome &&
+    (I.gpr.cmpMem co.swap 64 (.baseDisp I.frame.sp 0) (.gpr r0) (.gpr r0)).isSome
+  | _, _, _ => false
+
+mutual
+def scanRematTree (I : Isa) (elideIps : Trie Bool) (addrDeps rmwDeps : Trie (List Nat))
+    (defs : Trie DefFact) (st : RematScan) : Tree → RematScan
+  | .let_ _ ip nv0 ts op k =>
+    let df? := recordDef defs op.code op.args
+    let defs1 := match df? with | some df => defs.insert nv0 df | none => defs
+    if elideIps.getD ip false then
+      scanRematTree I elideIps addrDeps rmwDeps defs1 st k
+    else
+      let st0 := match ts, df? with
+        | [.bits 64], some (.addImm64 base disp) =>
+          if remat1InsnOk I disp then
+            { st with cands := ⟨nv0, ip, base, disp⟩ :: st.cands }
+          else st
+        | _, _ => st
+      let st1 :=
+        if (addrDeps.find? ip).isSome then
+          markRematBad (addrDeps.getD ip []) st0
+        else
+          let vs := dedup (opVarIds op)
+          let allGpr := ts.all (isGprTy I) && op.sig.all (isGprTy I)
+          if !allGpr || !Nat.beq ts.length 1 then
+            markRematBad vs st0
+          else
+            let isDir := match ts, df? with
+              | [.bits 64], some (.addImm64 _ d') => remat1InsnOk I d'
+              | _, _ => false
+            let isCmpEq := opIsCmpEqImm64 op
+            let isAdd := opIsAdd64VV op
+            let isSlOk := opRematSlotOk I op
+            vs.foldl (fun s u =>
+              let oth := vs.filter (!Nat.beq · u)
+              addRematUse u
+                ⟨ip, some nv0, oth, isCmpEq, isAdd, isDir, isSlOk, false, false, none⟩ s) st0
+      scanRematTree I elideIps addrDeps rmwDeps defs1 st1 k
+  | .load _ ip _ t a k =>
+    let st1 :=
+      if elideIps.getD ip false || (addrDeps.find? ip).isSome then
+        markRematBad (addrDeps.getD ip (argVarIds a)) st
+      else match a with
+        | .var u =>
+          addRematUse u ⟨ip, none, [], false, false, false, false, false, true, some t⟩ st
+        | .imm _ => st
+    scanRematTree I elideIps addrDeps rmwDeps defs st1 k
+  | .store _ ip t v a k =>
+    let st0 := markRematBad (argVarIds v) st
+    let st1 :=
+      if (rmwDeps.find? ip).isSome || (addrDeps.find? ip).isSome then
+        markRematBad (storeVarIds addrDeps rmwDeps ip v a) st0
+      else match a with
+        | .var u =>
+          addRematUse u ⟨ip, none, [], false, false, false, false, false, true, some t⟩ st0
+        | .imm _ => st0
+    scanRematTree I elideIps addrDeps rmwDeps defs st1 k
+  | .call _ ip _ _ _ _ args k =>
+    let st1 := (dedup (tupVarIds args)).foldl (fun s u =>
+      addRematUse u ⟨ip, none, [], false, false, false, false, true, false, none⟩ s) st
+    scanRematTree I elideIps addrDeps rmwDeps defs st1 k
+  | .jnz _ _ cx _ t e =>
+    let st1 := scanRematTree I elideIps addrDeps rmwDeps defs (markRematBad [cx] st) t
+    scanRematTree I elideIps addrDeps rmwDeps defs st1 e
+  | .skip _ _ k => scanRematTree I elideIps addrDeps rmwDeps defs st k
+  | .jump _ ip _ _ args | .ret _ ip _ args | .exit _ ip _ _ args =>
+    (dedup (tupVarIds args)).foldl (fun s u =>
+      addRematUse u ⟨ip, none, [], false, false, false, false, true, false, none⟩ s) st
+  | .stop _ => st
+  | .group _ bs k =>
+    scanRematTree I elideIps addrDeps rmwDeps defs
+      (scanRematBlocks I elideIps addrDeps rmwDeps defs st bs) k
+
+def scanRematBlocks (I : Isa) (elideIps : Trie Bool) (addrDeps rmwDeps : Trie (List Nat))
+    (defs : Trie DefFact) (st : RematScan) : TreeBlocks → RematScan
+  | .nil => st
+  | .cons _ _ b bs =>
+    scanRematBlocks I elideIps addrDeps rmwDeps defs
+      (scanRematTree I elideIps addrDeps rmwDeps defs st b) bs
+end
+
+mutual
+def fillLiveRemat (lTrie : Trie (List Nat)) (addrDeps rmwDeps : Trie (List Nat))
+    (rematRoot : Trie Nat) : Tree → List Nat × Tree
+  | .let_ _ ip nv0 ts op k =>
+    let (klv, k) := fillLiveRemat lTrie addrDeps rmwDeps rematRoot k
+    let ops := addrDeps.getD ip (opVarIds op)
+    let lv := union (eraseMany ((List.range ts.length).map (nv0 + ·)) klv) ops
+    (lv, .let_ lv ip nv0 ts op k)
+  | .load _ ip x t a k =>
+    let (klv, k) := fillLiveRemat lTrie addrDeps rmwDeps rematRoot k
+    let aUses := addrDeps.getD ip (argVarIds a)
+    let lv := union (erase x klv) aUses
+    (lv, .load lv ip x t a k)
+  | .store _ ip t v a k =>
+    let (klv, k) := fillLiveRemat lTrie addrDeps rmwDeps rematRoot k
+    let lv := union klv (storeVarIds addrDeps rmwDeps ip v a)
+    (lv, .store lv ip t v a k)
+  | .call _ ip nv0 g as bs args k =>
+    let (klv, k) := fillLiveRemat lTrie addrDeps rmwDeps rematRoot k
+    let lv := union (eraseMany ((List.range bs.length).map (nv0 + ·)) klv)
+      (mapRematVars rematRoot (tupVarIds args))
+    (lv, .call lv ip nv0 g as bs args k)
+  | .jnz _ ip c l t e =>
+    let (tlv, t) := fillLiveRemat lTrie addrDeps rmwDeps rematRoot t
+    let (elv, e) := fillLiveRemat lTrie addrDeps rmwDeps rematRoot e
+    let lv := union (union tlv elv) [c]
+    (lv, .jnz lv ip c l t e)
+  | .skip _ ip k =>
+    let (klv, k) := fillLiveRemat lTrie addrDeps rmwDeps rematRoot k
+    (klv, .skip klv ip k)
+  | .jump _ ip j ts args =>
+    let lv := union (mapRematVars rematRoot (tupVarIds args)) (lTrie.getD j [])
+    (lv, .jump lv ip j ts args)
+  | .ret _ ip rs vs =>
+    let lv := mapRematVars rematRoot (tupVarIds vs); (lv, .ret lv ip rs vs)
+  | .exit _ ip g as args =>
+    let lv := mapRematVars rematRoot (tupVarIds args); (lv, .exit lv ip g as args)
+  | .stop ip => ([], .stop ip)
+  | .group _ bs k =>
+    let (klv, k) := fillLiveRemat lTrie addrDeps rmwDeps rematRoot k
+    (klv, .group klv (fillLiveRematB lTrie addrDeps rmwDeps rematRoot bs) k)
+
+def fillLiveRematB (lTrie : Trie (List Nat)) (addrDeps rmwDeps : Trie (List Nat))
+    (rematRoot : Trie Nat) : TreeBlocks → TreeBlocks
+  | .nil => .nil
+  | .cons l ps b bs =>
+    .cons l ps (fillLiveRemat lTrie addrDeps rmwDeps rematRoot b).2
+      (fillLiveRematB lTrie addrDeps rmwDeps rematRoot bs)
+end
+
+def liveLabelsRemat (bs0 : List (Nat × List (Nat × Ty) × Tree))
+    (addrDeps rmwDeps : Trie (List Nat)) (rematRoot : Trie Nat) : Trie (List Nat) :=
+  let bs := bs0.map fun (l, ps, tb) => (l, ps.map Prod.fst, tb, allJumps tb)
+  let rec go : Nat → Bool → Trie (List Nat) → Trie Bool → Trie (List Nat)
+    | 0, _, lt, _ => lt
+    | fuel + 1, first, lt, prevCh =>
+      let (lt', nextCh, ch) := bs.foldl (fun (lt, nch, ch) (l, pvars, tb, js) =>
+        if !(first || js.any (fun j => prevCh.getD j false)) then (lt, nch, ch)
+        else
+          let lv := eraseMany pvars (fillLiveRemat lt addrDeps rmwDeps rematRoot tb).1
+          if Nat.beq lv.length (lt.getD l []).length then (lt, nch, ch)
+          else (lt.insert l lv, nch.insert l true, true))
+        (lt, .empty, false)
+      if ch then go fuel false lt' nextCh else lt
+  go (8 * bs.length + 8) true .empty .empty
+
+def isGprHome {C : Type} (hT : Trie (Home C)) (x : Nat) : Bool :=
+  match hT.getD x .none with | .gpr _ => true | _ => false
+
+def isSlotHomeT {C : Type} (hT : Trie (Home C)) (x : Nat) : Bool :=
+  match hT.getD x .none with | .slot _ _ => true | _ => false
+
+def rematCandValid {I : Isa} (scan : RematScan) (hT : Trie (Home I.Cond))
+    (bk : Trie (Nat × SlotWidth × Bool)) (cd : RematDef) : Bool :=
+  isGprHome hT cd.base && (bk.find? cd.base).isNone &&
+  (scan.uses.getD cd.x []).all fun u =>
+    if u.isAddr then
+      match u.addrTy? with | some ty => I.supportsAddrDisp ty cd.disp | none => false
+    else if u.isTerm || u.isDirect || u.isCmpEqImm || u.isAdd64 || u.otherVars.isEmpty then true
+    else if u.isSlotOpOk && u.otherVars.all (isSlotHomeT hT) then true
+    else
+      (match u.dst? with | some d => isGprHome hT d | none => false) &&
+      u.otherVars.all fun ov => isGprHome hT ov || (u.isSlotOpOk && isSlotHomeT hT ov)
+
+def selectRematCands {I : Isa} (scan : RematScan) (hT : Trie (Home I.Cond))
+    (bk : Trie (Nat × SlotWidth × Bool)) : List RematDef :=
+  let (sel, _) := scan.cands.reverse.foldl (fun (acc, chosen) cd =>
+    if !isSlotHomeT hT cd.x || scan.bad.getD cd.x false || Nat.beq cd.x cd.base ||
+       !isGprHome hT cd.base || (bk.find? cd.base).isSome || chosen.getD cd.base false then
+      (acc, chosen)
+    else
+      let us := scan.uses.getD cd.x []
+      let ok := !us.isEmpty && us.all fun u =>
+        if u.isAddr then
+          match u.addrTy? with | some ty => I.supportsAddrDisp ty cd.disp | none => false
+        else if u.isTerm then true
+        else
+          !(u.otherVars.any fun ov => chosen.getD ov false) &&
+          (u.isDirect || u.isCmpEqImm || u.isAdd64 || u.otherVars.isEmpty ||
+            u.otherVars.all fun ov => isGprHome hT ov || (u.isSlotOpOk && isSlotHomeT hT ov))
+      if ok then (cd :: acc, chosen.insert cd.x true) else (acc, chosen))
+    ([], (.empty : Trie Bool))
+  sel.reverse
+
+def emitSlotMetrics {I : Isa} (ipW : Trie Nat) (st : EmitSt I) (nip : Nat) : Nat × Nat :=
+  (List.range nip).foldl (fun (wCost, rawCnt) ip =>
+    match st.pre.find? ip with
+    | none => (wCost, rawCnt)
+    | some ps =>
+      let n := ps.moves.foldl (fun k mv =>
+        match mv with
+        | .st .. | .vst .. | .ld .. | .vld .. => k + 1
+        | _ => k) 0
+      if Nat.beq n 0 then (wCost, rawCnt)
+      else (wCost + n * ipW.getD ip 1, rawCnt + n)) (0, 0)
+
+mutual
+def rewriteRematAddrDeps (rematRoot : Trie Nat) (addrDeps : Trie (List Nat)) :
+    Tree → Trie (List Nat)
+  | .let_ _ ip _ _ op k =>
+    let ops := addrDeps.getD ip (opVarIds op)
+    let ad1 := if ops.any fun u => (rematRoot.find? u).isSome then
+        addrDeps.insert ip (mapRematVars rematRoot ops)
+      else addrDeps
+    rewriteRematAddrDeps rematRoot ad1 k
+  | .load _ ip _ _ a k =>
+    let ops := addrDeps.getD ip (argVarIds a)
+    let ad1 := if ops.any fun u => (rematRoot.find? u).isSome then
+        addrDeps.insert ip (mapRematVars rematRoot ops)
+      else addrDeps
+    rewriteRematAddrDeps rematRoot ad1 k
+  | .store _ ip _ _ a k =>
+    let ops := addrDeps.getD ip (argVarIds a)
+    let ad1 := if ops.any fun u => (rematRoot.find? u).isSome then
+        addrDeps.insert ip (mapRematVars rematRoot ops)
+      else addrDeps
+    rewriteRematAddrDeps rematRoot ad1 k
+  | .call _ _ _ _ _ _ _ k | .skip _ _ k => rewriteRematAddrDeps rematRoot addrDeps k
+  | .jnz _ _ _ _ t e =>
+    rewriteRematAddrDeps rematRoot (rewriteRematAddrDeps rematRoot addrDeps t) e
+  | .group _ bs k =>
+    rewriteRematAddrDeps rematRoot (rewriteRematAddrDepsB rematRoot addrDeps bs) k
+  | .jump .. | .ret .. | .exit .. | .stop _ => addrDeps
+
+def rewriteRematAddrDepsB (rematRoot : Trie Nat) (addrDeps : Trie (List Nat)) :
+    TreeBlocks → Trie (List Nat)
+  | .nil => addrDeps
+  | .cons _ _ b bs =>
+    rewriteRematAddrDepsB rematRoot (rewriteRematAddrDeps rematRoot addrDeps b) bs
+end
+
 /-- Compute untrusted `Hints` for `Rega.lowerFn` via per-bank priority graph coloring.  -/
 def hints (I : Isa) (f : Fn)
     (condCands : List I.Cond :=
@@ -1554,131 +1860,208 @@ def hints (I : Isa) (f : Fn)
   let (t1a, elideIps0, addrDeps0) := elideAddrTreeDeps I t0
   let (t1b, elideIps1, addrDeps) := elideCmpTreeDeps I t1a elideIps0 addrDeps0
   let (t1, elideIps, rmwDeps) := elideRmwTreeDeps I t1b elideIps1 addrDeps
-  let bs0 := t1.blocks
-  let lTrie := liveLabels bs0 addrDeps rmwDeps
-  let (_, t) := fillLive lTrie addrDeps rmwDeps t1
-  let crossList := acrossCalls t
-  let crossTrie := crossList.foldl (fun a x => a.insert x true) .empty
-  let isLeaf := crossList.isEmpty
-  let bparamsTrie := bs0.foldl (fun a (l, ps, _) => a.insert l (ps.map Prod.fst)) .empty
-  let fh := match I.frame.allocatable.head? with
-    | some r0 =>
-      let r1 := I.frame.allocatable[1]?.getD r0
-      let v0 := I.vec.vecAllocatable.head?
-      let v1 := I.vec.vecAllocatable[1]? <|> v0
-      gatherFlags I r0 r1 v0 v1 condCands nv (fnPs.map Prod.fst) crossTrie bparamsTrie tys lTrie t
-    | none => {}
-  let (loops, loopReach) := loopBlocksScoped (blocksWithMin t1)
-  let loopHdrs := bs0.filterMap fun (l, _, _) => if loops.getD l false then some l else none
-  let blkLoops := loopHdrs.foldl (fun m lh =>
-    (union [lh] (loopReach.getD lh [])).foldl (fun m b =>
-      if natMem lh (m.getD b []) then m else triePush m b lh) m)
-    (.empty : Trie (List Nat))
-  let csCost := 2 * baseMult
-  let c : Ctx I := {
-    allGpr := allGpr, allVec := allVec,
-    gReg := (allGpr.foldl (fun (t, i) r => (t.insert i r, i + 1)) (.empty, 0)).1,
-    vReg := (allVec.foldl (fun (t, i) v => (t.insert i v, i + 1)) (.empty, 0)).1,
-    nGpr := nGpr, nVec := nVec, gAlloc := List.range nGpr,
-    csIds := (List.range nCs).map (· + nGpr), vAlloc := List.range nVec,
-    gScr := if I.frame.scratch.isEmpty then none else some (nGpr + nCs),
-    vScr := if I.vec.vecScratch.isEmpty then none else some nVec,
-    cross := crossTrie, loops := loops, loopReach := loopReach, blkLoops := blkLoops,
-    banks := (List.range nv).foldl (fun b x => b.insert x (bankOf I (tys.getD x i64))) .empty,
-    flagHome := fh.flagHome, bparams := bparamsTrie, lTrie := lTrie, addrDeps := addrDeps,
-    rmwDeps := rmwDeps, isLeaf := isLeaf, cfg := cfg, csCost := csCost,
-    r0? := I.frame.allocatable.head? }
-  let regionReused := (buildRegionReused c t .empty).2
-  let initZ32 : Trie Bool := fnPs.foldl (fun z (p, ty) =>
-    if isGprTy I ty then z.insert p true else z) .empty
-  let directVars : Tree → List Nat :=
-    let rec go : Tree → List Nat
-      | .let_ _ ip nv0 ts op k =>
-        (List.range ts.length).map (nv0 + ·) ++ addrDeps.getD ip (opVarIds op) ++ go k
-      | .load _ ip x _ a k => x :: addrDeps.getD ip (argVarIds a) ++ go k
-      | .store _ ip _ v a k => storeVarIds addrDeps rmwDeps ip v a ++ go k
-      | .call _ _ nv0 _ _ bs args k =>
-        (List.range bs.length).map (nv0 + ·) ++ tupVarIds args ++ go k
-      | .jnz _ _ cx _ t e => cx :: go t ++ go e
-      | .skip _ _ k | .group _ _ k => go k
-      | .jump _ _ _ _ args => tupVarIds args
-      | .ret _ _ _ vs | .exit _ _ _ _ vs => tupVarIds vs
-      | .stop _ => []
-    go
-  let rec jmpEdges (src : Nat) (w : Nat) : Tree → List (Nat × Nat × Nat × List Nat)
-    | .let_ _ _ _ _ _ k | .load _ _ _ _ _ k | .store _ _ _ _ _ k
-    | .call _ _ _ _ _ _ _ k | .skip _ _ k | .group _ _ k => jmpEdges src w k
-    | .jnz _ ip _ _ t e =>
-      let (_, mT, mE) := c.brW.getD ip (w, w, w)
-      jmpEdges src mT t ++ jmpEdges src mE e
-    | .jump _ _ j _ args => [(src, j, w, tupVarIds args)]
-    | _ => []
-  let acc := gather c [] [] baseMult initZ32 t {}
-  let rootId := t.blocks.foldl (fun m (l, _, _) => max m (l + 1)) 0
-  let blkUses := t.blocks.foldl (fun m (l, _, body) => m.insert l (directVars body))
-    (Trie.empty.insert rootId (directVars t))
-  let rootVars := union t.lv (blkUses.getD rootId [])
-  let varBlks0 := rootVars.foldl (fun m v => triePush m v rootId) .empty
-  let varBlks := t.blocks.foldl (fun m (l, ps, _) =>
-    let vs := union (lTrie.getD l []) (union (ps.map Prod.fst) (blkUses.getD l []))
-    vs.foldl (fun m v => triePush m v l) m) varBlks0
-  let c := { c with
-    brW := acc.brW, zextElide := acc.zextElide, regionReused := regionReused, ipW := acc.ipW,
-    jmpW := acc.jmpW, inW := acc.inW, blkUses := blkUses, varBlks := varBlks }
-  let blkEdges := t.blocks.foldl (fun es (l, _, body) =>
-    es ++ jmpEdges l (c.inW.getD l 0) body) (jmpEdges rootId baseMult t)
-  let rec jmpLatch (dsts : List Nat) : Tree → Trie Bool → Trie Bool
-    | .let_ _ _ _ _ _ k, m | .load _ _ _ _ _ k, m | .store _ _ _ _ _ k, m
-    | .call _ _ _ _ _ _ _ k, m | .skip _ _ k, m | .group _ _ k, m => jmpLatch dsts k m
-    | .jnz _ _ _ _ t e, m => jmpLatch dsts t (jmpLatch dsts e m)
-    | .jump _ ip j _ _, m =>
-      if loops.getD j false && natMem j dsts then m.insert ip true else m
-    | _, m => m
-  let latchIps := t.blocks.foldl (fun m (l, _, body) =>
-    let hdrs := t.blocks.foldl (fun acc (lh, _, _) =>
-      if loops.getD lh false && natMem l (loopReach.getD lh []) then lh :: acc else acc) []
-    jmpLatch hdrs body m) .empty
-  let c := { c with blkEdges := blkEdges, latchIps := latchIps }
-  let c :=
-    if !cfg.armEvict then c
-    else
-      let arms := collectArms c t []
-      let ext0 := fnPs.foldl (fun e (p, _) => extendExt e p (firstIp t)) .empty
-      let (vext, uips) := varScan c t (ext0, .empty)
-      { c with armList := arms, armT := arms.foldl (fun m a => m.insert a.key a) .empty,
-               varExt := vext, useIps := uips, foldIps := foldIpsT t .empty }
   let fnAbi := match I.assignArgs f.as with
     | some locs => abiIdList allGpr allVec locs | none => []
-  let cs := colorVars c nv fh.flagHome acc (fnPs.map Prod.fst) fnAbi
-  let armVars := (List.range nv).filterMap fun x => (cs.armEv.find? x).map (x, ·)
-  let armEvAt : Trie (List Nat) := armVars.foldl (fun m (x, ks) =>
-    ks.foldl (fun m k => triePush m k x) m) .empty
-  let fe0 := armVars.foldl (fun t (x, ks) => ks.foldl (fun t k =>
-    match c.armT.find? k with
-    | some a =>
-      a.blocks.foldl (fun t b => if natMem x (lTrie.getD b []) then triePush t b x else t) t
-    | none => t) t) cs.forceEv
-  let (hT, fe, nslots1) :=
-    fitBlockGprs c (sumWeights acc.weights) cs.bk cs.usedCs cs.nslots cs.hT fe0 t
-  let c := { c with hintT := cs.hint, forceEv := fe, evIn := fe, armEvAt := armEvAt }
-  let slotOk := slotPlocMap c hT cs.bk cs.usedCs acc.defWT t
-  let r0? := I.frame.allocatable.head?
-  let r1? := I.frame.allocatable[1]?
-  let initSv := (fnPs.map Prod.fst).filter (isEagerBk cs.bk)
-  let emit (c : Ctx I) : EmitSt I := emitAlloc c hT cs.bk slotOk fh.clearAt r0? r1? t
-    (pendFromArrivals hT cs.bk (fnPs.map Prod.fst) fnAbi) [] initSv [] []
-    { variant := fh.variant, usedCs := cs.usedCs }
-  let c := { c with jmpW := acc.jmpW, inW := acc.inW }
-  let refine (c : Ctx I) : Ctx I :=
-    let stO := emit { c with opt := true }
-    let rin := pickRegIn c hT cs.usedCs slotOk stO.cin t.blocks
-    let evi := pickEvIn c hT stO.evArr c.evIn t.blocks
-    let lp := stO.latchArr.foldl (fun t (p, r, w) => triePush t p (r, w)) .empty
-    { c with regIn := rin, evIn := evi, latchPrefs := lp }
-  let c := if cfg.regEntry && cfg.sink then refine (refine c) else c
-  let st := emit c
-  let finalSlots :=
-    if I.frame.scratch.isEmpty then nslots1 else min nslots1 (usedSlotCount nip nl st)
+  let initZ32 : Trie Bool := fnPs.foldl (fun z (p, ty) =>
+    if isGprTy I ty then z.insert p true else z) .empty
+  let colorPass (t1p : Tree) (adp : Trie (List Nat)) (useRemat : Bool) (rematRoot : Trie Nat)
+      (rematOpIps : Trie Bool) (dropFlags : List Nat) :
+      Tree × Ctx I × GatherAcc × FlagHints I.Cond × ColorSt I.Cond × Trie (Home I.Cond) ×
+        Trie (List Nat) × Nat :=
+    let bs0 := t1p.blocks
+    let lTrie := if !useRemat then liveLabels bs0 adp rmwDeps
+      else liveLabelsRemat bs0 adp rmwDeps rematRoot
+    let (_, t) := if !useRemat then fillLive lTrie adp rmwDeps t1p
+      else fillLiveRemat lTrie adp rmwDeps rematRoot t1p
+    let crossList := acrossCalls t
+    let crossTrie := crossList.foldl (fun a x => a.insert x true) .empty
+    let isLeaf := crossList.isEmpty
+    let bparamsTrie := bs0.foldl (fun a (l, ps, _) => a.insert l (ps.map Prod.fst)) .empty
+    let fh0 := match I.frame.allocatable.head? with
+      | some r0 =>
+        let r1 := I.frame.allocatable[1]?.getD r0
+        let v0 := I.vec.vecAllocatable.head?
+        let v1 := I.vec.vecAllocatable[1]? <|> v0
+        gatherFlags I r0 r1 v0 v1 condCands nv (fnPs.map Prod.fst) crossTrie bparamsTrie tys lTrie t
+      | none => {}
+    let fh := { fh0 with flagHome := dropFlags.foldl (fun m x => m.erase x) fh0.flagHome }
+    let (loops, loopReach) := loopBlocksScoped (blocksWithMin t1p)
+    let loopHdrs := bs0.filterMap fun (l, _, _) => if loops.getD l false then some l else none
+    let blkLoops := loopHdrs.foldl (fun m lh =>
+      (union [lh] (loopReach.getD lh [])).foldl (fun m b =>
+        if natMem lh (m.getD b []) then m else triePush m b lh) m)
+      (.empty : Trie (List Nat))
+    let csCost := 2 * baseMult
+    let c : Ctx I := {
+      allGpr := allGpr, allVec := allVec,
+      gReg := (allGpr.foldl (fun (t, i) r => (t.insert i r, i + 1)) (.empty, 0)).1,
+      vReg := (allVec.foldl (fun (t, i) v => (t.insert i v, i + 1)) (.empty, 0)).1,
+      nGpr := nGpr, nVec := nVec, gAlloc := List.range nGpr,
+      csIds := (List.range nCs).map (· + nGpr), vAlloc := List.range nVec,
+      gScr := if I.frame.scratch.isEmpty then none else some (nGpr + nCs),
+      vScr := if I.vec.vecScratch.isEmpty then none else some nVec,
+      cross := crossTrie, loops := loops, loopReach := loopReach, blkLoops := blkLoops,
+      banks := (List.range nv).foldl (fun b x => b.insert x (bankOf I (tys.getD x i64))) .empty,
+      flagHome := fh.flagHome, bparams := bparamsTrie, lTrie := lTrie, addrDeps := adp,
+      rmwDeps := rmwDeps, isLeaf := isLeaf, cfg := cfg, csCost := csCost,
+      r0? := I.frame.allocatable.head? }
+    let regionReused := (buildRegionReused c t .empty).2
+    let directVars : Tree → List Nat :=
+      let rec go : Tree → List Nat
+        | .let_ _ ip nv0 ts op k =>
+          (List.range ts.length).map (nv0 + ·) ++ adp.getD ip (opVarIds op) ++ go k
+        | .load _ ip x _ a k => x :: adp.getD ip (argVarIds a) ++ go k
+        | .store _ ip _ v a k => storeVarIds adp rmwDeps ip v a ++ go k
+        | .call _ _ nv0 _ _ bs args k =>
+          (List.range bs.length).map (nv0 + ·) ++
+            mapRematVars rematRoot (tupVarIds args) ++ go k
+        | .jnz _ _ cx _ t e => cx :: go t ++ go e
+        | .skip _ _ k | .group _ _ k => go k
+        | .jump _ _ _ _ args => mapRematVars rematRoot (tupVarIds args)
+        | .ret _ _ _ vs | .exit _ _ _ _ vs => mapRematVars rematRoot (tupVarIds vs)
+        | .stop _ => []
+      go
+    let rec jmpEdges (src : Nat) (w : Nat) : Tree → List (Nat × Nat × Nat × List Nat)
+      | .let_ _ _ _ _ _ k | .load _ _ _ _ _ k | .store _ _ _ _ _ k
+      | .call _ _ _ _ _ _ _ k | .skip _ _ k | .group _ _ k => jmpEdges src w k
+      | .jnz _ ip _ _ t e =>
+        let (_, mT, mE) := c.brW.getD ip (w, w, w)
+        jmpEdges src mT t ++ jmpEdges src mE e
+      | .jump _ _ j _ args => [(src, j, w, mapRematVars rematRoot (tupVarIds args))]
+      | _ => []
+    let acc := gather c [] [] baseMult initZ32 t {} rematRoot rematOpIps
+    let rootId := t.blocks.foldl (fun m (l, _, _) => max m (l + 1)) 0
+    let blkUses := t.blocks.foldl (fun m (l, _, body) => m.insert l (directVars body))
+      (Trie.empty.insert rootId (directVars t))
+    let rootVars := union t.lv (blkUses.getD rootId [])
+    let varBlks0 := rootVars.foldl (fun m v => triePush m v rootId) .empty
+    let varBlks := t.blocks.foldl (fun m (l, ps, _) =>
+      let vs := union (lTrie.getD l []) (union (ps.map Prod.fst) (blkUses.getD l []))
+      vs.foldl (fun m v => triePush m v l) m) varBlks0
+    let c := { c with
+      brW := acc.brW, zextElide := acc.zextElide, regionReused := regionReused, ipW := acc.ipW,
+      jmpW := acc.jmpW, inW := acc.inW, blkUses := blkUses, varBlks := varBlks }
+    let blkEdges := t.blocks.foldl (fun es (l, _, body) =>
+      es ++ jmpEdges l (c.inW.getD l 0) body) (jmpEdges rootId baseMult t)
+    let rec jmpLatch (dsts : List Nat) : Tree → Trie Bool → Trie Bool
+      | .let_ _ _ _ _ _ k, m | .load _ _ _ _ _ k, m | .store _ _ _ _ _ k, m
+      | .call _ _ _ _ _ _ _ k, m | .skip _ _ k, m | .group _ _ k, m => jmpLatch dsts k m
+      | .jnz _ _ _ _ t e, m => jmpLatch dsts t (jmpLatch dsts e m)
+      | .jump _ ip j _ _, m =>
+        if loops.getD j false && natMem j dsts then m.insert ip true else m
+      | _, m => m
+    let latchIps := t.blocks.foldl (fun m (l, _, body) =>
+      let hdrs := t.blocks.foldl (fun acc (lh, _, _) =>
+        if loops.getD lh false && natMem l (loopReach.getD lh []) then lh :: acc else acc) []
+      jmpLatch hdrs body m) .empty
+    let c := { c with blkEdges := blkEdges, latchIps := latchIps }
+    let c :=
+      if !cfg.armEvict then c
+      else
+        let arms := collectArms c t []
+        let ext0 := fnPs.foldl (fun e (p, _) => extendExt e p (firstIp t)) .empty
+        let (vext, uips) := varScan c t (ext0, .empty)
+        { c with armList := arms, armT := arms.foldl (fun m a => m.insert a.key a) .empty,
+                 varExt := vext, useIps := uips, foldIps := foldIpsT t .empty }
+    let cs := colorVars c nv fh.flagHome acc (fnPs.map Prod.fst) fnAbi
+    let armVars := (List.range nv).filterMap fun x => (cs.armEv.find? x).map (x, ·)
+    let armEvAt : Trie (List Nat) := armVars.foldl (fun m (x, ks) =>
+      ks.foldl (fun m k => triePush m k x) m) .empty
+    let fe0 := armVars.foldl (fun t (x, ks) => ks.foldl (fun t k =>
+      match c.armT.find? k with
+      | some a =>
+        a.blocks.foldl (fun t b => if natMem x (lTrie.getD b []) then triePush t b x else t) t
+      | none => t) t) cs.forceEv
+    let (hT, fe, nslots1) :=
+      fitBlockGprs c (sumWeights acc.weights) cs.bk cs.usedCs cs.nslots cs.hT fe0 t
+    let c := { c with hintT := cs.hint, forceEv := fe, evIn := fe, armEvAt := armEvAt }
+    (t, c, acc, fh, cs, hT, fe, nslots1)
+  let emitWithRefine (res : Tree × Ctx I × GatherAcc × FlagHints I.Cond × ColorSt I.Cond ×
+      Trie (Home I.Cond) × Trie (List Nat) × Nat) :
+      EmitSt I × Nat × Ctx I × GatherAcc × FlagHints I.Cond :=
+    let (t, c, acc, fh, cs, hT, _, nslots1) := res
+    let slotOk := slotPlocMap c hT cs.bk cs.usedCs acc.defWT t
+    let r0? := I.frame.allocatable.head?
+    let r1? := I.frame.allocatable[1]?
+    let initSv := (fnPs.map Prod.fst).filter (isEagerBk cs.bk)
+    let emit (c : Ctx I) : EmitSt I := emitAlloc c hT cs.bk slotOk fh.clearAt r0? r1? t
+      (pendFromArrivals hT cs.bk (fnPs.map Prod.fst) fnAbi) [] initSv [] []
+      { variant := fh.variant, usedCs := cs.usedCs }
+    let c := { c with jmpW := acc.jmpW, inW := acc.inW, addrDeps := addrDeps }
+    let refine (c : Ctx I) : Ctx I :=
+      let stO := emit { c with opt := true }
+      let rin := pickRegIn c hT cs.usedCs slotOk stO.cin t.blocks
+      let evi := pickEvIn c hT stO.evArr c.evIn t.blocks
+      let lp := stO.latchArr.foldl (fun t (p, r, w) => triePush t p (r, w)) .empty
+      { c with regIn := rin, evIn := evi, latchPrefs := lp }
+    let c := if cfg.regEntry && cfg.sink then refine (refine c) else c
+    let st := emit c
+    let finalSlots :=
+      if I.frame.scratch.isEmpty then nslots1 else min nslots1 (usedSlotCount nip nl st)
+    (st, finalSlots, c, acc, fh)
+  let baseRes := colorPass t1 addrDeps false .empty .empty []
+  let (_, _, acc1, _, cs1, hT1, _, _) := baseRes
+  let scan := scanRematTree I elideIps addrDeps rmwDeps .empty {} t0
+  let sel0 := selectRematCands scan hT1 cs1.bk
+  let (stBase, slotsBase, cBase, accBase, fhBase) := emitWithRefine baseRes
+  let (elideIps, st, finalSlots, c, acc, fh) :=
+    if sel0.isEmpty then
+      (elideIps, stBase, slotsBase, cBase, accBase, fhBase)
+    else
+      let (wBase, cntBase) := emitSlotMetrics acc1.ipW stBase nip
+      let evalSel (sel : List RematDef) :
+          Option (Trie Bool × EmitSt I × Nat × Ctx I × GatherAcc × FlagHints I.Cond × Nat × Nat) :=
+        let rec evalLoop : Nat → List RematDef →
+            Option (Trie Bool × EmitSt I × Nat × Ctx I × GatherAcc × FlagHints I.Cond × Nat × Nat)
+          | 0, _ | _, [] => none
+          | fuel + 1, cur =>
+            let rRoot := cur.foldl (fun m cd => m.insert cd.x cd.base) (.empty : Trie Nat)
+            let elide2 := cur.foldl (fun m cd => m.insert cd.ip true) elideIps
+            let t1p := rewriteCmpElide elide2 t1
+            let adp := rewriteRematAddrDeps rRoot addrDeps t1p
+            let (remOpIps, dropFl) := cur.foldl (fun (oi, df) cd =>
+              (scan.uses.getD cd.x []).foldl (fun (oi, df) u =>
+                if u.isAddr || u.isTerm then (oi, df)
+                else
+                  let oi' := if !u.isDirect && !u.isCmpEqImm && !u.isAdd64 && !u.otherVars.isEmpty
+                    then oi.insert u.ip true else oi
+                  let df' := if !u.isCmpEqImm then
+                      match u.dst? with | some d => d :: df | none => df
+                    else df
+                  (oi', df')) (oi, df)) (.empty, [])
+            let res2 := colorPass t1p adp true rRoot remOpIps dropFl
+            let (_, _, acc2, _, cs2, hT2, _, _) := res2
+            let cur' := cur.filter (rematCandValid scan hT2 cs2.bk)
+            if Nat.beq cur'.length cur.length then
+              let (st2, slots2, c2, acc2', fh2) := emitWithRefine res2
+              let (w2, cnt2) := emitSlotMetrics acc2.ipW st2 nip
+              let better :=
+                (Nat.ble (w2 + 1) wBase || (Nat.beq w2 wBase && Nat.ble (slots2 + 1) slotsBase)) &&
+                Nat.ble cnt2 cntBase && Nat.ble slots2 slotsBase
+              if better then some (elide2, st2, slots2, c2, acc2', fh2, w2, cnt2) else none
+            else evalLoop fuel cur'
+        evalLoop 3 sel
+      match evalSel sel0 with
+      | some (el2, st2, sl2, c2, a2, fh2, _, _) => (el2, st2, sl2, c2, a2, fh2)
+      | none =>
+        if Nat.ble sel0.length 1 then
+          (elideIps, stBase, slotsBase, cBase, accBase, fhBase)
+        else
+          let best := sel0.foldl (fun accBest cd =>
+            match evalSel [cd] with
+            | none => accBest
+            | some r@(_, _, sl, _, _, _, w, cnt) =>
+              match accBest with
+              | none => some r
+              | some (_, _, bsl, _, _, _, bw, bcnt) =>
+                if Nat.ble (w + 1) bw ||
+                   (Nat.beq w bw && (Nat.ble (cnt + 1) bcnt ||
+                     (Nat.beq cnt bcnt && Nat.ble (sl + 1) bsl))) then
+                  some r
+                else accBest) none
+          match best with
+          | some (el2, st2, sl2, c2, a2, fh2, _, _) => (el2, st2, sl2, c2, a2, fh2)
+          | none => (elideIps, stBase, slotsBase, cBase, accBase, fhBase)
   let h0 : I.Hints :=
     { dest := st.dest, entry := st.entry, pre := st.pre, variant := st.variant, elide := elideIps,
       invertJnz := acc.invertJnz, deadFlags := fh.deadFlags,

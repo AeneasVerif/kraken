@@ -4,6 +4,7 @@ public import LeanQbe.T.RegaDefs
 public import LeanQbe.T.RegaZero
 public import LeanQbe.T.RegaZext
 public import LeanQbe.T.RegaCmpReuse
+public import LeanQbe.T.RegaRemat
 
 /-!
 # PHOAS-First Checked Register-Allocation Lowering (`Rega`)
@@ -292,19 +293,104 @@ def moveFor (I : Isa) (nslots : Nat) (st : SymState I) (sa : SymArg) : I.Loc →
     | none => (findGprFor I true st.regs sa).map (.st i)
   | .flag _ => none
 
+def execShufMove (I : Isa) (nslots : Nat) (saved : List I.Reg)
+    (mv : ShufMove I.Reg I.VReg I.Cond) (st : SymState I)
+    (deadHint : Bool := false) : Option (List I.Directive × SymState I) :=
+  match mv with
+  | .base m => execMove I nslots saved m st deadHint
+  | .rematAdd x base disp d =>
+    if !isAllocGpr I saved d then none
+    else match st.defs.find? x with
+      | some (.addImm64 base' disp') =>
+        if Nat.beq base' base && disp' == disp then
+          (findGprFor I true st.regs (.var base)).bind fun rb =>
+            (rematAddImm64 I rb d disp).map fun code =>
+              let clob := d :: I.frame.scratch
+              (code, { st with
+                regs := (.var x, .gpr d) :: killRegs I clob [] FlagMask.none st.regs
+                zeroExt32 := killZeroExt clob st.zeroExt32 })
+        else none
+      | _ => none
+
+def execShufMoves (I : Isa) (nslots : Nat) (saved : List I.Reg) :
+    List (ShufMove I.Reg I.VReg I.Cond) → SymState I → (deadHint : Bool := false) →
+    Option (List I.Directive × SymState I)
+  | [], st, _ => some ([], st)
+  | mv :: mvs, st, deadHint => (execShufMove I nslots saved mv st deadHint).bind fun (c1, st1) =>
+      (execShufMoves I nslots saved mvs st1 deadHint).map fun (c2, st2) => (c1 ++ c2, st2)
+
 def isVarSymArg : SymArg → Bool | .var _ => true | _ => false
+
+def regOnlyHoldsVar (I : Isa) (R : List (SymArg × RegLoc I.Reg I.VReg I.Cond))
+    (sa : SymArg) (r : I.Reg) : Bool :=
+  R.all (fun (sa', rl) => !symArgEq sa' sa || regLocMatchesGpr rl r) &&
+  R.any (fun (sa', rl) => symArgEq sa' sa && regLocMatchesGpr rl r)
+
+def regOnlyNonScrHoldsVar (I : Isa) (R : List (SymArg × RegLoc I.Reg I.VReg I.Cond))
+    (sa : SymArg) (r : I.Reg) : Bool :=
+  !(I.frame.scratch.contains r) &&
+  R.all (fun (sa', rl) => !symArgEq sa' sa ||
+    match rl with
+    | .gpr r' | .gprZ r' => I.frame.scratch.contains r' || r' == r
+    | _ => true) &&
+  R.any (fun (sa', rl) => symArgEq sa' sa && regLocMatchesGpr rl r)
+
+def locRematBlocked (I : Isa) (st : SymState I) (pend : List (SymArg × I.Loc)) (r : I.Reg) : Bool :=
+  pend.any fun (sa, d') =>
+    !(locEq d' (.gpr r)) &&
+    match sa with
+    | .var x =>
+      (findGprFor I false st.regs sa).isNone && (findFlagFor I st.regs sa).isNone &&
+      match st.defs.find? x with
+      | some (.addImm64 base _) => regOnlyNonScrHoldsVar I st.regs (.var base) r
+      | _ => false
+    | _ => false
 
 def locBlocked (I : Isa) (st : SymState I) (pend : List (SymArg × I.Loc)) (d : I.Loc) : Bool :=
   pend.any fun (sa, d') =>
     !(locEq d' d) && isVarSymArg sa &&
     match d with
     | .gpr r =>
-      st.regs.all (fun (sa', rl) => !symArgEq sa' sa || regLocMatchesGpr rl r) &&
-      st.regs.any (fun (sa', rl) => symArgEq sa' sa && regLocMatchesGpr rl r)
+      regOnlyHoldsVar I st.regs sa r ||
+      match sa with
+      | .var x =>
+        (findGprFor I false st.regs sa).isNone && (findFlagFor I st.regs sa).isNone &&
+        match st.defs.find? x with
+        | some (.addImm64 base _) => regOnlyNonScrHoldsVar I st.regs (.var base) r
+        | _ => false
+      | _ => false
     | .vec v =>
       st.regs.all (fun (sa', rl) => !symArgEq sa' sa || regLocEq rl (.vec v)) &&
       st.regs.any (fun (sa', rl) => symArgEq sa' sa && regLocEq rl (.vec v))
     | _ => false
+
+def findRematSlotTmp (I : Isa) (saved : List I.Reg) (st : SymState I)
+    (targets pend : List (SymArg × I.Loc)) : Option I.Reg :=
+  (I.frame.allocatable ++ saved).find? fun r =>
+    !(I.frame.scratch.contains r) && !(locBlocked I st pend (.gpr r)) &&
+    !(targets.any fun (_, loc) => locEq loc (.gpr r))
+
+def moveForShuf (I : Isa) (nslots : Nat) (saved : List I.Reg) (st : SymState I)
+    (targets pend : List (SymArg × I.Loc)) (sa : SymArg) :
+    I.Loc → Option (ShufMove I.Reg I.VReg I.Cond)
+  | .gpr d =>
+    (moveFor I nslots st sa (.gpr d)).map .base <|>
+      match sa with
+      | .var x =>
+        if isAllocGpr I saved d then
+          (rematBaseOf? I st x).bind fun (base, disp, rb) =>
+            (rematAddImm64 I rb d disp).map fun _ => .rematAdd x base disp d
+        else none
+      | _ => none
+  | .slot i .w64 =>
+    (moveFor I nslots st sa (.slot i .w64)).map .base <|>
+      match sa with
+      | .var x =>
+        (rematBaseOf? I st x).bind fun (base, disp, rb) =>
+          (findRematSlotTmp I saved st targets pend).bind fun tmp =>
+            (rematAddImm64 I rb tmp disp).map fun _ => .rematAdd x base disp tmp
+      | _ => none
+  | loc => (moveFor I nslots st sa loc).map .base
 
 def rangesOverlap (i1 k1 i2 k2 : Nat) : Bool :=
   Nat.ble (i1 + 1) (i2 + k2) && Nat.ble (i2 + 1) (i1 + k1)
@@ -338,29 +424,37 @@ def vecWidthAt (I : Isa) (st : SymState I) (vd : I.VReg) : SlotWidth :=
     | _ => w) .w64
 
 def pmoveAux (I : Isa) (nslots : Nat) (saved : List I.Reg) :
-    Nat → SymState I → List (SymArg × I.Loc) → List I.Move → List I.Move
+    Nat → SymState I → List (SymArg × I.Loc) → List (ShufMove I.Reg I.VReg I.Cond) →
+    List (ShufMove I.Reg I.VReg I.Cond)
   | 0, _, _, acc => acc.reverse
   | fuel + 1, st, targets, acc =>
     match targets.filter fun (sa, loc) => !holdsLoc I st sa loc with
     | [] => acc.reverse
     | pend =>
-      let goMv (mv : I.Move) : List I.Move :=
-        match execMove I nslots saved mv st with
+      let goMv (mv : ShufMove I.Reg I.VReg I.Cond) : List (ShufMove I.Reg I.VReg I.Cond) :=
+        match execShufMove I nslots saved mv st with
         | some (_, st') => pmoveAux I nslots saved fuel st' pend (mv :: acc)
         | none => acc.reverse
-      let step (sa : SymArg) (loc : I.Loc) : List I.Move :=
-        match moveFor I nslots st sa loc with | some mv => goMv mv | none => acc.reverse
+      let step (sa : SymArg) (loc : I.Loc) : List (ShufMove I.Reg I.VReg I.Cond) :=
+        match moveForShuf I nslots saved st targets pend sa loc with
+        | some mv => goMv mv
+        | none => acc.reverse
       match pend.find? fun (sa, loc) => isVarSymArg sa && !(locBlocked I st pend loc) with
       | some (sa, loc) => step sa loc
       | none =>
         match pend.find? fun (sa, loc) =>
             isVarSymArg sa && match loc with | .gpr _ => true | _ => false with
         | some (_, .gpr d) =>
-          match I.frame.scratch.find? fun tmp => !(locBlocked I st pend (.gpr tmp)) with
-          | some tmp => goMv (.mov tmp d)
+          let tmp? :=
+            (if locRematBlocked I st pend d then findRematSlotTmp I saved st targets pend
+             else none) <|>
+            (I.frame.scratch.find? fun tmp => !(locBlocked I st pend (.gpr tmp)))
+          match tmp? with
+          | some tmp => goMv (.base (.mov tmp d))
           | none =>
             match findFreeSlot I nslots st pend 1 with
-            | some sl => if !(I.frame.scratch.contains d) then goMv (.st sl d) else acc.reverse
+            | some sl =>
+              if !(I.frame.scratch.contains d) then goMv (.base (.st sl d)) else acc.reverse
             | none => acc.reverse
         | _ =>
           match pend.find? fun (sa, loc) =>
@@ -368,11 +462,11 @@ def pmoveAux (I : Isa) (nslots : Nat) (saved : List I.Reg) :
           | some (_, .vec vd) =>
             let w := vecWidthAt I st vd
             match I.vec.vecScratch.find? fun vtmp => !(locBlocked I st pend (.vec vtmp)) with
-            | some vtmp => goMv (.vmov w vtmp vd)
+            | some vtmp => goMv (.base (.vmov w vtmp vd))
             | none =>
               match findFreeSlot I nslots st pend w.slots with
               | some sl =>
-                if !(I.vec.vecScratch.contains vd) then goMv (.vst w sl vd) else acc.reverse
+                if !(I.vec.vecScratch.contains vd) then goMv (.base (.vst w sl vd)) else acc.reverse
               | none => acc.reverse
           | _ => match pend.head? with | some (sa, loc) => step sa loc | none => acc.reverse
 
@@ -381,8 +475,8 @@ def shuffle (I : Isa) (nslots : Nat) (saved : List I.Reg) (st : SymState I)
     Option (List I.Directive × SymState I) :=
   if tgts.all fun (sa, loc) => holdsLoc I st sa loc then some ([], st)
   else
-    let mvs := pmoveAux I nslots saved (2 * tgts.length + 4) st tgts []
-    match execMoves I nslots saved mvs st deadHint with
+    let mvs := pmoveAux I nslots saved (3 * tgts.length + 4) st tgts []
+    match execShufMoves I nslots saved mvs st deadHint with
     | none => none
     | some (code, st') =>
       if tgts.all fun (sa, loc) => holdsLoc I st' sa loc then some (code, st') else none
@@ -1261,6 +1355,80 @@ def tryReuseFlagCmp (I : Isa) (st : SymState I) {sig ts : List Ty}
             | .vec _ => none
   | _, _, _, _, _, _ => none
 
+def lowerOpBody (I : Isa) (h : I.Hints) (nv ip : Nat) (st1 : SymState I) {ts : List Ty}
+    (op : Op VNat ts) (dsts : Tup (PDst I.Reg I.VReg I.Cond) ts) :
+    Option (List I.Directive × SymState I) :=
+  let vh := h.variant.getD ip .default
+  let dstGprs := tupDstGprs dsts; let dstVecs := tupDstVecs dsts
+  let df? := recordDef st1.defs op.code op.args
+  let defs1 := match df? with
+    | some df => st1.defs.insert nv df
+    | none => st1.defs
+  if elideZext32? I st1.regs st1.zeroExt32 op.code op.args dsts then
+    -- no code: every register fact survives and the result shares `rd` canonically
+    let regs1 := match ts, dsts with
+      | [_], (.gpr rd, ()) => (.var nv, RegLoc.gprZ rd) :: st1.regs
+      | _, _ => st1.regs
+    some ([], { st1 with regs := regs1, defs := defs1 })
+  else if elideTrunc? I st1.regs op.code op.args dsts then
+    let regs1 := match ts, dsts with
+      | [_], (.gpr rd, ()) => (.var nv, RegLoc.gpr rd) :: st1.regs
+      | _, _ => st1.regs
+    some ([], { st1 with regs := regs1, defs := defs1 })
+  else
+    let opN := normCmpOp (I := I) op dsts
+    ((((tryReuseFlagCmp I st1 op.code op.args dsts <|>
+        tryReuseFlagCmp I st1 opN.code opN.args dsts).map fun (c, cl, fl, ex) =>
+      (c, cl, false, false, fl, ex)) <|>
+    ((tryFuseCmp I st1 vh opN.code opN.args dsts).map fun (c, cl, fl, ex) =>
+      (c, cl, false, false, fl, ex)) <|>
+    ((tryLoadSext I st1 vh opN.code opN.args dsts).map fun (c, cl) =>
+      (c, cl, false, false, killFlags I cl st1.flags, none)) <|>
+    ((tryLeaArith I st1 opN.code opN.args dsts).map fun (c, cl, z32) =>
+      (c, cl, false, z32, killFlags I cl st1.flags, none)) <|>
+    ((tryMoviZero I h ip st1 opN.code opN.args dsts).map fun (c, cl, z32) =>
+      (c, cl, false, z32, killFlags I cl st1.flags, none)) <|>
+    (pickPArgs I st1 (tupDstFlags dsts) opN.args fun pas =>
+      if dstVecs.isEmpty && (tupArgVecs pas).isEmpty then
+        ((I.gpr.op opN.code pas dsts vh).map fun (c, cl) =>
+          let (fl, ex) := cmpOpFlags? I st1 opN.code opN.args pas dsts nv cl
+          (c, cl, false, opProducesZ32 I opN.code pas dsts, fl, ex)) <|>
+        ((I.vec.vop opN.code pas dsts vh).map fun (c, cl) =>
+          (c, cl, true, false, killFlags I cl st1.flags, none))
+      else (I.vec.vop opN.code pas dsts vh).map fun (c, cl) =>
+        (c, cl, true, false, killFlags I cl st1.flags, none)) <|>
+    ((tryRematDirect I st1 df? dsts).map fun (c, cl) =>
+      (c, cl, false, false, killFlags I cl st1.flags, none)) <|>
+    ((tryRematCmpEqImm I st1 vh opN.code opN.args dsts).map fun (c, cl) =>
+      (c, cl, false, false, killFlags I cl st1.flags, none)) <|>
+    ((tryRematAdd64SameDst I st1 opN.code opN.args dsts).map fun (c, cl) =>
+      (c, cl, false, false, killFlags I cl st1.flags, none)) <|>
+    ((trySlotOp I h st1 opN.code opN.args dsts).map fun (c, cl, z32, fl, ex) =>
+      (c, cl, false, z32, fl, ex))) :
+      Option (List I.Directive × FlagMask × Bool × Bool × Option FlagFact × Option I.Cond)).map
+      fun (code, clob, isVec, z32, flagsPost, extraBool?) =>
+      let vClob := if isVec then dstVecs ++ I.vec.vecScratch else []
+      let gClob := dstGprs ++ I.frame.scratch
+      let killed := killRegs I gClob vClob clob st1.regs
+      let zExt := killZeroExt gClob st1.zeroExt32
+      let (regsBase, vw1, zExt1) :=
+        if z32 then
+          match ts, dsts with
+          | [.bits 32], (.gpr rd, ()) =>
+            ((.var nv, RegLoc.gprZ rd) :: killed, st1.vecWidths, rd :: zExt)
+          | _, _ =>
+            let (r, v) := bindDsts I dsts nv (killed, st1.vecWidths)
+            (r, v, zExt)
+        else
+          let (r, v) := bindDsts I dsts nv (killed, st1.vecWidths)
+          (r, v, zExt)
+      let regs1 := match ts, extraBool? with
+        | [.bool], some cc => (.var nv, RegLoc.flag cc) :: regsBase
+        | _, _ => regsBase
+      (code, { st1 with
+        regs := regs1, defs := defs1, vecWidths := vw1, zeroExt32 := zExt1,
+        flags := flagsPost })
+
 def lowerOp (I : Isa) (h : I.Hints) (nv ip : Nat) (st1 : SymState I) {ts : List Ty}
     (op : Op VNat ts) (deferFuse : Bool := false) : Option (List I.Directive × SymState I) :=
   if deferFuse then
@@ -1274,69 +1442,16 @@ def lowerOp (I : Isa) (h : I.Hints) (nv ip : Nat) (st1 : SymState I) {ts : List 
     | none => none
   else
     (resolveDsts I h ts nv).bind fun dsts =>
-      let vh := h.variant.getD ip .default
-      let dstGprs := tupDstGprs dsts; let dstVecs := tupDstVecs dsts
-      let defs1 := match recordDef st1.defs op.code op.args with
-        | some df => st1.defs.insert nv df
-        | none => st1.defs
-      if elideZext32? I st1.regs st1.zeroExt32 op.code op.args dsts then
-        -- no code: every register fact survives and the result shares `rd` canonically
-        let regs1 := match ts, dsts with
-          | [_], (.gpr rd, ()) => (.var nv, RegLoc.gprZ rd) :: st1.regs
-          | _, _ => st1.regs
-        some ([], { st1 with regs := regs1, defs := defs1 })
-      else if elideTrunc? I st1.regs op.code op.args dsts then
-        let regs1 := match ts, dsts with
-          | [_], (.gpr rd, ()) => (.var nv, RegLoc.gpr rd) :: st1.regs
-          | _, _ => st1.regs
-        some ([], { st1 with regs := regs1, defs := defs1 })
-      else
-        let opN := normCmpOp (I := I) op dsts
-        ((((tryReuseFlagCmp I st1 op.code op.args dsts <|>
-            tryReuseFlagCmp I st1 opN.code opN.args dsts).map fun (c, cl, fl, ex) =>
-          (c, cl, false, false, fl, ex)) <|>
-        ((tryFuseCmp I st1 vh opN.code opN.args dsts).map fun (c, cl, fl, ex) =>
-          (c, cl, false, false, fl, ex)) <|>
-        ((tryLoadSext I st1 vh opN.code opN.args dsts).map fun (c, cl) =>
-          (c, cl, false, false, killFlags I cl st1.flags, none)) <|>
-        ((tryLeaArith I st1 opN.code opN.args dsts).map fun (c, cl, z32) =>
-          (c, cl, false, z32, killFlags I cl st1.flags, none)) <|>
-        ((tryMoviZero I h ip st1 opN.code opN.args dsts).map fun (c, cl, z32) =>
-          (c, cl, false, z32, killFlags I cl st1.flags, none)) <|>
-        (pickPArgs I st1 (tupDstFlags dsts) opN.args fun pas =>
-          if dstVecs.isEmpty && (tupArgVecs pas).isEmpty then
-            ((I.gpr.op opN.code pas dsts vh).map fun (c, cl) =>
-              let (fl, ex) := cmpOpFlags? I st1 opN.code opN.args pas dsts nv cl
-              (c, cl, false, opProducesZ32 I opN.code pas dsts, fl, ex)) <|>
-            ((I.vec.vop opN.code pas dsts vh).map fun (c, cl) =>
-              (c, cl, true, false, killFlags I cl st1.flags, none))
-          else (I.vec.vop opN.code pas dsts vh).map fun (c, cl) =>
-            (c, cl, true, false, killFlags I cl st1.flags, none)) <|>
-        ((trySlotOp I h st1 opN.code opN.args dsts).map fun (c, cl, z32, fl, ex) =>
-          (c, cl, false, z32, fl, ex))) :
-          Option (List I.Directive × FlagMask × Bool × Bool × Option FlagFact × Option I.Cond)).map
-          fun (code, clob, isVec, z32, flagsPost, extraBool?) =>
-          let vClob := if isVec then dstVecs ++ I.vec.vecScratch else []
-          let gClob := dstGprs ++ I.frame.scratch
-          let killed := killRegs I gClob vClob clob st1.regs
-          let zExt := killZeroExt gClob st1.zeroExt32
-          let (regsBase, vw1, zExt1) :=
-            if z32 then
-              match ts, dsts with
-              | [.bits 32], (.gpr rd, ()) =>
-                ((.var nv, RegLoc.gprZ rd) :: killed, st1.vecWidths, rd :: zExt)
-              | _, _ =>
-                let (r, v) := bindDsts I dsts nv (killed, st1.vecWidths)
-                (r, v, zExt)
-            else
-              let (r, v) := bindDsts I dsts nv (killed, st1.vecWidths)
-              (r, v, zExt)
-          let regs1 := match ts, extraBool? with
-            | [.bool], some cc => (.var nv, RegLoc.flag cc) :: regsBase
-            | _, _ => regsBase
-          (code, { st1 with
-            regs := regs1, defs := defs1, vecWidths := vw1, zeroExt32 := zExt1,
-            flags := flagsPost })
+      lowerOpBody I h nv ip st1 op dsts <|>
+        (findMissingRematArg I st1 op.args).bind fun (x, _, disp, rb) =>
+          (rematTempCands I h.saved st1 dsts).findSome? fun tmp =>
+            (rematAddImm64 I rb tmp disp).bind fun cPre =>
+              let clob := tmp :: I.frame.scratch
+              let stTmp := { st1 with
+                regs := (.var x, .gpr tmp) :: killRegs I clob [] FlagMask.none st1.regs
+                zeroExt32 := killZeroExt clob st1.zeroExt32 }
+              (lowerOpBody I h nv ip stTmp op dsts).map fun (cOp, st2) =>
+                (cPre ++ cOp, st2)
 
 /-! ## Block Entry, Jumps, and Core PHOAS Lowering -/
 
