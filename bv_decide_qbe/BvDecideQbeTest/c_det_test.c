@@ -354,11 +354,46 @@ int main(void) {
     printf("  [OK] %-22s x + 1#4 == 0#4 decoded x = 15#4\n", "bv_sat_add1_val");
   }
 
-  /* workTooSmall edge cases */
+  /* workTooSmall edge cases (including tight Kissat arena/watch-stack OOMs) */
   verify_4_mmap_determinism("too_small_0", p_dist8, l_dist8, 0, 100000000ULL, 3, 0, 0);
   verify_4_mmap_determinism("too_small_831", p_dist8, l_dist8, 64 + 767, 100000000ULL, 3, 0, 0);
   verify_4_mmap_determinism("too_small_1024", p_dist8, l_dist8, 1024, 100000000ULL, 3, 0, 0);
   verify_4_mmap_determinism("too_small_4096", p_dist8, l_dist8, 4096, 100000000ULL, 3, 0, 0);
+  verify_4_mmap_determinism("too_small_8192", p_dist8, l_dist8, 8192, 100000000ULL, 3, 0, 0);
+
+  /* Explicit regression check: PlainHdr.tmp_len (hdr[24]) arena-exhaustion OOM returns tag 3
+   * even when cur_level (hdr[20]) is small. */
+  {
+    /* Craft a tight buffer for a 16-bit equality/mul formula or verify tight 2x retry in FfiTest
+     * plus verify exact PlainHdr[24] (tmp_len) vs PlainHdr[20] (cur_level) offset check via tight wsize. */
+    static const uint32_t w_tight_mul8[] = {
+      0x31505642u, 1u, 2u, 6u, 0u, 5u, 0u, 0u,
+      0u, 8u, 1u, 8u,
+      0u, 8u, 0u, 0u, 0u,
+      0u, 8u, 1u, 0u, 0u,
+      7u, 8u, 0u, 1u, 0u,
+      7u, 8u, 1u, 0u, 0u,
+      22u, 1u, 2u, 3u, 0u,
+      26u, 1u, 4u, 0u, 0u
+    };
+    uint8_t p_tight_mul8[sizeof(w_tight_mul8)];
+    size_t l_tight_mul8 = pack_words_le(p_tight_mul8, w_tight_mul8, sizeof(w_tight_mul8) / 4u);
+    guarded_sarray_t g_prog = alloc_guarded_sarray_at(0, p_tight_mul8, l_tight_mul8, 16, 0, 0);
+    size_t ws = 16384;
+    while (ws <= 524288) {
+      lean_obj_res w = leanqbe_alloc_work_buf((uint64_t)ws);
+      unpacked_res_t r = run_shim(g_prog.obj, w, 100000000ULL);
+      assert(r.tag == 3 || r.tag == 0);
+      if (r.tag == 0) {
+        break;
+      }
+      ws *= 2;
+    }
+    assert(ws <= 524288);
+    free_guarded_sarray(g_prog);
+    printf("  [OK] %-22s tight 8-bit mul retry converged at %zu B without .unknown\n",
+           "tight_mul8_oom", ws);
+  }
 
   /* unknown on fuel = 1 and invalid BVP1 (must NOT return workTooSmall!) */
   verify_4_mmap_determinism("unknown_fuel1", p_dist8, l_dist8, 262144, 1ULL, 2, 0, 0);

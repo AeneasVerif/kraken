@@ -182,13 +182,17 @@ LEAN_EXPORT lean_obj_res leanqbe_solve_bv_bytes(b_lean_obj_arg prog,
       uint64_t p_wcap = hdr[5];
       uint64_t p_arena_len = hdr[6];
       uint64_t p_wlen = hdr[7];
+      uint64_t p_tmp_len = hdr[24]; /* PlainHdr.tmp_len (field 24) */
       if (p_oom != 0ULL) {
         tag = 3u;
       } else if (p_fuel == 0ULL) {
         tag = 2u; /* fuel exhaustion -> .unknown */
       } else if (hdr[2] != work_addr + work_cap ||
-                 p_arena_len + hdr[20] + 16ULL >= p_arena_cap ||
-                 p_wlen * 2ULL + 4ULL >= p_wcap) {
+                 p_arena_len >= p_arena_cap ||
+                 p_tmp_len > (p_arena_cap - p_arena_len) ||
+                 (p_arena_cap - p_arena_len) - p_tmp_len <= 16ULL ||
+                 p_wlen >= p_wcap ||
+                 (p_wcap - p_wlen) <= p_wlen + 4ULL) {
         tag = 3u; /* parse OOM or arena/watch cap exhausted -> .workTooSmall */
       }
     } else {
