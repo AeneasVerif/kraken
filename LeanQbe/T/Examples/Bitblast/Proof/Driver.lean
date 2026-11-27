@@ -45,44 +45,6 @@ local macro "drv_call" h:term : tactic =>
 
 /-! ## 1. Local Memory Helpers and Pure Bridges -/
 
-@[local c0_load] private theorem drv_load_work_end {h : BitVec 64} {s : BVHdrState}
-    {R : Mem 64 → Prop} {m : Mem 64} (hm : (bvHdrMem h s ⋆ R) m) :
-    loadVal m i64 (h + 8) = some s.work_end := load_hdr_work_end hm
-
-@[local c0_load] private theorem drv_load_aig_ptr {h : BitVec 64} {s : BVHdrState}
-    {R : Mem 64 → Prop} {m : Mem 64} (hm : (bvHdrMem h s ⋆ R) m) :
-    loadVal m i64 (h + 24) = some s.aig_ptr := load_hdr_aig_ptr hm
-
-@[local c0_load] private theorem drv_load_slice_off_ptr {h : BitVec 64} {s : BVHdrState}
-    {R : Mem 64 → Prop} {m : Mem 64} (hm : (bvHdrMem h s ⋆ R) m) :
-    loadVal m i64 (h + 48) = some s.slice_off_ptr := load_hdr_slice_off_ptr hm
-
-@[local c0_load] private theorem drv_load_marks_ptr {h : BitVec 64} {s : BVHdrState}
-    {R : Mem 64 → Prop} {m : Mem 64} (hm : (bvHdrMem h s ⋆ R) m) :
-    loadVal m i64 (h + 64) = some s.marks_ptr := load_hdr_marks_ptr hm
-
-@[local c0_load] private theorem drv_load_dimacs_start {h : BitVec 64} {s : BVHdrState}
-    {R : Mem 64 → Prop} {m : Mem 64} (hm : (bvHdrMem h s ⋆ R) m) :
-    loadVal m i64 (h + 72) = some s.dimacs_start := load_hdr_dimacs_start hm
-
-@[local c0_load] private theorem drv_load_root_node {h : BitVec 64} {s : BVHdrState}
-    {R : Mem 64 → Prop} {m : Mem 64} (hm : (bvHdrMem h s ⋆ R) m) :
-    loadVal m i32 (h + 92) = some s.root_node := load_hdr_root_node hm
-
-@[local c0_load] private theorem drv_load_aig_len {h : BitVec 64} {s : BVHdrState}
-    {R : Mem 64 → Prop} {m : Mem 64} (hm : (bvHdrMem h s ⋆ R) m) :
-    loadVal m i32 (h + 100) = some s.aig_len := load_hdr_aig_len hm
-
-@[local c0_load] private theorem drv_load_dimacs_len {h : BitVec 64} {s : BVHdrState}
-    {R : Mem 64 → Prop} {m : Mem 64} (hm : (bvHdrMem h s ⋆ R) m) :
-    loadVal m i32 (h + 124) = some s.dimacs_len := load_hdr_dimacs_len hm
-
-@[local c0_store] private theorem drv_store_marks_ptr {h : BitVec 64} {s : BVHdrState}
-    {R : Mem 64 → Prop} {m : Mem 64} (v : BitVec 64) (hm : (bvHdrMem h s ⋆ R) m) :
-    storeOk m i64 (h + 64) ∧
-      (bvHdrMem h { s with marks_ptr := v } ⋆ R) (storeMem m i64 (h + 64) v) :=
-  store_hdr_marks_ptr v hm
-
 private theorem drv_bv32_mul4_add_eq (base : BitVec 64) (idx : BitVec 32) :
     base + idx.setWidth 64 * 4 = base + BitVec.ofNat 64 (4 * idx.toNat) := by
   congr 1; apply BitVec.eq_of_toNat_eq

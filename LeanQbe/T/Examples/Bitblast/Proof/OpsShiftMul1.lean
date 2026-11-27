@@ -34,25 +34,7 @@ open Std.ExtHashMap
 open LeanQbe.T.Examples.Bitblast.Ref
 open LeanQbe.T.Examples.Bitblast.Src.OpsShiftMul
 
-/-! ## 1. Local `BVHdr` Accessors -/
-
-@[local c0_load] private theorem s1_load_hdr_lits_ptr {h : BitVec 64} {s : BVHdrState}
-    {R : Mem 64 → Prop} {m : Mem 64} (hm : (bvHdrMem h s ⋆ R) m) :
-    loadVal m i64 (h + 56) = some s.lits_ptr :=
-  load_hdr_lits_ptr hm
-
-@[local c0_load] private theorem s1_load_hdr_oom {h : BitVec 64} {s : BVHdrState}
-    {R : Mem 64 → Prop} {m : Mem 64} (hm : (bvHdrMem h s ⋆ R) m) :
-    loadVal m i32 (h + 120) = some s.oom :=
-  load_hdr_oom hm
-
-@[local c0_store] private theorem s1_store_hdr_oom {h : BitVec 64} {s : BVHdrState}
-    {R : Mem 64 → Prop} {m : Mem 64} (v : BitVec 32) (hm : (bvHdrMem h s ⋆ R) m) :
-    storeOk m i32 (h + 120) ∧
-      (bvHdrMem h { s with oom := v } ⋆ R) (storeMem m i32 (h + 120) v) :=
-  store_hdr_oom v hm
-
-/-! ## 2. Canonical `Func.wp` Theorems (`OpsShiftMul1`) -/
+/-! ## 1. Canonical `Func.wp` Theorems (`OpsShiftMul1`) -/
 
 public section
 

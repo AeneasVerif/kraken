@@ -158,9 +158,7 @@ public theorem wp_load_hdr_oom {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPos
       (Expr.let_ (op2 (OpCode.add i64) (Arg.var h) (Arg.imm (t := i64) 120#64)) fun p_addr =>
         Expr.load i32 (Arg.var p_addr.fst) k) m := by
   c0_hfast_nogrp
-  have hby : (i32 : Ty).bytes = 4 := rfl
-  exact wp_load_array (i := 10) (by decide) (by dsimp [Arg.val]; rw [hby]; bv_omega)
-    (by simp [BVHdrState.u32s]) (mem_hdr_to_u32 (opMem_to_hdr hm)) hk
+  exact hk
 
 public theorem wp_store_hdr_oom {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     {h : Val i64} {hdr : BVHdrState}
@@ -175,12 +173,7 @@ public theorem wp_store_hdr_oom {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPo
       (Expr.let_ (op2 (OpCode.add i64) (Arg.var h) (Arg.imm (t := i64) 120#64)) fun p_addr =>
         Expr.store (t := i32) (Arg.imm 1#32) (Arg.var p_addr.fst) k) m := by
   c0_hfast_nogrp
-  have hby : (i32 : Ty).bytes = 4 := rfl
-  apply wp_store_array (i := 10) (by decide) (by dsimp [Arg.val]; rw [hby]; bv_omega)
-    (by simp [BVHdrState.u32s]) (mem_hdr_to_u32 (opMem_to_hdr hm))
-  intro m' hm'
-  rw [u32s_set_oom] at hm'
-  exact hk m' (opMem_of_hdr (mem_hdr_of_u32 hm'))
+  exact hk m (by simpa only [Std.ExtHashMap.sep_emp, ← Std.ExtHashMap.sep_assoc] using hm)
 
 public theorem wp_load_hdr_lits_ptr {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     {h : Val i64} {hdr : BVHdrState}
@@ -193,8 +186,7 @@ public theorem wp_load_hdr_lits_ptr {Γ : Env} {rs : List Ty} {Q : Post rs} {X :
       (Expr.let_ (op2 (OpCode.add i64) (Arg.var h) (Arg.imm (t := i64) 56#64)) fun p_addr =>
         Expr.load i64 (Arg.var p_addr.fst) k) m := by
   c0_hfast_nogrp
-  exact wp_load_array64 (i := 7) rfl
-    (by simp [BVHdrState.u64s]) (mem_hdr_to_u64 (opMem_to_hdr hm)) hk
+  exact hk
 
 private theorem wp_load_lits {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     {h : Val i64} {hdr : BVHdrState}

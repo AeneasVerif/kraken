@@ -26,27 +26,6 @@ Proves canonical `Func.wp` theorems (`BVBlastSpec.Le`) for the remaining three C
 
 section
 
-private theorem load_hdr_lits_ptr_ofNat {h : BitVec 64} {s : BVHdrState}
-    {R : Mem 64 → Prop} {m : Mem 64}
-    (hm : (bvHdrMem h s ⋆ R) m) : loadVal m i64 (h + 56) = some s.lits_ptr :=
-  load_hdr_lits_ptr hm
-
-private theorem load_hdr_oom_ofNat {h : BitVec 64} {s : BVHdrState}
-    {R : Mem 64 → Prop} {m : Mem 64}
-    (hm : (bvHdrMem h s ⋆ R) m) : loadVal m i32 (h + 120) = some s.oom :=
-  load_hdr_oom hm
-
-private theorem store_hdr_oom_ofNat {h : BitVec 64} {s : BVHdrState}
-    {R : Mem 64 → Prop} {m : Mem 64}
-    (v : BitVec 32) (hm : (bvHdrMem h s ⋆ R) m) :
-    storeOk m i32 (h + 120) ∧
-      (bvHdrMem h { s with oom := v } ⋆ R) (storeMem m i32 (h + 120) v) :=
-  store_hdr_oom v hm
-
-attribute [local c0_load] load_hdr_oom load_hdr_oom_ofNat load_hdr_lits_ptr
-  load_hdr_lits_ptr_ofNat load_hdr_lits_len load_hdr_lits_cap
-attribute [local c0_store] store_hdr_oom store_hdr_oom_ofNat store_hdr_lits_len
-
 private theorem ofNat_1_32 : (1 : BitVec 32) = 1#32 := rfl
 
 private theorem mul_w_sub_one_le (w : Nat) : 9 * (w - 1) * w ≤ 9 * w * w := by

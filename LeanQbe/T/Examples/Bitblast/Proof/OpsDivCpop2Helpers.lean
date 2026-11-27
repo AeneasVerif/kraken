@@ -24,9 +24,6 @@ Provides C0 AST sub-expressions, memory helpers, and loop `wp` lemmas for
 
 section
 
-attribute [local c0_load] load_hdr_oom load_hdr_lits_ptr load_hdr_lits_len load_hdr_lits_cap
-attribute [local c0_store] store_hdr_oom store_hdr_lits_len
-
 public theorem wp_load_lits_dc {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     {h : Val i64} {hdr : BVHdrState}
     {aw : List (BitVec 64)} {ht lp : List (BitVec 32)} {R : Mem 64 → Prop} {m : Mem 64}

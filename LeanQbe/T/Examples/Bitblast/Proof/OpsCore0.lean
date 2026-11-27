@@ -33,33 +33,7 @@ namespace LeanQbe.T.Examples.Bitblast.Proof
 open LeanQbe.T
 open LeanQbe.T.Examples.Bitblast.Src.OpsCore
 
-/-! ## Local Header & Array32 Load/Store Rules -/
-
-@[local c0_load] private theorem oc0_load_oom {h : BitVec 64} {s : BVHdrState}
-    {R : Mem 64 → Prop} {m : Mem 64} (hm : (bvHdrMem h s ⋆ R) m) :
-    loadVal m i32 (h + 120) = some s.oom :=
-  ops_load_hdr_oom hm
-
-@[local c0_load] private theorem oc0_load_lits_ptr {h : BitVec 64} {s : BVHdrState}
-    {R : Mem 64 → Prop} {m : Mem 64} (hm : (bvHdrMem h s ⋆ R) m) :
-    loadVal m i64 (h + 56) = some s.lits_ptr :=
-  ops_load_hdr_lits_ptr hm
-
-@[local c0_load] private theorem oc0_load_lits_len {h : BitVec 64} {s : BVHdrState}
-    {R : Mem 64 → Prop} {m : Mem 64} (hm : (bvHdrMem h s ⋆ R) m) :
-    loadVal m i32 (h + 112) = some s.lits_len :=
-  ops_load_hdr_lits_len hm
-
-@[local c0_load] private theorem oc0_load_lits_cap {h : BitVec 64} {s : BVHdrState}
-    {R : Mem 64 → Prop} {m : Mem 64} (hm : (bvHdrMem h s ⋆ R) m) :
-    loadVal m i32 (h + 116) = some s.lits_cap :=
-  ops_load_hdr_lits_cap hm
-
-@[local c0_store] private theorem oc0_store_oom {h : BitVec 64} {s : BVHdrState}
-    {R : Mem 64 → Prop} {m : Mem 64} (v : BitVec 32) (hm : (bvHdrMem h s ⋆ R) m) :
-    storeOk m i32 (h + 120) ∧
-      (bvHdrMem h { s with oom := v } ⋆ R) (storeMem m i32 (h + 120) v) :=
-  ops_store_hdr_oom v hm
+/-! ## Local Array32 Load/Store Rules -/
 
 @[local c0_load] private theorem oc0_load_lits_add {R : Mem 64 → Prop} {m : Mem 64}
     {a : BitVec 64} {off k : BitVec 32} {xs : List (BitVec 32)}

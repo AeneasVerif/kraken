@@ -564,31 +564,7 @@ theorem bvCoiMem_to_dimacsSep {workBase aigPtr marksPtr dimacsStart : BitVec 64}
 
 end
 
-/-! ## 2. File-Scope `c0_load` / `c0_store` Wrappers and AST Decomposition -/
-
-@[local c0_load] private theorem c0_load_hdr_wb {h s R m} (hm : (bvHdrMem h s ⋆ R) m) :
-    loadVal m i64 h = some s.work_base := load_hdr_work_base hm
-@[local c0_load] private theorem c0_load_hdr_we {h s R m} (hm : (bvHdrMem h s ⋆ R) m) :
-    loadVal m i64 (h + 8#64) = some s.work_end := load_hdr_work_end hm
-@[local c0_load] private theorem c0_load_hdr_aig {h s R m} (hm : (bvHdrMem h s ⋆ R) m) :
-    loadVal m i64 (h + 24#64) = some s.aig_ptr := load_hdr_aig_ptr hm
-@[local c0_load] private theorem c0_load_hdr_marks {h s R m} (hm : (bvHdrMem h s ⋆ R) m) :
-    loadVal m i64 (h + 64#64) = some s.marks_ptr := load_hdr_marks_ptr hm
-@[local c0_load] private theorem c0_load_hdr_atoms {h s R m} (hm : (bvHdrMem h s ⋆ R) m) :
-    loadVal m i32 (h + 96#64) = some s.num_atoms := load_hdr_num_atoms hm
-@[local c0_load] private theorem c0_load_hdr_aiglen {h s R m} (hm : (bvHdrMem h s ⋆ R) m) :
-    loadVal m i32 (h + 100#64) = some s.aig_len := load_hdr_aig_len hm
-@[local c0_store] private theorem c0_store_hdr_ds {h s R m} (v : BitVec 64)
-    (hm : (bvHdrMem h s ⋆ R) m) : storeOk m i64 (h + 72#64) ∧
-      (bvHdrMem h { s with dimacs_start := v } ⋆ R) (storeMem m i64 (h + 72#64) v) :=
-  store_hdr_dimacs_start v hm
-@[local c0_store] private theorem c0_store_hdr_oom {h s R m} (v : BitVec 32)
-    (hm : (bvHdrMem h s ⋆ R) m) : storeOk m i32 (h + 120#64) ∧
-      (bvHdrMem h { s with oom := v } ⋆ R) (storeMem m i32 (h + 120#64) v) := store_hdr_oom v hm
-@[local c0_store] private theorem c0_store_hdr_dl {h s R m} (v : BitVec 32)
-    (hm : (bvHdrMem h s ⋆ R) m) : storeOk m i32 (h + 124#64) ∧
-      (bvHdrMem h { s with dimacs_len := v } ⋆ R) (storeMem m i32 (h + 124#64) v) :=
-  store_hdr_dimacs_len v hm
+/-! ## 2. AST Decomposition -/
 
 public section
 

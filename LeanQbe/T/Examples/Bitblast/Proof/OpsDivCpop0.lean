@@ -15,10 +15,8 @@ open LeanQbe.T.Examples.Bitblast.Src.OpsDivCpop
 
 section
 
-attribute [local c0_load] load_hdr_oom load_hdr_lits_ptr load_hdr_lits_len load_hdr_lits_cap
-  c0_load_array32_u32 c0_load_array32_u32_add_mul
-attribute [local c0_store] store_hdr_oom store_hdr_lits_len
-  c0_store_array32_u32 c0_store_array32_u32_add_mul
+attribute [local c0_load] c0_load_array32_u32 c0_load_array32_u32_add_mul
+attribute [local c0_store] c0_store_array32_u32 c0_store_array32_u32_add_mul
 
 /-! ## `bv_blast_ite_into` and `bv_blast_ite_slice` -/
 
