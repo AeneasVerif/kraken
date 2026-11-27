@@ -872,17 +872,350 @@ private theorem ifOptWithFlat_both (bitsOnly : Bool) {rs : List Ty} :
       rw [ihb depth (ctxTypes_pushTup_rev _ hΓ) (trieCtxMatch_insertTupEnv hmV _) hmL hb,
         ihbs depth hbs]⟩
 
+private def SValsIds (vs : List ((t : Ty) × SVal K t)) : Prop :=
+  ∀ i p, listGet? vs i = some p → svalId p.2 = vs.length - 1 - i
+
+private theorem SValsIds.nil : SValsIds [] :=
+  fun _ _ h => nomatch h
+
+private theorem SValsIds.cons {vs : List ((t : Ty) × SVal K t)} (hIds : SValsIds vs)
+    {t : Ty} (s : SVal K t) (hs : svalId s = vs.length) : SValsIds (⟨t, s⟩ :: vs) := by
+  intro i p hp
+  cases i with
+  | zero =>
+    dsimp only [listGet?] at hp
+    cases hp
+    simp only [List.length_cons, Nat.add_sub_cancel, Nat.sub_zero, hs]
+  | succ i' =>
+    dsimp only [listGet?] at hp
+    have hi := hIds i' p hp
+    simp only [List.length_cons]
+    omega
+
+private theorem SValsIds.freshSVals : {ts : List Ty} → (xs : Tup K ts) →
+    {vs : List ((t : Ty) × SVal K t)} → SValsIds vs →
+    SValsIds (pushTup (freshSVals ts xs vs.length) vs)
+  | [], (), _, hIds => hIds
+  | t :: _, (x, xs), vs, hIds => by
+    dsimp only [freshSVals, pushTup]
+    exact SValsIds.freshSVals xs (hIds.cons (.val (.var x) vs.length) rfl)
+
+private theorem SValsIds.dummySVals : (ts : List Ty) →
+    {vs : List ((t : Ty) × SVal K t)} → SValsIds vs →
+    SValsIds (pushTup (dummySVals ts vs.length) vs)
+  | [], _, hIds => hIds
+  | t :: ts, vs, hIds => by
+    dsimp only [dummySVals, pushTup]
+    exact SValsIds.dummySVals ts (hIds.cons (.val (.imm default) vs.length) rfl)
+
+private theorem flatArgIsLevel_eq {Γ : List Ty} {vs : List ((t : Ty) × SVal K t)}
+    (hΓ : CtxTypes Γ vs) (hIds : SValsIds vs) (cid : Nat) {t : Ty}
+    (a : Arg K t) (ha : checkArg Γ t a = true) :
+    ∃ a', denoteArg vs a = some a' ∧ sargIsId cid a' = flatArgIsLevel cid vs.length a := by
+  cases a with
+  | imm c => exact ⟨.imm c, rfl, rfl⟩
+  | var idx =>
+    obtain ⟨s, hget, _⟩ := ctxTypes_listGet? hΓ (checkArg_eq_true_iff.mp ha)
+    have hden : denoteArg vs (.var (t := t) idx) = some (.var s) := by
+      dsimp only [denoteArg, lookupV]; rw [hget]; dsimp only
+      rw [PassFlatKit.castTy_self]
+    refine ⟨.var s, hden, ?_⟩
+    dsimp only [sargIsId, flatArgIsLevel, levelArg]
+    rw [hIds idx ⟨t, s⟩ hget]
+
+private theorem flatArgsHasLevel_eq {Γ : List Ty} {vs : List ((t : Ty) × SVal K t)}
+    (hΓ : CtxTypes Γ vs) (hIds : SValsIds vs) (cid : Nat) :
+    {ts : List Ty} → (as : Tup (Arg K) ts) → checkArgs Γ as = true →
+    ∃ as', denoteArgs vs as = some as' ∧ sargsHasId cid as' = flatArgsHasLevel cid vs.length as
+  | [], (), _ => ⟨(), rfl, rfl⟩
+  | _ :: _, (a, as), hc => by
+    dsimp only [checkArgs] at hc; simp only [Bool.and_eq_true] at hc
+    obtain ⟨a', ha', haeq⟩ := flatArgIsLevel_eq hΓ hIds cid a hc.1
+    obtain ⟨as', has', haseq⟩ := flatArgsHasLevel_eq hΓ hIds cid as hc.2
+    exact ⟨(a', as'), by dsimp only [denoteArgs]; rw [ha', has'],
+      by dsimp only [sargsHasId, flatArgsHasLevel]; rw [haeq, haseq]⟩
+
+private theorem shouldDeferCmpFlat_eq :
+    ∀ (fuel : Nat) {rs : List Ty} (tf : TFlat rs) (cid : Nat) (saw : Bool)
+      {Γ : List Ty} {Δ : List (List Ty)}
+      {vs : List ((t : Ty) × SVal K t)} {ls : List ((ts : List Ty) × KL ts)},
+    CtxTypes Γ vs → CtxTypes Δ ls → SValsIds vs → tf.wfCheck Γ Δ = true →
+    shouldDeferCmp cid fuel saw vs.length (denote (SVal K) KL tf vs ls) =
+      shouldDeferCmpFlat cid fuel saw vs.length tf
+  | 0, _, _, _, _, _, _, _, _, _, _, _, _ => rfl
+  | fuel + 1, _, .let_ (ts := ts) ⟨code, args⟩ k, cid, saw, _, _, vs, _, hΓ, hΔ, hIds, hwf => by
+    obtain ⟨ha, hk⟩ := wf_let hwf
+    cases code with
+    | select u =>
+      rcases args with ⟨c, aT, aE, ⟨⟩⟩
+      simp only [checkArgs, Bool.and_eq_true] at ha
+      obtain ⟨c', hc', hce⟩ := flatArgIsLevel_eq hΓ hIds cid c ha.1
+      obtain ⟨t', ht', hte⟩ := flatArgIsLevel_eq hΓ hIds cid aT ha.2.1
+      obtain ⟨e', he', hee⟩ := flatArgIsLevel_eq hΓ hIds cid aE ha.2.2.1
+      dsimp only [denote, denoteArgs]
+      rw [hc', ht', he']
+      dsimp only [shouldDeferCmp, shouldDeferCmpFlat, shouldDeferCmpStep, shouldDeferCmpFlatStep]
+      rw [hce, hte, hee]
+      cases (flatArgIsLevel cid vs.length c && !flatArgIsLevel cid vs.length aT &&
+          !flatArgIsLevel cid vs.length aE) with
+      | true => rfl
+      | false =>
+        cases (flatArgIsLevel cid vs.length c || flatArgIsLevel cid vs.length aT ||
+            flatArgIsLevel cid vs.length aE) with
+        | true => rfl
+        | false =>
+          have hih := shouldDeferCmpFlat_eq fuel k cid true (CtxTypes.push _ hΓ) hΔ
+            (hIds.dummySVals [u]) hk
+          have hlen : (pushTup (dummySVals [u] vs.length) vs).length = vs.length + 1 := by
+            rw [pushTup_length]; simp
+          rw [hlen] at hih
+          exact hih
+    | _ =>
+      obtain ⟨args', hda, hhas⟩ := flatArgsHasLevel_eq hΓ hIds cid args ha
+      dsimp only [denote]; rw [hda]
+      dsimp only [shouldDeferCmp, shouldDeferCmpFlat, shouldDeferCmpStep, shouldDeferCmpFlatStep]
+      rw [hhas]
+      cases flatArgsHasLevel cid vs.length args with
+      | true => rfl
+      | false =>
+        simpa [pushTup_length, Nat.add_comm] using
+          shouldDeferCmpFlat_eq fuel k cid _ (CtxTypes.push _ hΓ) hΔ (hIds.dummySVals _) hk
+  | _ + 1, _, .load _ _ _, _, _, _, _, _, _, hΓ, hΔ, _, hwf => by
+    ival_denote_close hΓ hΔ hwf rfl
+  | _ + 1, _, .store _ _ _, _, _, _, _, _, _, hΓ, hΔ, _, hwf => by
+    ival_denote_close hΓ hΔ hwf rfl
+  | _ + 1, _, .call _ _ _ _, _, _, _, _, _, _, hΓ, hΔ, _, hwf => by
+    ival_denote_close hΓ hΔ hwf rfl
+  | _ + 1, _, .jnz _ _ _, _, _, _, _, _, _, hΓ, hΔ, _, hwf => by
+    ival_denote_close hΓ hΔ hwf rfl
+  | _ + 1, _, .jump _ _, _, _, _, _, _, _, hΓ, hΔ, _, hwf => by
+    ival_denote_close hΓ hΔ hwf rfl
+  | _ + 1, _, .ret _, _, _, _, _, _, _, hΓ, hΔ, _, hwf => by
+    ival_denote_close hΓ hΔ hwf rfl
+  | _ + 1, _, .exit _ _, _, _, _, _, _, _, hΓ, hΔ, _, hwf => by
+    ival_denote_close hΓ hΔ hwf rfl
+  | _ + 1, _, .hlt, _, _, _, _, _, _, _, _, _, _ => rfl
+  | _ + 1, _, .group _ _, _, _, _, _, _, _, _, _, _, _ => rfl
+
+private theorem matArgFlat_eq {rs : List Ty} (outVD outLD : Nat) (mat : List (Nat × Nat)) :
+    {t : Ty} → (a : Arg (SVal K) t) →
+    {cont_p : List (Nat × K .bool) → Arg K t → Expr K KL rs} →
+    {cont_f : Nat → List (Nat × Nat) → Arg K t → TFlat rs} →
+    (∀ od mat' a', toTFlat (cont_p mat' a') od outLD = cont_f od mat' a') →
+    toTFlat (matArg mat a cont_p) outVD outLD = matArgFlat outVD mat a cont_f
+  | _, .imm c, _, _, hcont => hcont outVD mat (.imm c)
+  | _, .var (.val x _), _, _, hcont => hcont outVD mat x
+  | .bool, .var (.defer d), _, _, hcont => by
+    dsimp only [matArg, matArgFlat]
+    cases lookupMat (V := K) d.id mat with
+    | some lvl => exact hcont outVD mat (.var lvl)
+    | none =>
+      dsimp only [toTFlat, op2, idxArgs]
+      exact congrArg (TFlat.let_ _) (hcont (outVD + 1) ((d.id, outVD) :: mat) (.var outVD))
+
+private theorem matArgsFlat_eq {rs : List Ty} (outVD outLD : Nat) (mat : List (Nat × Nat)) :
+    {ts : List Ty} → (as : Tup (Arg (SVal K)) ts) →
+    {cont_p : List (Nat × K .bool) → Tup (Arg K) ts → Expr K KL rs} →
+    {cont_f : Nat → List (Nat × Nat) → Tup (Arg K) ts → TFlat rs} →
+    (∀ od mat' as', toTFlat (cont_p mat' as') od outLD = cont_f od mat' as') →
+    toTFlat (matArgs mat as cont_p) outVD outLD = matArgsFlat outVD mat as cont_f
+  | [], (), _, _, hcont => hcont outVD mat ()
+  | _ :: _, (a, as), _, _, hcont => by
+    dsimp only [matArgs, matArgsFlat]
+    exact matArgFlat_eq outVD outLD mat a fun od' mat' a' =>
+      matArgsFlat_eq od' outLD mat' as fun od'' mat'' as' => hcont od'' mat'' (a', as')
+
+/-! ## `cmpSinkFlat` Simulation Proofs -/
+
+private theorem cmpSinkWithFlat_both :
+    (∀ {rs : List Ty} (tf : TFlat rs) {Γ Δ vs ls inD} {_outD : Nat} {inE}
+      (mat : List (Nat × Nat)),
+      CtxTypes Γ vs → CtxTypes Δ ls → CtxLevels ls → TrieCtxMatch inD inE vs →
+      tf.wfCheck Γ Δ = true → ∀ (outD : Nat), SValsIds vs →
+      toTFlat (cmpSink inD mat (denote (SVal K) KL tf vs ls)) outD ls.length =
+        cmpSinkWithFlat tf inD inE outD mat) ∧
+    (∀ {rs : List Ty} {sig : List (List Ty)} (tb : TBlocks rs sig)
+      {Γ Δ vs ls inD} {_outD : Nat} {inE} (mat : List (Nat × Nat)),
+      CtxTypes Γ vs → CtxTypes Δ ls → CtxLevels ls → TrieCtxMatch inD inE vs →
+      tb.wfCheck Γ Δ = true → ∀ (outD : Nat), SValsIds vs →
+      toTBlocks (cmpSinkB inD mat (denoteB (SVal K) KL tb vs ls)) outD ls.length =
+        cmpSinkBWithFlat tb inD inE outD mat) := by
+  refine klSim_mutual ⟨
+    @fun _ _ _ _ vs ls inD _ _ mat op k hΓ hΔ hll hm hwf ih outD hIds => by
+      obtain ⟨ha, hk⟩ := wf_let hwf
+      rcases op with ⟨code, args⟩
+      have hlen : inD = vs.length := hm.1
+      cases code with
+      | cmp co t m h =>
+        cases t with
+        | bits n =>
+          subst h
+          rcases args with ⟨a, b, ⟨⟩⟩
+          simp only [checkArgs, Bool.and_eq_true] at ha
+          dsimp only [denote, denoteArgs]
+          rw [denoteArg_eq_some_resolveEnvArg hΓ hm a ha.1,
+              denoteArg_eq_some_resolveEnvArg hΓ hm b ha.2.1]
+          dsimp only [cmpSink, cmpSinkWithFlat]
+          have hdef : shouldDeferCmp inD 16 false (inD + 1)
+              (denote (SVal K) KL k
+                (pushTup (as := [.bool])
+                  ((SVal.val (.imm default) inD : SVal K .bool), ()) vs) ls) =
+            shouldDeferCmpFlat inD 16 false (inD + 1) k := by
+            have h1 := shouldDeferCmpFlat_eq 16 k inD false (CtxTypes.push _ hΓ) hΔ
+              (by simpa [hlen] using hIds.dummySVals [.bool]) hk
+            dsimp only [dummySVals] at h1
+            rw [pushTup_length] at h1
+            simpa [hlen] using h1
+          rw [hdef]
+          cases shouldDeferCmpFlat inD 16 false (inD + 1) k with
+          | true =>
+            simp only [↓reduceIte]
+            exact ih (outD' := 0) mat (CtxTypes.push _ hΓ) (trieCtxMatch_singleton hm _ _) hk outD
+              (hIds.cons _ (by simp [svalId, hlen]))
+          | false =>
+            simp only [Bool.false_eq_true, ↓reduceIte, toTFlat, op2, idxArgs]
+            exact congrArg (TFlat.let_ _)
+              (ih (outD' := 0) mat (CtxTypes.push _ hΓ) (trieCtxMatch_singleton hm _ _) hk
+                (outD + 1) (hIds.cons _ (by simp [svalId, hlen])))
+        | bool | float _ | pair _ _ =>
+          dsimp only [denote]
+          rw [denoteArgs_eq_some_resolveEnvArgs hΓ hm args ha]
+          dsimp only [cmpSink, cmpSinkWithFlat]
+          exact matArgsFlat_eq _ _ mat _ fun od' mat' margs => by
+            dsimp only [toTFlat]
+            refine congrArg (TFlat.let_ ⟨.cmp co _ m h, idxArgs od' margs⟩) ?_
+            have hm' := trieCtxMatch_insertTupEnv hm (freshSVals [m] (Tup.levels [m] od') inD)
+            have hlen1 : ([m] : List Ty).length = 1 := rfl
+            rw [hlen1] at hm'
+            exact ih (outD' := 0) mat' (ctxTypes_pushTup_rev _ hΓ) hm' hk (od' + 1)
+              (by simpa [hlen] using hIds.freshSVals (Tup.levels [m] od'))
+      | _ =>
+        dsimp only [denote]
+        rw [denoteArgs_eq_some_resolveEnvArgs hΓ hm args ha]
+        dsimp only [cmpSink, cmpSinkWithFlat]
+        exact matArgsFlat_eq _ _ mat _ fun od' mat' margs => by
+          dsimp only [toTFlat]
+          refine congrArg (TFlat.let_ ⟨_, idxArgs od' margs⟩) ?_
+          exact ih (outD' := 0) mat' (ctxTypes_pushTup_rev _ hΓ)
+            (trieCtxMatch_insertTupEnv hm (freshSVals _ (Tup.levels _ od') inD)) hk
+            _ (by simpa [hlen] using hIds.freshSVals (Tup.levels _ od')),
+    @fun _ _ _ vs _ inD _ _ mat t a k hΓ _ _ hm hwf ih outD hIds => by
+      obtain ⟨ha, hk⟩ := wf_load hwf
+      have hlen : inD = vs.length := hm.1
+      dsimp only [denote]; rw [denoteArg_eq_some_resolveEnvArg hΓ hm a ha]
+      dsimp only [cmpSink, cmpSinkWithFlat]
+      exact matArgFlat_eq _ _ mat _ fun od' mat' _ => by
+        dsimp only [toTFlat]
+        exact congrArg (TFlat.load t _)
+          (ih (outD' := 0) mat' (.cons hΓ) (trieCtxMatch_singleton hm t _) hk (od' + 1)
+            (hIds.cons _ (by simp [svalId, hlen]))),
+    fun mat v a k hΓ _ _ hm hwf ih outD hIds => by
+      obtain ⟨hv, ha, hk⟩ := wf_store hwf
+      dsimp only [denote]
+      rw [denoteArg_eq_some_resolveEnvArg hΓ hm v hv, denoteArg_eq_some_resolveEnvArg hΓ hm a ha]
+      dsimp only [cmpSink, cmpSinkWithFlat]
+      exact matArgFlat_eq _ _ mat _ fun od₁ mat₁ _ =>
+        matArgFlat_eq od₁ _ mat₁ _ fun od₂ mat₂ _ => by
+          dsimp only [toTFlat]
+          exact congrArg (TFlat.store _ _) (ih (outD' := 0) mat₂ hΓ hm hk od₂ hIds),
+    @fun _ _ _ _ vs _ inD _ _ mat f bs args k hΓ _ _ hm hwf ih outD hIds => by
+      obtain ⟨ha, hk⟩ := wf_call hwf
+      have hlen : inD = vs.length := hm.1
+      dsimp only [denote]; rw [denoteArgs_eq_some_resolveEnvArgs hΓ hm args ha]
+      dsimp only [cmpSink, cmpSinkWithFlat]
+      exact matArgsFlat_eq _ _ mat _ fun od' mat' margs => by
+        dsimp only [toTFlat]
+        exact congrArg (TFlat.call f bs (idxArgs od' margs))
+          (ih (outD' := 0) mat' (ctxTypes_pushTup_rev _ hΓ)
+            (trieCtxMatch_insertTupEnv hm (freshSVals bs (Tup.levels bs od') inD)) hk
+            (od' + bs.length) (by simpa [hlen] using hIds.freshSVals (Tup.levels bs od'))),
+    fun mat c t e hΓ _ _ hm hwf iht ihe outD hIds => by
+      obtain ⟨hc, ht, he⟩ := wf_jnz hwf
+      dsimp only [denote]; rw [denoteArg_eq_some_resolveEnvArg hΓ hm c hc]
+      dsimp only [cmpSink, cmpSinkWithFlat]
+      exact matArgFlat_eq _ _ mat _ fun od' mat' _ => by
+        dsimp only [toTFlat]
+        rw [iht mat' ht od' hIds, ihe mat' he od' hIds],
+    fun mat j args hΓ hΔ hll hm hwf outD _ => by
+      obtain ⟨hj, ha⟩ := wf_jump hwf
+      obtain ⟨lvl, hlk, hidx⟩ := lookupL_jump_eq hΔ hll hj
+      dsimp only [denote]; rw [hlk, denoteArgs_eq_some_resolveEnvArgs hΓ hm args ha]
+      dsimp only [cmpSink, cmpSinkWithFlat]
+      exact matArgsFlat_eq _ _ mat _ fun od' _ _ => by
+        dsimp only [toTFlat, idxLabel]
+        rw [hidx],
+    fun mat vs' hΓ _ _ hm hwf outD _ => by
+      dsimp only [denote]; rw [denoteArgs_eq_some_resolveEnvArgs hΓ hm vs' hwf]
+      dsimp only [cmpSink, cmpSinkWithFlat]
+      exact matArgsFlat_eq _ _ mat _ fun _ _ _ => rfl,
+    fun mat f args hΓ _ _ hm hwf outD _ => by
+      dsimp only [denote]; rw [denoteArgs_eq_some_resolveEnvArgs hΓ hm args hwf]
+      dsimp only [cmpSink, cmpSinkWithFlat]
+      exact matArgsFlat_eq _ _ mat _ fun _ _ _ => rfl,
+    fun _ _ _ _ _ _ _ _ => rfl,
+    fun mat bodies k _ hΔ hll _ hwf ihB ihK outD hIds => by
+      obtain ⟨hb, hk⟩ := wf_group hwf
+      dsimp only [denote, cmpSink, cmpSinkWithFlat, toTFlat]
+      have hb' := ihB mat (CtxTypes.push _ hΔ) hll.pushTup hb outD hIds
+      have hk' := ihK mat (CtxTypes.push _ hΔ) hll.pushTup hk outD hIds
+      rw [pushTup_length] at hb' hk'
+      rw [hb', hk'],
+    fun _ _ _ _ _ _ _ _ => rfl,
+    @fun _ ts _ _ _ vs _ inD _ _ mat b bs hΓ _ _ hm hwf ihb ihbs outD hIds => by
+      obtain ⟨hb, hbs⟩ := wf_cons hwf
+      have hlen : inD = vs.length := hm.1
+      dsimp only [denoteB, cmpSinkB, cmpSinkBWithFlat, toTBlocks]
+      rw [ihb (outD' := 0) mat (ctxTypes_pushTup_rev _ hΓ)
+          (trieCtxMatch_insertTupEnv hm (freshSVals ts (Tup.levels ts outD) inD)) hb
+          (outD + ts.length) (by simpa [hlen] using hIds.freshSVals (Tup.levels ts outD)),
+        ihbs mat hbs outD hIds]⟩
+
+private theorem tupFreshWith_eq_freshSVals :
+    {ts : List Ty} → (xs : Tup K ts) → (k : Nat) →
+    tupFreshWith (W := SVal K) (fun x next => .val (.var x) next) ts xs k = freshSVals ts xs k
+  | [], (), _ => rfl
+  | _ :: _, (_, xs), k => by
+    dsimp only [tupFreshWith, freshSVals]
+    rw [tupFreshWith_eq_freshSVals xs (k + 1)]
+
+private theorem cmpSinkFlat_eq {as rs : List Ty} (tf : TFlat rs)
+    (hwf : tf.wfCheck (pushTypes as []) [] = true) :
+    cmpSinkFlat as tf = reifyFunc (Func.cmpSink (denoteFunc (as := as) tf)) := by
+  have hm := trieCtxMatch_initEnv (W := SVal K) (fun x next => .val (.var x) next) as
+  rw [tupFreshWith_eq_freshSVals] at hm
+  have hIds : SValsIds (pushTup (freshSVals as (Tup.levels as 0) 0) []) :=
+    SValsIds.freshSVals (Tup.levels as 0) SValsIds.nil
+  have h := cmpSinkWithFlat_both.1 tf [] (CtxTypes.push _ .nil) .nil CtxLevels.nil hm hwf
+    (_outD := 0) as.length hIds
+  dsimp only [cmpSinkFlat, Func.cmpSink, reifyFunc, denoteFunc] at h ⊢
+  exact h.symm
+
+private theorem ifOptCoreFlat_eq (bitsOnly : Bool) {as rs : List Ty} (tf : TFlat rs)
+    (hwf : tf.wfCheck (pushTypes as []) [] = true) :
+    ifOptCoreFlat bitsOnly as tf =
+      reifyFunc (Func.ifOptCore bitsOnly (denoteFunc (as := as) tf)) := by
+  have hm := trieCtxMatch_initEnv (W := IVal K) (fun x next => (.var x, .var next)) as
+  have h := (ifOptWithFlat_both bitsOnly).1 tf 0 (CtxTypes.push _ .nil) .nil hm
+    TrieCtxMatch.empty hwf (outVD := as.length) (outLD := 0)
+  dsimp only [ifOptCoreFlat, Func.ifOptCore, reifyFunc, denoteFunc] at h ⊢
+  exact h.symm
+
 public section
 
 theorem ifOptFlat_eq (bitsOnly : Bool) {as rs : List Ty} (tf : TFlat rs)
     (hwf : tf.wfCheck (pushTypes as []) [] = true) :
     ifOptFlat bitsOnly as tf =
       reifyFunc (Func.ifOptWith bitsOnly (denoteFunc (as := as) tf)) := by
-  have hm := trieCtxMatch_initEnv (W := IVal K) (fun x next => (.var x, .var next)) as
-  have h := (ifOptWithFlat_both bitsOnly).1 tf 0 (CtxTypes.push _ .nil) .nil hm
-    TrieCtxMatch.empty hwf (outVD := as.length) (outLD := 0)
-  dsimp only [ifOptFlat, Func.ifOptWith, reifyFunc, denoteFunc] at h ⊢
-  exact h.symm
+  cases bitsOnly
+  · exact ifOptCoreFlat_eq false tf hwf
+  · dsimp only [ifOptFlat, Func.ifOptWith]
+    have hwf1 : (ifOptCoreFlat true as tf).wfCheck (pushTypes as []) [] = true :=
+      wfCheck_of_flat_eq (Func.ifOptCore_wf true) tf hwf (ifOptCoreFlat_eq true tf hwf)
+    have hden1 : denoteFunc (as := as) (ifOptCoreFlat true as tf) =
+        Func.ifOptCore true (denoteFunc (as := as) tf) :=
+      denoteFunc_of_flat_eq (Func.ifOptCore_wf true) tf hwf (ifOptCoreFlat_eq true tf hwf)
+    rw [cmpSinkFlat_eq (ifOptCoreFlat true as tf) hwf1, hden1]
+    simp only [↓reduceIte]
 
 theorem ifOptFlat_false_eq {as rs : List Ty} (tf : TFlat rs)
     (hwf : tf.wfCheck (pushTypes as []) [] = true) :

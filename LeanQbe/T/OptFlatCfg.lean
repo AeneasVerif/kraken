@@ -530,7 +530,8 @@ def checkDiamondFlat (bitsOnly : Bool) (jId : Nat) (jTs : List Ty)
     if isSelectSigWith bitsOnly jTs then
       match checkArmFlat (.loc jId jTs) 2 4 inLD inLE t,
             checkArmFlat (.loc jId jTs) 2 4 inLD inLE e with
-      | some (pT, _), some (pE, _) => some (.jnz pT pE)
+      | some (pT, _), some (pE, _) =>
+        some (.jnz pT pE)
       | _, _ =>
         (checkStoreArmsFlat bitsOnly (.loc jId jTs) inVD inVE inLD inLE outVD t e).map .jnzStore
     else none
@@ -897,12 +898,175 @@ def ifOptBWithFlat {rs : List Ty} (bitsOnly : Bool) (depth : Nat) :
       (ifOptBWithFlat bitsOnly depth bs inVD inVE inLD inLE outVD outLD)
 end
 
+/-- True iff `a : Arg K t` at de Bruijn depth `curD` refers to binder level `cid`. -/
+def flatArgIsLevel (cid curD : Nat) {t : Ty} : Arg K t → Bool
+  | .var idx =>
+    match levelArg curD (.var idx : Arg K t) with
+    | .var lvl => lvl == cid
+    | .imm _ => false
+  | .imm _ => false
+
+/-- True iff any argument in `args` at depth `curD` refers to binder level `cid`. -/
+def flatArgsHasLevel (cid curD : Nat) : {ts : List Ty} → Tup (Arg K) ts → Bool
+  | [], () => false
+  | _ :: _, (a, as) => flatArgIsLevel cid curD a || flatArgsHasLevel cid curD as
+
+/-- Non-recursive `.let_` step for `shouldDeferCmpFlat`. -/
+def shouldDeferCmpFlatStep (cid : Nat) (sawClobber : Bool) (curD : Nat) {rs : List Ty}
+    (rec : Bool → Nat → TFlat rs → Bool) :
+    {sig ts : List Ty} → OpCode sig ts → Tup (Arg K) sig → TFlat rs → Bool
+  | _, _, .select _, (cond, aT, aE, ()), k =>
+    if flatArgIsLevel cid curD cond && !flatArgIsLevel cid curD aT &&
+        !flatArgIsLevel cid curD aE then
+      sawClobber
+    else if flatArgIsLevel cid curD cond || flatArgIsLevel cid curD aT ||
+        flatArgIsLevel cid curD aE then
+      false
+    else
+      rec true (curD + 1) k
+  | _, ts, code, args, k =>
+    if flatArgsHasLevel cid curD args then false
+    else
+      rec (sawClobber || isCmpClobberOp code) (curD + ts.length) k
+
+/-- Direct `TFlat` mirror of `IfOptImpl.shouldDeferCmp`. -/
+def shouldDeferCmpFlat (cid : Nat) : Nat → Bool → Nat → {rs : List Ty} → TFlat rs → Bool
+  | 0, _, _, _, _ => false
+  | fuel + 1, sawClobber, curD, _, .let_ ⟨code, args⟩ k =>
+    shouldDeferCmpFlatStep cid sawClobber curD
+      (fun s c k' => shouldDeferCmpFlat cid fuel s c k') code args k
+  | _ + 1, _, _, _, _ => false
+
+/-- Direct `TFlat` mirror of `IfOptImpl.matArg`. -/
+def matArgFlat {rs : List Ty} (outVD : Nat) (mat : List (Nat × Nat)) :
+    {t : Ty} → Arg (SVal K) t →
+    (Nat → List (Nat × Nat) → Arg K t → TFlat rs) → TFlat rs
+  | _, .imm c, cont => cont outVD mat (.imm c)
+  | _, .var (.val a _), cont => cont outVD mat a
+  | .bool, .var (.defer d), cont =>
+    match lookupMat (V := K) d.id mat with
+    | some lvl => cont outVD mat (.var lvl)
+    | none =>
+      .let_ ⟨.cmp d.co (.bits d.n) .bool rfl,
+          (idxArg outVD d.lhs, idxArg outVD d.rhs, ())⟩
+        (cont (outVD + 1) ((d.id, outVD) :: mat) (.var outVD))
+
+/-- Direct `TFlat` mirror of `IfOptImpl.matArgs`. -/
+def matArgsFlat {rs : List Ty} (outVD : Nat) (mat : List (Nat × Nat)) :
+    {ts : List Ty} → Tup (Arg (SVal K)) ts →
+    (Nat → List (Nat × Nat) → Tup (Arg K) ts → TFlat rs) → TFlat rs
+  | [], (), cont => cont outVD mat ()
+  | _ :: _, (a, as), cont =>
+    matArgFlat outVD mat a fun od' mat' a' =>
+    matArgsFlat od' mat' as fun od'' mat'' as' =>
+    cont od'' mat'' (a', as')
+
+mutual
+/-- Recursive `TFlat` mirror of `LeanQbe.T.cmpSink`. -/
+def cmpSinkWithFlat {rs : List Ty} :
+    TFlat rs → Nat → Trie ((t : Ty) × SVal K t) → Nat → List (Nat × Nat) → TFlat rs
+  | .let_ (ts := ts) ⟨code, args⟩ k, inVD, inVE, outVD, mat =>
+    match code, args, k with
+    | .cmp co t m h, args, k =>
+      match t, m, h, args, k with
+      | .bits n, .bool, _, (a, b, ()), k =>
+        let a' := soutBits (resolveEnvArg inVD inVE a)
+        let b' := soutBits (resolveEnvArg inVD inVE b)
+        if shouldDeferCmpFlat inVD 16 false (inVD + 1) k then
+          let d : DeferCmp K := ⟨inVD, n, co, a', b'⟩
+          cmpSinkWithFlat k (inVD + 1) (inVE.insert inVD ⟨.bool, .defer d⟩) outVD mat
+        else
+          let inVE' := inVE.insert inVD ⟨.bool, .val (.var outVD) inVD⟩
+          .let_ ⟨.cmp co (.bits n) .bool rfl, (idxArg outVD a', idxArg outVD b', ())⟩
+            (cmpSinkWithFlat k (inVD + 1) inVE' (outVD + 1) mat)
+      | .bool, m, h, args, k =>
+        let args' := resolveEnvArgs inVD inVE args
+        matArgsFlat outVD mat args' fun od' mat' margs =>
+          let wrapped := freshSVals [m] (Tup.levels [m] od') inVD
+          .let_ ⟨.cmp co .bool m h, idxArgs od' margs⟩
+            (cmpSinkWithFlat k (inVD + 1) (insertTupEnv inVD inVE wrapped) (od' + 1) mat')
+      | .float f, m, h, args, k =>
+        let args' := resolveEnvArgs inVD inVE args
+        matArgsFlat outVD mat args' fun od' mat' margs =>
+          let wrapped := freshSVals [m] (Tup.levels [m] od') inVD
+          .let_ ⟨.cmp co (.float f) m h, idxArgs od' margs⟩
+            (cmpSinkWithFlat k (inVD + 1) (insertTupEnv inVD inVE wrapped) (od' + 1) mat')
+      | .pair x y, m, h, args, k =>
+        let args' := resolveEnvArgs inVD inVE args
+        matArgsFlat outVD mat args' fun od' mat' margs =>
+          let wrapped := freshSVals [m] (Tup.levels [m] od') inVD
+          .let_ ⟨.cmp co (.pair x y) m h, idxArgs od' margs⟩
+            (cmpSinkWithFlat k (inVD + 1) (insertTupEnv inVD inVE wrapped) (od' + 1) mat')
+    | code, args, k =>
+      let args' := resolveEnvArgs inVD inVE args
+      matArgsFlat outVD mat args' fun od' mat' margs =>
+        let wrapped := freshSVals ts (Tup.levels ts od') inVD
+        .let_ ⟨code, idxArgs od' margs⟩
+          (cmpSinkWithFlat k (inVD + ts.length) (insertTupEnv inVD inVE wrapped)
+            (od' + ts.length) mat')
+  | .load t a k, inVD, inVE, outVD, mat =>
+    matArgFlat outVD mat (resolveEnvArg inVD inVE a) fun od' mat' a' =>
+      let inVE' := inVE.insert inVD ⟨t, .val (.var od') inVD⟩
+      .load t (idxArg od' a') (cmpSinkWithFlat k (inVD + 1) inVE' (od' + 1) mat')
+  | .store v a k, inVD, inVE, outVD, mat =>
+    matArgFlat outVD mat (resolveEnvArg inVD inVE v) fun od₁ mat₁ v' =>
+    matArgFlat od₁ mat₁ (resolveEnvArg inVD inVE a) fun od₂ mat₂ a' =>
+      .store (idxArg od₂ v') (idxArg od₂ a') (cmpSinkWithFlat k inVD inVE od₂ mat₂)
+  | .call f bs args k, inVD, inVE, outVD, mat =>
+    matArgsFlat outVD mat (resolveEnvArgs inVD inVE args) fun od' mat' args' =>
+      let wrapped := freshSVals bs (Tup.levels bs od') inVD
+      .call f bs (idxArgs od' args')
+        (cmpSinkWithFlat k (inVD + bs.length) (insertTupEnv inVD inVE wrapped)
+          (od' + bs.length) mat')
+  | .jnz c t e, inVD, inVE, outVD, mat =>
+    matArgFlat outVD mat (resolveEnvArg inVD inVE c) fun od' mat' c' =>
+      .jnz (idxArg od' c')
+        (cmpSinkWithFlat t inVD inVE od' mat')
+        (cmpSinkWithFlat e inVD inVE od' mat')
+  | .jump j args, inVD, inVE, outVD, mat =>
+    matArgsFlat outVD mat (resolveEnvArgs inVD inVE args) fun od' _ args' =>
+      .jump j (idxArgs od' args')
+  | .ret vs, inVD, inVE, outVD, mat =>
+    matArgsFlat outVD mat (resolveEnvArgs inVD inVE vs) fun od' _ vs' =>
+      .ret (idxArgs od' vs')
+  | .exit f args, inVD, inVE, outVD, mat =>
+    matArgsFlat outVD mat (resolveEnvArgs inVD inVE args) fun od' _ args' =>
+      .exit f (idxArgs od' args')
+  | .hlt, _, _, _, _ => .hlt
+  | .group bodies k, inVD, inVE, outVD, mat =>
+    .group (cmpSinkBWithFlat bodies inVD inVE outVD mat)
+      (cmpSinkWithFlat k inVD inVE outVD mat)
+
+/-- Block-list companion of `cmpSinkWithFlat`. -/
+def cmpSinkBWithFlat {rs : List Ty} :
+    {sig : List (List Ty)} → TBlocks rs sig → Nat → Trie ((t : Ty) × SVal K t) →
+    Nat → List (Nat × Nat) → TBlocks rs sig
+  | _, .nil, _, _, _, _ => .nil
+  | _, .cons (ts := ts) b bs, inVD, inVE, outVD, mat =>
+    let wrapped := freshSVals ts (Tup.levels ts outVD) inVD
+    .cons
+      (cmpSinkWithFlat b (inVD + ts.length) (insertTupEnv inVD inVE wrapped)
+        (outVD + ts.length) mat)
+      (cmpSinkBWithFlat bs inVD inVE outVD mat)
+end
+
+/-- Direct `TFlat` pure `.bits` compare sinking matching
+`reifyFunc (Func.cmpSink (denoteFunc tf))`. -/
+def cmpSinkFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs) : TFlat rs :=
+  cmpSinkWithFlat tf as.length (initEnv (fun x next => .val (.var x) next) as) as.length []
+
+/-- Direct `TFlat` core if-conversion matching
+`reifyFunc (Func.ifOptCore bitsOnly (denoteFunc tf))`. -/
+def ifOptCoreFlat (bitsOnly : Bool) (as : List Ty) {rs : List Ty} (tf : TFlat rs) : TFlat rs :=
+  ifOptWithFlat bitsOnly 0 tf as.length (initEnv (fun x next => (.var x, .var next)) as)
+    0 .empty as.length 0
+
 /-- Direct `TFlat` diamond `jnz` → `select` if-conversion matching
 `if bitsOnly then reifyFunc (Func.ifOptBits (denoteFunc tf))`
 `else reifyFunc (Func.ifOpt (denoteFunc tf))`. -/
 def ifOptFlat (bitsOnly : Bool) (as : List Ty) {rs : List Ty} (tf : TFlat rs) : TFlat rs :=
-  ifOptWithFlat bitsOnly 0 tf as.length (initEnv (fun x next => (.var x, .var next)) as)
-    0 .empty as.length 0
+  if bitsOnly then cmpSinkFlat as (ifOptCoreFlat true as tf)
+  else ifOptCoreFlat false as tf
 
 /-- `TFlatFn` wrapper for `ifOptFlat`. -/
 def ifOptFlatFn (bitsOnly : Bool) (f : TFlatFn) : TFlatFn :=
