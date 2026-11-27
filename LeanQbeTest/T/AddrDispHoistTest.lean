@@ -40,7 +40,7 @@ Verifies `LegalTarget.foldAddrDisp` (`true` on `armLegalTarget`, `false` on `x64
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbeTest.T.AddrDispHoistTest
 

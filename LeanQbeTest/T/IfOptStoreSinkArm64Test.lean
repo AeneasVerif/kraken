@@ -31,7 +31,7 @@ namespace LeanQbeTest.T.IfOptStoreSinkArm64Test
 open LeanQbe.T
 
 /-- `full_m6_sweep_sim`-shaped RMW diamond for Arm64 codegen check. -/
-@[expose] def rmwDiaArm : Func [i32, i64, i32, i64] [i64] :=
+def rmwDiaArm : Func [i32, i64, i32, i64] [i64] :=
   fun _ _ (flag, sig, gv, mask, ()) =>
   .let_ (op2 (.cmp .eq i32) (.var flag) (.imm 1#32)) fun (cond, ()) =>
   .jnz (.var cond)
@@ -52,7 +52,7 @@ open LeanQbe.T
      .ret (.imm 0#64, ()))
 
 /-- Pure identical-address store diamond inside 1-block `.group` for Arm64 codegen check. -/
-@[expose] def pureStoreGroupDiaArm : Func [i32, i64, i64, i64] [i64] :=
+def pureStoreGroupDiaArm : Func [i32, i64, i64, i64] [i64] :=
   fun _ _ (flag, addr, x, y, ()) =>
   .let_ (op2 (.cmp .eq i32) (.var flag) (.imm 1#32)) fun (c, ()) =>
   .group (sig := [[i64]])
@@ -67,7 +67,7 @@ open LeanQbe.T
          .jump J (.var b, ())))
 
 /-- Negative guard fixture (`addr1 ≠ addr2`) must preserve conditional branch on Arm64. -/
-@[expose] def negMismatchAddrArm : Func [i32, i64, i64, i64] [i64] :=
+def negMismatchAddrArm : Func [i32, i64, i64, i64] [i64] :=
   fun _ _ (flag, a1, a2, v, ()) =>
   .let_ (op2 (.cmp .eq i32) (.var flag) (.imm 1#32)) fun (c, ()) =>
   .jnz (.var c)

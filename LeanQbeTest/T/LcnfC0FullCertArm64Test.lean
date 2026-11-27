@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.Arm64.LcnfC0FullCertArm64
 public import LeanQbe.T.Arm64.TargLemmas
 public import LeanQbe.T.Logic.MemLemmas
-import all Kraken.Separation
+import LeanQbe.T.Bedrock2.Phoas
 meta import Lean
 meta import LeanQbe.T.Arm64.LcnfC0FullCertArm64
 
@@ -104,7 +104,7 @@ private theorem slab_machine_dmem_entry {as : List Ty} {mem : Mem 64} (b : Nat)
   have hdmem : (armInitState (as := as) b [] args).dmem = armInitMem b [] := by
     dsimp only [armInitState]
   rw [hsp, hdmem, sep_emp]
-  exact ⟨mem, armInitMem b [], rfl, hdisj, rfl, armInitMem_empty_entry hb⟩
+  exact LeanQbe.T.Bedrock2.split_sep ⟨rfl, hdisj⟩ rfl (armInitMem_empty_entry hb)
 
 private theorem slab_machine_argsIn {as : List Ty} (mem : Mem 64) (b : Nat) (args : Tup Val as)
     (hassign : (armTarget.toIsa.assignArgs as).isSome = true) :

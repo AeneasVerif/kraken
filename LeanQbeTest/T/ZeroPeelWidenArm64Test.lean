@@ -54,20 +54,20 @@ open Lean in
     if (`Kraken.X64).isPrefixOf m || (`LeanQbe.T.Amd64).isPrefixOf m then
       throwError s!"unexpected X64 import `{m}` in ZeroPeelWidenArm64Test"
 
-@[expose] def countAsmLines (asm : String) (sub : String) : Nat :=
+def countAsmLines (asm : String) (sub : String) : Nat :=
   ((asm.splitOn "\n").filter fun s => (s.splitOn sub).length > 1).length
 
-@[expose] def hasSubstring (asm sub : String) : Bool :=
+def hasSubstring (asm sub : String) : Bool :=
   (asm.splitOn sub).length > 1
 
-@[expose] def compileArm64Asm (name : String) (as rs : List Ty) (body : Func as rs) :
+def compileArm64Asm (name : String) (as rs : List Ty) (body : Func as rs) :
     Except String String := do
   let tf := reifyFunc body
   let h := Fn.computeHints armTarget.toIsa armLegalTarget ⟨name, as, rs, body⟩
   let ds ← compileFlatFn armTarget.toIsa armLegalTarget h ⟨name, as, rs, tf⟩
   pure (Kraken.AArch64.print ds)
 
-@[expose] def u32Zero8 : Func [i64, i32] [i64] := fun _ _ (ptr, n, ()) =>
+def u32Zero8 : Func [i64, i32] [i64] := fun _ _ (ptr, n, ()) =>
   loop1 (ts := [i32])
     (fun loop (i, ()) =>
       .let_ (op2 (.ult i32) (.var i) (.var n)) fun (c, ()) =>
@@ -80,7 +80,7 @@ open Lean in
         (.ret (.var ptr, ())))
     (fun loop => .jump loop (.imm 0#32, ()))
 
-@[expose] def u32MultiFill2 : Func [i64, i64, i32] [i64] := fun _ _ (p0, p1, n, ()) =>
+def u32MultiFill2 : Func [i64, i64, i32] [i64] := fun _ _ (p0, p1, n, ()) =>
   loop1 (ts := [i32])
     (fun loop (i, ()) =>
       .let_ (op2 (.ult i32) (.var i) (.var n)) fun (c, ()) =>
@@ -96,7 +96,7 @@ open Lean in
         (.ret (.var p0, ())))
     (fun loop => .jump loop (.imm 0#32, ()))
 
-@[expose] def k6Loop1Shape : Func [i64, i64, i64, i64, i64, i64, i32] [i32] :=
+def k6Loop1Shape : Func [i64, i64, i64, i64, i64, i64, i32] [i32] :=
   fun _ _ (a0, a1, a2, a3, a4, a5, n, ()) =>
     loop1 (ts := [i32])
       (fun loop (i, ()) =>
@@ -145,10 +145,10 @@ open Lean in
   | .ok optAsm => hasSubstring optAsm "#4\n" || hasSubstring optAsm "#2\n"
   | .error _ => false
 
-@[expose] def fnU32Zero8 : Fn := ⟨"u32_zero8", [i64, i32], [i64], u32Zero8⟩
-@[expose] def fnU32MultiFill2 : Fn := ⟨"u32_multi_fill2", [i64, i64, i32], [i64], u32MultiFill2⟩
+def fnU32Zero8 : Fn := ⟨"u32_zero8", [i64, i32], [i64], u32Zero8⟩
+def fnU32MultiFill2 : Fn := ⟨"u32_multi_fill2", [i64, i64, i32], [i64], u32MultiFill2⟩
 
-@[expose] def widenArm64SrcMod : Module where
+def widenArm64SrcMod : Module where
   fns := [fnU32Zero8, fnU32MultiFill2]
 
 inline_mod! widenArm64Mod widenArm64SrcMod {} (compile := false)

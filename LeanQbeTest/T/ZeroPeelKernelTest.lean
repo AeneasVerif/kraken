@@ -23,7 +23,7 @@ namespace LeanQbe.T.ZeroPeelKernelTest
 open LeanQbe.T
 
 /-- Single-block byte-scanning loop triggering `ZeroPeel.peelSingle` under default config. -/
-@[expose] def peelLoop : Func [i64] [.bits 8] := fun _ _ (ptr, ()) =>
+def peelLoop : Func [i64] [.bits 8] := fun _ _ (ptr, ()) =>
   loop1 (ts := [i64, i64])
     (fun loop (p, n, ()) =>
       .load (.bits 8) (.var p) fun b =>
@@ -36,7 +36,7 @@ open LeanQbe.T
     (fun loop => .jump loop (.var ptr, .imm 0, ()))
 
 /-- Byte zero-fill loop triggering `ZeroPeel.widenFillSingle` under default config. -/
-@[expose] def fillLoop : Func [i64, i64] [i64] := fun _ _ (ptr, n, ()) =>
+def fillLoop : Func [i64, i64] [i64] := fun _ _ (ptr, n, ()) =>
   loop1 (ts := [i64])
     (fun loop (i, ()) =>
       .let_ (op2 (.ult i64) (.var i) (.var n)) fun (cond, ()) =>
@@ -49,7 +49,7 @@ open LeanQbe.T
     (fun loop => .jump loop (.imm 0, ()))
 
 /-- Total post-`ZeroPeel` `TFlat` node count across `LratBytesProg` (`6` functions). -/
-@[expose] def lratZpSize : Nat :=
+def lratZpSize : Nat :=
   Examples.LratBytes.lratBytesFns.foldl
     (fun acc f => acc + ZeroPeel.zpSize (reifyFunc (Func.zeroPeel f.body))) 0
 
@@ -64,10 +64,10 @@ theorem peel_size_le :
   decide +kernel
 
 theorem peel_budget0 :
-    Func.zeroPeelWith { peelBudget := 0 } peelLoop = peelLoop := rfl
+    Func.zeroPeelWith { peelBudget := 0 } peelLoop = peelLoop := by rfl
 
 theorem peel_maxFnSize1 :
-    Func.zeroPeelWith { maxFnSize := 1 } peelLoop = peelLoop := rfl
+    Func.zeroPeelWith { maxFnSize := 1 } peelLoop = peelLoop := by rfl
 
 theorem fill_checkTFlat :
     Func.checkTFlat (Func.zeroPeel fillLoop) = true := by decide +kernel
@@ -80,7 +80,7 @@ theorem fill_size_le :
   decide +kernel
 
 theorem fill_unroll0 :
-    Func.zeroPeelWith { unrollN := 0, peelBudget := 0 } fillLoop = fillLoop := rfl
+    Func.zeroPeelWith { unrollN := 0, peelBudget := 0 } fillLoop = fillLoop := by rfl
 
 theorem lrat_zp_ble :
     Nat.ble lratZpSize 999999 = true := by decide +kernel

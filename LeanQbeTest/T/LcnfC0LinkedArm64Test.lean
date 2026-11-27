@@ -4,7 +4,7 @@ public import LeanQbe.T.Arm64.LcnfC0FullCertArm64
 public import LeanQbe.T.Arm64.TargLemmas
 public import LeanQbe.T.LeanLCNF.LcnfC0DemoProof
 public import LeanQbe.T.Logic.MemLemmas
-import all Kraken.Separation
+import LeanQbe.T.Bedrock2.Phoas
 meta import Lean
 meta import LeanQbe.T.MainCertElab
 meta import LeanQbe.T.Arm64.Targ
@@ -59,7 +59,7 @@ compile_linked_chunks! demoNatStrArm64ProgCert armTarget armLayout armLegalTarge
 
 /-- Full `83`-function AAPCS64 AArch64 linked certificate combining `rtC0CoreArm64Cert` (`80` fns)
 and `demoNatStrArm64ProgCert` (`3` fns) via `LcnfC0LinkKit.linkRtC0Cert`. -/
-@[expose] noncomputable def demoNatStrArm64Cert :
+noncomputable def demoNatStrArm64Cert :
     LinkedCert armTarget armLayout armLegalTarget armLabelClean
       demoNatStrLinkedMod [] rtExitSyms 64 (Nat.max 2048 2048) :=
   linkRtC0Cert rtC0CoreArm64Cert demoNatStrArm64ProgCert (by t_kernel_rfl)
@@ -173,7 +173,7 @@ private theorem slab_machine_dmem_entry {as : List Ty} {mem : Mem 64} (b : Nat)
   have hdmem : (armInitState (as := as) b [] args).dmem = armInitMem b [] := by
     dsimp only [armInitState]
   rw [hsp, hdmem, sep_emp]
-  exact ⟨mem, armInitMem b [], rfl, hdisj, rfl, armInitMem_empty_entry hb⟩
+  exact LeanQbe.T.Bedrock2.split_sep ⟨rfl, hdisj⟩ rfl (armInitMem_empty_entry hb)
 
 private theorem slab_machine_argsIn {as : List Ty} (mem : Mem 64) (b : Nat) (args : Tup Val as)
     (hassign : (armTarget.toIsa.assignArgs as).isSome = true) :

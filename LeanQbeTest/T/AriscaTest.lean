@@ -19,7 +19,7 @@ namespace LeanQbeTest.T.AriscaTest
 
 open LeanQbe.T.Examples.Arisca
 
-@[expose] public section
+public section
 
 noncomputable section
 

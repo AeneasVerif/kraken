@@ -69,7 +69,7 @@ abbrev addrAbs : AddrExpr := { base := none, idx := none, disp := .int64 4096 }
 /-- Corpus exercising all `46` scalar operations (`27` Stage-A `leanqbe0` + `19` scalar extras),
 all `4` widths, all `16` GPRs + `ah..dh`, all `16` condition codes, addressing modes, and `Int64`
 boundary immediates. -/
-@[expose] def allFormsProg : List Directive :=
+def allFormsProg : List Directive :=
   [ .label "dummy_add"
   , .label ".L_1_0"
   -- Data movement, subregisters, addressing modes, Int64 edge values
@@ -176,31 +176,31 @@ boundary immediates. -/
   , x64RetD ]
 
 /-- Kernel `rfl` check: every directive in `allFormsProg` lies in `DirSubset0`. -/
-theorem allFormsProg_dirSubset0_rfl : allFormsProg.all isDir0 = true := rfl
+theorem allFormsProg_dirSubset0_rfl : allFormsProg.all isDir0 = true := by rfl
 
 /-- Kernel `rfl` check on `INT64_MIN` decimal serialization (`-9223372036854775808`). -/
 theorem printAmd64Asm0_i64Min_rfl :
     printAmd64Asm0NoTrail [ins (.mov (.reg (q .rax)) (.imm (.int64 i64Min)))] =
-      "movq $-9223372036854775808, %rax".toUTF8 := rfl
+      "movq $-9223372036854775808, %rax".toUTF8 := by rfl
 
 /-- Kernel `rfl` check on `movzbl (%rax), %eax` (`.mem` source suffixing & `disp = 0` omission). -/
 theorem printAmd64Asm0_movzbl_rfl :
     printAmd64Asm0NoTrail [ins32 (.movzx (.reg (d .rax)) (.mem addrBase0 : RegOrMem .W8))] =
-      "movzbl (%rax), %eax".toUTF8 := rfl
+      "movzbl (%rax), %eax".toUTF8 := by rfl
 
 /-- Kernel `rfl` check on indexed stack slot `movq (%rsp,%r10,1), %r15`. -/
 theorem printAmd64Asm0_slotIdx_rfl :
     printAmd64Asm0NoTrail [ins (.mov (.reg (q .r15)) (.mem addrSpR10))] =
-      "movq (%rsp,%r10,1), %r15".toUTF8 := rfl
+      "movq (%rsp,%r10,1), %r15".toUTF8 := by rfl
 
 /-- Kernel `rfl` check on `movsx %eax, %rax` (`.reg` source unsuffixed form). -/
 theorem printAmd64Asm0_movsx_reg_rfl :
     printAmd64Asm0NoTrail [ins (.movsx (.reg (q .rax)) (.reg (d .rax)))] =
-      "movsx %eax, %rax".toUTF8 := rfl
+      "movsx %eax, %rax".toUTF8 := by rfl
 
 /-- Kernel `rfl` check on `call *%rax` indirect register target. -/
 theorem printAmd64Asm0_callInd_rfl :
-    printAmd64Asm0NoTrail [ins (.call (.reg (q .rax)))] = "call *%rax".toUTF8 := rfl
+    printAmd64Asm0NoTrail [ins (.call (.reg (q .rax)))] = "call *%rax".toUTF8 := by rfl
 
 #guard printAsm0
     [ins (.call (.reg (q .rax))), ins (.call (.mem addrDispPos)),
@@ -209,7 +209,7 @@ theorem printAmd64Asm0_callInd_rfl :
 
 /-- Kernel `rfl` check on minimal `.text\nret\n` emission through `printDir0Asm0`. -/
 theorem printDir0Asm0_minimal_rfl :
-    printDir0Asm0 [] [x64RetD] = ".text\nret\n".toUTF8 := rfl
+    printDir0Asm0 [] [x64RetD] = ".text\nret\n".toUTF8 := by rfl
 
 #guard printDir0Asm0 ["f0"] [.label "f0", x64RetD] == ".text\n.globl f0\nf0:\nret\n".toUTF8
 
@@ -226,7 +226,7 @@ theorem printDir0Asm0_minimal_rfl :
 /-! ## 2. Dummy `TFlatFn` End-to-End Compilation & `PrintAsm0` Emission -/
 
 /-- Dummy `Frontend.C0.TFlatFn`: `dummy_add(a, b) = a + b`. -/
-@[expose] def dummyAddTFlatFn : Frontend.C0.TFlatFn where
+def dummyAddTFlatFn : Frontend.C0.TFlatFn where
   name := "dummy_add"
   as := [i64, i64]
   rs := [i64]
@@ -235,7 +235,7 @@ theorem printDir0Asm0_minimal_rfl :
       (.ret (.var 0, ()))
 
 /-- Dummy `Frontend.C0.TFlatFn`: `dummy_sum_to(n) = 0 + 1 + ... + (n - 1)` via `.group` loop. -/
-@[expose] def dummySumToTFlatFn : Frontend.C0.TFlatFn where
+def dummySumToTFlatFn : Frontend.C0.TFlatFn where
   name := "dummy_sum_to"
   as := [i64]
   rs := [i64]

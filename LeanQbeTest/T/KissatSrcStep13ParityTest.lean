@@ -44,7 +44,7 @@ open LeanQbe.T.Examples.Kissat.PatchModule
 public section
 
 /-- Combined `S0..S5` replacement functions (`101` fns across `S0..S5`). -/
-@[expose] def step13Repls : List Fn :=
+def step13Repls : List Fn :=
   FullFidelityStep13S0.fidStep13S0Repls ++
   FullFidelityStep13S1.fidStep13S1Repls ++
   FullFidelityStep13S2.fidStep13S2Repls ++
@@ -53,7 +53,7 @@ public section
   FullFidelityStep13S5.fidStep13S5Repls
 
 /-- Combined `S0..S5` newly added helper functions (`29` fns across `S0..S5`). -/
-@[expose] def step13Adds : List Fn :=
+def step13Adds : List Fn :=
   FullFidelityStep13S0.fidStep13S0AddFns ++
   FullFidelityStep13S1.fidStep13S1Adds ++
   FullFidelityStep13S2.fidStep13S2Befores.flatMap Prod.snd ++
@@ -62,11 +62,11 @@ public section
   FullFidelityStep13S5.fidStep13S5Befores.flatMap Prod.snd
 
 /-- Full Step-13 ground-truth function pool (`546` total = `517` Step-12 + `29` S0..S5 adds). -/
-@[expose] def step13AllFns : List Fn :=
+def step13AllFns : List Fn :=
   spliceFns step13Repls FullFidelityAssemblyStep12.fidStep12Fns ++ step13Adds
 
 /-- Ground-truth Step-13 `Module` pool used as the reference RHS for `derive_reuse_bridge!`. -/
-@[expose] def step13PoolModule : LeanQbe.T.Module :=
+def step13PoolModule : LeanQbe.T.Module :=
   { fns := step13AllFns, externs := [], exits := [] }
 
 derive_reuse_bridge! step13Bridge Src.Full.kissatModule step13PoolModule

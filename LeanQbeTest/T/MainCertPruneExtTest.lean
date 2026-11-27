@@ -39,24 +39,24 @@ open LeanQbeTest.T.Common.Fixtures
 /-! ## 1. Base Module (`v1`: `[fnUsed, fnUnusedLight, fnCaller, fnTop]`) -/
 
 /-- Direct callee of `fnCaller`. -/
-@[expose] def fnUsed : Fn :=
+def fnUsed : Fn :=
   ⟨"p_used", [i64], [i64], fun _ _ (x, ()) =>
     .let_ ⟨.add i64, (.var x, .imm 7#64, ())⟩ fun (r, ()) =>
     .ret (.var r, ())⟩
 
 /-- Uncalled upstream leaf (small stack bound). -/
-@[expose] def fnUnusedLight : Fn :=
+def fnUnusedLight : Fn :=
   ⟨"p_unused", [i64], [i64], fun _ _ (x, ()) =>
     .ret (.var x, ())⟩
 
 /-- Extra uncalled upstream function inserted in `v2`. -/
-@[expose] def fnExtra : Fn :=
+def fnExtra : Fn :=
   ⟨"p_extra", [i64], [i64], fun _ _ (x, ()) =>
     .let_ ⟨.add i64, (.var x, .imm 1#64, ())⟩ fun (r, ()) =>
     .ret (.var r, ())⟩
 
 /-- Uncalled upstream function with a shifted (larger) stack bound in `v2` (calls `p_extra`). -/
-@[expose] def fnUnusedHeavy : Fn :=
+def fnUnusedHeavy : Fn :=
   ⟨"p_unused", [i64], [i64], fun _ _ (x, ()) =>
     .call "p_extra" (as := [i64]) (bs := [i64]) (.var x, ()) fun (a, ()) =>
     .call "p_extra" (as := [i64]) (bs := [i64]) (.var a, ()) fun (b, ()) =>
@@ -64,23 +64,23 @@ open LeanQbeTest.T.Common.Fixtures
     .ret (.var s, ())⟩
 
 /-- Calls ONLY `p_used` (never `p_unused` or `p_extra`). -/
-@[expose] def fnCaller : Fn :=
+def fnCaller : Fn :=
   ⟨"p_caller", [i64], [i64], fun _ _ (x, ()) =>
     .call "p_used" (as := [i64]) (bs := [i64]) (.var x, ()) fun (y, ()) =>
     .let_ ⟨.add i64, (.var y, .var x, ())⟩ fun (z, ()) =>
     .ret (.var z, ())⟩
 
 /-- Top entry calling `p_caller`. -/
-@[expose] def fnTop : Fn :=
+def fnTop : Fn :=
   ⟨"p_top", [i64], [i64], fun _ _ (x, ()) =>
     .call "p_caller" (as := [i64]) (bs := [i64]) (.var x, ()) fun (y, ()) =>
     .ret (.var y, ())⟩
 
-@[expose] def modV1 : Module := { fns := [fnUsed, fnUnusedLight, fnCaller, fnTop] }
-@[expose] def modV2 : Module := { fns := [fnExtra, fnUsed, fnUnusedHeavy, fnCaller, fnTop] }
+def modV1 : Module := { fns := [fnUsed, fnUnusedLight, fnCaller, fnTop] }
+def modV2 : Module := { fns := [fnExtra, fnUsed, fnUnusedHeavy, fnCaller, fnTop] }
 
-theorem modV1_len : modV1.fns.length = 4 := rfl
-theorem modV2_len : modV2.fns.length = 5 := rfl
+theorem modV1_len : modV1.fns.length = 4 := by rfl
+theorem modV2_len : modV2.fns.length = 5 := by rfl
 
 abbrev v1Slice1Mod : Module := { fns := modV1.fns.take 2 }
 abbrev v1Slice2Mod : Module := { fns := modV1.fns.drop 2 }
@@ -103,7 +103,7 @@ theorem pruned_c0_ext_name : certV1S2.aux.c0_ext.map (fun p => p.1.1) = ["p_used
 theorem pruned_c1_ext_len : certV1S2.aux.c1_ext.length = 1 := rfl
 theorem pruned_c1_ext_name : certV1S2.aux.c1_ext.map (fun p => p.1.1) = ["p_caller"] := rfl
 
-@[expose] noncomputable def v1Slices :
+noncomputable def v1Slices :
     List (ChunkSlice x64Target x64LegalTarget [] 0 2048 modV1.fns) :=
   [ ChunkSlice.ofCert 0 2 certV1S1 rfl
   , ChunkSlice.ofDrop 2 2 certV1S2 modV1_len (by decide) rfl ]
@@ -128,10 +128,10 @@ theorem unused_bound_shifted :
     certV1S1.aux.c1_bounds ≠ certV2Prefix.aux.c2_bounds := by
   decide
 
-theorem v2_tail_eq : modV2.fns.drop 3 = v1Slice2Mod.fns := rfl
+theorem v2_tail_eq : modV2.fns.drop 3 = v1Slice2Mod.fns := by rfl
 
 /-- Reuse `certV1S2` **100% verbatim** in `modV2` with ZERO `MainLinkReuseCover`! -/
-@[expose] noncomputable def v2Slices :
+noncomputable def v2Slices :
     List (ChunkSlice x64Target x64LegalTarget [] 0 2048 modV2.fns) :=
   [ ChunkSlice.ofCert 0 3 certV2Prefix rfl
   , ChunkSlice.ofDrop 3 2 certV1S2 modV2_len (by decide) v2_tail_eq ]
@@ -161,34 +161,34 @@ eval_prefix_ext! pExt2 x64Target x64LegalTarget (autoFns.take 4) (pruneFor := sl
 compile_linked_chunks! pS3
   x64Target x64Layout x64LegalTarget x64LabelClean slice3Mod 1 (ext := pExt2) (pruneExt := true)
 
-@[expose] noncomputable def treeSl1 :
+noncomputable def treeSl1 :
     ChunkSlice x64Target x64LegalTarget [] 0 2048 certMod.fns :=
   ChunkSlice.ofCert 0 2 pS1 rfl
 
-@[expose] noncomputable def treeSl2 :
+noncomputable def treeSl2 :
     ChunkSlice x64Target x64LegalTarget [] 0 2048 certMod.fns :=
   ChunkSlice.ofCert 2 2 pS2 rfl
 
-@[expose] noncomputable def treeSl3 :
+noncomputable def treeSl3 :
     ChunkSlice x64Target x64LegalTarget [] 0 2048 certMod.fns :=
   ChunkSlice.ofDrop 4 2 pS3 certMod_len (by decide) rfl
 
-@[expose] noncomputable def grp0Slice :
+noncomputable def grp0Slice :
     ChunkSlice x64Target x64LegalTarget [] 0 2048 certMod.fns :=
   ChunkSlice.ofSlices 0 4 [treeSl1, treeSl2] (by decide)
 
-@[expose] noncomputable def grp1Slice :
+noncomputable def grp1Slice :
     ChunkSlice x64Target x64LegalTarget [] 0 2048 certMod.fns :=
   ChunkSlice.ofSlices 4 2 [treeSl3] (by decide)
 
-@[expose] noncomputable def grp0ExtIn : List (SigEntry × Nat) := []
-@[expose] noncomputable def grp1ExtIn : List (SigEntry × Nat) :=
+noncomputable def grp0ExtIn : List (SigEntry × Nat) := []
+noncomputable def grp1ExtIn : List (SigEntry × Nat) :=
   chunksNextExt grp0ExtIn grp0Slice.chunks
 
 theorem grp0_ext : checkChunksExt grp0ExtIn grp0Slice.chunks = true := by t_kernel_rfl
 theorem grp1_ext : checkChunksExt grp1ExtIn grp1Slice.chunks = true := by t_kernel_rfl
 
-@[expose] noncomputable def treeGroups :
+noncomputable def treeGroups :
     List (CheckedSliceGroup x64Target x64LegalTarget [] 0 2048 certMod.fns) :=
   [ ⟨grp0Slice, grp0ExtIn, grp0_ext⟩
   , ⟨grp1Slice, grp1ExtIn, grp1_ext⟩ ]

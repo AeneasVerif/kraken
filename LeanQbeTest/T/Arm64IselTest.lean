@@ -18,16 +18,19 @@ meta import LeanQbe.T.Legal
 
 Standalone downstream module verifying:
 1. Kernel `rfl` checks for `armGpr.supportsScalarOp` across `[8, 16, 32, 64]`, `.bool`, `bswap`,
-   bit-counts, `popcnt = false`, funnel shifts, carry/borrow chains, `umulw`/`smulw`, `udiv0`/`sdiv0`,
+   bit-counts, `popcnt = false`, funnel shifts, carry/borrow chains, `umulw`/`smulw`,
+   `udiv0`/`sdiv0`,
    and `VariantHint` lowering behavior.
 2. Concrete `Host.ofLayout` execution witnesses via `armGprSpec` covering:
    - `udiv0` / `sdiv0` on `/ 0` and `INT_MIN / -1`
    - `clz` / `cls` / `rbit` / `ctz`
    - multi-word `addc` (`.cs` carry chain) and `subb` (`.cc` borrow chain) + `clearFlags`
-   - `umulw` / `smulw` (including destination aliasing), `fshl` / `fshr` (`.imm`, `.gpr`, and shift-by-0),
+   - `umulw` / `smulw` (including destination aliasing), `fshl` / `fshr` (`.imm`, `.gpr`, and
+     shift-by-0),
      and branchless `select` (`CSEL`)
    - sub-word `8`/`16` shifts, `cmp`, and `sdiv` with non-zero upper garbage bits
-   - `.SP` corner cases (`movi`, `mov`, `setcc`, `store` `.bool .flag` & `load` at unaligned `SP % 16 ≠ 0`,
+   - `.SP` corner cases (`movi`, `mov`, `setcc`, `store` `.bool .flag` & `load` at unaligned `SP %
+     16 ≠ 0`,
      and `jnzGpr .SP`) plus `jnzGpr` `.bool false` with arbitrary upper garbage bits `8..63`
 3. Complete standard-axiom audit (`[propext, Classical.choice, Quot.sound]` only) for `armGprSpec`,
    all 10 `NoLab` theorems, and every witness theorem.
@@ -35,7 +38,7 @@ Standalone downstream module verifying:
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbeTest.T.Arm64IselTest
 
@@ -100,10 +103,14 @@ theorem armGpr_variantHint_rfl :
       armGpr.op (.add i64) (.gpr (.reg .X1), .gpr (.reg .X2), ()) (.gpr (.reg .X0), ()) .default ∧
     armGpr.op (.sub i64) (.gpr (.reg .X1), .gpr (.reg .X2), ()) (.gpr (.reg .X0), ()) (.disp 16) =
       armGpr.op (.sub i64) (.gpr (.reg .X1), .gpr (.reg .X2), ()) (.gpr (.reg .X0), ()) .default ∧
-    armGpr.op (.addc 64) (.gpr (.reg .X1), .gpr (.reg .X2), .flag .cs, ()) (.gpr (.reg .X0), .flag .cs, ()) .adcx = none ∧
-    armGpr.op (.addc 64) (.gpr (.reg .X1), .gpr (.reg .X2), .flag .cs, ()) (.gpr (.reg .X0), .flag .cs, ()) (.disp 8) = none ∧
-    armGpr.op (.subb 64) (.gpr (.reg .X1), .gpr (.reg .X2), .flag .cc, ()) (.gpr (.reg .X0), .flag .cc, ()) .decInc = none ∧
-    (armGpr.op (.addc 64) (.gpr (.reg .X1), .gpr (.reg .X2), .flag .cs, ()) (.gpr (.reg .X0), .flag .cs, ()) .default).isSome = true := by
+    armGpr.op (.addc 64) (.gpr (.reg .X1), .gpr (.reg .X2), .flag .cs, ())
+      (.gpr (.reg .X0), .flag .cs, ()) .adcx = none ∧
+    armGpr.op (.addc 64) (.gpr (.reg .X1), .gpr (.reg .X2), .flag .cs, ())
+      (.gpr (.reg .X0), .flag .cs, ()) (.disp 8) = none ∧
+    armGpr.op (.subb 64) (.gpr (.reg .X1), .gpr (.reg .X2), .flag .cc, ())
+      (.gpr (.reg .X0), .flag .cc, ()) .decInc = none ∧
+    (armGpr.op (.addc 64) (.gpr (.reg .X1), .gpr (.reg .X2), .flag .cs, ())
+      (.gpr (.reg .X0), .flag .cs, ()) .default).isSome = true := by
   exact ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩
 
 /-! ## 2. Concrete `Host.ofLayout` setup & small combinators -/
@@ -133,15 +140,19 @@ private theorem tdst2 {R : ∀ t, PDst Reg Empty ArmCond t → Val t → Prop} {
 /-! ## 3. Concrete `udiv0` / `sdiv0` (`/ 0` and `INT_MIN / -1`) witness -/
 
 def div0Op0 : List Directive :=
-  (armGpr.op (.udiv0 32) (.gpr (.reg .X1), .gpr (.reg .X2), ()) (.gpr (.reg .X0), ()) .default).elim [] Prod.fst
+  (armGpr.op (.udiv0 32) (.gpr (.reg .X1), .gpr (.reg .X2), ())
+    (.gpr (.reg .X0), ()) .default).elim [] Prod.fst
 def div0Op1 : List Directive :=
-  (armGpr.op (.sdiv0 32) (.gpr (.reg .X1), .gpr (.reg .X2), ()) (.gpr (.reg .X3), ()) .default).elim [] Prod.fst
+  (armGpr.op (.sdiv0 32) (.gpr (.reg .X1), .gpr (.reg .X2), ())
+    (.gpr (.reg .X3), ()) .default).elim [] Prod.fst
 def div0Op2 : List Directive :=
-  (armGpr.op (.sdiv0 32) (.gpr (.reg .X1), .gpr (.reg .X4), ()) (.gpr (.reg .X5), ()) .default).elim [] Prod.fst
+  (armGpr.op (.sdiv0 32) (.gpr (.reg .X1), .gpr (.reg .X4), ())
+    (.gpr (.reg .X5), ()) .default).elim [] Prod.fst
 
 def div0Prog : List Directive := div0Op0 ++ div0Op1 ++ div0Op2
 
-theorem div0Prog_small : (Kraken.Layout.apply iselLayout div0Prog).sizeBefore div0Prog.length < 2 ^ 64 := by
+theorem div0Prog_small : (Kraken.Layout.apply iselLayout div0Prog).sizeBefore div0Prog.length < 2 ^
+  64 := by
   have : (Kraken.Layout.apply iselLayout div0Prog).sizeBefore div0Prog.length = 12 := by
     simp only [Kraken.Layout.apply, Kraken.Executable.sizeBefore, Kraken.Layout.size]
     decide
@@ -164,7 +175,8 @@ theorem div0_witness {s : MachineData}
   simp only [List.length_append, ← Nat.add_assoc] at h1 h2
   refine armGprSpec.op_spec (code := .udiv0 32) (pas := (.gpr (.reg .X1), .gpr (.reg .X2), ()))
     (dsts := (.gpr (.reg .X0), ())) (vh := .default) (vs := (0x80000000#32, 0#32, ()))
-    (P := (· = (0#32, ()))) rfl (by simp [tupArgGprs, armScratch]) (by simp [tupDstGprs, armScratch])
+    (P :=
+      (· = (0#32, ()))) rfl (by simp [tupArgGprs, armScratch]) (by simp [tupDstGprs, armScratch])
     (.cons hx1 (.cons hx2 .nil)) rfl h0 ?_
   rintro s1 ⟨⟨_, rfl, hd0⟩, _⟩ hfr0
   have hgx0 := tdst1 hd0
@@ -176,7 +188,8 @@ theorem div0_witness {s : MachineData}
     rw [hfr0.1 _ (by simp [tupDstGprs, armScratch])]; exact hx4
   refine armGprSpec.op_spec (code := .sdiv0 32) (pas := (.gpr (.reg .X1), .gpr (.reg .X2), ()))
     (dsts := (.gpr (.reg .X3), ())) (vh := .default) (vs := (0x80000000#32, 0#32, ()))
-    (P := (· = (0#32, ()))) rfl (by simp [tupArgGprs, armScratch]) (by simp [tupDstGprs, armScratch])
+    (P :=
+      (· = (0#32, ()))) rfl (by simp [tupArgGprs, armScratch]) (by simp [tupDstGprs, armScratch])
     (.cons hx1_1 (.cons hx2_1 .nil)) rfl h1 ?_
   rintro s2 ⟨⟨_, rfl, hd1⟩, _⟩ hfr1
   have hgx3 := tdst1 hd1
@@ -188,7 +201,9 @@ theorem div0_witness {s : MachineData}
     rw [hfr1.1 _ (by simp [tupDstGprs, armScratch])]; exact hx4_1
   refine armGprSpec.op_spec (code := .sdiv0 32) (pas := (.gpr (.reg .X1), .gpr (.reg .X4), ()))
     (dsts := (.gpr (.reg .X5), ())) (vh := .default) (vs := (0x80000000#32, 0xFFFFFFFF#32, ()))
-    (P := (· = (0x80000000#32, ()))) rfl (by simp [tupArgGprs, armScratch]) (by simp [tupDstGprs, armScratch])
+    (P :=
+      (· = (0x80000000#32, ()))) rfl (by simp [tupArgGprs, armScratch])
+        (by simp [tupDstGprs, armScratch])
     (.cons hx1_2 (.cons hx4_2 .nil)) rfl h2 ?_
   rintro s3 ⟨⟨_, rfl, hd2⟩, _⟩ hfr2
   have hgx5 := tdst1 hd2
@@ -199,7 +214,8 @@ theorem div0_witness {s : MachineData}
 /-! ## 4. Concrete `clz` / `cls` / `rbit` / `ctz` witness -/
 
 def bitOp0 : List Directive :=
-  (armGpr.op (.clz 64) (.imm 0x0001000000000000#64, ()) (.gpr (.reg .X0), ()) .default).elim [] Prod.fst
+  (armGpr.op (.clz 64) (.imm 0x0001000000000000#64, ())
+    (.gpr (.reg .X0), ()) .default).elim [] Prod.fst
 def bitOp1 : List Directive :=
   (armGpr.op (.cls 32) (.imm 0xE0000001#32, ()) (.gpr (.reg .X1), ()) .default).elim [] Prod.fst
 def bitOp2 : List Directive :=
@@ -209,7 +225,8 @@ def bitOp3 : List Directive :=
 
 def bitProg : List Directive := bitOp0 ++ bitOp1 ++ bitOp2 ++ bitOp3
 
-theorem bitProg_small : (Kraken.Layout.apply iselLayout bitProg).sizeBefore bitProg.length < 2 ^ 64 := by
+theorem bitProg_small : (Kraken.Layout.apply iselLayout bitProg).sizeBefore bitProg.length < 2 ^ 64
+  := by
   simp only [Kraken.Layout.apply, Kraken.Executable.sizeBefore, Kraken.Layout.size]
   decide
 
@@ -268,17 +285,22 @@ theorem bitCount_witness (s : MachineData) :
 
 def carryCf : List Directive := armGpr.clearFlags
 def addcLo : List Directive :=
-  (armGpr.op (.addc 64) (.gpr (.reg .X0), .gpr (.reg .X1), .imm false, ()) (.gpr (.reg .X4), .flag .cs, ()) .default).elim [] Prod.fst
+  (armGpr.op (.addc 64) (.gpr (.reg .X0), .gpr (.reg .X1), .imm false, ())
+    (.gpr (.reg .X4), .flag .cs, ()) .default).elim [] Prod.fst
 def addcHi : List Directive :=
-  (armGpr.op (.addc 64) (.gpr (.reg .X2), .gpr (.reg .X3), .flag .cs, ()) (.gpr (.reg .X5), .gpr (.reg .X6), ()) .default).elim [] Prod.fst
+  (armGpr.op (.addc 64) (.gpr (.reg .X2), .gpr (.reg .X3), .flag .cs, ())
+    (.gpr (.reg .X5), .gpr (.reg .X6), ()) .default).elim [] Prod.fst
 def subbLo : List Directive :=
-  (armGpr.op (.subb 64) (.gpr (.reg .X1), .gpr (.reg .X0), .imm false, ()) (.gpr (.reg .X7), .flag .cc, ()) .default).elim [] Prod.fst
+  (armGpr.op (.subb 64) (.gpr (.reg .X1), .gpr (.reg .X0), .imm false, ())
+    (.gpr (.reg .X7), .flag .cc, ()) .default).elim [] Prod.fst
 def subbHi : List Directive :=
-  (armGpr.op (.subb 64) (.gpr (.reg .X2), .gpr (.reg .X2), .flag .cc, ()) (.gpr (.reg .X8), .gpr (.reg .X9), ()) .default).elim [] Prod.fst
+  (armGpr.op (.subb 64) (.gpr (.reg .X2), .gpr (.reg .X2), .flag .cc, ())
+    (.gpr (.reg .X8), .gpr (.reg .X9), ()) .default).elim [] Prod.fst
 
 def carryProg : List Directive := carryCf ++ addcLo ++ addcHi ++ subbLo ++ subbHi
 
-theorem carryProg_small : (Kraken.Layout.apply iselLayout carryProg).sizeBefore carryProg.length < 2 ^ 64 := by
+theorem carryProg_small : (Kraken.Layout.apply iselLayout carryProg).sizeBefore carryProg.length < 2
+  ^ 64 := by
   have : (Kraken.Layout.apply iselLayout carryProg).sizeBefore carryProg.length = 28 := by
     simp only [Kraken.Layout.apply, Kraken.Executable.sizeBefore, Kraken.Layout.size]
     decide
@@ -307,10 +329,14 @@ theorem carry_borrow_chain_witness {s : MachineData}
   simp only [List.length_append, ← Nat.add_assoc] at h1 h2 h3 h4
   refine armGprSpec.clearFlags_spec (s := s) h0 ?_
   rintro s0 ⟨_, _⟩ hfrCf
-  have hx0_0 : GprHolds (armMach.getGpr s0 (.reg .X0)) i64 0xFFFFFFFFFFFFFFFF#64 := by rw [hfrCf.1 _ (by simp [armScratch])]; exact hx0
-  have hx1_0 : GprHolds (armMach.getGpr s0 (.reg .X1)) i64 2#64 := by rw [hfrCf.1 _ (by simp [armScratch])]; exact hx1
-  have hx2_0 : GprHolds (armMach.getGpr s0 (.reg .X2)) i64 10#64 := by rw [hfrCf.1 _ (by simp [armScratch])]; exact hx2
-  have hx3_0 : GprHolds (armMach.getGpr s0 (.reg .X3)) i64 20#64 := by rw [hfrCf.1 _ (by simp [armScratch])]; exact hx3
+  have hx0_0 : GprHolds (armMach.getGpr s0 (.reg .X0)) i64 0xFFFFFFFFFFFFFFFF#64 := by
+    rw [hfrCf.1 _ (by simp [armScratch])]; exact hx0
+  have hx1_0 : GprHolds (armMach.getGpr s0 (.reg .X1)) i64 2#64 := by
+    rw [hfrCf.1 _ (by simp [armScratch])]; exact hx1
+  have hx2_0 : GprHolds (armMach.getGpr s0 (.reg .X2)) i64 10#64 := by
+    rw [hfrCf.1 _ (by simp [armScratch])]; exact hx2
+  have hx3_0 : GprHolds (armMach.getGpr s0 (.reg .X3)) i64 20#64 := by
+    rw [hfrCf.1 _ (by simp [armScratch])]; exact hx3
   refine armGprSpec.op_spec (code := .addc 64)
     (pas := (.gpr (.reg .X0), .gpr (.reg .X1), .imm false, ()))
     (dsts := (.gpr (.reg .X4), .flag .cs, ())) (vh := .default)
@@ -376,22 +402,29 @@ theorem carry_borrow_chain_witness {s : MachineData}
 /-! ## 6. Concrete `umulw` / `smulw`, `fshl` / `fshr`, and `select` (`CSEL`) witness -/
 
 def wfOp0 : List Directive :=
-  (armGpr.op (.umulw 64) (.gpr (.reg .X0), .gpr (.reg .X1), ()) (.gpr (.reg .X0), .gpr (.reg .X2), ()) .default).elim [] Prod.fst
+  (armGpr.op (.umulw 64) (.gpr (.reg .X0), .gpr (.reg .X1), ())
+    (.gpr (.reg .X0), .gpr (.reg .X2), ()) .default).elim [] Prod.fst
 def wfOp1 : List Directive :=
-  (armGpr.op (.smulw 32) (.gpr (.reg .X3), .gpr (.reg .X4), ()) (.gpr (.reg .X5), .gpr (.reg .X6), ()) .default).elim [] Prod.fst
+  (armGpr.op (.smulw 32) (.gpr (.reg .X3), .gpr (.reg .X4), ())
+    (.gpr (.reg .X5), .gpr (.reg .X6), ()) .default).elim [] Prod.fst
 def wfOp2 : List Directive :=
-  (armGpr.op (.fshl 32) (.imm 0x12345678#32, .imm 0x9ABCDEF0#32, .imm 0#32, ()) (.gpr (.reg .X7), ()) .default).elim [] Prod.fst
+  (armGpr.op (.fshl 32) (.imm 0x12345678#32, .imm 0x9ABCDEF0#32, .imm 0#32, ())
+    (.gpr (.reg .X7), ()) .default).elim [] Prod.fst
 def wfOp3 : List Directive :=
-  (armGpr.op (.fshl 64) (.gpr (.reg .X1), .gpr (.reg .X2), .gpr (.reg .X8), ()) (.gpr (.reg .X9), ()) .default).elim [] Prod.fst
+  (armGpr.op (.fshl 64) (.gpr (.reg .X1), .gpr (.reg .X2), .gpr (.reg .X8), ())
+    (.gpr (.reg .X9), ()) .default).elim [] Prod.fst
 def wfOp4 : List Directive :=
-  (armGpr.op (.fshr 32) (.imm 0x00000002#32, .imm 0x00000010#32, .imm 4#32, ()) (.gpr (.reg .X10), ()) .default).elim [] Prod.fst
+  (armGpr.op (.fshr 32) (.imm 0x00000002#32, .imm 0x00000010#32, .imm 4#32, ())
+    (.gpr (.reg .X10), ()) .default).elim [] Prod.fst
 def wfOp5 : List Directive :=
-  (armGpr.op (.select i64) (.gpr (.reg .X8), .gpr (.reg .X1), .gpr (.reg .X2), ()) (.gpr (.reg .X11), ()) .default).elim [] Prod.fst
+  (armGpr.op (.select i64) (.gpr (.reg .X8), .gpr (.reg .X1), .gpr (.reg .X2), ())
+    (.gpr (.reg .X11), ()) .default).elim [] Prod.fst
 
 def mulFunnelSelProg : List Directive := wfOp0 ++ wfOp1 ++ wfOp2 ++ wfOp3 ++ wfOp4 ++ wfOp5
 
 theorem mulFunnelSel_small :
-    (Kraken.Layout.apply iselLayout mulFunnelSelProg).sizeBefore mulFunnelSelProg.length < 2 ^ 64 := by
+    (Kraken.Layout.apply iselLayout mulFunnelSelProg).sizeBefore mulFunnelSelProg.length < 2 ^ 64 :=
+      by
   simp only [Kraken.Layout.apply, Kraken.Executable.sizeBefore, Kraken.Layout.size]
   decide
 
@@ -539,21 +572,27 @@ theorem mul_funnel_select_witness {s : MachineData}
 /-! ## 7. Sub-word `8`/`16` shifts, `cmp`, and `sdiv` with upper garbage bits -/
 
 def sub0 : List Directive :=
-  (armGpr.op (.ashr i8) (.gpr (.reg .X1), .gpr (.reg .X2), ()) (.gpr (.reg .X3), ()) .default).elim [] Prod.fst
+  (armGpr.op (.ashr i8) (.gpr (.reg .X1), .gpr (.reg .X2), ())
+    (.gpr (.reg .X3), ()) .default).elim [] Prod.fst
 def sub1 : List Directive :=
-  (armGpr.op (.shl i16) (.gpr (.reg .X4), .gpr (.reg .X5), ()) (.gpr (.reg .X6), ()) .default).elim [] Prod.fst
+  (armGpr.op (.shl i16) (.gpr (.reg .X4), .gpr (.reg .X5), ())
+    (.gpr (.reg .X6), ()) .default).elim [] Prod.fst
 def sub2 : List Directive :=
-  (armGpr.op (.cmp .slt i8) (.gpr (.reg .X1), .imm 1#8, ()) (.gpr (.reg .X7), ()) .default).elim [] Prod.fst
+  (armGpr.op (.cmp .slt i8) (.gpr (.reg .X1), .imm 1#8, ())
+    (.gpr (.reg .X7), ()) .default).elim [] Prod.fst
 def sub3 : List Directive :=
-  (armGpr.op (.sdiv 16) (.gpr (.reg .X4), .imm 0xFFFF#16, ()) (.gpr (.reg .X8), ()) .default).elim [] Prod.fst
+  (armGpr.op (.sdiv 16) (.gpr (.reg .X4), .imm 0xFFFF#16, ())
+    (.gpr (.reg .X8), ()) .default).elim [] Prod.fst
 
 def subwordProg : List Directive := sub0 ++ sub1 ++ sub2 ++ sub3
 
-theorem subwordProg_small : (Kraken.Layout.apply iselLayout subwordProg).sizeBefore subwordProg.length < 2 ^ 64 := by
+theorem subwordProg_small : (Kraken.Layout.apply iselLayout subwordProg).sizeBefore
+  subwordProg.length < 2 ^ 64 := by
   simp only [Kraken.Layout.apply, Kraken.Executable.sizeBefore, Kraken.Layout.size]
   decide
 
-@[instance_reducible] def subwordHost : Host := Host.ofLayout subwordProg iselLayout subwordProg_small
+@[instance_reducible] def subwordHost : Host :=
+  Host.ofLayout subwordProg iselLayout subwordProg_small
 
 /-- Non-zero upper garbage bits `[8..63]`/`[16..63]` do not pollute sub-word shifts, comparisons, or `sdiv`. -/
 theorem subword_garbage_witness {s : MachineData}
@@ -578,7 +617,8 @@ theorem subword_garbage_witness {s : MachineData}
   have gx5 : GprHolds (armMach.getGpr s (.reg .X5)) i16 0xFF14#16 := ⟨by decide, by rw [hx5]; rfl⟩
   refine armGprSpec.op_spec (code := .ashr i8) (pas := (.gpr (.reg .X1), .gpr (.reg .X2), ()))
     (dsts := (.gpr (.reg .X3), ())) (vh := .default) (vs := (0x80#8, 0x03#8, ()))
-    (P := (· = (0xF0#8, ()))) rfl (by simp [tupArgGprs, armScratch]) (by simp [tupDstGprs, armScratch])
+    (P :=
+      (· = (0xF0#8, ()))) rfl (by simp [tupArgGprs, armScratch]) (by simp [tupDstGprs, armScratch])
     (.cons gx1 (.cons gx2 .nil)) (by dsimp [OpCode.wp]; decide) h0 ?_
   rintro s1 ⟨⟨_, rfl, hd0⟩, _⟩ hfr0
   have rx3 := tdst1 hd0
@@ -590,7 +630,9 @@ theorem subword_garbage_witness {s : MachineData}
     rw [hfr0.1 _ (by simp [tupDstGprs, armScratch])]; exact gx5
   refine armGprSpec.op_spec (code := .shl i16) (pas := (.gpr (.reg .X4), .gpr (.reg .X5), ()))
     (dsts := (.gpr (.reg .X6), ())) (vh := .default) (vs := (0x0008#16, 0xFF14#16, ()))
-    (P := (· = (0x0080#16, ()))) rfl (by simp [tupArgGprs, armScratch]) (by simp [tupDstGprs, armScratch])
+    (P :=
+      (· = (0x0080#16, ()))) rfl (by simp [tupArgGprs, armScratch])
+        (by simp [tupDstGprs, armScratch])
     (.cons gx4_1 (.cons gx5_1 .nil)) (by dsimp [OpCode.wp]; decide) h1 ?_
   rintro s2 ⟨⟨_, rfl, hd1⟩, _⟩ hfr1
   have rx6 := tdst1 hd1
@@ -602,7 +644,8 @@ theorem subword_garbage_witness {s : MachineData}
     rw [hfr1.1 _ (by simp [tupDstGprs, armScratch])]; exact gx4_1
   refine armGprSpec.op_spec (code := .cmp .slt i8) (pas := (.gpr (.reg .X1), .imm 1#8, ()))
     (dsts := (.gpr (.reg .X7), ())) (vh := .default) (vs := (0x80#8, 1#8, ()))
-    (P := (· = (true, ()))) rfl (by simp [tupArgGprs, armScratch]) (by simp [tupDstGprs, armScratch])
+    (P :=
+      (· = (true, ()))) rfl (by simp [tupArgGprs, armScratch]) (by simp [tupDstGprs, armScratch])
     (.cons gx1_2 (.cons rfl .nil)) (by dsimp [OpCode.wp, liftCmp, CmpOp.evalBits]) h2 ?_
   rintro s3 ⟨⟨_, rfl, hd2⟩, _⟩ hfr2
   have rx7 := tdst1 hd2
@@ -614,7 +657,9 @@ theorem subword_garbage_witness {s : MachineData}
     rw [hfr2.1 _ (by simp [tupDstGprs, armScratch])]; exact gx4_2
   refine armGprSpec.op_spec (code := .sdiv 16) (pas := (.gpr (.reg .X4), .imm 0xFFFF#16, ()))
     (dsts := (.gpr (.reg .X8), ())) (vh := .default) (vs := (0x0008#16, 0xFFFF#16, ()))
-    (P := (· = (0xFFF8#16, ()))) rfl (by simp [tupArgGprs, armScratch]) (by simp [tupDstGprs, armScratch])
+    (P :=
+      (· = (0xFFF8#16, ()))) rfl (by simp [tupArgGprs, armScratch])
+        (by simp [tupDstGprs, armScratch])
     (.cons gx4_3 (.cons rfl .nil)) (by dsimp [OpCode.wp, sdivDefined]; decide) h3 ?_
   rintro s4 ⟨⟨_, rfl, hd3⟩, _⟩ hfr3
   have rx8 := tdst1 hd3
@@ -627,7 +672,8 @@ theorem subword_garbage_witness {s : MachineData}
 
 def spMovi : List Directive := armGpr.movi .SP 0x123456789ABCDEF3#64
 def spMov : List Directive := armGpr.mov (.reg .X0) .SP
-def spStFlag : List Directive := (armGpr.store .bool (.flag .eq) (.baseDisp .SP 16)).elim [] Prod.fst
+def spStFlag : List Directive :=
+  (armGpr.store .bool (.flag .eq) (.baseDisp .SP 16)).elim [] Prod.fst
 def spLdFlag : List Directive := (armGpr.load .bool (.reg .X1) (.baseDisp .SP 16)).elim [] Prod.fst
 def spSetcc : List Directive := armGpr.setcc .SP .cs
 def spJnz : List Directive := (armGpr.jnzGpr .SP "L_taken").1
@@ -635,7 +681,8 @@ def spJnz : List Directive := (armGpr.jnzGpr .SP "L_taken").1
 def spProg : List Directive :=
   spMovi ++ spMov ++ spStFlag ++ spLdFlag ++ spSetcc ++ spJnz ++ [.label "L_taken"]
 
-theorem spProg_small : (Kraken.Layout.apply iselLayout spProg).sizeBefore spProg.length < 2 ^ 64 := by
+theorem spProg_small : (Kraken.Layout.apply iselLayout spProg).sizeBefore spProg.length < 2 ^ 64 :=
+  by
   have : (Kraken.Layout.apply iselLayout spProg).sizeBefore spProg.length = 48 := by
     simp only [Kraken.Layout.apply, Kraken.Executable.sizeBefore, Kraken.Layout.size]
     decide
@@ -668,10 +715,12 @@ theorem sp_corner_witness {s : MachineData}
   refine armGprSpec.mov_spec (rd := .reg .X0) (rs := .SP) h1 ?_
   rintro s2 ⟨hx0_2, hm2⟩ hfr2
   have hx0_val : armMach.getGpr s2 (.reg .X0) = 0x123456789ABCDEF3#64 := hx0_2.trans hsp1
-  have hsp2 : armMach.getGpr s2 .SP = 0x123456789ABCDEF3#64 := by rw [hfr2.1 _ (by simp)]; exact hsp1
+  have hsp2 : armMach.getGpr s2 .SP = 0x123456789ABCDEF3#64 := by
+    rw [hfr2.1 _ (by simp)]; exact hsp1
   have heq2 : armMach.evalCond s2 .eq = true := by rw [hfr2.2.2 _ (by decide)]; exact heq1
   have hcs2 : armMach.evalCond s2 .cs = true := by rw [hfr2.2.2 _ (by decide)]; exact hcs1
-  have hok2 : storeOk (armMach.mem s2) .bool ((AddrArg.baseDisp .SP 16).eval (armMach.getGpr s2)) := by
+  have hok2 : storeOk (armMach.mem s2) .bool ((AddrArg.baseDisp .SP 16).eval (armMach.getGpr s2)) :=
+    by
     dsimp only [AddrArg.eval, armMach] at hm1 hm2 hsp2 hok ⊢
     rw [hm2, hm1, hsp2]
     exact hok
@@ -683,7 +732,8 @@ theorem sp_corner_witness {s : MachineData}
   have hsp3 : armMach.getGpr s3 .SP = 0x123456789ABCDEF3#64 := by
     rw [hfr3.1 _ (by simp [armScratch])]; exact hsp2
   have hcs3 : armMach.evalCond s3 .cs = true := by rw [hfr3.2.2 _ (by decide)]; exact hcs2
-  have hld3 : loadVal (armMach.mem s3) .bool ((AddrArg.baseDisp .SP 16).eval (armMach.getGpr s3)) = some true := by
+  have hld3 : loadVal (armMach.mem s3) .bool ((AddrArg.baseDisp .SP 16).eval (armMach.getGpr s3)) =
+    some true := by
     rw [hm3]
     have ha : (AddrArg.baseDisp .SP 16).eval (armMach.getGpr s2) =
         (AddrArg.baseDisp .SP 16).eval (armMach.getGpr s3) := by
@@ -725,7 +775,8 @@ theorem jnzFalseProg_small :
     decide
   omega
 
-@[instance_reducible] def jnzFalseHost : Host := Host.ofLayout jnzFalseProg iselLayout jnzFalseProg_small
+@[instance_reducible] def jnzFalseHost : Host :=
+  Host.ofLayout jnzFalseProg iselLayout jnzFalseProg_small
 
 /-- `jnzGpr` takes fallthrough on `.bool false` even when bits `8..63` are all `1`. -/
 theorem jnzGpr_false_witness {s : MachineData}

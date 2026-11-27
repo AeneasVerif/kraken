@@ -32,7 +32,7 @@ namespace LeanQbeTest.T.MainFlatCfgParityTest
 open LeanQbe.T
 open LeanQbeTest.T.MainFlatParityFixtures
 
-@[expose] def dcePCasesFlat : TFlatFn :=
+def dcePCasesFlat : TFlatFn :=
   { name := "dce_p_cases_flat"
     as := [i64, i64]
     rs := [i64]
@@ -49,7 +49,7 @@ open LeanQbeTest.T.MainFlatParityFixtures
            (.jump (ts := [i64, i64]) 0 (.var 3, .var 2, ()))
            (.jump (ts := [i64, i64]) 0 (.var 4, .var 2, ()))) }
 
-@[expose] def deadLoadCasesFlat : TFlatFn :=
+def deadLoadCasesFlat : TFlatFn :=
   { name := "dead_load_cases_flat"
     as := [i64, i64]
     rs := [i64]
@@ -60,7 +60,7 @@ open LeanQbeTest.T.MainFlatParityFixtures
       .store (t := i64) (.var 0) (.var 4) <|
       .ret (.var 0, ()) }
 
-@[expose] def ifOptJoinCasesFlat : TFlatFn :=
+def ifOptJoinCasesFlat : TFlatFn :=
   { name := "if_opt_join_cases_flat"
     as := [i64, i64, i64]
     rs := [i64]
@@ -76,7 +76,7 @@ open LeanQbeTest.T.MainFlatParityFixtures
            .jump (ts := [i64]) 0 (.var 0, ()))
           (.jump (ts := [i64]) 0 (.var 3, ()))) }
 
-@[expose] def ifOptBitsRetCasesFlat : TFlatFn :=
+def ifOptBitsRetCasesFlat : TFlatFn :=
   { name := "if_opt_bits_ret_cases_flat"
     as := [i64, i64, i64]
     rs := [i64]

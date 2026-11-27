@@ -50,24 +50,24 @@ open LeanQbe.T.Notation
 
 /-! ## Rank 5a: Kernel-Checked `armMovIns` (`ORR_s` for GPR, `ADD_e` for `.SP`) -/
 
-@[expose] def isOrrMov : List Directive → Bool
+def isOrrMov : List Directive → Bool
   | [.instr ⟨.W64, .ORR_s (.low (.reg _) .W64) (.low .XZR .W64) _⟩] => true
   | _ => false
 
-@[expose] def isAdd0Mov : List Directive → Bool
+def isAdd0Mov : List Directive → Bool
   | [.instr ⟨.W64, .ADD_e _ _ (.imm ⟨0, .S0⟩)⟩] => true
   | _ => false
 
 theorem armMov_gpr_is_orr :
-    isOrrMov (armGpr.mov (.reg .X0) (.reg .X1)) = true := rfl
+    isOrrMov (armGpr.mov (.reg .X0) (.reg .X1)) = true := by rfl
 
 #guard toAsm (armGpr.mov (.reg .X0) (.reg .X1)) == "orr x0, xzr, x1"
 
 theorem armMov_sp_dst_is_add :
-    isAdd0Mov (armGpr.mov .SP (.reg .X0)) = true := rfl
+    isAdd0Mov (armGpr.mov .SP (.reg .X0)) = true := by rfl
 
 theorem armMov_sp_src_is_add :
-    isAdd0Mov (armGpr.mov (.reg .X0) .SP) = true := rfl
+    isAdd0Mov (armGpr.mov (.reg .X0) .SP) = true := by rfl
 
 /-! ## Rank 5b: `Arm64.PrintAlign` Unit Tests -/
 

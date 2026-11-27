@@ -40,13 +40,13 @@ theorem factLoop_checkAcyclic :
 theorem factLoop_checkCyclic :
     LinkRec.checkCyclic factLoopLinkedMod = true := by decide
 
-@[expose] def smokeIdDecl : LcDecl :=
+def smokeIdDecl : LcDecl :=
   { name := "smoke_id"
     params := [{ id := 0, ty := .uint64 }]
     retTy := .uint64
     body := .ret (.var 0) }
 
-@[expose] def smokeWrapDecl : LcDecl :=
+def smokeWrapDecl : LcDecl :=
   { name := "smoke_wrap"
     params := [{ id := 0, ty := .uint64 }]
     retTy := .uint64
@@ -54,14 +54,14 @@ theorem factLoop_checkCyclic :
       .jp 10 [{ id := 1, ty := .uint64 }] (.ret (.var 1))
         (.let_ 2 .uint64 (.fap "smoke_id" [.var 0]) (.jmp 10 [.var 2])) }
 
-@[expose] def smokeMod : LcModule :=
+def smokeMod : LcModule :=
   { name := "smoke_mod"
     decls := [smokeIdDecl, smokeWrapDecl]
     externs := []
     roots := ["smoke_wrap"]
     snaps := [] }
 
-@[expose] def smokeTfs : List Frontend.C0.TFlatFn :=
+def smokeTfs : List Frontend.C0.TFlatFn :=
   match lowerModule smokeMod with
   | .ok tfs => tfs
   | .error _ => []
@@ -88,13 +88,13 @@ private theorem smokeMod_noLoop :
   simp only [smokeMod, List.mem_cons, List.not_mem_nil, or_false] at hd
   rcases hd with rfl | rfl <;> decide
 
-@[expose] def smokeIdSpec : HSpec := fun ws σ Q _ =>
+def smokeIdSpec : HSpec := fun ws σ Q _ =>
   ∃ a : BitVec 64, ws = [⟨i64, a⟩] ∧ Q ⟨i64, a⟩ σ
 
-@[expose] def smokeDelta : HEnv := fun nm ws σ Q X =>
+def smokeDelta : HEnv := fun nm ws σ Q X =>
   if nm = "smoke_id" ∨ nm = "smoke_wrap" then smokeIdSpec ws σ Q X else False
 
-@[expose] def smokeDeltaIdx : Nat → HEnv
+def smokeDeltaIdx : Nat → HEnv
   | 0 => fun nm => if nm = "smoke_id" then smokeIdSpec else fun _ _ _ _ => False
   | _ + 1 => smokeDelta
 

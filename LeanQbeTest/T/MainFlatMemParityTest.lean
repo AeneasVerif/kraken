@@ -34,16 +34,16 @@ namespace LeanQbeTest.T.MainFlatMemParityTest
 open LeanQbe.T
 
 /-- Reify an arbitrary closed `Fn` into `TFlatFn`. -/
-@[expose] def fnToTFlat (f : Fn) : TFlatFn :=
+def fnToTFlat (f : Fn) : TFlatFn :=
   ⟨f.name, f.as, f.rs, reifyFunc f.body⟩
 
 /-- Exact structural equality on `Tup (Arg K) ts`. -/
-@[expose] def tupArgEq : {ts : List Ty} → Tup (Arg K) ts → Tup (Arg K) ts → Bool
+def tupArgEq : {ts : List Ty} → Tup (Arg K) ts → Tup (Arg K) ts → Bool
   | [], (), () => true
   | _ :: _, (a, as), (b, bs) => decide (a = b) && tupArgEq as bs
 
 /-- Exact structural equality on `Op K ts`. -/
-@[expose] def opEq {ts : List Ty} (a b : Op K ts) : Bool :=
+def opEq {ts : List Ty} (a b : Op K ts) : Bool :=
   match a, b with
   | { sig := sa, code := ca, args := aa }, { sig := sb, code := cb, args := ab } =>
     match listTyDecEq sa sb with
@@ -52,7 +52,7 @@ open LeanQbe.T
 
 mutual
 /-- Exact structural equality on `TFlat rs`. -/
-@[expose] def tflatEq {rs : List Ty} : TFlat rs → TFlat rs → Bool
+def tflatEq {rs : List Ty} : TFlat rs → TFlat rs → Bool
   | .let_ (ts := ts1) op1 k1, .let_ (ts := ts2) op2 k2 =>
     match listTyDecEq ts1 ts2 with
     | isTrue rfl => opEq op1 op2 && tflatEq k1 k2
@@ -91,7 +91,7 @@ mutual
   | _, _ => false
 
 /-- Exact structural equality on `TBlocks rs sig`. -/
-@[expose] def tblocksEq {rs : List Ty} : {sig : List (List Ty)} →
+def tblocksEq {rs : List Ty} : {sig : List (List Ty)} →
     TBlocks rs sig → TBlocks rs sig → Bool
   | _, .nil, .nil => true
   | _, .cons b1 bs1, .cons b2 bs2 =>
@@ -101,7 +101,7 @@ end
 /-- Rich memory fixture testing CSE across `copy`+`add` aliasing, store-to-load forwarding,
 disjoint store preservation, overlapping store invalidation, `.group` summary filtering, and
 `.call` cache flush. -/
-@[expose] def memCseStoreForwardFlat : TFlatFn :=
+def memCseStoreForwardFlat : TFlatFn :=
   { name := "mem_cse_store_forward"
     as := [i64, i64]
     rs := [i64]
@@ -137,7 +137,7 @@ disjoint store preservation, overlapping store invalidation, `.group` summary fi
 
 /-- Known-bits & branch-implied fixture exercising `andKeeps`, `andKills`, `copy`, `or`, `lshr`,
 `cmp`, `ofBool`, `select`, and `.jnz` path-sensitive simplification. -/
-@[expose] def assumeBitsComplexFlat : TFlatFn :=
+def assumeBitsComplexFlat : TFlatFn :=
   { name := "assume_bits_complex"
     as := [i64, i64]
     rs := [i64]
@@ -160,7 +160,7 @@ disjoint store preservation, overlapping store invalidation, `.group` summary fi
 
 /-- Full `divConstFlat` fixture exercising 32/64-bit `udiv`, `urem`, `sdiv`, `srem` with `d=0`,
 `d=1`, `d=-1`, `pow2` (`m=1` and `m>1`), `uNoAddCert`, `uAddShiftCert`, and signed magic pos/neg. -/
-@[expose] def divConstAllCasesFlat : TFlatFn :=
+def divConstAllCasesFlat : TFlatFn :=
   { name := "div_const_all_cases"
     as := [i32, i64]
     rs := [i64]
@@ -193,7 +193,7 @@ disjoint store preservation, overlapping store invalidation, `.group` summary fi
       .ret (.var 0, ()) }
 
 /-- No-div/rem fixture verifying `divConstFlat`'s `hasDivRem = false` fast-path. -/
-@[expose] def noDivFastFlat : TFlatFn :=
+def noDivFastFlat : TFlatFn :=
   { name := "no_div_fast"
     as := [i64, i64]
     rs := [i64]
@@ -222,7 +222,7 @@ theorem divConstAllCasesFlat_parity :
       reifyFunc (Func.divConst divConstAllCasesFlat.toFn.body) :=
   OptFlatMem.divConstFlat_eq _ divConstAllCasesFlat_wf
 
-@[expose] def parityFixtures : List TFlatFn :=
+def parityFixtures : List TFlatFn :=
   [ memCseStoreForwardFlat
   , assumeBitsComplexFlat
   , divConstAllCasesFlat
@@ -232,7 +232,7 @@ theorem divConstAllCasesFlat_parity :
   , fnToTFlat Examples.Litmus.sumto
   , fnToTFlat Examples.Litmus.nested ]
 
-@[expose] def checkMemPassParity : IO Unit := do
+def checkMemPassParity : IO Unit := do
   let kissatFns : List TFlatFn :=
     (Examples.Kissat.Plain.plain1Module.fns.take 2).map fnToTFlat
   let allFns := parityFixtures ++ kissatFns

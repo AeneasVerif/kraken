@@ -5,8 +5,6 @@ public import LeanQbe.T.MainCertProof
 public import LeanQbe.T.Logic.ProofKit
 import LeanQbe.T.AbiLemmas
 import LeanQbe.T.FlatLemmas
-import all Kraken.Mem
-import all Kraken.Separation
 public meta import Lean
 
 /-!

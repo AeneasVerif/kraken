@@ -112,11 +112,11 @@ compile_linked_budget_scc! emptySccFlatCert litmusTarget litmusLayout LegalTarge
 
 theorem emptySccFlatCert_code_eq : emptySccFlatCert.code = emptySccCert.code := rfl
 
-@[expose] def flatInc1Tf : TFlatFn :=
+def flatInc1Tf : TFlatFn :=
   { name := "flatInc1", as := [i64], rs := [i64]
     body := .let_ ⟨.add i64, (.var 0, .imm 1#64, ())⟩ (.ret (.var 0, ())) }
 
-@[expose] def flatRecTf : TFlatFn :=
+def flatRecTf : TFlatFn :=
   { name := "flatRec", as := [i64], rs := [i64]
     body :=
       .let_ ⟨.cmp .eq i64, (.var 0, .imm 0#64, ())⟩ <|
@@ -126,7 +126,7 @@ theorem emptySccFlatCert_code_eq : emptySccFlatCert.code = emptySccCert.code := 
       .call "flatInc1" (as := [i64]) [i64] (.var 0, ()) <|
       .ret (.var 0, ()) }
 
-@[expose] def mixedFlatBudgetMod : BudgetModule :=
+def mixedFlatBudgetMod : BudgetModule :=
   { fns := [⟨flatInc1Tf.toFn, 16, 16⟩, ⟨flatRecTf.toFn, 32, 32⟩] }
 
 compile_linked_budget_scc! mixedFlatLegCert litmusTarget litmusLayout LegalTarget.aarch64

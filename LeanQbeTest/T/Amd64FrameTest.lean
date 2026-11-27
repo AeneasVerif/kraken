@@ -8,7 +8,8 @@ import Kraken.X64.Parser
 
 Standalone downstream module verifying:
 1. Kernel `rfl` / `t_kernel_rfl` reduction of `x64Frame` (`bitWidths`, `raBytes`, registers,
-   `frameSize` at small and `2^31`-crossing boundaries, and directive generation vs `Kraken.X64.Parser`).
+   `frameSize` at small and `2^31`-crossing boundaries, and directive generation vs
+   `Kraken.X64.Parser`).
 2. Generic `x64FrameSpec : FrameTarget x64Mach x64Frame x64CondReads` round-trip for arbitrary
    `ns ≥ 1` (`x64FrameSize ns + 8 ≤ 2 ^ 64`): prologue → slot store → slot load → `canonAbi` →
    epilogue → return, preserving `calleeSaved`, restoring `rsp`, and establishing `AbiGprHolds`.
@@ -18,7 +19,7 @@ Standalone downstream module verifying:
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbeTest.T.Amd64FrameTest
 
@@ -47,7 +48,8 @@ theorem x64FrameSize_rfl :
   exact ⟨rfl, rfl, rfl, rfl, rfl⟩
 
 theorem x64Frame_parser_rfl :
-    ⸨prog| subq $8, %rsp; movq %rdi, (%rsp); movq (%rsp), %rax; movl %eax, %eax; addq $8, %rsp; ret ⸩ =
+    ⸨prog| subq $8, %rsp; movq %rdi, (%rsp);
+      movq (%rsp), %rax; movl %eax, %eax; addq $8, %rsp; ret ⸩ =
       (x64Frame.prologue 1).1 ++ x64Frame.slotSt 0 .rdi ++ x64Frame.slotLd .rax 0 ++
         (x64Frame.canonAbi i32 .rax).1 ++ (x64Frame.epilogue 1).1 ++ x64Frame.ret := rfl
 
@@ -70,7 +72,8 @@ theorem x64EchoProg_noLab (ns : Nat) (l : Sym) :
     Kraken.Directive.label l ∉ x64EchoProg ns := by
   simp only [x64EchoProg, List.mem_append, not_or]
   exact ⟨⟨⟨⟨⟨x64Prologue_noLab ns l, x64SlotSt_noLab 0 .rdi l⟩,
-    x64SlotLd_noLab .rax 0 l⟩, x64CanonAbi_noLab i32 .rax l⟩, x64Epilogue_noLab ns l⟩, x64Ret_noLab l⟩
+    x64SlotLd_noLab .rax 0 l⟩, x64CanonAbi_noLab i32 .rax l⟩, x64Epilogue_noLab ns l⟩,
+      x64Ret_noLab l⟩
 
 theorem x64EchoProg_spec {h : Host} {k ns : Nat} {v : Val i32} {s : MachineData}
     {ra : Int64} {R : Mem 64 → Prop} {post : MachineState → Prop}
@@ -141,12 +144,15 @@ theorem x64EchoProg_spec {h : Host} {k ns : Nat} {v : Val i32} {s : MachineData}
       x64Mach.getGpr s x64Frame.sp - BitVec.ofNat 64 (x64Frame.frameSize ns) := by
     rw [hfr4.1 _ (by simp), hfr3.1 _ (by simp), hsp2, hsp1]
   have hmem4 : s4.dmem =⋆
-      x64FrameSpec.Saved (x64Mach.getGpr s4 x64Frame.sp + BitVec.ofNat 64 (x64Frame.frameSize ns)) ra ns ⋆
-      (region (x64Mach.getGpr s x64Frame.sp - BitVec.ofNat 64 (x64Frame.frameSize ns)) (8 * ns) ⋆ R) := by
+      x64FrameSpec.Saved (x64Mach.getGpr s4 x64Frame.sp + BitVec.ofNat 64 (x64Frame.frameSize ns))
+        ra ns ⋆
+      (region (x64Mach.getGpr s x64Frame.sp - BitVec.ofNat 64 (x64Frame.frameSize ns))
+        (8 * ns) ⋆ R) := by
     rw [hsp4, BitVec.sub_add_cancel]
     have h42 : s4.dmem = s2.dmem := hdmem4.trans hdmem3
     rw [h42]
-    have hreg : (cell64 (x64Mach.getGpr s2 x64Frame.sp + BitVec.ofNat 64 (8 * 0)) (x64Mach.getGpr s .rdi) ⋆
+    have hreg : (cell64 (x64Mach.getGpr s2 x64Frame.sp + BitVec.ofNat 64 (8 * 0))
+      (x64Mach.getGpr s .rdi) ⋆
         (region (x64Mach.getGpr s1 x64Frame.sp + 8#64) (8 * ns - 8) ⋆
           x64FrameSpec.Saved (x64Mach.getGpr s x64Frame.sp) ra ns ⋆ R)) s2.dmem := hmem2'
     have hreg2 := sep_mono (fun _ => cell64_region) hreg
@@ -170,16 +176,21 @@ theorem x64EchoProg_spec {h : Host} {k ns : Nat} {v : Val i32} {s : MachineData}
         (x64Frame.frameSize ns) ⋆ R) := by
     rw [hsp4, BitVec.sub_add_cancel] at hmem5
     rw [hsp5']
-    have hsplit_frame := region_frame_split (a := x64Mach.getGpr s x64Frame.sp - BitVec.ofNat 64 (x64Frame.frameSize ns))
+    have hsplit_frame := region_frame_split (a :=
+      x64Mach.getGpr s x64Frame.sp - BitVec.ofNat 64 (x64Frame.frameSize ns))
       (slots := 8 * ns) (frame := x64Frame.frameSize ns) (x64FrameSize_ge ns) hF0
     have hcast := sep_cast hmem5 (show
         (x64FrameSpec.RetAddr (x64Mach.getGpr s x64Frame.sp) ra ⋆
-          region (x64Mach.getGpr s x64Frame.sp - BitVec.ofNat 64 (x64Frame.frameSize ns) + BitVec.ofNat 64 (8 * ns))
+          region (x64Mach.getGpr s x64Frame.sp - BitVec.ofNat 64 (x64Frame.frameSize ns) +
+            BitVec.ofNat 64 (8 * ns))
             (x64Frame.frameSize ns - 8 * ns) ⋆
-          (region (x64Mach.getGpr s x64Frame.sp - BitVec.ofNat 64 (x64Frame.frameSize ns)) (8 * ns) ⋆ R)) =
+          (region (x64Mach.getGpr s x64Frame.sp - BitVec.ofNat 64 (x64Frame.frameSize ns))
+            (8 * ns) ⋆ R)) =
         (x64FrameSpec.RetAddr (x64Mach.getGpr s x64Frame.sp) ra ⋆
-          ((region (x64Mach.getGpr s x64Frame.sp - BitVec.ofNat 64 (x64Frame.frameSize ns)) (8 * ns) ⋆
-            region (x64Mach.getGpr s x64Frame.sp - BitVec.ofNat 64 (x64Frame.frameSize ns) + BitVec.ofNat 64 (8 * ns))
+          ((region (x64Mach.getGpr s x64Frame.sp - BitVec.ofNat 64 (x64Frame.frameSize ns))
+            (8 * ns) ⋆
+            region (x64Mach.getGpr s x64Frame.sp - BitVec.ofNat 64 (x64Frame.frameSize ns) +
+              BitVec.ofNat 64 (8 * ns))
               (x64Frame.frameSize ns - 8 * ns)) ⋆ R)) from by ac_rfl)
     rw [← hsplit_frame] at hcast
     exact hcast
@@ -243,8 +254,10 @@ def callerCalleeProg : List Directive :=
   [x64Frame.label "callee"] ++ x64EchoProg 1
 
 theorem callerCallee_small :
-    (Kraken.Layout.apply testLayout callerCalleeProg).sizeBefore callerCalleeProg.length < 2 ^ 64 := by
-  have : (Kraken.Layout.apply testLayout callerCalleeProg).sizeBefore callerCalleeProg.length = 40 := by
+    (Kraken.Layout.apply testLayout callerCalleeProg).sizeBefore callerCalleeProg.length < 2 ^ 64 :=
+      by
+  have : (Kraken.Layout.apply testLayout callerCalleeProg).sizeBefore callerCalleeProg.length =
+    40 := by
     simp [Kraken.Layout.apply, Kraken.Executable.sizeBefore, Kraken.Layout.size, callerCalleeProg]
     decide
   omega
@@ -271,7 +284,8 @@ theorem callerCallee_e2e {v : Val i32} {s : MachineData} {ra : Int64} {R : Mem 6
   have hsp_frame : region (x64Mach.getGpr s x64Frame.sp - 32#64) 32 =
       (region (x64Mach.getGpr s x64Frame.sp - 32#64) 24 ⋆
         region (x64Mach.getGpr s x64Frame.sp - 8#64) 8) := by
-    have := region_split (a := x64Mach.getGpr s x64Frame.sp - 32#64) (n1 := 24) (n2 := 8) (by decide)
+    have := region_split (a := x64Mach.getGpr s x64Frame.sp - 32#64) (n1 := 24) (n2 :=
+      8) (by decide)
     grind
   have hmem_pro : (s.dmem =⋆
       x64FrameSpec.RetAddr (x64Mach.getGpr s x64Frame.sp) ra ⋆
@@ -287,7 +301,8 @@ theorem callerCallee_e2e {v : Val i32} {s : MachineData} {ra : Int64} {R : Mem 6
   have hsplit_24 : region (x64Mach.getGpr s x64Frame.sp - 32#64) 24 =
       (region (x64Mach.getGpr s x64Frame.sp - 32#64) 16 ⋆
         region (x64Mach.getGpr s x64Frame.sp - 16#64) 8) := by
-    have := region_split (a := x64Mach.getGpr s x64Frame.sp - 32#64) (n1 := 16) (n2 := 8) (by decide)
+    have := region_split (a := x64Mach.getGpr s x64Frame.sp - 32#64) (n1 := 16) (n2 :=
+      8) (by decide)
     grind
   have hmem_call : (s1.dmem =⋆
       region (x64Mach.getGpr s1 x64Frame.sp - BitVec.ofNat 64 x64Frame.raBytes) x64Frame.raBytes ⋆
@@ -326,12 +341,14 @@ theorem callerCallee_e2e {v : Val i32} {s : MachineData} {ra : Int64} {R : Mem 6
     have hsplit_16 : region (x64Mach.getGpr s x64Frame.sp - 32#64) 16 =
         (region (x64Mach.getGpr s x64Frame.sp - 32#64) 8 ⋆
           region (x64Mach.getGpr s x64Frame.sp - 24#64) 8) := by
-      have := region_split (a := x64Mach.getGpr s x64Frame.sp - 32#64) (n1 := 8) (n2 := 8) (by decide)
+      have := region_split (a := x64Mach.getGpr s x64Frame.sp - 32#64) (n1 := 8) (n2 :=
+        8) (by decide)
       grind
     rw [hsplit_16] at hmem2
     have hsp2' : x64Mach.getGpr s2 x64Frame.sp = x64Mach.getGpr s x64Frame.sp - 16#64 := by
       rw [hsp2, hsp1_val]; grind
-    have haddr3 : x64Mach.addrOf concreteHost (2 + (x64Frame.call "callee").length) = Host.addrOf 3 := rfl
+    have haddr3 : x64Mach.addrOf concreteHost (2 + (x64Frame.call "callee").length) =
+      Host.addrOf 3 := rfl
     have hsub24 : x64Mach.getGpr s x64Frame.sp - 24#64 =
         x64Mach.getGpr s2 x64Frame.sp - BitVec.ofNat 64 (x64Frame.frameSize 1) := by
       rw [hsp2']; change _ = _ - 8#64; grind
@@ -343,7 +360,8 @@ theorem callerCallee_e2e {v : Val i32} {s : MachineData} {ra : Int64} {R : Mem 6
   have hsp3_eq : x64Mach.getGpr s3 x64Frame.sp = x64Mach.getGpr s x64Frame.sp - 8#64 := by
     rw [hsp3, hsp2, hsp1_val]; grind
   have hmem_epi : s3.dmem =⋆
-      x64FrameSpec.Saved (x64Mach.getGpr s3 x64Frame.sp + BitVec.ofNat 64 (x64Frame.frameSize 1)) ra 1 ⋆
+      x64FrameSpec.Saved (x64Mach.getGpr s3 x64Frame.sp + BitVec.ofNat 64 (x64Frame.frameSize 1)) ra
+        1 ⋆
       (region (x64Mach.getGpr s x64Frame.sp - 8#64) 8 ⋆
         (region (x64Mach.getGpr s x64Frame.sp - 32#64) 24 ⋆ R)) := by
     have h24 : x64Mach.getGpr s2 x64Frame.sp - BitVec.ofNat 64 (x64Frame.frameSize 1) =
@@ -359,7 +377,8 @@ theorem callerCallee_e2e {v : Val i32} {s : MachineData} {ra : Int64} {R : Mem 6
     have hsplit_24' : region (x64Mach.getGpr s x64Frame.sp - 32#64) 24 =
         (region (x64Mach.getGpr s x64Frame.sp - 32#64) 8 ⋆
           region (x64Mach.getGpr s x64Frame.sp - 24#64) 16) := by
-      have := region_split (a := x64Mach.getGpr s x64Frame.sp - 32#64) (n1 := 8) (n2 := 16) (by decide)
+      have := region_split (a := x64Mach.getGpr s x64Frame.sp - 32#64) (n1 := 8) (n2 :=
+        16) (by decide)
       grind
     rw [hsplit_24']
     exact sep_cast hmem3 (by ac_rfl)
@@ -369,7 +388,8 @@ theorem callerCallee_e2e {v : Val i32} {s : MachineData} {ra : Int64} {R : Mem 6
   have hsp4_eq : x64Mach.getGpr s4 x64Frame.sp = x64Mach.getGpr s x64Frame.sp := by
     rw [hsp4, hsp3_eq]; grind
   have hmem_ret : s4.dmem =⋆ x64FrameSpec.RetAddr (x64Mach.getGpr s4 x64Frame.sp) ra ⋆
-      (region (x64Mach.getGpr s3 x64Frame.sp + BitVec.ofNat 64 (8 * 1)) (x64Frame.frameSize 1 - 8 * 1) ⋆
+      (region (x64Mach.getGpr s3 x64Frame.sp + BitVec.ofNat 64 (8 * 1))
+        (x64Frame.frameSize 1 - 8 * 1) ⋆
         (region (x64Mach.getGpr s x64Frame.sp - 8#64) 8 ⋆
           (region (x64Mach.getGpr s x64Frame.sp - 32#64) 24 ⋆ R))) := by
     rw [← hsp4] at hmem4

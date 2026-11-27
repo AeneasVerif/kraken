@@ -49,7 +49,7 @@ open LeanQbeTest.T.XcapBridgeTest
 /-! ## 1. `AddrCodec x64Target` & `BitVec 64` / `Int64` Round-Trips -/
 
 /-- Canonical injective `AddrCodec` for `x64Target` (`x64Mach.Addr = Int64`). -/
-@[expose] def x64AddrCodec : AddrCodec x64Target where
+def x64AddrCodec : AddrCodec x64Target where
   toBits := Int64.toBitVec
   ofBits := Int64.ofBitVec
   of_to := Int64.ofBitVec_toBitVec
@@ -101,15 +101,15 @@ theorem x64Self_doubleAddTen_run_via_cptr :
 /-! ## 3. Direction 2: Opaque x64 XCAP Block → `cptr_to_Γ` → Compiled Caller → `Xcap.cptr` -/
 
 /-- Hand-assembled x64 opaque callee (`lea rax, [rdi + 1]; ret`). -/
-@[expose] def x64OpaqueIncBody : List Directive :=
+def x64OpaqueIncBody : List Directive :=
   [ins (.lea (q .rax) (atDisp .rdi 1))]
 
 theorem x64OpaqueIncBody_op :
     x64Target.gpr.op (.add i64) (.gpr .rdi, .imm 1#64, ()) (.gpr .rax, ()) (.disp 1) =
       some (x64OpaqueIncBody, maskNone) :=
-  rfl
+  by rfl
 
-@[expose] def x64OpaqueIncCode : List Directive :=
+def x64OpaqueIncCode : List Directive :=
   opaqueIncCode x64Target x64OpaqueIncBody
 
 splice_module_hints x64CallerHints x64Target.toIsa x64LegalTarget callerFns
@@ -129,14 +129,14 @@ theorem x64Caller_meta :
       x64CallerCode x64CallerBounds (callerFns.map Fn.name) [] 2048 = true := by
   t_kernel_rfl
 
-@[expose] def x64CallerCompiled :
+def x64CallerCompiled :
     Compiled x64Target x64LegalTarget (extCalleesOfTable x64LegalTarget opaqueExtRows)
       [] 0 callerFns x64CallerHints 2048 :=
   compileCheckedLit x64Target x64Layout x64LegalTarget x64LabelClean
     (extCalleesOfTable x64LegalTarget opaqueExtRows) [] 0
     callerFns x64CallerHints 2048 x64CallerCode x64CallerBounds x64Caller_cm x64Caller_meta
 
-@[expose] def x64CallerChunk :
+def x64CallerChunk :
     CompiledChunk x64Target x64LegalTarget [] 0 :=
   ⟨extCalleesOfTable x64LegalTarget opaqueExtRows, callerFns, x64CallerHints, 2048,
     x64CallerCompiled⟩
@@ -146,7 +146,7 @@ theorem x64CallerCert_linkCheck :
       true := by
   t_kernel_rfl
 
-@[expose] def x64CallerCert :
+def x64CallerCert :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean callerMod
       (extCalleesOfTable x64LegalTarget opaqueExtRows) [] 0 2048 where
   chunks := [x64CallerChunk]
@@ -156,7 +156,7 @@ theorem x64CallerCert_linkCheck :
   maxBound_le := Nat.le_refl 2048
 
 /-- Combined Kraken x64 program: opaque hand-assembled `"opaque_inc"` + compiled `"call_opaque"`. -/
-@[expose] def x64CombinedProg : List Directive :=
+def x64CombinedProg : List Directive :=
   x64OpaqueIncCode ++ x64CallerCode
 
 theorem x64CombinedProg_small : x64Layout.progSmall x64CombinedProg = true := by t_kernel_rfl

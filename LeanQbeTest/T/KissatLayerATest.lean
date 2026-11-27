@@ -32,7 +32,7 @@ open LeanQbe.T.Examples.Kissat
 
 /-! ## 1. Iterative `minimize` (`LayerAMinimize1` & `LayerAMinimize2`) -/
 
-@[expose] public def lazyMinCdcl : CdclState :=
+public def lazyMinCdcl : CdclState :=
   -- Variables 0..6:
   -- x0 (0): unit @ level 0, trail[0]
   -- x1 (2): decision @ level 1, trail[1]
@@ -52,7 +52,7 @@ open LeanQbe.T.Examples.Kissat
     level := 2
     inconsistent := false }
 
-@[expose] public def lazyMinInit : MinState :=
+public def lazyMinInit : MinState :=
   MinState.ofCdcl lazyMinCdcl #[0, 2, 4]
 
 #guard lazyMinInit.varTrailPos 4 == 4 && lazyMinInit.varTrailPos 2 == 2
@@ -159,7 +159,7 @@ private def failedLitExecCdcl : CdclState :=
 
 /-! ## 3. Clause sweep, binary promotion, partition, and `reduceAndCollect` (`LayerACollect`) -/
 
-@[expose] public def collectRichState : CdclState :=
+public def collectRichState : CdclState :=
   -- x0 (0): unit @ level 0 (so lit 0 is root-true, lit 1 is root-false)
   -- x1 (2): decision @ level 1
   -- x2 (4): large 0 [1, 3, 4] @ level 1 -> root-false lit 1 stripped -> [3, 4] -> binary.
@@ -218,7 +218,7 @@ private def failedLitExecCdcl : CdclState :=
 
 /-! ## 4. `flushRootReasons` executable checks & closed non-vacuity corollaries -/
 
-@[expose] public def coreFlushF0 : CNF Nat :=
+public def coreFlushF0 : CNF Nat :=
   cnfOfClauses [[0], [1, 2], [1, 3, 4], [1, 7, 8]]
 
 private def coreFlushRun : CdclState :=
@@ -229,7 +229,7 @@ private def coreFlushRun : CdclState :=
     | _ => s0
   | _ => initState coreFlushF0
 
-@[expose] public def coreFlushManual : CdclState :=
+public def coreFlushManual : CdclState :=
   let s0 := initState coreFlushF0
   let s1 := assignLit s0 0 s0.level (.large 0)
   let s2 := assignLit s1 2 s1.level (.binary 1)
@@ -398,7 +398,7 @@ public theorem nv_lazyMin_inv : LazyTrailInv lazyMinCdcl := by
       · exact absurd rfl hxne
     | _ + 7 => exact absurd (Nat.lt_of_lt_of_eq hi lazyMin_sz) (by omega)
 
-@[expose] public def lazyMinStateC : MinState :=
+public def lazyMinStateC : MinState :=
   MinState.ofCdcl { lazyMinCdcl with f0 := lazyMinCdcl.f0.add (cnfClause [3, 5, 13]) } #[0, 2, 4]
 
 /-- Closed corollary instantiating `minimize_worklist_sound` on `lazyMinStateC` and `[3, 5, 13]`. -/

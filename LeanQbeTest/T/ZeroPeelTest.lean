@@ -4,7 +4,7 @@ public import LeanQbe.T.ZeroPeelLemmas
 public import LeanQbe.T.WPLemmas
 public import LeanQbe.T.FlatLemmas
 public import LeanQbe.T.Logic.Rules
-import all LeanQbe.T.ZeroPeel
+import LeanQbe.T.ZeroPeel
 
 /-!
 # Tests of `LeanQbe.T.ZeroPeel`

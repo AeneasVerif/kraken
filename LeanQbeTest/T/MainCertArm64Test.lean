@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.MainCertProof
 public import LeanQbe.T.Arm64.TargLemmas
 public import LeanQbe.T.Logic.MemLemmas
-import all Kraken.Separation
+import LeanQbe.T.BenchmarkCertKit
 public import LeanQbeTest.T.Common.Fixtures
 import LeanQbe.T.FlatLemmas
 public meta import Lean
@@ -125,11 +125,7 @@ theorem arm_main_eventually [hh : Host] (k₀ : Nat)
           region (s.regs.SP.toBitVec - BitVec.ofNat 64 (armCert3.bound "main_entry"))
             (armCert3.bound "main_entry") ⋆ R))
       ⟨s, Labels.label "main_entry"⟩ := by
-  obtain ⟨mf, mR, hu1, hd1, ⟨m, f, hu2, hd2, hm, hf⟩, hmR⟩ := hmem
-  have hmEq : s.dmem =⋆ Eq m ⋆
-      region (s.regs.SP.toBitVec - BitVec.ofNat 64 (armCert3.bound "main_entry"))
-        (armCert3.bound "main_entry") ⋆ R :=
-    ⟨mf, mR, hu1, hd1, ⟨m, f, hu2, hd2, rfl, hf⟩, hmR⟩
+  obtain ⟨m, hm, hmEq⟩ := BenchmarkCertKit.sep_extract_eq hmem
   have hfn : armTarget.FnSpec hh "main_entry" mainSpec (armCert3.bound "main_entry") 0 :=
     (arm_module_fnspec k₀ hc hu (f := fnMain) fnMain_mem_certMod).2
   have hargs : armTarget.ArgsIn (as := [i64, i64]) (p, d, ()) s :=

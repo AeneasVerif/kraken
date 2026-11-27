@@ -21,7 +21,7 @@ Standalone downstream module verifying:
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbeTest.T.Arm64FrameTest
 
@@ -37,8 +37,10 @@ theorem armFrame_metadata_rfl :
     armFrame.raBytes = 0 ∧
     armFrame.bitWidths = [8, 16, 32, 64] ∧
     armFrame.raRegs = [.reg .X30] ∧
-    armFrame.argRegs = [.reg .X0, .reg .X1, .reg .X2, .reg .X3, .reg .X4, .reg .X5, .reg .X6, .reg .X7] ∧
-    armFrame.retRegs = [.reg .X0, .reg .X1, .reg .X2, .reg .X3, .reg .X4, .reg .X5, .reg .X6, .reg .X7] := by
+    armFrame.argRegs = [.reg .X0, .reg .X1, .reg .X2, .reg .X3, .reg .X4, .reg .X5, .reg .X6,
+      .reg .X7] ∧
+    armFrame.retRegs = [.reg .X0, .reg .X1, .reg .X2, .reg .X3, .reg .X4, .reg .X5, .reg .X6,
+      .reg .X7] := by
   exact ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩
 
 theorem armFrameSize_rfl :
@@ -160,7 +162,8 @@ theorem armEchoProg_spec {h : Host} {k ns : Nat} {v : Val i16} {s : MachineData}
     hfr2.1 armFrame.sp (by simp)
   have hsp2_ok : armFrameSpec.spOk (armMach.getGpr s2 armFrame.sp) := hsp2 ▸ hsp1_ok
   have hmem2' : (s2.dmem =⋆
-      cell64 (armMach.getGpr s2 armFrame.sp + BitVec.ofNat 64 (8 * 0)) (armMach.getGpr s (.reg .X0)) ⋆
+      cell64 (armMach.getGpr s2 armFrame.sp + BitVec.ofNat 64 (8 * 0))
+        (armMach.getGpr s (.reg .X0)) ⋆
       (region (armMach.getGpr s1 armFrame.sp + 8#64) (8 * ns - 8) ⋆
         armFrameSpec.Saved (armMach.getGpr s armFrame.sp) ra ns ⋆ R)) := by
     rw [hsp2, ← hval]; exact hmem2
@@ -175,8 +178,10 @@ theorem armEchoProg_spec {h : Host} {k ns : Nat} {v : Val i16} {s : MachineData}
   have hsp4_ok : armFrameSpec.spOk (armMach.getGpr s4 armFrame.sp) := by
     rw [hsp4]; exact armFrameSpec.spOk_frame _ ns hsp
   have hmem4 : s4.dmem =⋆
-      armFrameSpec.Saved (armMach.getGpr s4 armFrame.sp + BitVec.ofNat 64 (armFrame.frameSize ns)) ra ns ⋆
-      (region (armMach.getGpr s armFrame.sp - BitVec.ofNat 64 (armFrame.frameSize ns)) (8 * ns) ⋆ R) := by
+      armFrameSpec.Saved (armMach.getGpr s4 armFrame.sp + BitVec.ofNat 64 (armFrame.frameSize ns))
+        ra ns ⋆
+      (region (armMach.getGpr s armFrame.sp - BitVec.ofNat 64 (armFrame.frameSize ns))
+        (8 * ns) ⋆ R) := by
     rw [hsp4, BitVec.sub_add_cancel]
     have h42 : s4.dmem = s2.dmem := hdmem4.trans hdmem3
     rw [h42]
@@ -210,20 +215,26 @@ theorem armEchoProg_spec {h : Host} {k ns : Nat} {v : Val i16} {s : MachineData}
       (slots := 8 * ns) (frame := armFrame.frameSize ns) (armFrameSize_slots ns) hF0
     have hcast := sep_cast hmem5 (show
         (armFrameSpec.RetAddr (armMach.getGpr s armFrame.sp) ra ⋆
-          region (armMach.getGpr s armFrame.sp - BitVec.ofNat 64 (armFrame.frameSize ns) + BitVec.ofNat 64 (8 * ns))
+          region (armMach.getGpr s armFrame.sp - BitVec.ofNat 64 (armFrame.frameSize ns) +
+            BitVec.ofNat 64 (8 * ns))
             (armFrame.frameSize ns - 8 * ns) ⋆
-          (region (armMach.getGpr s armFrame.sp - BitVec.ofNat 64 (armFrame.frameSize ns)) (8 * ns) ⋆ R)) =
+          (region (armMach.getGpr s armFrame.sp - BitVec.ofNat 64 (armFrame.frameSize ns))
+            (8 * ns) ⋆ R)) =
         (armFrameSpec.RetAddr (armMach.getGpr s armFrame.sp) ra ⋆
-          ((region (armMach.getGpr s armFrame.sp - BitVec.ofNat 64 (armFrame.frameSize ns)) (8 * ns) ⋆
-            region (armMach.getGpr s armFrame.sp - BitVec.ofNat 64 (armFrame.frameSize ns) + BitVec.ofNat 64 (8 * ns))
+          ((region (armMach.getGpr s armFrame.sp - BitVec.ofNat 64 (armFrame.frameSize ns))
+            (8 * ns) ⋆
+            region (armMach.getGpr s armFrame.sp - BitVec.ofNat 64 (armFrame.frameSize ns) +
+              BitVec.ofNat 64 (8 * ns))
               (armFrame.frameSize ns - 8 * ns)) ⋆ R)) from by ac_rfl)
     rw [← hsplit_frame] at hcast
     exact hcast
   refine armFrameSpec.ret_spec hretAt hra5 hmem5' ?_
   rintro s6 hk6 _ hsp6 hdmem6
   have hx0_6 : AbiGprHolds (armMach.getGpr s6 (.reg .X0)) i16 v := by
-    have h65 : armMach.getGpr s6 (.reg .X0) = armMach.getGpr s5 (.reg .X0) := hk6 (.reg .X0) (by simp)
-    have h54 : armMach.getGpr s5 (.reg .X0) = armMach.getGpr s4 (.reg .X0) := hfr5.1 (.reg .X0) (by simp)
+    have h65 : armMach.getGpr s6 (.reg .X0) = armMach.getGpr s5 (.reg .X0) :=
+      hk6 (.reg .X0) (by simp)
+    have h54 : armMach.getGpr s5 (.reg .X0) = armMach.getGpr s4 (.reg .X0) :=
+      hfr5.1 (.reg .X0) (by simp)
     rw [h65, h54]
     exact hAbi4
   have hcs6 : ∀ r ∈ armFrame.calleeSaved, armMach.getGpr s6 r = armMach.getGpr s r := by
@@ -268,9 +279,11 @@ theorem armSpCorner_spec {h : Host} {k i : Nat} {s : MachineData} {v : Val i8}
     (hmem : s.dmem =⋆ region (armMach.getGpr s armFrame.sp + BitVec.ofNat 64 (8 * i)) 8 ⋆ R)
     (hk : ∀ s' : MachineData,
       AbiGprHolds (armMach.getGpr s' .SP) i8 v →
-      (s'.dmem =⋆ cell64 (armMach.getGpr s armFrame.sp + BitVec.ofNat 64 (8 * i)) (armMach.getGpr s .SP) ⋆ R) →
+      (s'.dmem =⋆ cell64 (armMach.getGpr s armFrame.sp + BitVec.ofNat 64 (8 * i))
+        (armMach.getGpr s .SP) ⋆ R) →
       Eventually (armMach.step h) post (armMach.mkState s' (armMach.addrOf h
-        (k + (armFrame.slotSt i .SP ++ armFrame.slotLd .SP i ++ (armFrame.canonAbi i8 .SP).1).length)))) :
+        (k + (armFrame.slotSt i .SP ++ armFrame.slotLd .SP i ++ (armFrame.canonAbi i8
+          .SP).1).length)))) :
     armMach.Run h k s post := by
   letI := h
   obtain ⟨hleft, hcab⟩ := hc.append
@@ -282,7 +295,8 @@ theorem armSpCorner_spec {h : Host} {k i : Nat} {s : MachineData} {v : Val i8}
     hfr1.1 .SP (by simp)
   have hsp1_ok : armFrameSpec.spOk (armMach.getGpr s1 armFrame.sp) := hsp1 ▸ hsp
   have hmem1' : s1.dmem =⋆
-      cell64 (armMach.getGpr s1 armFrame.sp + BitVec.ofNat 64 (8 * i)) (armMach.getGpr s .SP) ⋆ R := by
+      cell64 (armMach.getGpr s1 armFrame.sp + BitVec.ofNat 64 (8 * i)) (armMach.getGpr s .SP) ⋆ R :=
+        by
     rw [hsp1]; exact hmem1
   refine armFrameSpec.slotLd_spec (rd := .SP) (by simp) hsp1_ok hmem1' hld ?_
   rintro s2 ⟨hsp2, hdmem2⟩ hfr2
@@ -307,9 +321,12 @@ def callerCalleeProg : List Directive :=
   [armFrame.label "callee"] ++ armEchoProg 1
 
 theorem callerCallee_small :
-    (Kraken.Layout.apply testLayout callerCalleeProg).sizeBefore callerCalleeProg.length < 2 ^ 64 := by
-  have : (Kraken.Layout.apply testLayout callerCalleeProg).sizeBefore callerCalleeProg.length = 56 := by
-    simp [Kraken.Layout.apply, Kraken.Executable.sizeBefore, Kraken.Layout.size, callerCalleeProg, armEchoProg]
+    (Kraken.Layout.apply testLayout callerCalleeProg).sizeBefore callerCalleeProg.length < 2 ^ 64 :=
+      by
+  have : (Kraken.Layout.apply testLayout callerCalleeProg).sizeBefore callerCalleeProg.length =
+    56 := by
+    simp [Kraken.Layout.apply, Kraken.Executable.sizeBefore, Kraken.Layout.size, callerCalleeProg,
+      armEchoProg]
     decide
   omega
 
@@ -336,7 +353,8 @@ theorem callerCallee_e2e {v : Val i16} {s : MachineData} {ra : Int64} {R : Mem 6
   have hsp_frame : region (armMach.getGpr s armFrame.sp - 32#64) 32 =
       (region (armMach.getGpr s armFrame.sp - 32#64) 16 ⋆
         region (armMach.getGpr s armFrame.sp - 16#64) 16) := by
-    have := region_split (a := armMach.getGpr s armFrame.sp - 32#64) (n1 := 16) (n2 := 16) (by decide)
+    have := region_split (a := armMach.getGpr s armFrame.sp - 32#64) (n1 := 16) (n2 :=
+      16) (by decide)
     grind
   have hmem_pro : (s.dmem =⋆
       armFrameSpec.RetAddr (armMach.getGpr s armFrame.sp) ra ⋆
@@ -381,7 +399,8 @@ theorem callerCallee_e2e {v : Val i16} {s : MachineData} {ra : Int64} {R : Mem 6
     have hsub32 : armMach.getGpr s armFrame.sp - 32#64 =
         armMach.getGpr s2 armFrame.sp - BitVec.ofNat 64 (armFrame.frameSize 1) := by
       rw [hsp2']; change _ = _ - 16#64; grind
-    have haddr4 : armMach.addrOf concreteHost (3 + (armFrame.call "callee").length) = Host.addrOf 4 := rfl
+    have haddr4 : armMach.addrOf concreteHost (3 + (armFrame.call "callee").length) =
+      Host.addrOf 4 := rfl
     have hfs1 : armFrame.frameSize 1 = 16 := rfl
     rw [haddr4, hsub32] at hmem2
     rw [hfs1]
@@ -394,7 +413,8 @@ theorem callerCallee_e2e {v : Val i16} {s : MachineData} {ra : Int64} {R : Mem 6
   have hsp3_ok : armFrameSpec.spOk (armMach.getGpr s3 armFrame.sp) := by
     rw [hsp3_eq]; simpa [armFrame, armFrameSize] using armFrameSpec.spOk_frame _ 1 hsp
   have hmem_epi : s3.dmem =⋆
-      armFrameSpec.Saved (armMach.getGpr s3 armFrame.sp + BitVec.ofNat 64 (armFrame.frameSize 1)) ra 1 ⋆
+      armFrameSpec.Saved (armMach.getGpr s3 armFrame.sp + BitVec.ofNat 64 (armFrame.frameSize 1)) ra
+        1 ⋆
       (region (armMach.getGpr s armFrame.sp - 16#64) 8 ⋆
         (region (armMach.getGpr s armFrame.sp - 32#64) 16 ⋆ R)) := by
     have hsp_saved : armMach.getGpr s3 armFrame.sp + BitVec.ofNat 64 (armFrame.frameSize 1) =
@@ -413,7 +433,8 @@ theorem callerCallee_e2e {v : Val i16} {s : MachineData} {ra : Int64} {R : Mem 6
   have hsp4_eq : armMach.getGpr s4 armFrame.sp = armMach.getGpr s armFrame.sp := by
     rw [hsp4, hsp3_eq]; change _ - 16#64 + 16#64 = _; grind
   have hmem_ret : s4.dmem =⋆ armFrameSpec.RetAddr (armMach.getGpr s4 armFrame.sp) ra ⋆
-      (region (armMach.getGpr s3 armFrame.sp + BitVec.ofNat 64 (8 * 1)) (armFrame.frameSize 1 - 8 * 1) ⋆
+      (region (armMach.getGpr s3 armFrame.sp + BitVec.ofNat 64 (8 * 1))
+        (armFrame.frameSize 1 - 8 * 1) ⋆
         (region (armMach.getGpr s armFrame.sp - 16#64) 8 ⋆
           (region (armMach.getGpr s armFrame.sp - 32#64) 16 ⋆ R))) := by
     rw [← hsp4] at hmem4

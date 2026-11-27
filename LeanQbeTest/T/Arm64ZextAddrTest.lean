@@ -30,7 +30,7 @@ Verifies full `Live` -> `Rega` -> `Arm64.Isel` lowering (`checkCompile` + emitte
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbeTest.T.Arm64ZextAddrTest
 

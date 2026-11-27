@@ -100,7 +100,7 @@ theorem plainPropagateFlat_compileFlatFn_eq_x64 (h : Amd64.x64Target.toIsa.Hints
   compileFlatFn_eq_compileFn _ _ _ _
     (PassFlatKit.reifyFunc_wfCheck Examples.Kissat.Plain.plain_propagate_wf)
 
-@[expose] def foldCasesFlat : TFlatFn :=
+def foldCasesFlat : TFlatFn :=
   { name := "fold_cases_flat"
     as := [i64, i32]
     rs := [i64]
@@ -117,7 +117,7 @@ theorem plainPropagateFlat_compileFlatFn_eq_x64 (h : Amd64.x64Target.toIsa.Hints
          .ret (.var 0, ()))
         (.ret (.imm 99#64, ())) }
 
-@[expose] def copyCasesFlat : TFlatFn :=
+def copyCasesFlat : TFlatFn :=
   { name := "copy_cases_flat"
     as := [i64, i64]
     rs := [i64]
@@ -128,7 +128,7 @@ theorem plainPropagateFlat_compileFlatFn_eq_x64 (h : Amd64.x64Target.toIsa.Hints
       .let_ ⟨.add i64, (.var 1, .var 0, ())⟩ <|
       .ret (.var 0, ()) }
 
-@[expose] def canonCasesFlat : TFlatFn :=
+def canonCasesFlat : TFlatFn :=
   { name := "canon_cases_flat"
     as := [i64, i64]
     rs := [i64]
@@ -145,7 +145,7 @@ theorem plainPropagateFlat_compileFlatFn_eq_x64 (h : Amd64.x64Target.toIsa.Hints
           (.jump (ts := [i64]) 0 (.var 1, ())))
         (.ret (.var 1, ())) }
 
-@[expose] def gvnCasesFlat : TFlatFn :=
+def gvnCasesFlat : TFlatFn :=
   { name := "gvn_cases_flat"
     as := [i64, i64]
     rs := [i64]

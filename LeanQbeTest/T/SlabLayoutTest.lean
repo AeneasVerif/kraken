@@ -19,7 +19,7 @@ namespace LeanQbeTest.T.SlabLayoutTest
 
 open LeanQbe.T
 
-@[expose] public section
+public section
 
 structure SlicedCore where
   arenaLen : Nat
@@ -62,10 +62,10 @@ end
 public section
 
 theorem sliced_lens_comp_get (s : SlicedState) :
-    lensArena.get s = s.core.arena := rfl
+    lensArena.get s = s.core.arena := by rfl
 
 theorem sliced_lens_comp_set (s : SlicedState) (xs : List (BitVec 32)) :
-    (lensArena.set s xs).core.arena = xs := rfl
+    (lensArena.set s xs).core.arena = xs := by rfl
 
 theorem sliced_scratch_agrees (s : SlicedState) (i : Nat) (v : BitVec 32) :
     AgreesExcept (fun t : SlicedState => { t with scratch := s.scratch })

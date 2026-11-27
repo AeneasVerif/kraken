@@ -38,7 +38,7 @@ open LeanQbe.T LeanQbe.T.Amd64 LeanQbe.T.Xcap LeanQbe.T.BedrockWord
 open LeanQbe.T.Unified LeanQbe.T.ProofKit Kraken
 open LeanQbeTest.T.BedrockCfgStage2Test
 
-@[expose] def x64Codec : AddrCodec x64Target where
+def x64Codec : AddrCodec x64Target where
   toBits := Int64.toBitVec
   ofBits := Int64.ofBitVec
   of_to := Int64.ofBitVec_toBitVec
@@ -60,7 +60,7 @@ theorem x64Ex1_meta :
       x64Ex1Code x64Ex1Bounds (ex1Fns.map Fn.name) [haltSym] 2048 = true := by
   t_kernel_rfl
 
-@[expose] def x64Ex1Compiled :
+def x64Ex1Compiled :
     Compiled x64Target x64LegalTarget [] [haltSym] 0 ex1Fns x64Ex1Hints 2048 :=
   compileCheckedLit x64Target x64Layout x64LegalTarget x64LabelClean
     [] [haltSym] 0 ex1Fns x64Ex1Hints 2048 x64Ex1Code x64Ex1Bounds x64Ex1_cm x64Ex1_meta
@@ -80,7 +80,7 @@ theorem x64Ex2a_meta :
       x64Ex2aCode x64Ex2aBounds (ex2aFns.map Fn.name) [haltSym] 2048 = true := by
   t_kernel_rfl
 
-@[expose] def x64Ex2aCompiled :
+def x64Ex2aCompiled :
     Compiled x64Target x64LegalTarget [] [haltSym] 0 ex2aFns x64Ex2aHints 2048 :=
   compileCheckedLit x64Target x64Layout x64LegalTarget x64LabelClean
     [] [haltSym] 0 ex2aFns x64Ex2aHints 2048 x64Ex2aCode x64Ex2aBounds x64Ex2a_cm x64Ex2a_meta
@@ -100,7 +100,7 @@ theorem x64Ex2b_meta :
       x64Ex2bCode x64Ex2bBounds (ex2bFns.map Fn.name) [haltSym] 2048 = true := by
   t_kernel_rfl
 
-@[expose] def x64Ex2bCompiled :
+def x64Ex2bCompiled :
     Compiled x64Target x64LegalTarget [] [haltSym] 0 ex2bFns x64Ex2bHints 2048 :=
   compileCheckedLit x64Target x64Layout x64LegalTarget x64LabelClean
     [] [haltSym] 0 ex2bFns x64Ex2bHints 2048 x64Ex2bCode x64Ex2bBounds x64Ex2b_cm x64Ex2b_meta
@@ -120,7 +120,7 @@ theorem x64Ex3Ro_meta :
       x64Ex3RoCode x64Ex3RoBounds (ex3RoFns.map Fn.name) [haltSym] 2048 = true := by
   t_kernel_rfl
 
-@[expose] def x64Ex3RoCompiled :
+def x64Ex3RoCompiled :
     Compiled x64Target x64LegalTarget [] [haltSym] 0 ex3RoFns x64Ex3RoHints 2048 :=
   compileCheckedLit x64Target x64Layout x64LegalTarget x64LabelClean
     [] [haltSym] 0 ex3RoFns x64Ex3RoHints 2048
@@ -143,7 +143,7 @@ theorem x64Ex3Guarded_meta :
       true := by
   t_kernel_rfl
 
-@[expose] def x64Ex3GuardedCompiled :
+def x64Ex3GuardedCompiled :
     Compiled x64Target x64LegalTarget [] [haltSym] 0 ex3GuardedFns x64Ex3GuardedHints 2048 :=
   compileCheckedLit x64Target x64Layout x64LegalTarget x64LabelClean
     [] [haltSym] 0 ex3GuardedFns x64Ex3GuardedHints 2048
@@ -164,7 +164,7 @@ theorem x64Ex6_meta :
       x64Ex6Code x64Ex6Bounds (ex6Fns.map Fn.name) [haltSym] 2048 = true := by
   t_kernel_rfl
 
-@[expose] def x64Ex6Compiled :
+def x64Ex6Compiled :
     Compiled x64Target x64LegalTarget [] [haltSym] 0 ex6Fns x64Ex6Hints 2048 :=
   compileCheckedLit x64Target x64Layout x64LegalTarget x64LabelClean
     [] [haltSym] 0 ex6Fns x64Ex6Hints 2048 x64Ex6Code x64Ex6Bounds x64Ex6_cm x64Ex6_meta

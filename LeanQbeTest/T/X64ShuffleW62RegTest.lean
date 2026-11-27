@@ -25,7 +25,7 @@ to fail with `jump: shuffle`.
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbeTest.T.X64ShuffleW62RegTest
 

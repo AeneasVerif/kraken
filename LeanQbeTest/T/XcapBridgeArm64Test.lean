@@ -49,7 +49,7 @@ open LeanQbeTest.T.XcapBridgeTest
 /-! ## 1. `AddrCodec armTarget` & `BitVec 64` / `Int64` Round-Trips -/
 
 /-- Canonical injective `AddrCodec` for `armTarget` (`armMach.Addr = Int64`). -/
-@[expose] def armAddrCodec : AddrCodec armTarget where
+def armAddrCodec : AddrCodec armTarget where
   toBits := Int64.toBitVec
   ofBits := Int64.ofBitVec
   of_to := Int64.ofBitVec_toBitVec
@@ -101,16 +101,16 @@ theorem armSelf_doubleAddTen_run_via_cptr :
 /-! ## 3. Direction 2: Opaque Arm64 XCAP Block → `cptr_to_Γ` → Compiled Caller → `Xcap.cptr` -/
 
 /-- Hand-assembled Arm64 opaque callee body (`add x0, x0, #1`). -/
-@[expose] def armOpaqueIncBody : List Directive :=
+def armOpaqueIncBody : List Directive :=
   (armTarget.gpr.op (.add i64) (.gpr (.reg .X0), .imm 1#64, ()) (.gpr (.reg .X0), ()) .default
     |>.map Prod.fst).getD []
 
 theorem armOpaqueIncBody_op :
     armTarget.gpr.op (.add i64) (.gpr (.reg .X0), .imm 1#64, ()) (.gpr (.reg .X0), ()) .default =
       some (armOpaqueIncBody, maskNone) :=
-  rfl
+  by rfl
 
-@[expose] def armOpaqueIncCode : List Directive :=
+def armOpaqueIncCode : List Directive :=
   opaqueIncCode armTarget armOpaqueIncBody
 
 splice_module_hints armCallerHints armTarget.toIsa armLegalTarget callerFns
@@ -130,14 +130,14 @@ theorem armCaller_meta :
       armCallerCode armCallerBounds (callerFns.map Fn.name) [] 2048 = true := by
   t_kernel_rfl
 
-@[expose] def armCallerCompiled :
+def armCallerCompiled :
     Compiled armTarget armLegalTarget (extCalleesOfTable armLegalTarget opaqueExtRows)
       [] 0 callerFns armCallerHints 2048 :=
   compileCheckedLit armTarget armLayout armLegalTarget armLabelClean
     (extCalleesOfTable armLegalTarget opaqueExtRows) [] 0
     callerFns armCallerHints 2048 armCallerCode armCallerBounds armCaller_cm armCaller_meta
 
-@[expose] def armCallerChunk :
+def armCallerChunk :
     CompiledChunk armTarget armLegalTarget [] 0 :=
   ⟨extCalleesOfTable armLegalTarget opaqueExtRows, callerFns, armCallerHints, 2048,
     armCallerCompiled⟩
@@ -147,7 +147,7 @@ theorem armCallerCert_linkCheck :
       true := by
   t_kernel_rfl
 
-@[expose] def armCallerCert :
+def armCallerCert :
     LinkedCert armTarget armLayout armLegalTarget armLabelClean callerMod
       (extCalleesOfTable armLegalTarget opaqueExtRows) [] 0 2048 where
   chunks := [armCallerChunk]
@@ -157,7 +157,7 @@ theorem armCallerCert_linkCheck :
   maxBound_le := Nat.le_refl 2048
 
 /-- Combined Kraken Arm64 program: opaque `"opaque_inc"` + compiled `"call_opaque"`. -/
-@[expose] def armCombinedProg : List Directive :=
+def armCombinedProg : List Directive :=
   armOpaqueIncCode ++ armCallerCode
 
 theorem armCombinedProg_small : armLayout.progSmall armCombinedProg = true := by t_kernel_rfl

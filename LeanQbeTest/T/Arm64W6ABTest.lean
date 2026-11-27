@@ -37,7 +37,7 @@ Arm64 `w6ab` bundle, each checked against the same compiler with the bundle swit
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbeTest.T.Arm64W6ABTest
 

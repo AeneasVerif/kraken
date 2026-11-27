@@ -36,7 +36,7 @@ open LeanQbe.T
 open LeanQbe.T.PrintCpp
 open LeanQbe.T.Examples.Kissat.Src
 
-@[expose] public section
+public section
 
 kissat_c0! (postlude := false) postlude_demo "
 u32 demo_inc(u32 x) { return x + 1u; }
