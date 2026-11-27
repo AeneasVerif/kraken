@@ -2,27 +2,32 @@ module
 
 public import Std.Tactic.BVDecide
 public import LeanQbe.T.Examples.Bitblast.Ref.BVProg
+public import BvDecideQbe.NormalizeRules
 public import BvDecideQbe.Prover
 public import BvDecideQbe.Cegar
+public import BvDecideQbe.Cut
 public import Lean.Elab.Tactic.BVDecide
 public import Lean.Elab.Tactic.Grind.Basic
 public import Lean.Meta.Tactic.BVDecide.Main
 public import Lean.Meta.Tactic.Grind.Main
 public meta import BvDecideQbe.FFI
+public meta import BvDecideQbe.NormalizeRules
 public meta import BvDecideQbe.Prover
 public meta import BvDecideQbe.Cegar
+public meta import BvDecideQbe.Cut
 public meta import Lean.Elab.Tactic.BVDecide
 public meta import Lean.Elab.Tactic.Grind.Basic
 public meta import Lean.Meta.Tactic.BVDecide.Main
 public meta import Lean.Meta.Tactic.Grind.Main
 
 /-!
-# Trust-Pure `bv_decide_qbe` Tactic & `sym`/`grind` Elaborator (`Step 3`)
+# Trust-Pure `bv_decide_qbe` & `bv_cut_qbe` Tactics (`Step 3` + `E0 / H5a + H6a + H7`)
 
-Public tactic and `sym =>` / `grind =>` entrypoints using `Std.Tactic.BVDecide`'s normalizer
+Public tactics and `sym =>` / `grind =>` entrypoints using `Std.Tactic.BVDecide`'s normalizer
 (`Normalize.bvNormalize`), reflection (`closeWithBVReflection`), Phase-1 CEGAR wrapper
-(`BvDecideQbe.cegarBlaster`), and trust-pure prover (`BvDecideQbe.unsatProver`) backed by
-verified in-process `KissatFidelity` (`Step-12` `517` fns + `64` Bitblast fns).
+(`BvDecideQbe.cegarBlaster`), trust-pure prover (`BvDecideQbe.unsatProver`) backed by verified
+in-process `KissatFidelity`, and the zero-new-trust `bv_cut_qbe` cutpoint-slicing + ring-dispatch
+front end (`BvDecideQbe.Cut`).
 -/
 
 set_option autoImplicit false
@@ -47,6 +52,11 @@ syntax (name := bvDecideQbeGrindStx) "bv_decide_qbe" optConfig (bvTypes)? : grin
 
 /-- Incremental pre-processor for `bv_decide_qbe` in `sym =>` and `grind =>` mode. -/
 syntax (name := bvDecideQbePushStx) "bv_decide_qbe_push" optConfig : grind
+
+/-- Zero-new-trust cutpoint-equivalence & ring-dispatch tactic (`E0 / H5a + H6a + H7`).
+Supports automatic pre-inlining cut discovery (`bv_cut_qbe`) and explicit cutpoint lists
+(`bv_cut_qbe [e1 = e2, ...]`). -/
+syntax (name := bvCutQbeStx) "bv_cut_qbe" optConfig ("[" term,* "]")? (bvTypes)? : tactic
 
 meta section
 
@@ -105,6 +115,30 @@ def evalBvDecideQbePush : Grind.GrindTactic := fun
       let (_, state) ← Normalize.bvNormalize.run ctx (.grindTarget g)
       let .grindTarget goal := state.target | unreachable!
       set goal
+  | _ => throwUnsupportedSyntax
+
+@[tactic bvCutQbeStx]
+def evalBvCutQbe : Tactic := fun
+  | `(tactic| bv_cut_qbe $cfgStx:optConfig $[[$cuts,*]]? $[$types:bvTypes]?) => do
+    let ref ← getRef
+    let cfg ← elabBVDecideConfig cfgStx
+    let types ← elabBVDecideTypes types cfg
+    let g ← getMainGoal
+    let explicitCuts ← g.withContext do
+      match cuts with
+      | none => pure #[]
+      | some cs =>
+        cs.getElems.mapM fun stx => do
+          let e ← Term.elabTermAndSynthesize stx (some (mkSort 0))
+          instantiateMVars e
+    liftMetaFinishingTactic fun goal => do
+      let cfg ← resolveAutoAcNf cfgStx cfg goal
+      let qbeCtx : QbeContext := {
+        fuel := fuelOfTimeout cfg.timeout
+        axiomDeclRange? := some ref
+        acNf := cfg.acNf
+      }
+      bvCutQbe goal cfg types qbeCtx explicitCuts
   | _ => throwUnsupportedSyntax
 
 end

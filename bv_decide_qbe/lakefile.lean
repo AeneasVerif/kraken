@@ -88,7 +88,14 @@ lean_lib BvDecideQbeNative where
 @[default_target]
 lean_lib BvDecideQbe where
   roots := #[]
-  globs := #[`BvDecideQbe.Prover, `BvDecideQbe.Cegar, `BvDecideQbe.Tactic]
+  globs := #[
+    `BvDecideQbe,
+    `BvDecideQbe.NormalizeRules,
+    `BvDecideQbe.Prover,
+    `BvDecideQbe.Cegar,
+    `BvDecideQbe.Cut,
+    `BvDecideQbe.Tactic
+  ]
 
 lean_lib BvDecideQbeTest where
   roots := #[]

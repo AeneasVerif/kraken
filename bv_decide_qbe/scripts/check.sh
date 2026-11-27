@@ -126,7 +126,8 @@ timeout 600 "${RUN_SCOPE[@]}" lake lean BvDecideQbeTest/FfiTest.lean
 echo "== [7/8] live in-process Lean EncodeCexTest (round-trip + sizing + CEX evalEfficient) =="
 timeout 600 "${RUN_SCOPE[@]}" lake lean BvDecideQbeTest/EncodeCexTest.lean
 
-echo "== [8/8] live in-process Lean UnitTest (bv_decide_qbe tactic + CEGAR +uf + axioms + rfl) =="
+echo "== [8/8] live in-process Lean UnitTest + CutTest (bv_decide_qbe + bv_cut_qbe + ring + rules) =="
 timeout 600 "${RUN_SCOPE[@]}" lake lean BvDecideQbeTest/UnitTest.lean
+timeout 600 "${RUN_SCOPE[@]}" lake lean BvDecideQbeTest/CutTest.lean
 
 echo "== bv_decide_qbe/scripts/check.sh: ALL PASSED =="
