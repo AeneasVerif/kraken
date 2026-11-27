@@ -153,6 +153,30 @@ private theorem bv64_gate_bytes_toNat {bb : BitVec 64} {dl b1 b2 b3 b4 : Nat}
     Nat.mod_eq_of_lt (by omega : _ < 2 ^ 64)]
   omega
 
+private theorem bv64_shl2_toNat {d : Nat} (hd : d ≤ 10) :
+    (BitVec.ofNat 64 d <<< (2 : Nat)).toNat = 4 * d := by
+  rw [BitVec.toNat_shiftLeft, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega : d < 2 ^ 64),
+    Nat.shiftLeft_eq, Nat.mod_eq_of_lt (by omega)]; omega
+
+private theorem bv64_shl1_toNat {d : Nat} (hd : d ≤ 10) :
+    (BitVec.ofNat 64 d <<< (1 : Nat)).toNat = 2 * d := by
+  rw [BitVec.toNat_shiftLeft, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega : d < 2 ^ 64),
+    Nat.shiftLeft_eq, Nat.mod_eq_of_lt (by omega)]; omega
+
+private theorem bv64_ite_bytes_toNat {bb : BitVec 64} {d0 dc dt df : Nat}
+    (hfit : bb.toNat + (4 * d0 + 4 * dc + 2 * dt + 2 * df + 26) < 2 ^ 64)
+    (hd0 : d0 ≤ 10) (hdc : dc ≤ 10) (hdt : dt ≤ 10) (hdf : df ≤ 10) :
+    (bb + (BitVec.ofNat 64 d0 <<< (2 : Nat)) + (BitVec.ofNat 64 dc <<< (2 : Nat)) +
+      (BitVec.ofNat 64 dt <<< (1 : Nat)) + (BitVec.ofNat 64 df <<< (1 : Nat)) + 26#64).toNat =
+      bb.toNat + (4 * d0 + 4 * dc + 2 * dt + 2 * df + 26) := by
+  have h0 := bv64_shl2_toNat hd0; have hc := bv64_shl2_toNat hdc
+  have ht := bv64_shl1_toNat hdt; have hf := bv64_shl1_toNat hdf
+  simp only [BitVec.toNat_add, h0, hc, ht, hf, show (26#64 : BitVec 64).toNat = 26 from rfl]
+  rw [Nat.mod_eq_of_lt (by omega : _ < 2 ^ 64), Nat.mod_eq_of_lt (by omega : _ < 2 ^ 64),
+    Nat.mod_eq_of_lt (by omega : _ < 2 ^ 64), Nat.mod_eq_of_lt (by omega : _ < 2 ^ 64),
+    Nat.mod_eq_of_lt (by omega : _ < 2 ^ 64)]
+  omega
+
 private theorem wp_pass1GateStep (Γ : Env) (hDecLen : HypDecLen Γ) (hLitBytes : HypLitBytes Γ)
     (Q : Post [Ty.bool]) (X : XPost) (c : CoiCtx) (R : Mem 64 → Prop) (m : Mem 64)
     (root : BitVec 32) (k : Nat) (hk : k < c.g.nodes.size)
@@ -171,68 +195,163 @@ private theorem wp_pass1GateStep (Γ : Env) (hDecLen : HypDecLen Γ) (hLitBytes 
       nc'.toNat = pass1Nc c.g (marksToBool c.marks) (k + 1) →
       bb'.toNat = pass1BodyBytes c.g (marksToBool c.marks) root (k + 1) →
       mv'.toNat < bvDimacsBound → nc'.toNat < bvDimacsBound → wp Γ Q X (onDone mv' nc' bb' idx) m) :
-    wp Γ Q X (pass1GateStep c.workBase mv nc bb idx idx
+    wp Γ Q X (pass1GateStep c.workBase c.aigPtr c.hdr.num_atoms mv nc bb idx idx
       (packAigGate (c.g.nodes[k]'hk).1 (c.g.nodes[k]'hk).2) onDone) m := by
   have hbd := c.bd; have hlen := c.aig_len; have hwf := c.wf
+  have hm_aig : (array64 c.aigPtr c.aigUsed ⋆ (bvHdrMem c.workBase c.hdr ⋆
+      region (c.workBase + 128#64) (c.aigPtr.toNat - (c.workBase.toNat + 128)) ⋆
+      bytes c.marksPtr c.marks ⋆ region (c.marksPtr + BitVec.ofNat 64 c.marks.length)
+        (c.workBase.toNat + c.avail - (c.marksPtr.toNat + c.marks.length)) ⋆ R)) m := by
+    unfold bvCoiMem at hm; exact sep_ac hm
   unfold pass1GateStep; c0_hsteps_nogrp; simp only [packAigGate_lo, packAigGate_hi]
   have hgv_lt : c.g.A + 1 + k + 1 < bvDimacsBound := by unfold bvDimacsBound at hbd ⊢; omega
   have hgv : (idx + 1#32).toNat = c.g.A + 1 + k + 1 := by
     rw [BitVec.toNat_add, hidx, show (1#32 : BitVec 32).toNat = 1 from rfl,
       Nat.mod_eq_of_lt (by unfold bvDimacsBound at hgv_lt; omega)]
-  have hlv_eq : ((c.g.nodes[k]'hk).1.toBitVec >>> (1 : Nat) + 1#32).toNat =
-      ((c.g.nodes[k]'hk).1 >>> 1).toNat + 1 := bv32_lsr1_add1_toNat _
-  have hrv_eq : ((c.g.nodes[k]'hk).2.toBitVec >>> (1 : Nat) + 1#32).toNat =
-      ((c.g.nodes[k]'hk).2 >>> 1).toNat + 1 := bv32_lsr1_add1_toNat _
-  have hlv_lt : ((c.g.nodes[k]'hk).1 >>> 1).toNat + 1 < bvDimacsBound := by
-    have := (hwf k hk).1; unfold bvDimacsBound at hbd ⊢; omega
-  have hrv_lt : ((c.g.nodes[k]'hk).2 >>> 1).toNat + 1 < bvDimacsBound := by
-    have := (hwf k hk).2; unfold bvDimacsBound at hbd ⊢; omega
-  refine wp_maxUpdate Γ Q X _ _ _ m (wp_maxUpdate Γ Q X _ _ _ m (wp_maxUpdate Γ Q X _ _ _ m ?_))
-  let mv1 := if mv.toNat < (idx + 1#32).toNat then idx + 1#32 else mv
-  let mv2 := if mv1.toNat < ((c.g.nodes[k]'hk).1.toBitVec >>> 1 + 1#32).toNat then
-    (c.g.nodes[k]'hk).1.toBitVec >>> 1 + 1#32 else mv1
-  let mv3 := if mv2.toNat < ((c.g.nodes[k]'hk).2.toBitVec >>> 1 + 1#32).toNat then
-    (c.g.nodes[k]'hk).2.toBitVec >>> 1 + 1#32 else mv2
-  have hmv3_nat : mv3.toNat = max (max (max mv.toNat (c.g.A + 1 + k + 1))
-      (((c.g.nodes[k]'hk).1 >>> 1).toNat + 1)) (((c.g.nodes[k]'hk).2 >>> 1).toNat + 1) := by
-    dsimp only [mv3, mv2, mv1]
-    rw [bv32_if_lt_toNat, bv32_if_lt_toNat, bv32_if_lt_toNat, hgv, hlv_eq, hrv_eq]
-  have hmv3_bd : mv3.toNat < bvDimacsBound := by rw [hmv3_nat]; omega
-  have ⟨hmv_s, hnc_s, _, hbb_s⟩ := pass1_succ_true c.g (marksToBool c.marks) root hk hm_true
-  have hmv3_eq : mv3.toNat = pass1Mv c.g (marksToBool c.marks) root (k + 1) := by
-    rw [hmv_s, ← hmv_eq, hmv3_nat]
-  c0_hsteps_nogrp
-  refine wp_join0 (fun ml => ml = m)
-    (fun _ _ hml => hml ▸ wp_coiOomRet Γ Q X c R m hm hOom) fun _ hJ => ?_
-  c0_hsteps_nogrp
-  · exact hJ m rfl
-  · exact hJ m rfl
-  · have hnc_lt3 : nc.toNat < 268435456 - 3 := by
-      simp only [Nat.reducePow, Nat.reduceMod, Nat.reduceSub, Nat.reduceAdd] at hc; omega
-    have hnc1_toNat : (nc + 3#32).toNat = nc.toNat + 3 := by
-      rw [BitVec.toNat_add, show (3#32 : BitVec 32).toNat = 3 from rfl,
-        Nat.mod_eq_of_lt (by omega : nc.toNat + 3 < 2 ^ 32)]
-    have hnc1_eq : (nc + 3#32).toNat = pass1Nc c.g (marksToBool c.marks) (k + 1) := by
-      rw [hnc1_toNat, hnc_eq, ← hnc_s]
-    have hnc1_bd : (nc + 3#32).toNat < bvDimacsBound := by unfold bvDimacsBound; omega
-    refine wp_decLen_call Γ hDecLen _ m _ ?_; c0_hsteps_nogrp
-    refine wp_litBytes_call Γ hLitBytes _ m _ ?_; c0_hsteps_nogrp
-    refine wp_litBytes_call Γ hLitBytes _ m _ ?_; c0_hsteps_nogrp
-    refine wp_litBytes_call Γ hLitBytes _ m _ ?_; c0_hsteps_nogrp
-    refine wp_litBytes_call Γ hLitBytes _ m _ ?_; c0_hsteps_nogrp
-    have hb := pass1BodyBytes_lt_pow64 (g := c.g) (marks := marksToBool c.marks) (root := root)
-      c.bd_nat (k := k + 1)
-    have hsum := bv64_gate_bytes_toNat (bb := bb)
-      (by simp only [UInt32.ofBitVec_toBitVec]; unfold bvDimacsBound at hnc1_bd
-          rw [hbb_s, ← hbb_eq, ← hgv] at hb; omega)
-      (natToBytes_length_le_10 (idx + 1#32).isLt)
-      (encodeDimacsLit_length_le_bv (c.g.nodes[k]'hk).1.toBitVec)
-      (encodeDimacsLit_length_le_bv (c.g.nodes[k]'hk).2.toBitVec)
-      (encodeDimacsLit_length_le_bv ((c.g.nodes[k]'hk).1.toBitVec ^^^ 1#32))
-      (encodeDimacsLit_length_le_bv ((c.g.nodes[k]'hk).2.toBitVec ^^^ 1#32))
-    simp only [UInt32.ofBitVec_toBitVec] at hsum
-    exact hNext mv3 (nc + 3#32) _ hmv3_eq hnc1_eq
-      (by rw [hsum, hbb_s, ← hbb_eq, hgv]) hmv3_bd hnc1_bd
+  refine wp_detectIteExpr Γ Q X c.aigPtr c.hdr.num_atoms c.g c.aigUsed _ m k hk c.num_atoms hwf
+    c.aig_w (by rw [c.aig_l, hlen]) hm_aig _ (fun ic it if_ hd => ?_) (fun hd => ?_)
+  · dsimp only; c0_hstraight
+    refine wp_maxUpdate Γ Q X _ _ _ m ?_
+    let mv1 := if mv.toNat < (idx + 1#32).toNat then idx + 1#32 else mv
+    refine wp_join_state (ts := [i32, i32, i64]) (α := Val i32 × Val i32 × Val i64)
+      (fun st' => (st'.1, st'.2.1, st'.2.2, ()))
+      (fun st' ml => ml = m ∧ st'.1.toNat = pass1Mv c.g (marksToBool c.marks) root (k + 1) ∧
+        st'.2.1.toNat = pass1Nc c.g (marksToBool c.marks) (k + 1) ∧
+        st'.2.2.toNat = pass1BodyBytes c.g (marksToBool c.marks) root (k + 1) ∧
+        st'.1.toNat < bvDimacsBound ∧ st'.2.1.toNat < bvDimacsBound)
+      (fun _ ⟨mv', nc', bb'⟩ ml ⟨hml, hmv', hnc', hbb', hmvb', hncb'⟩ =>
+        hml ▸ hNext mv' nc' bb' hmv' hnc' hbb' hmvb' hncb')
+      fun _ hJB => ?_
+    c0_hstraight; c0_hsplit
+    · clear hc
+      have ⟨hc_lt, ht_lt, hf_lt⟩ := detectIte_bounds hwf hd
+      have hcv_eq : (ic.toBitVec >>> (1 : Nat) + 1#32).toNat = (ic >>> 1).toNat + 1 :=
+        bv32_lsr1_add1_toNat _
+      have htv_eq : (it.toBitVec >>> (1 : Nat) + 1#32).toNat = (it >>> 1).toNat + 1 :=
+        bv32_lsr1_add1_toNat _
+      have hfv_eq : (if_.toBitVec >>> (1 : Nat) + 1#32).toNat = (if_ >>> 1).toNat + 1 :=
+        bv32_lsr1_add1_toNat _
+      have hcv_lt : (ic >>> 1).toNat + 1 < bvDimacsBound := by unfold bvDimacsBound at hbd ⊢; omega
+      have htv_lt : (it >>> 1).toNat + 1 < bvDimacsBound := by unfold bvDimacsBound at hbd ⊢; omega
+      have hfv_lt : (if_ >>> 1).toNat + 1 < bvDimacsBound := by unfold bvDimacsBound at hbd ⊢; omega
+      c0_hstraight
+      refine wp_maxUpdate Γ Q X _ _ _ m (wp_maxUpdate Γ Q X _ _ _ m
+        (wp_maxUpdate Γ Q X _ _ _ m ?_))
+      let mv2 := if mv1.toNat < (ic.toBitVec >>> (1 : Nat) + 1#32).toNat then
+        ic.toBitVec >>> (1 : Nat) + 1#32 else mv1
+      let mv3 := if mv2.toNat < (it.toBitVec >>> (1 : Nat) + 1#32).toNat then
+        it.toBitVec >>> (1 : Nat) + 1#32 else mv2
+      let mv4 := if mv3.toNat < (if_.toBitVec >>> (1 : Nat) + 1#32).toNat then
+        if_.toBitVec >>> (1 : Nat) + 1#32 else mv3
+      have hmv4_nat : mv4.toNat = max (max (max (max mv.toNat (c.g.A + 1 + k + 1))
+          ((ic >>> 1).toNat + 1)) ((it >>> 1).toNat + 1)) ((if_ >>> 1).toNat + 1) := by
+        dsimp only [mv4, mv3, mv2, mv1]
+        rw [bv32_if_lt_toNat, bv32_if_lt_toNat, bv32_if_lt_toNat, bv32_if_lt_toNat,
+          hgv, hcv_eq, htv_eq, hfv_eq]
+      have hmv4_bd : mv4.toNat < bvDimacsBound := by rw [hmv4_nat]; omega
+      have ⟨hmv_s, hnc_s, _, hbb_s⟩ :=
+        pass1_succ_true_ite c.g (marksToBool c.marks) root hk hm_true hd
+      have hmv4_eq : mv4.toNat = pass1Mv c.g (marksToBool c.marks) root (k + 1) := by
+        rw [hmv_s, ← hmv_eq, hmv4_nat]
+      refine wp_join0 (fun ml => ml = m)
+        (fun _ _ hml => hml ▸ wp_coiOomRet Γ Q X c R m hm hOom) fun _ hJ => ?_
+      c0_hsteps_nogrp
+      · exact hJ m rfl
+      · exact hJ m rfl
+      · have hnc_lt4 : nc.toNat < 268435456 - 4 := by
+          simp only [Nat.reducePow, Nat.reduceMod, Nat.reduceSub, Nat.reduceAdd] at hc; omega
+        have hnc1_toNat : (nc + 4#32).toNat = nc.toNat + 4 := by
+          rw [BitVec.toNat_add, show (4#32 : BitVec 32).toNat = 4 from rfl,
+            Nat.mod_eq_of_lt (by omega : nc.toNat + 4 < 2 ^ 32)]
+        have hnc1_eq : (nc + 4#32).toNat = pass1Nc c.g (marksToBool c.marks) (k + 1) := by
+          rw [hnc1_toNat, hnc_eq, ← hnc_s]
+        have hnc1_bd : (nc + 4#32).toNat < bvDimacsBound := by unfold bvDimacsBound; omega
+        refine wp_decLen_call Γ hDecLen _ m _ ?_; c0_hsteps_nogrp
+        refine wp_decLen_call Γ hDecLen _ m _ ?_; c0_hsteps_nogrp
+        refine wp_decLen_call Γ hDecLen _ m _ ?_; c0_hsteps_nogrp
+        refine wp_decLen_call Γ hDecLen _ m _ ?_; c0_hsteps_nogrp
+        have hb := pass1BodyBytes_lt_pow64 (g := c.g) (marks := marksToBool c.marks) (root := root)
+          c.bd_nat (k := k + 1)
+        have hsum := bv64_ite_bytes_toNat (bb := bb)
+          (by unfold bvDimacsBound at hnc1_bd
+              rw [hbb_s, ← hbb_eq, ← hgv, ← hcv_eq, ← htv_eq, ← hfv_eq] at hb; omega)
+          (natToBytes_length_le_10 (idx + 1#32).isLt)
+          (natToBytes_length_le_10 (ic.toBitVec >>> (1 : Nat) + 1#32).isLt)
+          (natToBytes_length_le_10 (it.toBitVec >>> (1 : Nat) + 1#32).isLt)
+          (natToBytes_length_le_10 (if_.toBitVec >>> (1 : Nat) + 1#32).isLt)
+        exact hJB (mv4, nc + 4#32, _) m ⟨rfl, hmv4_eq, hnc1_eq,
+          by dsimp only; rw [hsum, hbb_s, ← hbb_eq, hgv, hcv_eq, htv_eq, hfv_eq],
+          hmv4_bd, hnc1_bd⟩
+    · exact absurd hc (by decide)
+  · dsimp only; c0_hstraight
+    refine wp_maxUpdate Γ Q X _ _ _ m ?_
+    let mv1 := if mv.toNat < (idx + 1#32).toNat then idx + 1#32 else mv
+    refine wp_join_state (ts := [i32, i32, i64]) (α := Val i32 × Val i32 × Val i64)
+      (fun st' => (st'.1, st'.2.1, st'.2.2, ()))
+      (fun st' ml => ml = m ∧ st'.1.toNat = pass1Mv c.g (marksToBool c.marks) root (k + 1) ∧
+        st'.2.1.toNat = pass1Nc c.g (marksToBool c.marks) (k + 1) ∧
+        st'.2.2.toNat = pass1BodyBytes c.g (marksToBool c.marks) root (k + 1) ∧
+        st'.1.toNat < bvDimacsBound ∧ st'.2.1.toNat < bvDimacsBound)
+      (fun _ ⟨mv', nc', bb'⟩ ml ⟨hml, hmv', hnc', hbb', hmvb', hncb'⟩ =>
+        hml ▸ hNext mv' nc' bb' hmv' hnc' hbb' hmvb' hncb')
+      fun _ hJB => ?_
+    c0_hstraight; c0_hsplit
+    · exact absurd trivial hc
+    · clear hc
+      have hlv_eq : ((c.g.nodes[k]'hk).1.toBitVec >>> (1 : Nat) + 1#32).toNat =
+          ((c.g.nodes[k]'hk).1 >>> 1).toNat + 1 := bv32_lsr1_add1_toNat _
+      have hrv_eq : ((c.g.nodes[k]'hk).2.toBitVec >>> (1 : Nat) + 1#32).toNat =
+          ((c.g.nodes[k]'hk).2 >>> 1).toNat + 1 := bv32_lsr1_add1_toNat _
+      have hlv_lt : ((c.g.nodes[k]'hk).1 >>> 1).toNat + 1 < bvDimacsBound := by
+        have := (hwf k hk).1; unfold bvDimacsBound at hbd ⊢; omega
+      have hrv_lt : ((c.g.nodes[k]'hk).2 >>> 1).toNat + 1 < bvDimacsBound := by
+        have := (hwf k hk).2; unfold bvDimacsBound at hbd ⊢; omega
+      c0_hstraight
+      refine wp_maxUpdate Γ Q X _ _ _ m (wp_maxUpdate Γ Q X _ _ _ m ?_)
+      let mv2 := if mv1.toNat < ((c.g.nodes[k]'hk).1.toBitVec >>> 1 + 1#32).toNat then
+        (c.g.nodes[k]'hk).1.toBitVec >>> 1 + 1#32 else mv1
+      let mv3 := if mv2.toNat < ((c.g.nodes[k]'hk).2.toBitVec >>> 1 + 1#32).toNat then
+        (c.g.nodes[k]'hk).2.toBitVec >>> 1 + 1#32 else mv2
+      have hmv3_nat : mv3.toNat = max (max (max mv.toNat (c.g.A + 1 + k + 1))
+          (((c.g.nodes[k]'hk).1 >>> 1).toNat + 1)) (((c.g.nodes[k]'hk).2 >>> 1).toNat + 1) := by
+        dsimp only [mv3, mv2, mv1]
+        rw [bv32_if_lt_toNat, bv32_if_lt_toNat, bv32_if_lt_toNat, hgv, hlv_eq, hrv_eq]
+      have hmv3_bd : mv3.toNat < bvDimacsBound := by rw [hmv3_nat]; omega
+      have ⟨hmv_s, hnc_s, _, hbb_s⟩ :=
+        pass1_succ_true_and c.g (marksToBool c.marks) root hk hm_true hd
+      have hmv3_eq : mv3.toNat = pass1Mv c.g (marksToBool c.marks) root (k + 1) := by
+        rw [hmv_s, ← hmv_eq, hmv3_nat]
+      refine wp_join0 (fun ml => ml = m)
+        (fun _ _ hml => hml ▸ wp_coiOomRet Γ Q X c R m hm hOom) fun _ hJ => ?_
+      c0_hsteps_nogrp
+      · exact hJ m rfl
+      · exact hJ m rfl
+      · have hnc_lt3 : nc.toNat < 268435456 - 3 := by
+          simp only [Nat.reducePow, Nat.reduceMod, Nat.reduceSub, Nat.reduceAdd] at hc; omega
+        have hnc1_toNat : (nc + 3#32).toNat = nc.toNat + 3 := by
+          rw [BitVec.toNat_add, show (3#32 : BitVec 32).toNat = 3 from rfl,
+            Nat.mod_eq_of_lt (by omega : nc.toNat + 3 < 2 ^ 32)]
+        have hnc1_eq : (nc + 3#32).toNat = pass1Nc c.g (marksToBool c.marks) (k + 1) := by
+          rw [hnc1_toNat, hnc_eq, ← hnc_s]
+        have hnc1_bd : (nc + 3#32).toNat < bvDimacsBound := by unfold bvDimacsBound; omega
+        refine wp_decLen_call Γ hDecLen _ m _ ?_; c0_hsteps_nogrp
+        refine wp_litBytes_call Γ hLitBytes _ m _ ?_; c0_hsteps_nogrp
+        refine wp_litBytes_call Γ hLitBytes _ m _ ?_; c0_hsteps_nogrp
+        refine wp_litBytes_call Γ hLitBytes _ m _ ?_; c0_hsteps_nogrp
+        refine wp_litBytes_call Γ hLitBytes _ m _ ?_; c0_hsteps_nogrp
+        have hb := pass1BodyBytes_lt_pow64 (g := c.g) (marks := marksToBool c.marks) (root := root)
+          c.bd_nat (k := k + 1)
+        have hsum := bv64_gate_bytes_toNat (bb := bb)
+          (by simp only [UInt32.ofBitVec_toBitVec]; unfold bvDimacsBound at hnc1_bd
+              rw [hbb_s, ← hbb_eq, ← hgv] at hb; omega)
+          (natToBytes_length_le_10 (idx + 1#32).isLt)
+          (encodeDimacsLit_length_le_bv (c.g.nodes[k]'hk).1.toBitVec)
+          (encodeDimacsLit_length_le_bv (c.g.nodes[k]'hk).2.toBitVec)
+          (encodeDimacsLit_length_le_bv ((c.g.nodes[k]'hk).1.toBitVec ^^^ 1#32))
+          (encodeDimacsLit_length_le_bv ((c.g.nodes[k]'hk).2.toBitVec ^^^ 1#32))
+        simp only [UInt32.ofBitVec_toBitVec] at hsum
+        exact hJB (mv3, nc + 3#32, _) m ⟨rfl, hmv3_eq, hnc1_eq,
+          by rw [hsum, hbb_s, ← hbb_eq, hgv], hmv3_bd, hnc1_bd⟩
 
 private theorem wp_pass1Expr (Γ : Env) (hDecLen : HypDecLen Γ) (hLitBytes : HypLitBytes Γ)
     (Q : Post [Ty.bool]) (X : XPost) (c : CoiCtx) (R : Mem 64 → Prop) (m : Mem 64)
@@ -248,7 +367,8 @@ private theorem wp_pass1Expr (Γ : Env) (hDecLen : HypDecLen Γ) (hLitBytes : Hy
       nc.toNat = pass1Nc c.g (marksToBool c.marks) c.g.nodes.size →
       bb.toNat = pass1BodyBytes c.g (marksToBool c.marks) root c.g.nodes.size →
       mv.toNat < bvDimacsBound → nc.toNat < bvDimacsBound → wp Γ Q X (kExit mv nc bb) m) :
-    wp Γ Q X (pass1Expr c.workBase c.hdr.aig_len c.marksPtr c.aigPtr mv0 bb0 g0 kExit) m := by
+    wp Γ Q X (pass1Expr c.workBase c.hdr.num_atoms c.hdr.aig_len c.marksPtr c.aigPtr mv0 bb0 g0
+      kExit) m := by
   have hcoi : (coiCoreMem c c.hdr (c.workBase.toNat + c.avail) ⋆ R) m := by
     unfold bvCoiMem at hm; dsimp only [coiCoreMem]; exact sep_ac hm
   dsimp only [coiCoreMem] at hcoi
@@ -400,20 +520,59 @@ private theorem wp_writeClause3Xor_pref (Γ : Env)
     (by simp only [List.length_append] at hfit ⊢; omega) fun m4 hm4 => ?_
   simpa only [List.append_assoc] using hk m4 hm4
 
+private theorem wp_writeClause3_pref (Γ : Env)
+    (hWriteLit : HypWriteLit Γ) (hWriteEnd : HypWriteEnd Γ)
+    {Q : Post [Ty.bool]} {X : XPost} {curP base : BitVec 64} {pref : List UInt8}
+    {v1 v2 v3 : BitVec 32} {l1 l2 l3 : Std.Sat.Literal Nat} {rem : Nat}
+    {R : Mem 64 → Prop} {m : Mem 64} {k : Tup Val [i64] → Expr Val Cont [Ty.bool]}
+    (hcur : curP = base + BitVec.ofNat 64 pref.length)
+    (hl1 : litToDimacs (UInt32.ofBitVec v1) = l1)
+    (hl2 : litToDimacs (UInt32.ofBitVec v2) = l2)
+    (hl3 : litToDimacs (UInt32.ofBitVec v3) = l3)
+    (hm : (region curP ((encodeDimacsLit l1 ++ encodeDimacsLit l2 ++ encodeDimacsLit l3 ++
+        [asciiZero, asciiNewline]).length + rem) ⋆ (bytes base pref ⋆ R)) m)
+    (hfit : base.toNat + (pref.length + (encodeDimacsLit l1 ++ encodeDimacsLit l2 ++
+        encodeDimacsLit l3 ++ [asciiZero, asciiNewline]).length + rem) < 2 ^ 64)
+    (hk : ∀ m', bufAt base (pref ++ encodeDimacsLit l1 ++ encodeDimacsLit l2 ++
+          encodeDimacsLit l3 ++ [asciiZero, asciiNewline]) rem R m' →
+      wp Γ Q X (k (base + BitVec.ofNat 64 (pref ++ encodeDimacsLit l1 ++ encodeDimacsLit l2 ++
+        encodeDimacsLit l3 ++ [asciiZero, asciiNewline]).length, ())) m') :
+    wp Γ Q X (Expr.call (as := [i64, i32]) (bs := [i64]) "bv_write_lit"
+        (Arg.var curP, Arg.var v1, ()) fun p1 =>
+      Expr.call (as := [i64, i32]) (bs := [i64]) "bv_write_lit"
+        (Arg.var p1.1, Arg.var v2, ()) fun p2 =>
+      Expr.call (as := [i64, i32]) (bs := [i64]) "bv_write_lit"
+        (Arg.var p2.1, Arg.var v3, ()) fun p3 =>
+      Expr.call (as := [i64]) (bs := [i64]) "bv_write_clause_end" (Arg.var p3.1, ()) k) m := by
+  simp only [List.length_append, show [asciiZero, asciiNewline].length = 2 from rfl] at hm hfit
+  refine wp_writeLit_pref Γ hWriteLit hcur hl1 (by simpa only [Nat.add_assoc] using hm)
+    (by omega) fun m1 hm1 => ?_; c0_hsteps_nogrp
+  refine wp_writeLit_pref Γ hWriteLit rfl hl2
+    (by dsimp only [bufAt] at hm1; simpa only [Nat.add_assoc] using hm1)
+    (by simp only [List.length_append] at hfit ⊢; omega) fun m2 hm2 => ?_; c0_hsteps_nogrp
+  refine wp_writeLit_pref Γ hWriteLit rfl hl3
+    (by dsimp only [bufAt] at hm2; simpa only [Nat.add_assoc] using hm2)
+    (by simp only [List.length_append] at hfit ⊢; omega) fun m3 hm3 => ?_; c0_hsteps_nogrp
+  refine wp_writeEnd_pref Γ hWriteEnd hm3
+    (by simp only [List.length_append] at hfit ⊢; omega) fun m4 hm4 => ?_
+  simpa only [List.append_assoc] using hk m4 hm4
+
 private theorem wp_pass2GateStep (Γ : Env) (hWriteLit : HypWriteLit Γ) (hWriteEnd : HypWriteEnd Γ)
-    (Q : Post [Ty.bool]) (X : XPost) (g : Aig) (k : Nat) (hk : k < g.nodes.size)
+    (Q : Post [Ty.bool]) (X : XPost) (aigPtr : Val i64) (A : Val i32) (g : Aig)
+    (aigUsed : List (BitVec 64)) (k : Nat) (hk : k < g.nodes.size)
     (idx : Val i32) (curP : Val i64) (R : Mem 64 → Prop) (m : Mem 64)
     (onDone : Val i64 → Expr Val Cont [Ty.bool])
+    (hA : A.toNat = g.A) (hwf : g.Wf) (haig_w : AigWordsMatch g aigUsed)
+    (haig_l : aigUsed.length = g.A + 1 + g.nodes.size)
     (hidx : idx.toNat = g.A + 1 + k) (hk_bd : g.A + 1 + k < bvDimacsBound)
-    (hfit : curP.toNat + ((andClauses (g.A + 1 + k) (g.nodes[k]'hk).1 (g.nodes[k]'hk).2).flatMap
-        encodeDimacsClause).length < 2 ^ 64)
-    (hm : (region curP ((andClauses (g.A + 1 + k) (g.nodes[k]'hk).1 (g.nodes[k]'hk).2).flatMap
-        encodeDimacsClause).length ⋆ R) m)
-    (hNext : ∀ (m' : Mem 64), (bytes curP ((andClauses (g.A + 1 + k) (g.nodes[k]'hk).1
-        (g.nodes[k]'hk).2).flatMap encodeDimacsClause) ⋆ R) m' →
-      wp Γ Q X (onDone (curP + BitVec.ofNat 64 ((andClauses (g.A + 1 + k) (g.nodes[k]'hk).1
-        (g.nodes[k]'hk).2).flatMap encodeDimacsClause).length)) m') :
-    wp Γ Q X (pass2GateStep idx curP
+    (hfit : curP.toNat + ((gateClauses g k hk).flatMap encodeDimacsClause).length < 2 ^ 64)
+    (hm : (region curP ((gateClauses g k hk).flatMap encodeDimacsClause).length ⋆
+      (array64 aigPtr aigUsed ⋆ R)) m)
+    (hNext : ∀ (m' : Mem 64), (bytes curP ((gateClauses g k hk).flatMap encodeDimacsClause) ⋆
+        (array64 aigPtr aigUsed ⋆ R)) m' →
+      wp Γ Q X (onDone (curP + BitVec.ofNat 64 ((gateClauses g k hk).flatMap
+        encodeDimacsClause).length)) m') :
+    wp Γ Q X (pass2GateStep aigPtr A idx curP
       (packAigGate (g.nodes[k]'hk).1 (g.nodes[k]'hk).2) onDone) m := by
   unfold pass2GateStep; c0_hsteps_nogrp; simp only [packAigGate_lo, packAigGate_hi]
   have hn_lt : g.A + 1 + k < 2 ^ 31 := by unfold bvDimacsBound at hk_bd; omega
@@ -425,26 +584,76 @@ private theorem wp_pass2GateStep (Γ : Env) (hWriteLit : HypWriteLit Γ) (hWrite
   have hlit_pos : litToDimacs (UInt32.ofBitVec (idx <<< (1 : Nat))) = (g.A + 1 + k + 1, true) := by
     rw [show idx <<< (1 : Nat) = idx <<< (1 : BitVec 32) from rfl, hidx_bv]
     exact litToDimacs_pos_out hn_lt
-  have hfull := andClauses_flatMap_eq (g.A + 1 + k) (g.nodes[k]'hk).1 (g.nodes[k]'hk).2
-  rw [hfull] at hm hfit
   have hnil : bytes curP [] = emp := (eq_nil_At curP).symm
-  refine wp_writeClause2_pref Γ hWriteLit hWriteEnd (BitVec.add_zero curP).symm hlit_neg
-    (l2 := litToDimacs (g.nodes[k]'hk).1) (by simp only [UInt32.ofBitVec_toBitVec])
-    (by rw [hnil, emp_sep]; simpa only [List.length_append] using hm)
-    (by simp only [List.length_append, List.length_nil] at hfit ⊢; omega) fun m1 hm1 => ?_
-  refine wp_writeClause2_pref Γ hWriteLit hWriteEnd rfl hlit_neg
-    (l2 := litToDimacs (g.nodes[k]'hk).2) (by simp only [UInt32.ofBitVec_toBitVec])
-    (by dsimp only [bufAt] at hm1; simpa only [List.length_append] using hm1)
-    (by simp only [List.length_append, List.length_nil] at hfit ⊢; omega) fun m2 hm2 => ?_
-  refine wp_writeClause3Xor_pref Γ hWriteLit hWriteEnd (l1 := (g.A + 1 + k + 1, true))
-    hlit_pos rfl rfl (rem := 0)
-    (bufAt_rem (by simp only [List.length_append,
-      show [asciiZero, asciiNewline].length = 2 from rfl]) hm2)
-    (by simp only [List.length_append, List.length_nil, Nat.add_zero] at hfit ⊢; omega)
-    fun m3 hm3 => ?_
-  rw [bufAt, region_zero, emp_sep] at hm3; c0_hsteps_nogrp
-  have hs := hNext m3 (by rw [hfull]; simpa only [List.nil_append, List.append_assoc] using hm3)
-  rw [hfull] at hs; simpa only [List.nil_append, List.append_assoc] using hs
+  refine wp_detectIteExpr Γ Q X aigPtr A g aigUsed
+    (region curP ((gateClauses g k hk).flatMap encodeDimacsClause).length ⋆ R) m k hk hA hwf
+    haig_w haig_l (sep_ac hm) _ (fun ic it if_ hd => ?_) (fun hd => ?_)
+  · dsimp only; c0_hstraight
+    refine wp_join_state1 (fun np : Val i64 => np)
+      (fun np m' => np = curP + BitVec.ofNat 64 ((gateClauses g k hk).flatMap
+          encodeDimacsClause).length ∧
+        (bytes curP ((gateClauses g k hk).flatMap encodeDimacsClause) ⋆
+          (array64 aigPtr aigUsed ⋆ R)) m')
+      (fun _ np m' ⟨hnp, hm'⟩ => hnp ▸ hNext m' hm') fun _ hJB => ?_
+    c0_hstraight; c0_hsplit
+    · clear hc; c0_hstraight
+      have hgate : gateClauses g k hk = iteClauses (g.A + 1 + k) ic it if_ := by
+        unfold gateClauses; rw [hd]
+      have hfull := iteClauses_flatMap_eq (g.A + 1 + k) ic it if_
+      rw [hgate, hfull] at hm hfit
+      have hic : litToDimacs (UInt32.ofBitVec ic.toBitVec) = litToDimacs ic := rfl
+      have hit : litToDimacs (UInt32.ofBitVec it.toBitVec) = litToDimacs it := rfl
+      have hif : litToDimacs (UInt32.ofBitVec if_.toBitVec) = litToDimacs if_ := rfl
+      refine wp_writeClause3_pref Γ hWriteLit hWriteEnd (BitVec.add_zero curP).symm rfl rfl
+        hlit_pos (by rw [hnil, emp_sep]; simpa only [List.length_append] using hm)
+        (by simp only [List.length_append, List.length_nil] at hfit ⊢; omega) fun m1 hm1 => ?_
+      refine wp_writeClause3_pref Γ hWriteLit hWriteEnd rfl rfl hit hlit_neg
+        (by dsimp only [bufAt] at hm1; simpa only [List.length_append] using hm1)
+        (by simp only [List.length_append, List.length_nil] at hfit ⊢; omega) fun m2 hm2 => ?_
+      refine wp_writeClause3_pref Γ hWriteLit hWriteEnd rfl hic rfl hlit_pos
+        (by dsimp only [bufAt] at hm2; simpa only [List.length_append] using hm2)
+        (by simp only [List.length_append, List.length_nil] at hfit ⊢; omega) fun m3 hm3 => ?_
+      refine wp_writeClause3_pref Γ hWriteLit hWriteEnd rfl hic hif hlit_neg (rem := 0)
+        (bufAt_rem (by simp only [List.length_append,
+          show [asciiZero, asciiNewline].length = 2 from rfl]) hm3)
+        (by simp only [List.length_append, List.length_nil, Nat.add_zero] at hfit ⊢; omega)
+        fun m4 hm4 => ?_
+      rw [bufAt, region_zero, emp_sep] at hm4; c0_hsteps_nogrp
+      exact hJB _ m4 ⟨by rw [hgate, hfull]; simp only [List.nil_append, List.append_assoc],
+        by rw [hgate, hfull]; simpa only [List.nil_append, List.append_assoc] using hm4⟩
+    · exact absurd hc (by decide)
+  · dsimp only; c0_hstraight
+    refine wp_join_state1 (fun np : Val i64 => np)
+      (fun np m' => np = curP + BitVec.ofNat 64 ((gateClauses g k hk).flatMap
+          encodeDimacsClause).length ∧
+        (bytes curP ((gateClauses g k hk).flatMap encodeDimacsClause) ⋆
+          (array64 aigPtr aigUsed ⋆ R)) m')
+      (fun _ np m' ⟨hnp, hm'⟩ => hnp ▸ hNext m' hm') fun _ hJB => ?_
+    c0_hstraight; c0_hsplit
+    · exact absurd trivial hc
+    · clear hc
+      have hgate : gateClauses g k hk =
+          andClauses (g.A + 1 + k) (g.nodes[k]'hk).1 (g.nodes[k]'hk).2 := by
+        unfold gateClauses; rw [hd]
+      have hfull := andClauses_flatMap_eq (g.A + 1 + k) (g.nodes[k]'hk).1 (g.nodes[k]'hk).2
+      rw [hgate, hfull] at hm hfit
+      refine wp_writeClause2_pref Γ hWriteLit hWriteEnd (BitVec.add_zero curP).symm hlit_neg
+        (l2 := litToDimacs (g.nodes[k]'hk).1) (by simp only [UInt32.ofBitVec_toBitVec])
+        (by rw [hnil, emp_sep]; simpa only [List.length_append] using hm)
+        (by simp only [List.length_append, List.length_nil] at hfit ⊢; omega) fun m1 hm1 => ?_
+      refine wp_writeClause2_pref Γ hWriteLit hWriteEnd rfl hlit_neg
+        (l2 := litToDimacs (g.nodes[k]'hk).2) (by simp only [UInt32.ofBitVec_toBitVec])
+        (by dsimp only [bufAt] at hm1; simpa only [List.length_append] using hm1)
+        (by simp only [List.length_append, List.length_nil] at hfit ⊢; omega) fun m2 hm2 => ?_
+      refine wp_writeClause3Xor_pref Γ hWriteLit hWriteEnd (l1 := (g.A + 1 + k + 1, true))
+        hlit_pos rfl rfl (rem := 0)
+        (bufAt_rem (by simp only [List.length_append,
+          show [asciiZero, asciiNewline].length = 2 from rfl]) hm2)
+        (by simp only [List.length_append, List.length_nil, Nat.add_zero] at hfit ⊢; omega)
+        fun m3 hm3 => ?_
+      rw [bufAt, region_zero, emp_sep] at hm3; c0_hsteps_nogrp
+      exact hJB _ m3 ⟨by rw [hgate, hfull]; simp only [List.nil_append, List.append_assoc],
+        by rw [hgate, hfull]; simpa only [List.nil_append, List.append_assoc] using hm3⟩
 
 private theorem wp_pass2Expr (Γ : Env) (hWriteLit : HypWriteLit Γ) (hWriteEnd : HypWriteEnd Γ)
     (Q : Post [Ty.bool]) (X : XPost) (c : CoiCtx) (bufStart : BitVec 64)
@@ -456,7 +665,8 @@ private theorem wp_pass2Expr (Γ : Env) (hWriteLit : HypWriteLit Γ) (hWriteEnd 
     (hkDone : ∀ (m' : Mem 64), (bytes bufStart (p1Bytes c c.g.nodes.size) ⋆
         (array64 c.aigPtr c.aigUsed ⋆ bytes c.marksPtr c.marks ⋆ R)) m' →
       wp Γ Q X (kDone (bufStart + BitVec.ofNat 64 (p1Bytes c c.g.nodes.size).length)) m') :
-    wp Γ Q X (pass2Expr c.hdr.aig_len c.marksPtr c.aigPtr initG bufStart kDone) m := by
+    wp Γ Q X (pass2Expr c.hdr.num_atoms c.hdr.aig_len c.marksPtr c.aigPtr initG bufStart
+      kDone) m := by
   have hbd := c.bd; have hlen := c.aig_len; have haig_l := c.aig_l; have hm_l := c.marks_l
   unfold pass2Expr
   refine wp_while_state (ts := [i32, i64]) (α := Nat × Val i64)
@@ -491,7 +701,17 @@ private theorem wp_pass2Expr (Γ : Env) (hWriteLit : HypWriteLit Γ) (hWriteEnd 
           have haig_lt : (BitVec.ofNat 32 (c.g.A + 1 + k)).toNat < c.aigUsed.length := by
             rw [hidx_eq]; omega
           c0_hsteps_nogrp; simp only [hidx_eq]; rw [c.aig_w.gate_eq k hk_lt]
-          have ⟨_, _, hbs_s, _⟩ := pass1_succ_true c.g (marksToBool c.marks) root hk_lt hm_t
+          have hbs_s : pass1Bytes c.g (marksToBool c.marks) (k + 1) =
+              pass1Bytes c.g (marksToBool c.marks) k ++
+                (gateClauses c.g k hk_lt).flatMap encodeDimacsClause := by
+            cases hd : detectIte c.g k hk_lt with
+            | none =>
+              have ⟨_, _, h, _⟩ := pass1_succ_true_and c.g (marksToBool c.marks) root hk_lt hm_t hd
+              unfold gateClauses; rw [hd]; exact h
+            | some ctf =>
+              rcases ctf with ⟨ic, it, if_⟩
+              have ⟨_, _, h, _⟩ := pass1_succ_true_ite c.g (marksToBool c.marks) root hk_lt hm_t hd
+              unfold gateClauses; rw [hd]; exact h
           have hk_le_tot := pass1Bytes_len_mono (marksToBool c.marks) (root := root)
             hk_le (Nat.le_refl _)
           have hle_next := pass1Bytes_len_mono (marksToBool c.marks) (root := root)
@@ -499,13 +719,11 @@ private theorem wp_pass2Expr (Γ : Env) (hWriteLit : HypWriteLit Γ) (hWriteEnd 
           dsimp only [p1Bytes] at hcur_eq hml hbuf_fit ⊢
           have hlen_g : (pass1Bytes c.g (marksToBool c.marks) (k + 1)).length =
               (pass1Bytes c.g (marksToBool c.marks) k).length +
-                ((andClauses (c.g.A + 1 + k) (c.g.nodes[k]'hk_lt).1
-                  (c.g.nodes[k]'hk_lt).2).flatMap encodeDimacsClause).length := by
+                ((gateClauses c.g k hk_lt).flatMap encodeDimacsClause).length := by
             rw [hbs_s, List.length_append]
           have hlen_step : (pass1Bytes c.g (marksToBool c.marks) c.g.nodes.size).length -
               (pass1Bytes c.g (marksToBool c.marks) k).length =
-              ((andClauses (c.g.A + 1 + k) (c.g.nodes[k]'hk_lt).1
-                (c.g.nodes[k]'hk_lt).2).flatMap encodeDimacsClause).length +
+              ((gateClauses c.g k hk_lt).flatMap encodeDimacsClause).length +
               ((pass1Bytes c.g (marksToBool c.marks) c.g.nodes.size).length -
                 (pass1Bytes c.g (marksToBool c.marks) (k + 1)).length) := by omega
           have hcur_nat : curP.toNat =
@@ -513,11 +731,19 @@ private theorem wp_pass2Expr (Γ : Env) (hWriteLit : HypWriteLit Γ) (hWriteEnd 
             rw [hcur_eq, bv64_add_ofNat_toNat (by omega)]
           rw [← hcur_eq, hlen_step] at hml
           have hsp := region_split_prefix (by omega) hml
-          refine wp_pass2GateStep Γ hWriteLit hWriteEnd Q X c.g k hk_lt
-            (BitVec.ofNat 32 (c.g.A + 1 + k)) curP _ ml _ hidx_eq (by have := c.bd_nat; omega)
-            (by omega) hsp fun m' hm' => ?_
-          have hptr_eq : curP + BitVec.ofNat 64 ((andClauses (c.g.A + 1 + k)
-              (c.g.nodes[k]'hk_lt).1 (c.g.nodes[k]'hk_lt).2).flatMap encodeDimacsClause).length =
+          refine wp_pass2GateStep Γ hWriteLit hWriteEnd Q X c.aigPtr c.hdr.num_atoms c.g c.aigUsed
+            k hk_lt (BitVec.ofNat 32 (c.g.A + 1 + k)) curP
+            (region (curP + BitVec.ofNat 64 ((gateClauses c.g k hk_lt).flatMap
+                encodeDimacsClause).length)
+              ((pass1Bytes c.g (marksToBool c.marks) c.g.nodes.size).length -
+                (pass1Bytes c.g (marksToBool c.marks) (k + 1)).length) ⋆
+              bytes bufStart (pass1Bytes c.g (marksToBool c.marks) k) ⋆
+              bytes c.marksPtr c.marks ⋆ R)
+            ml _ c.num_atoms c.wf c.aig_w
+            (by rw [haig_l, hlen]) hidx_eq (by have := c.bd_nat; omega)
+            (by omega) (sep_ac hsp) fun m' hm' => ?_
+          have hptr_eq : curP + BitVec.ofNat 64 ((gateClauses c.g k hk_lt).flatMap
+                encodeDimacsClause).length =
               bufStart + BitVec.ofNat 64 (pass1Bytes c.g (marksToBool c.marks) (k + 1)).length := by
             rw [hcur_eq, ptr_add_ofNat, hlen_g]
           have hm'' : bufAt bufStart (p1Bytes c (k + 1))
@@ -525,8 +751,7 @@ private theorem wp_pass2Expr (Γ : Env) (hWriteLit : HypWriteLit Γ) (hWriteEnd 
               (array64 c.aigPtr c.aigUsed ⋆ bytes c.marksPtr c.marks ⋆ R) m' := by
             have hb := buf_append_step (base := bufStart)
               (pref := pass1Bytes c.g (marksToBool c.marks) k)
-              (bs := (andClauses (c.g.A + 1 + k) (c.g.nodes[k]'hk_lt).1
-                (c.g.nodes[k]'hk_lt).2).flatMap encodeDimacsClause)
+              (bs := (gateClauses c.g k hk_lt).flatMap encodeDimacsClause)
               (rem := (pass1Bytes c.g (marksToBool c.marks) c.g.nodes.size).length -
                 (pass1Bytes c.g (marksToBool c.marks) (k + 1)).length)
               (R := array64 c.aigPtr c.aigUsed ⋆ bytes c.marksPtr c.marks ⋆ R)

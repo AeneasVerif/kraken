@@ -225,11 +225,11 @@ bool bv_init_workspace(BVHdr *h, u64 work_base, u64 avail, u64 prog_ptr) {
   u64 fixed_bytes = BV_HDR_BYTES + atom_bytes + slice_bytes;
   if (avail <= fixed_bytes || avail - fixed_bytes < 64ULL) { return false; }
   u64 rem = avail - fixed_bytes;
-  u64 acap64 = rem >> 4;
+  u64 acap64 = rem >> 5;
   if (acap64 >= BV_DIMACS_BOUND) { acap64 = BV_DIMACS_BOUND - 1ULL; }
   if ((u64)num_atoms >= acap64) { return false; }
   u64 aig_bytes = acap64 << 3;
-  u64 ht_budget = rem >> 3;
+  u64 ht_budget = rem >> 1;
   u64 ht_slots = 1ULL;
   while ((ht_slots << 3) <= ht_budget && ht_slots < 0x40000000ULL) {
     ht_slots = ht_slots << 1;

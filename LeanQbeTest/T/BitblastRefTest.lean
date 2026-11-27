@@ -707,11 +707,22 @@ private def sampleAigFull : Aig :=
   { A := 2
     nodes := #[(2, 4), (3, 5), (6, 8)] }
 
+-- ITE(c=2, t=4, f=6) = AND(NOT(AND(2, 5)), NOT(AND(3, 7))) at node 6 (k = 2).
+private def sampleIteAig : Aig :=
+  { A := 3
+    nodes := #[(2, 5), (3, 7), (9, 11)] }
+
 #guard (coiMark sampleAig 10).toList == [false, true, true, true, false, true]
 #guard (coiMark sampleAigFull 10).toList == [false, true, true, true, true, true]
 #guard validDimacsB (tseitin sampleAig (coiMark sampleAig 10) 10) == true
 #guard ((parseDimacs (encodeDimacs (tseitin sampleAig (coiMark sampleAig 10) 10))).isSome) == true
 #guard (tseitin sampleAig (coiMark sampleAig 0) 0).clauses.size == 1
+#guard detectIte sampleIteAig 2 (by decide) == some (2, 4, 6)
+#guard (coiMark sampleIteAig 12).toList == [false, true, true, true, false, false, true]
+#guard (tseitin sampleIteAig (coiMark sampleIteAig 12) 12).clauses.size == 5
+#guard validDimacsB (tseitin sampleIteAig (coiMark sampleIteAig 12) 12) == true
+#guard ((parseDimacs (encodeDimacs
+  (tseitin sampleIteAig (coiMark sampleIteAig 12) 12))).isSome) == true
 
 theorem zero_axiom_reflection_smoke
     (hsolve : ∃ e', BVProg.parse (BVProg.wordsToBytesLE smallWs) = some e' ∧ e'.Unsat) :

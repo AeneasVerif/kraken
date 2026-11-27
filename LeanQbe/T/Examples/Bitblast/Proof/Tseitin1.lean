@@ -149,13 +149,13 @@ theorem encodeDimacs_root0 (g : Aig) (marks : Array Bool) :
     List (Std.Sat.CNF.Clause Nat) :=
   (List.range k).flatMap fun i => if h : i < g.nodes.size then
     if marks.getD (g.A + 1 + i) false = true then
-      andClauses (g.A + 1 + i) (g.nodes[i]'h).1 (g.nodes[i]'h).2 else [] else []
+      gateClauses g i h else [] else []
 
 theorem prefixClauses_succ (g : Aig) (marks : Array Bool) {k : Nat}
     (hk : k < g.nodes.size) :
     prefixClauses g marks (k + 1) = prefixClauses g marks k ++
       if marks.getD (g.A + 1 + k) false = true then
-        andClauses (g.A + 1 + k) (g.nodes[k]'hk).1 (g.nodes[k]'hk).2 else [] := by
+        gateClauses g k hk else [] := by
   unfold prefixClauses; rw [List.range_succ, List.flatMap_append]; simp [hk]
 
 @[expose] def pass1Mv (g : Aig) (marks : Array Bool) (root : BitVec 32) (k : Nat) : Nat :=
@@ -188,6 +188,54 @@ theorem andClauses_flatMap_eq (outNode : Nat) (l1 l2 : UInt32) :
   simp only [andClauses, List.flatMap_cons, List.flatMap_nil, List.append_nil,
     encodeDimacsClause_ofLiterals, ← hx1, ← hx2, List.append_assoc]
 
+theorem iteClauses_flatMap_eq (outNode : Nat) (c t f : UInt32) :
+    (iteClauses outNode c t f).flatMap encodeDimacsClause =
+      (encodeDimacsLit (litToDimacs (UInt32.ofBitVec (c.toBitVec ^^^ 1#32))) ++
+        encodeDimacsLit (litToDimacs (UInt32.ofBitVec (t.toBitVec ^^^ 1#32))) ++
+        encodeDimacsLit (outNode + 1, true) ++ [asciiZero, asciiNewline]) ++
+      ((encodeDimacsLit (litToDimacs (UInt32.ofBitVec (c.toBitVec ^^^ 1#32))) ++
+        encodeDimacsLit (litToDimacs t) ++
+        encodeDimacsLit (outNode + 1, false) ++ [asciiZero, asciiNewline]) ++
+      ((encodeDimacsLit (litToDimacs c) ++
+        encodeDimacsLit (litToDimacs (UInt32.ofBitVec (f.toBitVec ^^^ 1#32))) ++
+        encodeDimacsLit (outNode + 1, true) ++ [asciiZero, asciiNewline]) ++
+      (encodeDimacsLit (litToDimacs c) ++
+        encodeDimacsLit (litToDimacs f) ++
+        encodeDimacsLit (outNode + 1, false) ++ [asciiZero, asciiNewline]))) := by
+  have hxc := litToDimacs_xor1 c.toBitVec
+  have hxt := litToDimacs_xor1 t.toBitVec
+  have hxf := litToDimacs_xor1 f.toBitVec
+  simp only [UInt32.ofBitVec_toBitVec] at hxc hxt hxf
+  simp only [iteClauses, List.flatMap_cons, List.flatMap_nil, List.append_nil,
+    encodeDimacsClause_ofLiterals, ← hxc, ← hxt, ← hxf, List.append_assoc]
+
+private theorem lit_pair_len (x : UInt32) :
+    (encodeDimacsLit (litToDimacs x)).length +
+      (encodeDimacsLit (litToDimacs (UInt32.ofBitVec (x.toBitVec ^^^ 1#32)))).length =
+      2 * (natToBytes ((x >>> 1).toNat + 1)).length + 3 := by
+  have h1 := encodeDimacsLit_length_bv x.toBitVec
+  have h2 := encodeDimacsLit_length_bv (x.toBitVec ^^^ 1#32)
+  simp only [UInt32.ofBitVec_toBitVec] at h1
+  have hshr : ((x.toBitVec ^^^ 1#32) >>> 1).toNat = (x.toBitVec >>> 1).toNat :=
+    bv_c0_toNat_xor_one_ushiftRight_32 x.toBitVec
+  have ha1 : (x.toBitVec &&& 1#32).toNat = x.toBitVec.toNat % 2 :=
+    bv_c0_toNat_and_one_32 x.toBitVec
+  have ha2 : ((x.toBitVec ^^^ 1#32) &&& 1#32).toNat = (x.toBitVec ^^^ 1#32).toNat % 2 :=
+    bv_c0_toNat_and_one_32 (x.toBitVec ^^^ 1#32)
+  have hpar : (x.toBitVec &&& 1#32).toNat + ((x.toBitVec ^^^ 1#32) &&& 1#32).toNat = 1 := by
+    have hxor : (x.toBitVec ^^^ 1#32) &&& 1#32 = (x.toBitVec &&& 1#32) ^^^ 1#32 := by
+      apply BitVec.eq_of_getLsbD_eq; intro i
+      simp [BitVec.getLsbD_and, BitVec.getLsbD_xor, Bool.and_xor_distrib_right]
+    rw [hxor]
+    have hle : (x.toBitVec &&& 1#32).toNat ≤ 1 := by omega
+    rcases Nat.le_one_iff_eq_zero_or_eq_one.mp hle with hz | ho
+    · have : x.toBitVec &&& 1#32 = 0#32 := BitVec.eq_of_toNat_eq (by simpa using hz)
+      rw [this]; decide
+    · have : x.toBitVec &&& 1#32 = 1#32 := BitVec.eq_of_toNat_eq (by simpa using ho)
+      rw [this]; decide
+  have hxshr : (x.toBitVec >>> 1).toNat = (x >>> 1).toNat := rfl
+  rw [h1, h2, hshr, hxshr]; omega
+
 theorem pass1_zero (g : Aig) (marks : Array Bool) (root : BitVec 32) :
     pass1Mv g marks root 0 = (root >>> 1).toNat + 1 ∧ pass1Nc g marks 0 = 1 ∧
       pass1Bytes g marks 0 = [] ∧ pass1BodyBytes g marks root 0 =
@@ -206,8 +254,9 @@ theorem pass1_succ_false (g : Aig) (marks : Array Bool) (root : BitVec 32) {k : 
   simp only [hf, Bool.false_eq_true, ↓reduceIte, List.append_nil] at hp
   simp [pass1Mv, pass1Nc, pass1Bytes, pass1BodyBytes, hp]
 
-theorem pass1_succ_true (g : Aig) (marks : Array Bool) (root : BitVec 32) {k : Nat}
-    (hk : k < g.nodes.size) (ht : marks.getD (g.A + 1 + k) false = true) :
+theorem pass1_succ_true_and (g : Aig) (marks : Array Bool) (root : BitVec 32) {k : Nat}
+    (hk : k < g.nodes.size) (ht : marks.getD (g.A + 1 + k) false = true)
+    (hd : detectIte g k hk = none) :
     pass1Mv g marks root (k + 1) = max (max (max (pass1Mv g marks root k) (g.A + 1 + k + 1))
         (((g.nodes[k]'hk).1 >>> 1).toNat + 1)) (((g.nodes[k]'hk).2 >>> 1).toNat + 1) ∧
       pass1Nc g marks (k + 1) = pass1Nc g marks k + 3 ∧
@@ -223,7 +272,8 @@ theorem pass1_succ_true (g : Aig) (marks : Array Bool) (root : BitVec 32) {k : N
           (encodeDimacsLit (litToDimacs (UInt32.ofBitVec
             ((g.nodes[k]'hk).2.toBitVec ^^^ 1#32)))).length +
           2 * (natToBytes (g.A + 1 + k + 1)).length) := by
-  have hp := prefixClauses_succ g marks hk; simp only [ht, ↓reduceIte] at hp
+  have hp := prefixClauses_succ g marks hk
+  simp only [ht, ↓reduceIte, gateClauses, hd] at hp
   have hbs : pass1Bytes g marks (k + 1) = pass1Bytes g marks k ++
       (andClauses (g.A + 1 + k) (g.nodes[k]'hk).1 (g.nodes[k]'hk).2).flatMap
         encodeDimacsClause := by unfold pass1Bytes; rw [hp, List.flatMap_append]
@@ -256,6 +306,63 @@ theorem pass1_succ_true (g : Aig) (marks : Array Bool) (root : BitVec 32) {k : N
     (((g.nodes[k]'hk).2 >>> 1).toNat + 1)) (g.A + 1 + k + 1))
     (((g.nodes[k]'hk).1 >>> 1).toNat + 1)) (((g.nodes[k]'hk).2 >>> 1).toNat + 1) = _; omega
 
+theorem pass1_succ_true_ite (g : Aig) (marks : Array Bool) (root : BitVec 32) {k : Nat}
+    (hk : k < g.nodes.size) (ht : marks.getD (g.A + 1 + k) false = true) {c t f : UInt32}
+    (hd : detectIte g k hk = some (c, t, f)) :
+    pass1Mv g marks root (k + 1) = max (max (max (max (pass1Mv g marks root k)
+        (g.A + 1 + k + 1)) ((c >>> 1).toNat + 1)) ((t >>> 1).toNat + 1)) ((f >>> 1).toNat + 1) ∧
+      pass1Nc g marks (k + 1) = pass1Nc g marks k + 4 ∧
+      pass1Bytes g marks (k + 1) = pass1Bytes g marks k ++
+        (iteClauses (g.A + 1 + k) c t f).flatMap encodeDimacsClause ∧
+      pass1BodyBytes g marks root (k + 1) = pass1BodyBytes g marks root k +
+        (4 * (natToBytes (g.A + 1 + k + 1)).length + 4 * (natToBytes ((c >>> 1).toNat + 1)).length +
+          2 * (natToBytes ((t >>> 1).toNat + 1)).length +
+          2 * (natToBytes ((f >>> 1).toNat + 1)).length + 26) := by
+  have hp := prefixClauses_succ g marks hk
+  simp only [ht, ↓reduceIte, gateClauses, hd] at hp
+  have hbs : pass1Bytes g marks (k + 1) = pass1Bytes g marks k ++
+      (iteClauses (g.A + 1 + k) c t f).flatMap encodeDimacsClause := by
+    unfold pass1Bytes; rw [hp, List.flatMap_append]
+  have hlen : ((iteClauses (g.A + 1 + k) c t f).flatMap encodeDimacsClause).length =
+      4 * (natToBytes (g.A + 1 + k + 1)).length + 4 * (natToBytes ((c >>> 1).toNat + 1)).length +
+        2 * (natToBytes ((t >>> 1).toNat + 1)).length +
+        2 * (natToBytes ((f >>> 1).toNat + 1)).length + 26 := by
+    rw [iteClauses_flatMap_eq]; simp only [List.length_append, List.length_cons, List.length_nil]
+    have hl1 : (encodeDimacsLit (g.A + 1 + k + 1, false)).length =
+        (natToBytes (g.A + 1 + k + 1)).length + 2 := by
+      simp [encodeDimacsLit, asciiMinus, asciiSpace]
+    have hl2 : (encodeDimacsLit (g.A + 1 + k + 1, true)).length =
+        (natToBytes (g.A + 1 + k + 1)).length + 1 := by simp [encodeDimacsLit, asciiSpace]
+    have hpc := lit_pair_len c; have hpt := lit_pair_len t; have hpf := lit_pair_len f
+    rw [hl1, hl2]; omega
+  refine ⟨?_, by unfold pass1Nc; rw [hp, List.length_append]; simp [iteClauses, Nat.add_assoc],
+    hbs, by unfold pass1BodyBytes; rw [hbs, List.length_append, hlen]; omega⟩
+  unfold pass1Mv; rw [hp, List.foldl_append]
+  simp only [iteClauses, List.foldl_cons, List.foldl_nil, clauseMaxVar,
+    Std.Sat.CNF.Clause.literals_ofLiterals]
+  have hlc : (litToDimacs c).1 = (c >>> 1).toNat + 1 := rfl
+  have hlt : (litToDimacs t).1 = (t >>> 1).toNat + 1 := rfl
+  have hlf : (litToDimacs f).1 = (f >>> 1).toNat + 1 := rfl
+  rw [hlc, hlt, hlf]
+  change max (max (max (max (max (max (max (max (max (max (max (max
+    (List.foldl clauseMaxVar _ (prefixClauses g marks k))
+    ((c >>> 1).toNat + 1)) ((t >>> 1).toNat + 1)) (g.A + 1 + k + 1))
+    ((c >>> 1).toNat + 1)) ((t >>> 1).toNat + 1)) (g.A + 1 + k + 1))
+    ((c >>> 1).toNat + 1)) ((f >>> 1).toNat + 1)) (g.A + 1 + k + 1))
+    ((c >>> 1).toNat + 1)) ((f >>> 1).toNat + 1)) (g.A + 1 + k + 1) = _
+  have hdup (x u v w : Nat) :
+      max (max (max (max (max (max x u) v) w) u) v) w = max (max (max x u) v) w := by
+    have h1 : max (max (max (max x u) v) w) u = max (max (max x u) v) w := by omega
+    have h2 : max (max (max (max x u) v) w) v = max (max (max x u) v) w := by omega
+    rw [h1, h2]; omega
+  rw [hdup, hdup]
+  have hdrop (x u v w z : Nat) :
+      max (max (max (max (max (max x u) v) w) u) z) w = max (max (max (max x w) u) v) z := by
+    have h1 : max (max (max (max x u) v) w) u = max (max (max x u) v) w := by omega
+    have h2 : max (max (max x u) v) w = max (max (max x w) u) v := by omega
+    rw [h1, h2]; omega
+  exact hdrop _ _ _ _ _
+
 theorem pass1Bytes_len_mono {g : Aig} (marks : Array Bool) {root : BitVec 32}
     {k1 k2 : Nat} (hle : k1 ≤ k2) (hk2 : k2 ≤ g.nodes.size) :
     (pass1Bytes g marks k1).length ≤ (pass1Bytes g marks k2).length := by
@@ -267,7 +374,12 @@ theorem pass1Bytes_len_mono {g : Aig} (marks : Array Bool) {root : BitVec 32}
       by_cases hlt : a ≤ k
       · have hs : pass1BodyBytes g marks root k ≤ pass1BodyBytes g marks root (k + 1) := by
           by_cases hm : marks.getD (g.A + 1 + k) false = true
-          · have ⟨_, _, _, h⟩ := pass1_succ_true g marks root (by omega) hm; omega
+          · cases hd : detectIte g k (by omega) with
+            | none =>
+              have ⟨_, _, _, h⟩ := pass1_succ_true_and g marks root (by omega) hm hd; omega
+            | some ctf =>
+              rcases ctf with ⟨c, t, f⟩
+              have ⟨_, _, _, h⟩ := pass1_succ_true_ite g marks root (by omega) hm hd; omega
           · have ⟨_, _, _, h⟩ := pass1_succ_false g marks root (by omega)
               (Bool.eq_false_iff.mpr hm); omega
         exact Nat.le_trans (ih hlt (by omega)) hs
@@ -328,14 +440,40 @@ theorem pass1BodyBytes_lt_pow64 {g : Aig} {marks : Array Bool} {root : BitVec 32
   | succ k ih =>
     by_cases hlt : k < g.nodes.size
     · by_cases hm : marks.getD (g.A + 1 + k) false = true
-      · have ⟨_, hnc, _, hbb⟩ := pass1_succ_true g marks root hlt hm
-        have h0 := natToBytes_length_le_10
-          (by unfold bvDimacsBound at hbd; omega : g.A + 1 + k + 1 < 2 ^ 32)
-        have h1 := encodeDimacsLit_length_le_bv (g.nodes[k]'hlt).1.toBitVec
-        have h2 := encodeDimacsLit_length_le_bv (g.nodes[k]'hlt).2.toBitVec
-        have h3 := encodeDimacsLit_length_le_bv ((g.nodes[k]'hlt).1.toBitVec ^^^ 1#32)
-        have h4 := encodeDimacsLit_length_le_bv ((g.nodes[k]'hlt).2.toBitVec ^^^ 1#32)
-        simp only [UInt32.ofBitVec_toBitVec] at h1 h2; omega
+      · cases hd : detectIte g k hlt with
+        | none =>
+          have ⟨_, hnc, _, hbb⟩ := pass1_succ_true_and g marks root hlt hm hd
+          have h0 := natToBytes_length_le_10
+            (by unfold bvDimacsBound at hbd; omega : g.A + 1 + k + 1 < 2 ^ 32)
+          have h1 := encodeDimacsLit_length_le_bv (g.nodes[k]'hlt).1.toBitVec
+          have h2 := encodeDimacsLit_length_le_bv (g.nodes[k]'hlt).2.toBitVec
+          have h3 := encodeDimacsLit_length_le_bv ((g.nodes[k]'hlt).1.toBitVec ^^^ 1#32)
+          have h4 := encodeDimacsLit_length_le_bv ((g.nodes[k]'hlt).2.toBitVec ^^^ 1#32)
+          simp only [UInt32.ofBitVec_toBitVec] at h1 h2; omega
+        | some ctf =>
+          rcases ctf with ⟨c, t, f⟩
+          have ⟨_, hnc, _, hbb⟩ := pass1_succ_true_ite g marks root hlt hm hd
+          have h0 := natToBytes_length_le_10
+            (by unfold bvDimacsBound at hbd; omega : g.A + 1 + k + 1 < 2 ^ 32)
+          have hc := natToBytes_length_le_10 (n := (c >>> 1).toNat + 1) (by
+            have := c.toBitVec.isLt
+            have : (c >>> 1).toNat = c.toBitVec.toNat / 2 := by
+              change (c.toBitVec >>> (1 : Nat)).toNat = _
+              rw [BitVec.toNat_ushiftRight, Nat.shiftRight_eq_div_pow, Nat.pow_one]
+            omega)
+          have ht := natToBytes_length_le_10 (n := (t >>> 1).toNat + 1) (by
+            have := t.toBitVec.isLt
+            have : (t >>> 1).toNat = t.toBitVec.toNat / 2 := by
+              change (t.toBitVec >>> (1 : Nat)).toNat = _
+              rw [BitVec.toNat_ushiftRight, Nat.shiftRight_eq_div_pow, Nat.pow_one]
+            omega)
+          have hf := natToBytes_length_le_10 (n := (f >>> 1).toNat + 1) (by
+            have := f.toBitVec.isLt
+            have : (f >>> 1).toNat = f.toBitVec.toNat / 2 := by
+              change (f.toBitVec >>> (1 : Nat)).toNat = _
+              rw [BitVec.toNat_ushiftRight, Nat.shiftRight_eq_div_pow, Nat.pow_one]
+            omega)
+          omega
       · have ⟨_, hnc, _, hbb⟩ := pass1_succ_false g marks root hlt (Bool.eq_false_iff.mpr hm); omega
     · have hp : prefixClauses g marks (k + 1) = prefixClauses g marks k := by
         unfold prefixClauses; rw [List.range_succ, List.flatMap_append]; simp [hlt]
@@ -494,7 +632,7 @@ public section
   Expr.let_ ⟨OpCode.cmp CmpOp.ugt i32 Ty.bool rfl, (Arg.var a, Arg.var b, ())⟩ fun c =>
   Expr.jnz (Arg.var c.1) (Expr.jump Js.1 (Arg.var a, ())) (Expr.jump Js.1 (Arg.var b, ()))
 
-@[expose] def pass1GateStep {V L} (h : V i64) (mv nc : V i32) (bb : V i64) (g idx : V i32)
+@[expose] def pass1GateStep {V L} (h aigPtr : V i64) (A mv nc : V i32) (bb : V i64) (g idx : V i32)
     (aigWord : V i64) (onDone : V i32 → V i32 → V i64 → V i32 → Expr V L [Ty.bool]) :
     Expr V L [Ty.bool] :=
   Expr.let_ ⟨OpCode.and i64, (Arg.var aigWord, Arg.imm 4294967295#64, ())⟩ fun p27 =>
@@ -502,75 +640,155 @@ public section
   Expr.let_ ⟨OpCode.sext 32 64, (Arg.imm 32#32, ())⟩ fun s32 =>
   Expr.let_ ⟨OpCode.lshr i64, (Arg.var aigWord, Arg.var s32.1, ())⟩ fun p30 =>
   Expr.let_ ⟨OpCode.trunc 64 32, (Arg.var p30.1, ())⟩ fun rhs =>
+  detectIteExpr aigPtr A lhs.1 rhs.1 fun det =>
+  let isIte := det.1; let ic := det.2.1; let it := det.2.2.1; let if_ := det.2.2.2.1
   Expr.let_ ⟨OpCode.add i32, (Arg.var idx, Arg.imm 1#32, ())⟩ fun gv =>
-  Expr.let_ ⟨OpCode.lshr i32, (Arg.var lhs.1, Arg.imm 1#32, ())⟩ fun p33 =>
-  Expr.let_ ⟨OpCode.add i32, (Arg.var p33.1, Arg.imm 1#32, ())⟩ fun lv =>
-  Expr.let_ ⟨OpCode.lshr i32, (Arg.var rhs.1, Arg.imm 1#32, ())⟩ fun p35 =>
-  Expr.let_ ⟨OpCode.add i32, (Arg.var p35.1, Arg.imm 1#32, ())⟩ fun rv =>
-  maxUpdate gv.1 mv fun mv1 => maxUpdate lv.1 mv1 fun mv2 => maxUpdate rv.1 mv2 fun mv3 =>
-  Expr.group (sig := [[]]) (fun _ => Blocks.cons (fun _ => oomRet h) Blocks.nil) fun Js4 =>
-  Expr.let_ ⟨OpCode.zext 32 64, (Arg.var mv3, ())⟩ fun p =>
-  Expr.let_ ⟨OpCode.cmp CmpOp.uge i64 Ty.bool rfl,
-    (Arg.var p.1, Arg.imm 268435456#64, ())⟩ fun c1 =>
-  Expr.jnz (Arg.var c1.1) (Expr.jump Js4.1 ()) (
-  Expr.let_ ⟨OpCode.zext 32 64, (Arg.var nc, ())⟩ fun p =>
-  Expr.let_ ⟨OpCode.sub i64, (Arg.imm 268435456#64, Arg.imm 3#64, ())⟩ fun p40 =>
-  Expr.let_ ⟨OpCode.cmp CmpOp.uge i64 Ty.bool rfl, (Arg.var p.1, Arg.var p40.1, ())⟩ fun c2 =>
-  Expr.jnz (Arg.var c2.1) (Expr.jump Js4.1 ()) (
-  Expr.let_ ⟨OpCode.add i32, (Arg.var nc, Arg.imm 3#32, ())⟩ fun nc1 =>
-  Expr.call (as := [i32]) (bs := [i64]) "bv_dec_len" (Arg.var gv.1, ()) fun dl =>
-  Expr.let_ ⟨OpCode.add i64, (Arg.var dl.1, Arg.imm 2#64, ())⟩ fun p42 =>
-  Expr.call (as := [i32]) (bs := [i64]) "bv_lit_bytes" (Arg.var lhs.1, ()) fun bl =>
-  Expr.let_ ⟨OpCode.add i64, (Arg.var p42.1, Arg.var bl.1, ())⟩ fun p44 =>
-  Expr.let_ ⟨OpCode.add i64, (Arg.var p44.1, Arg.imm 2#64, ())⟩ fun p45 =>
-  Expr.let_ ⟨OpCode.add i64, (Arg.var bb, Arg.var p45.1, ())⟩ fun bb1 =>
-  Expr.let_ ⟨OpCode.add i64, (Arg.var dl.1, Arg.imm 2#64, ())⟩ fun p47 =>
-  Expr.call (as := [i32]) (bs := [i64]) "bv_lit_bytes" (Arg.var rhs.1, ()) fun br =>
-  Expr.let_ ⟨OpCode.add i64, (Arg.var p47.1, Arg.var br.1, ())⟩ fun p49 =>
-  Expr.let_ ⟨OpCode.add i64, (Arg.var p49.1, Arg.imm 2#64, ())⟩ fun p50 =>
-  Expr.let_ ⟨OpCode.add i64, (Arg.var bb1.1, Arg.var p50.1, ())⟩ fun bb2 =>
-  Expr.let_ ⟨OpCode.add i64, (Arg.var dl.1, Arg.imm 1#64, ())⟩ fun p52 =>
-  Expr.let_ ⟨OpCode.xor i32, (Arg.var lhs.1, Arg.imm 1#32, ())⟩ fun nl =>
-  Expr.call (as := [i32]) (bs := [i64]) "bv_lit_bytes" (Arg.var nl.1, ()) fun bnl =>
-  Expr.let_ ⟨OpCode.add i64, (Arg.var p52.1, Arg.var bnl.1, ())⟩ fun p55 =>
-  Expr.let_ ⟨OpCode.xor i32, (Arg.var rhs.1, Arg.imm 1#32, ())⟩ fun nr =>
-  Expr.call (as := [i32]) (bs := [i64]) "bv_lit_bytes" (Arg.var nr.1, ()) fun bnr =>
-  Expr.let_ ⟨OpCode.add i64, (Arg.var p55.1, Arg.var bnr.1, ())⟩ fun p58 =>
-  Expr.let_ ⟨OpCode.add i64, (Arg.var p58.1, Arg.imm 2#64, ())⟩ fun p59 =>
-  Expr.let_ ⟨OpCode.add i64, (Arg.var bb2.1, Arg.var p59.1, ())⟩ fun bb3 =>
-  onDone mv3 nc1.1 bb3.1 g))
+  maxUpdate gv.1 mv fun mv1 =>
+  Expr.group (sig := [[i32, i32, i64]])
+    (fun _ => Blocks.cons (fun st' => onDone st'.1 st'.2.1 st'.2.2.1 g) Blocks.nil) fun JsB =>
+  Expr.let_ ⟨OpCode.cmp CmpOp.ne i32 Ty.bool rfl, (Arg.var isIte, Arg.imm 0#32, ())⟩ fun cIte =>
+  Expr.jnz (Arg.var cIte.1)
+    (Expr.let_ ⟨OpCode.lshr i32, (Arg.var ic, Arg.imm 1#32, ())⟩ fun c1 =>
+    Expr.let_ ⟨OpCode.add i32, (Arg.var c1.1, Arg.imm 1#32, ())⟩ fun cv =>
+    Expr.let_ ⟨OpCode.lshr i32, (Arg.var it, Arg.imm 1#32, ())⟩ fun t1 =>
+    Expr.let_ ⟨OpCode.add i32, (Arg.var t1.1, Arg.imm 1#32, ())⟩ fun tv =>
+    Expr.let_ ⟨OpCode.lshr i32, (Arg.var if_, Arg.imm 1#32, ())⟩ fun f1 =>
+    Expr.let_ ⟨OpCode.add i32, (Arg.var f1.1, Arg.imm 1#32, ())⟩ fun fv =>
+    maxUpdate cv.1 mv1 fun mv2 => maxUpdate tv.1 mv2 fun mv3 => maxUpdate fv.1 mv3 fun mv4 =>
+    Expr.group (sig := [[]]) (fun _ => Blocks.cons (fun _ => oomRet h) Blocks.nil) fun Js4 =>
+    Expr.let_ ⟨OpCode.zext 32 64, (Arg.var mv4, ())⟩ fun p =>
+    Expr.let_ ⟨OpCode.cmp CmpOp.uge i64 Ty.bool rfl,
+      (Arg.var p.1, Arg.imm 268435456#64, ())⟩ fun o1 =>
+    Expr.jnz (Arg.var o1.1) (Expr.jump Js4.1 ()) (
+    Expr.let_ ⟨OpCode.zext 32 64, (Arg.var nc, ())⟩ fun p =>
+    Expr.let_ ⟨OpCode.sub i64, (Arg.imm 268435456#64, Arg.imm 4#64, ())⟩ fun p40 =>
+    Expr.let_ ⟨OpCode.cmp CmpOp.uge i64 Ty.bool rfl, (Arg.var p.1, Arg.var p40.1, ())⟩ fun o2 =>
+    Expr.jnz (Arg.var o2.1) (Expr.jump Js4.1 ()) (
+    Expr.let_ ⟨OpCode.add i32, (Arg.var nc, Arg.imm 4#32, ())⟩ fun nc1 =>
+    Expr.call (as := [i32]) (bs := [i64]) "bv_dec_len" (Arg.var gv.1, ()) fun do1 =>
+    Expr.let_ ⟨OpCode.sext 32 64, (Arg.imm 2#32, ())⟩ fun s2a =>
+    Expr.let_ ⟨OpCode.shl i64, (Arg.var do1.1, Arg.var s2a.1, ())⟩ fun do4 =>
+    Expr.let_ ⟨OpCode.add i64, (Arg.var bb, Arg.var do4.1, ())⟩ fun bb1 =>
+    Expr.call (as := [i32]) (bs := [i64]) "bv_dec_len" (Arg.var cv.1, ()) fun dc1 =>
+    Expr.let_ ⟨OpCode.sext 32 64, (Arg.imm 2#32, ())⟩ fun s2b =>
+    Expr.let_ ⟨OpCode.shl i64, (Arg.var dc1.1, Arg.var s2b.1, ())⟩ fun dc4 =>
+    Expr.let_ ⟨OpCode.add i64, (Arg.var bb1.1, Arg.var dc4.1, ())⟩ fun bb2 =>
+    Expr.call (as := [i32]) (bs := [i64]) "bv_dec_len" (Arg.var tv.1, ()) fun dt1 =>
+    Expr.let_ ⟨OpCode.sext 32 64, (Arg.imm 1#32, ())⟩ fun s1a =>
+    Expr.let_ ⟨OpCode.shl i64, (Arg.var dt1.1, Arg.var s1a.1, ())⟩ fun dt2 =>
+    Expr.let_ ⟨OpCode.add i64, (Arg.var bb2.1, Arg.var dt2.1, ())⟩ fun bb3 =>
+    Expr.call (as := [i32]) (bs := [i64]) "bv_dec_len" (Arg.var fv.1, ()) fun df1 =>
+    Expr.let_ ⟨OpCode.sext 32 64, (Arg.imm 1#32, ())⟩ fun s1b =>
+    Expr.let_ ⟨OpCode.shl i64, (Arg.var df1.1, Arg.var s1b.1, ())⟩ fun df2 =>
+    Expr.let_ ⟨OpCode.add i64, (Arg.var bb3.1, Arg.var df2.1, ())⟩ fun bb4 =>
+    Expr.let_ ⟨OpCode.add i64, (Arg.var bb4.1, Arg.imm 26#64, ())⟩ fun bb5 =>
+    Expr.jump JsB.1 (Arg.var mv4, Arg.var nc1.1, Arg.var bb5.1, ()))))
+    (Expr.let_ ⟨OpCode.lshr i32, (Arg.var lhs.1, Arg.imm 1#32, ())⟩ fun p33 =>
+    Expr.let_ ⟨OpCode.add i32, (Arg.var p33.1, Arg.imm 1#32, ())⟩ fun lv =>
+    Expr.let_ ⟨OpCode.lshr i32, (Arg.var rhs.1, Arg.imm 1#32, ())⟩ fun p35 =>
+    Expr.let_ ⟨OpCode.add i32, (Arg.var p35.1, Arg.imm 1#32, ())⟩ fun rv =>
+    maxUpdate lv.1 mv1 fun mv2 => maxUpdate rv.1 mv2 fun mv3 =>
+    Expr.group (sig := [[]]) (fun _ => Blocks.cons (fun _ => oomRet h) Blocks.nil) fun Js4 =>
+    Expr.let_ ⟨OpCode.zext 32 64, (Arg.var mv3, ())⟩ fun p =>
+    Expr.let_ ⟨OpCode.cmp CmpOp.uge i64 Ty.bool rfl,
+      (Arg.var p.1, Arg.imm 268435456#64, ())⟩ fun c1 =>
+    Expr.jnz (Arg.var c1.1) (Expr.jump Js4.1 ()) (
+    Expr.let_ ⟨OpCode.zext 32 64, (Arg.var nc, ())⟩ fun p =>
+    Expr.let_ ⟨OpCode.sub i64, (Arg.imm 268435456#64, Arg.imm 3#64, ())⟩ fun p40 =>
+    Expr.let_ ⟨OpCode.cmp CmpOp.uge i64 Ty.bool rfl, (Arg.var p.1, Arg.var p40.1, ())⟩ fun c2 =>
+    Expr.jnz (Arg.var c2.1) (Expr.jump Js4.1 ()) (
+    Expr.let_ ⟨OpCode.add i32, (Arg.var nc, Arg.imm 3#32, ())⟩ fun nc1 =>
+    Expr.call (as := [i32]) (bs := [i64]) "bv_dec_len" (Arg.var gv.1, ()) fun dl =>
+    Expr.let_ ⟨OpCode.add i64, (Arg.var dl.1, Arg.imm 2#64, ())⟩ fun p42 =>
+    Expr.call (as := [i32]) (bs := [i64]) "bv_lit_bytes" (Arg.var lhs.1, ()) fun bl =>
+    Expr.let_ ⟨OpCode.add i64, (Arg.var p42.1, Arg.var bl.1, ())⟩ fun p44 =>
+    Expr.let_ ⟨OpCode.add i64, (Arg.var p44.1, Arg.imm 2#64, ())⟩ fun p45 =>
+    Expr.let_ ⟨OpCode.add i64, (Arg.var bb, Arg.var p45.1, ())⟩ fun bb1 =>
+    Expr.let_ ⟨OpCode.add i64, (Arg.var dl.1, Arg.imm 2#64, ())⟩ fun p47 =>
+    Expr.call (as := [i32]) (bs := [i64]) "bv_lit_bytes" (Arg.var rhs.1, ()) fun br =>
+    Expr.let_ ⟨OpCode.add i64, (Arg.var p47.1, Arg.var br.1, ())⟩ fun p49 =>
+    Expr.let_ ⟨OpCode.add i64, (Arg.var p49.1, Arg.imm 2#64, ())⟩ fun p50 =>
+    Expr.let_ ⟨OpCode.add i64, (Arg.var bb1.1, Arg.var p50.1, ())⟩ fun bb2 =>
+    Expr.let_ ⟨OpCode.add i64, (Arg.var dl.1, Arg.imm 1#64, ())⟩ fun p52 =>
+    Expr.let_ ⟨OpCode.xor i32, (Arg.var lhs.1, Arg.imm 1#32, ())⟩ fun nl =>
+    Expr.call (as := [i32]) (bs := [i64]) "bv_lit_bytes" (Arg.var nl.1, ()) fun bnl =>
+    Expr.let_ ⟨OpCode.add i64, (Arg.var p52.1, Arg.var bnl.1, ())⟩ fun p55 =>
+    Expr.let_ ⟨OpCode.xor i32, (Arg.var rhs.1, Arg.imm 1#32, ())⟩ fun nr =>
+    Expr.call (as := [i32]) (bs := [i64]) "bv_lit_bytes" (Arg.var nr.1, ()) fun bnr =>
+    Expr.let_ ⟨OpCode.add i64, (Arg.var p55.1, Arg.var bnr.1, ())⟩ fun p58 =>
+    Expr.let_ ⟨OpCode.add i64, (Arg.var p58.1, Arg.imm 2#64, ())⟩ fun p59 =>
+    Expr.let_ ⟨OpCode.add i64, (Arg.var bb2.1, Arg.var p59.1, ())⟩ fun bb3 =>
+    Expr.jump JsB.1 (Arg.var mv3, Arg.var nc1.1, Arg.var bb3.1, ()))))
 
-@[expose] def pass2GateStep {V L} (g : V i32) (p : V i64) (aigWord : V i64)
+@[expose] def pass2GateStep {V L} (aigPtr : V i64) (A g : V i32) (p : V i64) (aigWord : V i64)
     (onDone : V i64 → Expr V L [Ty.bool]) : Expr V L [Ty.bool] :=
   Expr.let_ ⟨OpCode.and i64, (Arg.var aigWord, Arg.imm 4294967295#64, ())⟩ fun p27 =>
   Expr.let_ ⟨OpCode.trunc 64 32, (Arg.var p27.1, ())⟩ fun lhs =>
   Expr.let_ ⟨OpCode.sext 32 64, (Arg.imm 32#32, ())⟩ fun s32 =>
   Expr.let_ ⟨OpCode.lshr i64, (Arg.var aigWord, Arg.var s32.1, ())⟩ fun p40 =>
   Expr.let_ ⟨OpCode.trunc 64 32, (Arg.var p40.1, ())⟩ fun rhs =>
+  detectIteExpr aigPtr A lhs.1 rhs.1 fun det =>
+  let isIte := det.1; let ic := det.2.1; let it := det.2.2.1; let if_ := det.2.2.2.1
   Expr.let_ ⟨OpCode.shl i32, (Arg.var g, Arg.imm 1#32, ())⟩ fun out0 =>
   Expr.let_ ⟨OpCode.or i32, (Arg.var out0.1, Arg.imm 1#32, ())⟩ fun out1 =>
-  Expr.call (as := [i64, i32]) (bs := [i64]) "bv_write_lit"
-    (Arg.var p, Arg.var out1.1, ()) fun p1 =>
-  Expr.call (as := [i64, i32]) (bs := [i64]) "bv_write_lit"
-    (Arg.var p1.1, Arg.var lhs.1, ()) fun p2 =>
-  Expr.call (as := [i64]) (bs := [i64]) "bv_write_clause_end" (Arg.var p2.1, ()) fun p3 =>
-  Expr.call (as := [i64, i32]) (bs := [i64]) "bv_write_lit"
-    (Arg.var p3.1, Arg.var out1.1, ()) fun p4 =>
-  Expr.call (as := [i64, i32]) (bs := [i64]) "bv_write_lit"
-    (Arg.var p4.1, Arg.var rhs.1, ()) fun p5 =>
-  Expr.call (as := [i64]) (bs := [i64]) "bv_write_clause_end" (Arg.var p5.1, ()) fun p6 =>
-  Expr.call (as := [i64, i32]) (bs := [i64]) "bv_write_lit"
-    (Arg.var p6.1, Arg.var out0.1, ()) fun p7 =>
-  Expr.let_ ⟨OpCode.xor i32, (Arg.var lhs.1, Arg.imm 1#32, ())⟩ fun nl =>
-  Expr.call (as := [i64, i32]) (bs := [i64]) "bv_write_lit"
-    (Arg.var p7.1, Arg.var nl.1, ()) fun p8 =>
-  Expr.let_ ⟨OpCode.xor i32, (Arg.var rhs.1, Arg.imm 1#32, ())⟩ fun nr =>
-  Expr.call (as := [i64, i32]) (bs := [i64]) "bv_write_lit"
-    (Arg.var p8.1, Arg.var nr.1, ()) fun p9 =>
-  Expr.call (as := [i64]) (bs := [i64]) "bv_write_clause_end" (Arg.var p9.1, ()) fun p10 =>
-  onDone p10.1
+  Expr.group (sig := [[i64]])
+    (fun _ => Blocks.cons (fun np => onDone np.1) Blocks.nil) fun JsB =>
+  Expr.let_ ⟨OpCode.cmp CmpOp.ne i32 Ty.bool rfl, (Arg.var isIte, Arg.imm 0#32, ())⟩ fun cIte =>
+  Expr.jnz (Arg.var cIte.1)
+    (Expr.let_ ⟨OpCode.xor i32, (Arg.var ic, Arg.imm 1#32, ())⟩ fun nc =>
+    Expr.let_ ⟨OpCode.xor i32, (Arg.var it, Arg.imm 1#32, ())⟩ fun nt =>
+    Expr.let_ ⟨OpCode.xor i32, (Arg.var if_, Arg.imm 1#32, ())⟩ fun nf =>
+    Expr.call (as := [i64, i32]) (bs := [i64]) "bv_write_lit"
+      (Arg.var p, Arg.var nc.1, ()) fun p1 =>
+    Expr.call (as := [i64, i32]) (bs := [i64]) "bv_write_lit"
+      (Arg.var p1.1, Arg.var nt.1, ()) fun p2 =>
+    Expr.call (as := [i64, i32]) (bs := [i64]) "bv_write_lit"
+      (Arg.var p2.1, Arg.var out0.1, ()) fun p3 =>
+    Expr.call (as := [i64]) (bs := [i64]) "bv_write_clause_end" (Arg.var p3.1, ()) fun p4 =>
+    Expr.call (as := [i64, i32]) (bs := [i64]) "bv_write_lit"
+      (Arg.var p4.1, Arg.var nc.1, ()) fun p5 =>
+    Expr.call (as := [i64, i32]) (bs := [i64]) "bv_write_lit"
+      (Arg.var p5.1, Arg.var it, ()) fun p6 =>
+    Expr.call (as := [i64, i32]) (bs := [i64]) "bv_write_lit"
+      (Arg.var p6.1, Arg.var out1.1, ()) fun p7 =>
+    Expr.call (as := [i64]) (bs := [i64]) "bv_write_clause_end" (Arg.var p7.1, ()) fun p8 =>
+    Expr.call (as := [i64, i32]) (bs := [i64]) "bv_write_lit"
+      (Arg.var p8.1, Arg.var ic, ()) fun p9 =>
+    Expr.call (as := [i64, i32]) (bs := [i64]) "bv_write_lit"
+      (Arg.var p9.1, Arg.var nf.1, ()) fun p10 =>
+    Expr.call (as := [i64, i32]) (bs := [i64]) "bv_write_lit"
+      (Arg.var p10.1, Arg.var out0.1, ()) fun p11 =>
+    Expr.call (as := [i64]) (bs := [i64]) "bv_write_clause_end" (Arg.var p11.1, ()) fun p12 =>
+    Expr.call (as := [i64, i32]) (bs := [i64]) "bv_write_lit"
+      (Arg.var p12.1, Arg.var ic, ()) fun p13 =>
+    Expr.call (as := [i64, i32]) (bs := [i64]) "bv_write_lit"
+      (Arg.var p13.1, Arg.var if_, ()) fun p14 =>
+    Expr.call (as := [i64, i32]) (bs := [i64]) "bv_write_lit"
+      (Arg.var p14.1, Arg.var out1.1, ()) fun p15 =>
+    Expr.call (as := [i64]) (bs := [i64]) "bv_write_clause_end" (Arg.var p15.1, ()) fun p16 =>
+    Expr.jump JsB.1 (Arg.var p16.1, ()))
+    (Expr.call (as := [i64, i32]) (bs := [i64]) "bv_write_lit"
+      (Arg.var p, Arg.var out1.1, ()) fun p1 =>
+    Expr.call (as := [i64, i32]) (bs := [i64]) "bv_write_lit"
+      (Arg.var p1.1, Arg.var lhs.1, ()) fun p2 =>
+    Expr.call (as := [i64]) (bs := [i64]) "bv_write_clause_end" (Arg.var p2.1, ()) fun p3 =>
+    Expr.call (as := [i64, i32]) (bs := [i64]) "bv_write_lit"
+      (Arg.var p3.1, Arg.var out1.1, ()) fun p4 =>
+    Expr.call (as := [i64, i32]) (bs := [i64]) "bv_write_lit"
+      (Arg.var p4.1, Arg.var rhs.1, ()) fun p5 =>
+    Expr.call (as := [i64]) (bs := [i64]) "bv_write_clause_end" (Arg.var p5.1, ()) fun p6 =>
+    Expr.call (as := [i64, i32]) (bs := [i64]) "bv_write_lit"
+      (Arg.var p6.1, Arg.var out0.1, ()) fun p7 =>
+    Expr.let_ ⟨OpCode.xor i32, (Arg.var lhs.1, Arg.imm 1#32, ())⟩ fun nl =>
+    Expr.call (as := [i64, i32]) (bs := [i64]) "bv_write_lit"
+      (Arg.var p7.1, Arg.var nl.1, ()) fun p8 =>
+    Expr.let_ ⟨OpCode.xor i32, (Arg.var rhs.1, Arg.imm 1#32, ())⟩ fun nr =>
+    Expr.call (as := [i64, i32]) (bs := [i64]) "bv_write_lit"
+      (Arg.var p8.1, Arg.var nr.1, ()) fun p9 =>
+    Expr.call (as := [i64]) (bs := [i64]) "bv_write_clause_end" (Arg.var p9.1, ()) fun p10 =>
+    Expr.jump JsB.1 (Arg.var p10.1, ()))
 
-@[expose] def pass2Expr {V L} (aigLen : V i32) (marksPtr aigPtr : V i64)
+@[expose] def pass2Expr {V L} (A aigLen : V i32) (marksPtr aigPtr : V i64)
     (initG : V i32) (initP : V i64) (kDone : V i64 → Expr V L [Ty.bool]) : Expr V L [Ty.bool] :=
   Expr.group (sig := [[i32, i64]]) (fun Js => Blocks.cons (fun st =>
     let g := st.1; let curP := st.2.1
@@ -592,11 +810,11 @@ public section
         Expr.let_ ⟨OpCode.mul i64, (Arg.var g64'.1, Arg.imm 8#64, ())⟩ fun off =>
         Expr.let_ ⟨OpCode.add i64, (Arg.var aigPtr, Arg.var off.1, ())⟩ fun ap =>
         Expr.load i64 (Arg.var ap.1) fun aw =>
-        pass2GateStep g curP aw fun np => Expr.jump Js1.1 (Arg.var np, ()))
+        pass2GateStep aigPtr A g curP aw fun np => Expr.jump Js1.1 (Arg.var np, ()))
         (Expr.jump Js1.1 (Arg.var curP, ())))
       (kDone curP)) Blocks.nil) (fun Js => Expr.jump Js.1 (Arg.var initG, Arg.var initP, ()))
 
-@[expose] def pass1Expr {V L} (h : V i64) (aigLen : V i32) (marksPtr aigPtr : V i64)
+@[expose] def pass1Expr {V L} (h : V i64) (A aigLen : V i32) (marksPtr aigPtr : V i64)
     (mv0 : V i32) (bb0 : V i64) (g0 : V i32)
     (kExit : V i32 → V i32 → V i64 → Expr V L [Ty.bool]) : Expr V L [Ty.bool] :=
   Expr.group (sig := [[i32, i32, i64, i32]]) (fun Js => Blocks.cons (fun st =>
@@ -620,7 +838,7 @@ public section
         Expr.let_ ⟨OpCode.mul i64, (Arg.var g64'.1, Arg.imm 8#64, ())⟩ fun off =>
         Expr.let_ ⟨OpCode.add i64, (Arg.var aigPtr, Arg.var off.1, ())⟩ fun ap =>
         Expr.load i64 (Arg.var ap.1) fun aw =>
-        pass1GateStep h mv nc bb g g aw fun mv' nc' bb' _ =>
+        pass1GateStep h aigPtr A mv nc bb g g aw fun mv' nc' bb' _ =>
           Expr.jump Js1.1 (Arg.var mv', Arg.var nc', Arg.var bb', ()))
         (Expr.jump Js1.1 (Arg.var mv, Arg.var nc, Arg.var bb, ())))
       (kExit mv nc bb)) Blocks.nil)
@@ -657,7 +875,7 @@ public section
   Expr.call (as := [i64, i32, i32]) (bs := [i64]) "bv_write_dimacs_hdr"
     (Arg.var start.1, Arg.var mv, Arg.var nc, ()) fun p0 =>
   Expr.let_ ⟨OpCode.add i32, (Arg.var A, Arg.imm 1#32, ())⟩ fun g0 =>
-  pass2Expr len marksPtr aigPtr g0.1 p0.1 fun pAfter =>
+  pass2Expr A len marksPtr aigPtr g0.1 p0.1 fun pAfter =>
   Expr.call (as := [i64, i32]) (bs := [i64]) "bv_write_lit"
     (Arg.var pAfter, Arg.var root, ()) fun pRoot =>
   Expr.call (as := [i64]) (bs := [i64]) "bv_write_clause_end" (Arg.var pRoot.1, ()) fun _ =>
@@ -695,7 +913,7 @@ public section
     (Expr.call (as := [i32]) (bs := [i64]) "bv_lit_bytes" (Arg.var root, ()) fun br =>
     Expr.let_ ⟨OpCode.add i64, (Arg.var br.1, Arg.imm 2#64, ())⟩ fun bb0 =>
     Expr.let_ ⟨OpCode.add i32, (Arg.var A, Arg.imm 1#32, ())⟩ fun g0 =>
-    pass1Expr h len marksPtr aigPtr mv0.1 bb0.1 g0.1
+    pass1Expr h A len marksPtr aigPtr mv0.1 bb0.1 g0.1
       (postPass1Expr h root len A marksPtr aigPtr)))))
 
 theorem bv_dimacs_write_eq_topBody (V : Ty → Type) (L : List Ty → Type)

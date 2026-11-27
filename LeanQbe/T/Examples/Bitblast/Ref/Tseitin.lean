@@ -53,18 +53,62 @@ open LeanQbe.T.Examples.Bitblast.Ref
     CNF.Clause.ofLiterals [(c.1, c.2), (f.1, !f.2), (o, true)],
     CNF.Clause.ofLiterals [(c.1, c.2), (f.1, f.2), (o, false)] ]
 
+/-- Detect an ITE/XOR/XNOR 3-AND gadget at gate `i` (`node = g.A + 1 + i`):
+`g.nodes[i] = (lhs, rhs)` where both operands are negated gate references
+(`(lhs &&& rhs &&& 1) != 0`, `ln = lhs >>> 1 > g.A`, `rn = rhs >>> 1 > g.A`) whose children
+contain a complementary literal pair. Returns `some (cond, ifT, ifF)` with
+`evalNode (g.A + 1 + i) = bif evalLit cond then evalLit ifT else evalLit ifF`. -/
+@[expose] def detectIte (g : Aig) (i : Nat) (hi : i < g.nodes.size) :
+    Option (UInt32 × UInt32 × UInt32) :=
+  let gate := g.nodes[i]'hi
+  let lhs := gate.1
+  let rhs := gate.2
+  if (lhs &&& rhs &&& 1) != 0 then
+    let ln := (lhs >>> 1).toNat
+    let rn := (rhs >>> 1).toNat
+    if hl : g.A < ln ∧ ln - (g.A + 1) < g.nodes.size then
+      if hr : g.A < rn ∧ rn - (g.A + 1) < g.nodes.size then
+        let lg := g.nodes[ln - (g.A + 1)]'hl.2
+        let rg := g.nodes[rn - (g.A + 1)]'hr.2
+        let l0 := lg.1; let l1 := lg.2
+        let r0 := rg.1; let r1 := rg.2
+        if l0 == (r0 ^^^ 1) then some (l0, l1 ^^^ 1, r1 ^^^ 1)
+        else if l0 == (r1 ^^^ 1) then some (l0, l1 ^^^ 1, r0 ^^^ 1)
+        else if l1 == (r0 ^^^ 1) then some (l1, l0 ^^^ 1, r1 ^^^ 1)
+        else if l1 == (r1 ^^^ 1) then some (l1, l0 ^^^ 1, r0 ^^^ 1)
+        else none
+      else none
+    else none
+  else none
+
+/-- Definitional clauses for gate `i`: 4-clause `iteClauses` when `detectIte` fires, else 3-clause
+`andClauses`. -/
+@[expose] def gateClauses (g : Aig) (i : Nat) (hi : i < g.nodes.size) :
+    List (CNF.Clause Nat) :=
+  match detectIte g i hi with
+  | some (c, t, f) => iteClauses (g.A + 1 + i) c t f
+  | none => andClauses (g.A + 1 + i) (g.nodes[i]'hi).1 (g.nodes[i]'hi).2
+
 /-! ## 2. Backward-Sweep COI Marking and CNF Generation -/
 
-/-- Backward-sweep cone-of-influence marking over AIG gates `k - 1 .. 0`. -/
+/-- Backward-sweep cone-of-influence marking over AIG gates `k - 1 .. 0`.
+When `detectIte` fires for a marked gate, marks `(cond, ifT, ifF)` directly instead of the two
+internal AND children. -/
 @[expose] def coiMarkLoop (g : Aig) : Nat → Array Bool → Array Bool
   | 0, marks => marks
   | k + 1, marks =>
     let marks' :=
       if h : k < g.nodes.size then
         if marks.getD (g.A + 1 + k) false then
-          let gate := g.nodes[k]
-          let m1 := marks.setIfInBounds (gate.1 >>> 1).toNat true
-          m1.setIfInBounds (gate.2 >>> 1).toNat true
+          match detectIte g k h with
+          | some (c, t, f) =>
+            let m1 := marks.setIfInBounds (c >>> 1).toNat true
+            let m2 := m1.setIfInBounds (t >>> 1).toNat true
+            m2.setIfInBounds (f >>> 1).toNat true
+          | none =>
+            let gate := g.nodes[k]
+            let m1 := marks.setIfInBounds (gate.1 >>> 1).toNat true
+            m1.setIfInBounds (gate.2 >>> 1).toNat true
         else
           marks
       else
@@ -77,13 +121,12 @@ open LeanQbe.T.Examples.Bitblast.Ref
   let marks0 := (Array.replicate sz false).setIfInBounds (root >>> 1).toNat true
   coiMarkLoop g g.nodes.size marks0
 
-/-- Forward emission of Tseitin AND clauses for marked AIG gates `0 .. g.nodes.size - 1`. -/
+/-- Forward emission of Tseitin clauses (`iteClauses` / `andClauses`) for marked AIG gates. -/
 @[expose] def tseitinClauses (g : Aig) (marks : Array Bool) : List (CNF.Clause Nat) :=
   (List.range g.nodes.size).flatMap fun i =>
     if h : i < g.nodes.size then
       if marks.getD (g.A + 1 + i) false then
-        let gate := g.nodes[i]
-        andClauses (g.A + 1 + i) gate.1 gate.2
+        gateClauses g i h
       else []
     else []
 
@@ -200,6 +243,149 @@ theorem tseitin_sound_of_clauses (g : Aig) (clauses : List (CNF.Clause Nat)) (ro
       CNF.sat_add.mpr ⟨hunit, foldl_cnf_sat CNF.sat_empty (hdef ρ)⟩
     exact (CNF.unsat_iff_not_sat.mp hunsat (nodeEvalAssign g ρ)) hsat
 
+private theorem u32_xor1_shr1_toNat (l : UInt32) : ((l ^^^ 1) >>> 1).toNat = (l >>> 1).toNat := by
+  have h : (l.toBitVec ^^^ 1#32) >>> (1 : BitVec 32) = l.toBitVec >>> (1 : BitVec 32) := by
+    apply BitVec.eq_of_getLsbD_eq; intro i
+    simp [BitVec.getLsbD_ushiftRight, BitVec.getLsbD_xor]
+  exact congrArg BitVec.toNat h
+
+private theorem u32_and_and1_ne_zero {a b : UInt32} (h : ((a &&& b &&& 1) != 0) = true) :
+    ((a &&& 1) != 0) = true ∧ ((b &&& 1) != 0) = true := by
+  have hne : a &&& b &&& 1 ≠ 0 := bne_iff_ne.mp h
+  have h0 : (a.toBitVec &&& b.toBitVec &&& 1#32).getLsbD 0 = true := by
+    cases hlsb : (a.toBitVec &&& b.toBitVec &&& 1#32).getLsbD 0
+    · exfalso; apply hne
+      apply UInt32.eq_of_toBitVec_eq; apply BitVec.eq_of_getLsbD_eq; intro i _
+      rcases i with _ | k
+      · simpa using hlsb
+      · simp [BitVec.getLsbD_and]
+    · rfl
+  simp only [BitVec.getLsbD_and, show (1#32 : BitVec 32).getLsbD 0 = true from rfl,
+    Bool.and_true, Bool.and_eq_true] at h0
+  constructor <;> apply bne_iff_ne.mpr <;> intro hz
+  · have hbz := congrArg (fun x : UInt32 => x.toBitVec.getLsbD 0) hz
+    change (a.toBitVec &&& 1#32).getLsbD 0 = false at hbz
+    rw [BitVec.getLsbD_and, show (1#32 : BitVec 32).getLsbD 0 = true from rfl, Bool.and_true,
+      h0.1] at hbz
+    cases hbz
+  · have hbz := congrArg (fun x : UInt32 => x.toBitVec.getLsbD 0) hz
+    change (b.toBitVec &&& 1#32).getLsbD 0 = false at hbz
+    rw [BitVec.getLsbD_and, show (1#32 : BitVec 32).getLsbD 0 = true from rfl, Bool.and_true,
+      h0.2] at hbz
+    cases hbz
+
+/-- Detected ITE operands refer strictly to earlier AIG nodes (`< g.A + 1 + i`). -/
+theorem detectIte_bounds {g : Aig} (hwf : g.Wf) {i : Nat} {hi : i < g.nodes.size}
+    {c t f : UInt32} (hd : detectIte g i hi = some (c, t, f)) :
+    (c >>> 1).toNat < g.A + 1 + i ∧
+    (t >>> 1).toNat < g.A + 1 + i ∧
+    (f >>> 1).toNat < g.A + 1 + i := by
+  have hgi := hwf i hi
+  unfold detectIte at hd
+  dsimp only at hd
+  split at hd
+  · split at hd
+    · next hl =>
+      split at hd
+      · next hr =>
+        have hli := hwf _ hl.2
+        have hri := hwf _ hr.2
+        have hln : g.A + 1 + ((g.nodes[i].1 >>> 1).toNat - (g.A + 1)) =
+            (g.nodes[i].1 >>> 1).toNat := by omega
+        have hrn : g.A + 1 + ((g.nodes[i].2 >>> 1).toNat - (g.A + 1)) =
+            (g.nodes[i].2 >>> 1).toNat := by omega
+        rw [hln] at hli; rw [hrn] at hri
+        split at hd
+        · cases hd; simp only [u32_xor1_shr1_toNat]; omega
+        · split at hd
+          · cases hd; simp only [u32_xor1_shr1_toNat]; omega
+          · split at hd
+            · cases hd; simp only [u32_xor1_shr1_toNat]; omega
+            · split at hd
+              · cases hd; simp only [u32_xor1_shr1_toNat]; omega
+              · cases hd
+      · cases hd
+    · cases hd
+  · cases hd
+
+/-- Semantic equivalence of `detectIte`: whenever `detectIte g i hi = some (c, t, f)`, node
+`g.A + 1 + i` evaluates identically to `bif evalLit c then evalLit t else evalLit f`. -/
+theorem detectIte_evalNode {g : Aig} (hwf : g.Wf) (ρ : Nat → Bool) {i : Nat}
+    {hi : i < g.nodes.size} {c t f : UInt32} (hd : detectIte g i hi = some (c, t, f)) :
+    g.evalNode ρ (g.A + 1 + i) =
+      bif g.evalLit ρ c then g.evalLit ρ t else g.evalLit ρ f := by
+  have hgate := Aig.evalNode_gate hwf ρ hi
+  unfold detectIte at hd
+  dsimp only at hd
+  split at hd
+  · next hneg =>
+    have ⟨hln_neg, hrn_neg⟩ := u32_and_and1_ne_zero hneg
+    split at hd
+    · next hl =>
+      split at hd
+      · next hr =>
+        have hln_eq : (g.nodes[i].1 >>> 1).toNat =
+            g.A + 1 + ((g.nodes[i].1 >>> 1).toNat - (g.A + 1)) := by omega
+        have hrn_eq : (g.nodes[i].2 >>> 1).toNat =
+            g.A + 1 + ((g.nodes[i].2 >>> 1).toNat - (g.A + 1)) := by omega
+        have hev_l : g.evalLit ρ g.nodes[i].1 =
+            !(g.evalLit ρ g.nodes[(g.nodes[i].1 >>> 1).toNat - (g.A + 1)].1 &&
+              g.evalLit ρ g.nodes[(g.nodes[i].1 >>> 1).toNat - (g.A + 1)].2) := by
+          have hg1 := Aig.evalNode_gate hwf ρ hl.2
+          rw [← hln_eq] at hg1
+          show (g.evalNode ρ (g.nodes[i].1 >>> 1).toNat ^^ ((g.nodes[i].1 &&& 1) != 0)) = _
+          rw [hln_neg, hg1]; simp
+        have hev_r : g.evalLit ρ g.nodes[i].2 =
+            !(g.evalLit ρ g.nodes[(g.nodes[i].2 >>> 1).toNat - (g.A + 1)].1 &&
+              g.evalLit ρ g.nodes[(g.nodes[i].2 >>> 1).toNat - (g.A + 1)].2) := by
+          have hg2 := Aig.evalNode_gate hwf ρ hr.2
+          rw [← hrn_eq] at hg2
+          show (g.evalNode ρ (g.nodes[i].2 >>> 1).toNat ^^ ((g.nodes[i].2 &&& 1) != 0)) = _
+          rw [hrn_neg, hg2]; simp
+        rw [hgate, hev_l, hev_r]
+        generalize hl0 : g.nodes[(g.nodes[i].1 >>> 1).toNat - (g.A + 1)].1 = l0 at hd ⊢
+        generalize hl1 : g.nodes[(g.nodes[i].1 >>> 1).toNat - (g.A + 1)].2 = l1 at hd ⊢
+        generalize hr0 : g.nodes[(g.nodes[i].2 >>> 1).toNat - (g.A + 1)].1 = r0 at hd ⊢
+        generalize hr1 : g.nodes[(g.nodes[i].2 >>> 1).toNat - (g.A + 1)].2 = r1 at hd ⊢
+        split at hd
+        · next h1 =>
+          cases hd; have heq := beq_iff_eq.mp h1; subst heq
+          simp only [Aig.evalLit_xor_one]
+          cases g.evalLit ρ r0 <;> cases g.evalLit ρ l1 <;> cases g.evalLit ρ r1 <;> decide
+        · split at hd
+          · next h2 =>
+            cases hd; have heq := beq_iff_eq.mp h2; subst heq
+            simp only [Aig.evalLit_xor_one]
+            cases g.evalLit ρ r1 <;> cases g.evalLit ρ l1 <;> cases g.evalLit ρ r0 <;> decide
+          · split at hd
+            · next h3 =>
+              cases hd; have heq := beq_iff_eq.mp h3; subst heq
+              simp only [Aig.evalLit_xor_one]
+              cases g.evalLit ρ r0 <;> cases g.evalLit ρ l0 <;> cases g.evalLit ρ r1 <;> decide
+            · split at hd
+              · next h4 =>
+                cases hd; have heq := beq_iff_eq.mp h4; subst heq
+                simp only [Aig.evalLit_xor_one]
+                cases g.evalLit ρ r1 <;> cases g.evalLit ρ l0 <;> cases g.evalLit ρ r0 <;> decide
+              · cases hd
+      · cases hd
+    · cases hd
+  · cases hd
+
+theorem gateClauses_sat {g : Aig} (hwf : g.Wf) (ρ : Nat → Bool) {i : Nat}
+    (hi : i < g.nodes.size) :
+    ∀ cl ∈ gateClauses g i hi, CNF.Clause.Sat (nodeEvalAssign g ρ) cl := by
+  intro cl hcl
+  unfold gateClauses at hcl
+  cases hd : detectIte g i hi with
+  | none =>
+    rw [hd] at hcl
+    exact andClauses_sat hwf ρ hi cl hcl
+  | some ctf =>
+    rcases ctf with ⟨c, t, f⟩
+    rw [hd] at hcl
+    exact iteClauses_sat g ρ (g.A + 1 + i) c t f (detectIte_evalNode hwf ρ hd) cl hcl
+
 /-- Main Tseitin soundness theorem:
 `(tseitin g marks root).Unsat → ∀ ρ, g.evalLit ρ root = false`. -/
 theorem tseitin_sound (g : Aig) (hwf : g.Wf) (marks : Array Bool) (root : UInt32)
@@ -219,7 +405,7 @@ theorem tseitin_sound (g : Aig) (hwf : g.Wf) (marks : Array Bool) (root : UInt32
     rw [List.mem_range] at hi_mem
     simp only [hi_mem, ↓reduceDIte] at hcl_i
     split at hcl_i
-    · exact andClauses_sat hwf ρ hi_mem cl hcl_i
+    · exact gateClauses_sat hwf ρ hi_mem cl hcl_i
     · cases hcl_i
 
 /-! ## 4. `ValidDimacsCnf` and `parseDimacs_encodeDimacs` Bridge -/
@@ -263,20 +449,25 @@ private theorem litToDimacs_bounds {l : UInt32} {N : Nat} (hl : (l >>> 1).toNat 
   omega
 
 private theorem tseitinClauses_length_le (g : Aig) (marks : Array Bool) :
-    (tseitinClauses g marks).length ≤ 3 * g.nodes.size := by
+    (tseitinClauses g marks).length ≤ 4 * g.nodes.size := by
   unfold tseitinClauses
   have hsub : ∀ i ∈ List.range g.nodes.size,
       (if h : i < g.nodes.size then
         if marks.getD (g.A + 1 + i) false then
-          andClauses (g.A + 1 + i) g.nodes[i].1 g.nodes[i].2
+          gateClauses g i h
         else []
-      else []).length ≤ 3 := by
+      else []).length ≤ 4 := by
     intro i hi
     rw [List.mem_range] at hi
     simp only [hi, ↓reduceDIte]
-    split <;> simp [andClauses]
+    split
+    · unfold gateClauses
+      cases detectIte g i hi with
+      | none => simp [andClauses]
+      | some ctf => rcases ctf with ⟨c, t, f⟩; simp [iteClauses]
+    · simp
   have hsum : ∀ (xs : List Nat) (f : Nat → List (CNF.Clause Nat)),
-      (∀ x ∈ xs, (f x).length ≤ 3) → (xs.flatMap f).length ≤ 3 * xs.length := by
+      (∀ x ∈ xs, (f x).length ≤ 4) → (xs.flatMap f).length ≤ 4 * xs.length := by
     intro xs f hf
     induction xs with
     | nil => simp
@@ -297,17 +488,34 @@ private theorem tseitinClauses_lit_bounds {g : Aig} (hwf : g.Wf) (marks : Array 
   rw [List.mem_range] at hi_mem
   simp only [hi_mem, ↓reduceDIte] at hcl_i
   split at hcl_i
-  · have h1 := (hwf i hi_mem).1
-    have h2 := (hwf i hi_mem).2
-    have hl1 := litToDimacs_bounds (N := g.A + 1 + g.nodes.size)
-      (by omega : (g.nodes[i].1 >>> 1).toNat < _)
-    have hl2 := litToDimacs_bounds (N := g.A + 1 + g.nodes.size)
-      (by omega : (g.nodes[i].2 >>> 1).toNat < _)
-    unfold andClauses at hcl_i
-    simp only [List.mem_cons, List.not_mem_nil, or_false] at hcl_i
-    rcases hcl_i with rfl | rfl | rfl <;> simp only [CNF.Clause.literals_ofLiterals] at hl <;>
-      simp only [List.mem_cons, List.not_mem_nil, or_false] at hl <;>
-      rcases hl with rfl | rfl | rfl <;> omega
+  · unfold gateClauses at hcl_i
+    cases hd : detectIte g i hi_mem with
+    | none =>
+      rw [hd] at hcl_i
+      have h1 := (hwf i hi_mem).1
+      have h2 := (hwf i hi_mem).2
+      have hl1 := litToDimacs_bounds (N := g.A + 1 + g.nodes.size)
+        (by omega : (g.nodes[i].1 >>> 1).toNat < _)
+      have hl2 := litToDimacs_bounds (N := g.A + 1 + g.nodes.size)
+        (by omega : (g.nodes[i].2 >>> 1).toNat < _)
+      unfold andClauses at hcl_i
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at hcl_i
+      rcases hcl_i with rfl | rfl | rfl <;> simp only [CNF.Clause.literals_ofLiterals] at hl <;>
+        simp only [List.mem_cons, List.not_mem_nil, or_false] at hl <;>
+        rcases hl with rfl | rfl | rfl <;> omega
+    | some ctf =>
+      rcases ctf with ⟨c, t, f⟩
+      rw [hd] at hcl_i
+      have ⟨hc, ht, hf⟩ := detectIte_bounds hwf hd
+      have hlc := litToDimacs_bounds (N := g.A + 1 + g.nodes.size) (by omega : (c >>> 1).toNat < _)
+      have hlt := litToDimacs_bounds (N := g.A + 1 + g.nodes.size) (by omega : (t >>> 1).toNat < _)
+      have hlf := litToDimacs_bounds (N := g.A + 1 + g.nodes.size) (by omega : (f >>> 1).toNat < _)
+      unfold iteClauses at hcl_i
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at hcl_i
+      rcases hcl_i with rfl | rfl | rfl | rfl <;>
+        simp only [CNF.Clause.literals_ofLiterals] at hl <;>
+        simp only [List.mem_cons, List.not_mem_nil, or_false] at hl <;>
+        rcases hl with rfl | rfl | rfl <;> omega
   · cases hcl_i
 
 /-- `ValidDimacsCnf` holds for `tseitin g marks root` whenever the AIG and root fit below
@@ -315,7 +523,7 @@ private theorem tseitinClauses_lit_bounds {g : Aig} (hwf : g.Wf) (marks : Array 
 theorem validDimacs_tseitin {g : Aig} (hwf : g.Wf) (marks : Array Bool) {root : UInt32}
     (hroot : (root >>> 1).toNat < g.A + 1 + g.nodes.size)
     (hvar : g.A + 1 + g.nodes.size < dimacsBound)
-    (hcls : 3 * g.nodes.size + 1 < dimacsBound) :
+    (hcls : 4 * g.nodes.size + 1 < dimacsBound) :
     ValidDimacsCnf (tseitin g marks root) := by
   unfold tseitin
   by_cases h0 : root == 0
@@ -367,7 +575,7 @@ theorem validDimacs_tseitin {g : Aig} (hwf : g.Wf) (marks : Array Bool) {root : 
 theorem parseDimacs_encodeDimacs_tseitin {g : Aig} (hwf : g.Wf) (marks : Array Bool)
     {root : UInt32} (hroot : (root >>> 1).toNat < g.A + 1 + g.nodes.size)
     (hvar : g.A + 1 + g.nodes.size < dimacsBound)
-    (hcls : 3 * g.nodes.size + 1 < dimacsBound) :
+    (hcls : 4 * g.nodes.size + 1 < dimacsBound) :
     parseDimacs (encodeDimacs (tseitin g marks root)) = some (tseitin g marks root) :=
   parseDimacs_encodeDimacs (validDimacs_tseitin hwf marks hroot hvar hcls)
 

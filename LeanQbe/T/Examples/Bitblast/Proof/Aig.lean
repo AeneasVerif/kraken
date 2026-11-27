@@ -641,8 +641,8 @@ theorem bv_mk_and_wp (Γ : Env)
       (fun b => (b.1, b.2.1, b.2.2, ()))
       (fun b ml => ml = m ∧ b.2.1.toNat < htSlots.length)
       (fun s => (s.1, s.2, ()))
-      (fun s => 16 - s.2.toNat)
-      (fun s ml => ml = m ∧ s.1.toNat < htSlots.length ∧ s.2.toNat ≤ 16)
+      (fun s => 64 - s.2.toNat)
+      (fun s ml => ml = m ∧ s.1.toNat < htSlots.length ∧ s.2.toNat ≤ 64)
       ?_ ?_ ?_
     · intro B ⟨slot, wslot, probe⟩ m_after ⟨hm_after, hwslot⟩
       dsimp only at hwslot
@@ -729,7 +729,7 @@ theorem bv_mk_and_wp (Γ : Env)
     · intro B L ⟨slot, probe⟩ ml hB hL ⟨hm_eq, hslot_lt, hprobe_le⟩
       subst ml
       c0_hstraight; c0_hsplit
-      · have hprobe_lt : probe.toNat < 16 := by c0_bv_omega [hc]
+      · have hprobe_lt : probe.toNat < 64 := by c0_bv_omega [hc]
         clear hc
         c0_hstraight; c0_hsplit
         · c0_hsteps
@@ -740,9 +740,9 @@ theorem bv_mk_and_wp (Γ : Env)
         · intro _ ml' hml'
           subst ml'
           c0_hsteps
-          have hslot'_lt : ((slot + 1#32) &&& hdr.ht_mask).toNat < htSlots.length :=
-            hinv.ht_mask_lt (slot + 1#32)
-          exact hL ((slot + 1#32) &&& hdr.ht_mask, probe + 1#32) m
+          have hslot'_lt : ((slot + (probe + 1#32)) &&& hdr.ht_mask).toNat < htSlots.length :=
+            hinv.ht_mask_lt (slot + (probe + 1#32))
+          exact hL ((slot + (probe + 1#32)) &&& hdr.ht_mask, probe + 1#32) m
             (by c0_bv_omega [hprobe_lt]) ⟨rfl, hslot'_lt, by c0_bv_omega [hprobe_lt]⟩
         · intro Jmiss hJmiss
           c0_hstraight; c0_hsplit
