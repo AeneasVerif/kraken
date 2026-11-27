@@ -33,6 +33,13 @@ def armSupportsAddrIdx (t : Ty) (sc : AddrScale) (d : BitVec 64) : Bool :=
   | some scale => armAddrIdxValid scale sc (Int64.ofBitVec d)
   | none => false
 
+/-- Untrusted `cmpMem` load-fusion predicate: narrow `8`/`16`-bit loads only (`ldrsb`/`ldrsh`/
+`ldrb`/`ldrh` + `cmp` saves the `sxtb`/`uxtb`); wider loads and SP spill slots gain nothing on
+AArch64 (`cmp` has no memory operand), so they keep the plain load path. -/
+def armSupportsCmpMem : Ty → Bool
+  | .bits n => [8, 16].contains n
+  | _ => false
+
 /-- Pure AAPCS64 Arm64 scalar `Isa` (`VecIsa.empty`, zero `*Lemmas*` imports). -/
 @[reducible] def armIsa : Isa where
   Reg := Reg
@@ -46,6 +53,7 @@ def armSupportsAddrIdx (t : Ty) (sc : AddrScale) (d : BitVec 64) : Bool :=
   supportsAddrIdx := armSupportsAddrIdx
   supportsTestFuse := true
   supportsAddrZextIdx := armSupportsAddrIdx
+  supportsCmpMem := armSupportsCmpMem
 
 /-- AArch64 scalar legalization capability record (`LegalTarget.aarch64`, no vectors/floats). -/
 def armLegalTarget : LegalTarget := LegalTarget.aarch64

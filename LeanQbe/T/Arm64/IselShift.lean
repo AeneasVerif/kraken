@@ -150,6 +150,19 @@ def armShiftedAlu? (w : Nat) (c : OpCode [.bits w, .bits w] [.bits w])
 @[expose]
 def armZeroUpper32ShiftedAlu : Bool := true
 
+/-- Generic `AluShift` as the Arm64 barrel-shifter operation. -/
+@[expose]
+def armAluShift : AluShift → ArmShiftOp
+  | .lsl => .lsl
+  | .lsr => .lsr
+  | .asr => .asr
+
+/-- `GprIsa.shiftAlu` adapter onto `armShiftedAlu?`. -/
+@[expose]
+def armShiftAlu (w : Nat) (c : OpCode [.bits w, .bits w] [.bits w]) (ra rb : Reg) (sh : AluShift)
+    (k : Nat) (rd : Reg) : Option (List Directive × FlagMask) :=
+  armShiftedAlu? w c ra rb (armAluShift sh) k rd
+
 /-! ## 2. Shifted-Register `CMP` (`SUBS_s`) -/
 
 /-- Shared destination finalizer for NZCV-setting comparisons (`SUBS_s`/`SUBS_e`). -/
@@ -187,6 +200,12 @@ def armShiftedCmp? (o : CmpOp) (w : Nat) (ra rb : Reg) (sh : ArmShiftOp) (k : Na
     (lhsShift : Bool) (dst : PDst Reg Empty ArmCond .bool) :
     Option (List Directive × FlagMask) :=
   emitCleanPair (armShiftedCmpIns o w ra rb sh k lhsShift dst)
+
+/-- `GprIsa.shiftCmp` adapter onto `armShiftedCmp?`. -/
+@[expose]
+def armShiftCmp (o : CmpOp) (w : Nat) (ra rb : Reg) (sh : AluShift) (k : Nat)
+    (lhsShift : Bool) (dst : PDst Reg Empty ArmCond .bool) : Option (List Directive × FlagMask) :=
+  armShiftedCmp? o w ra rb (armAluShift sh) k lhsShift dst
 
 /-- Operand-order flag-reuse oracle (`some (!lhsShift)`) for `armShiftedCmp?`. -/
 @[expose]

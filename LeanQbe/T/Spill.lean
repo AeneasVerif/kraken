@@ -1989,7 +1989,7 @@ mutual
 def scanRematTree (I : Isa) (elideIps : Trie Bool) (addrDeps rmwDeps : Trie (List Nat))
     (defs : Trie DefFact) (st : RematScan) : Tree → RematScan
   | .let_ _ ip nv0 ts op k =>
-    let df? := recordDef defs op.code op.args
+    let df? := recordDefC I.gpr.addrCse defs op.code op.args
     let defs1 := match df? with | some df => defs.insert nv0 df | none => defs
     if elideIps.getD ip false then
       scanRematTree I elideIps addrDeps rmwDeps defs1 st k
@@ -2174,7 +2174,7 @@ def hints (I : Isa) (f : Fn)
   let allVec := I.vec.vecAllocatable ++ I.vec.vecScratch ++ I.vec.vecArgRegs ++ I.vec.vecRetRegs
   let (t0, fnPs, nv, nl, nip, tys) := Tree.ofFn f
   let (t1a, elideIps0, addrDeps0) := elideAddrTreeDeps I t0
-  let (t1b, elideIps1, addrDeps) := elideCmpTreeDeps I t1a elideIps0 addrDeps0
+  let (t1b, elideIps1, addrDeps) := elideCmpTreeDeps I t1a elideIps0 addrDeps0 (zextAddrVars I t0)
   let (t1, elideIps, rmwDeps) := elideRmwTreeDeps I t1b elideIps1 addrDeps
   let fnAbi := match I.assignArgs f.as with
     | some locs => abiIdList allGpr allVec locs | none => []

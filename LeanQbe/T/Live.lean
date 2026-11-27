@@ -221,7 +221,7 @@ mutual
 def scanElideTree (I : Isa) (defs : Trie DefFact) (st : ElideScan) : Tree → ElideScan
   | .let_ _ ip nv0 ts op k =>
     let df? := if ts == [i64] then
-      match recordDef defs op.code op.args with
+      match recordDefC I.gpr.addrCse defs op.code op.args with
       | some df => if isElideCand I df then some df else none
       | none => none
     else none
@@ -355,14 +355,41 @@ def collectElideBlocks (eb : Trie (List Nat)) (eip : Trie Bool) :
     (.cons l ps b' bs', deps2)
 end
 
+/-- Per shared base `p`: number of memory users `[p]` / `[p, #c]` of `addImm64 p c` links over a
+scaled `addrSum p` (`GprIsa.addrCse`, untrusted policy input). -/
+def addrCseUses (st : ElideScan) : Trie Nat :=
+  let direct (p : Nat) : Nat := if (st.addrUses.getD p []).isEmpty then 0 else 1
+  st.cands.foldl (fun cnt c =>
+    match c.df with
+    | .addImm64 p _ =>
+      if isScaledAddrSum st.defs p && !(st.addrUses.getD c.x []).isEmpty then
+        cnt.insert p (cnt.getD p (direct p) + 1)
+      else cnt
+    | _ => cnt) .empty
+
+/-- Untrusted `addrCse` policy: keep the `addImm64 p c` link (root `p`) only when `p` serves at
+least two memory accesses or is materialized anyway; otherwise fold back to the scaled `addrSum`
+(roots `b`, `i`), which `Rega.tryAddr`/`tryAddrZext` resolve via `addrDefOf`. -/
+def addrCseView (I : Isa) (st : ElideScan) (cnt : Trie Nat) (df : DefFact) : DefFact :=
+  match df with
+  | .addImm64 p c =>
+    if I.gpr.addrCse && Nat.blt (cnt.getD p 0) 2 && !st.badVars.getD p false then
+      match st.defs.find? p with
+      | some (.addrSum b i sh d) => if Nat.beq sh 0 then df else .addrSum b i sh (d + c)
+      | _ => df
+    else df
+  | _ => df
+
 /-- Elide address-only `add64`/`sub64`/`shl64` chains whose uses are all valid `[base + disp]` or
 SIB `[base + idx*scale + disp]` load/store addresses per `I.supportsAddrDisp`/`I.supportsAddrIdx`,
 returning `(rewrittenTree, elideIps, addrDepsByMemIp)`. -/
 def elideAddrTreeDeps (I : Isa) (t : Tree) : Tree × Trie Bool × Trie (List Nat) :=
   let st := scanElideTree I .empty {} t
+  let cseCnt := addrCseUses st
   let (_, _, eb, eip) := st.cands.foldl
     (fun (bad, used, eb, eip) c =>
       let ts := st.addrUses.getD c.x []
+      let c := { c with df := addrCseView I st cseCnt c.df }
       let (okUses, roots) := resolveAddrCand I st.defs bad used c ts
       if !bad.getD c.x false && okUses then
         let bad' := roots.foldl (fun b r => b.insert r true) bad
@@ -380,6 +407,20 @@ def elideAddrTreeDeps (I : Isa) (t : Tree) : Tree × Trie Bool × Trie (List Nat
 def elideAddrTree (I : Isa) (t : Tree) : Tree × Trie Bool :=
   let (t', eip, _) := elideAddrTreeDeps I t
   (t', eip)
+
+/-- Address variables that `elideAddrTreeDeps` may resolve to a `zext 32 64` scaled index
+(`[b, w, uxtw #k]`), which no `AddrArg`-based fused memory operand (`cmpMem`/`testMem`) accepts:
+their loads stay out of compare elision (untrusted). -/
+def zextAddrVars (I : Isa) (t : Tree) : Trie Bool :=
+  if !I.supportsAddrZextIdx i64 .s1 0#64 then .empty
+  else
+    let st := scanElideTree I .empty {} t
+    let cnt := addrCseUses st
+    st.cands.foldl (fun z c =>
+      match addrCseView I st cnt c.df with
+      | .addrSum b i sh _ =>
+        if (zextAddrSumVar? st.defs b i sh).isSome then z.insert c.x true else z
+      | _ => z) .empty
 
 /-! ## Compare/Test/Memory-Operand Elision (`test`/`cmpb`/`testl [mem]`, untrusted) -/
 
@@ -431,6 +472,9 @@ def matchCmpFuse (I : Isa) (useCnt : Trie Nat) (availLoad : Trie (Nat × Nat × 
   | .cmp co (.bits n) .bool _, (a, b, ()) =>
     if !(Nat.ble n 64 && I.frame.bitWidths.contains n) then none
     else
+      -- `widenZextCmp` targets lower unsigned/equality narrow compares of a kept `.gprZ` load
+      -- better (`cbz`/`cbnz`, no extension) than a fused `cmpMem`: fuse signed compares only.
+      let memCo := !(I.gpr.widenZextCmp && cmpIsUnsignedOrEq co)
       let tryTest (t : Nat) : Option CmpFold :=
         if !I.supportsTestFuse then none
         else match availOp.find? t with
@@ -468,7 +512,7 @@ def matchCmpFuse (I : Isa) (useCnt : Trie Nat) (availLoad : Trie (Nat × Nat × 
                coOk && cOk) then none
           else match availLoad.find? x with
             | some (ipL, lw, ldeps) =>
-              if Nat.beq lw m && I.supportsCmpMem (.bits m) then
+              if Nat.beq lw m && memCo && I.supportsCmpMem (.bits m) then
                 some { ipCmp, opUsed? := some (ipE, t, [x]),
                        loadUsed? := some (ipL, x, ldeps), otherVars := [] }
               else if I.supportsTestFuse then
@@ -485,7 +529,7 @@ def matchCmpFuse (I : Isa) (useCnt : Trie Nat) (availLoad : Trie (Nat × Nat × 
           extRes ipE m n' x (cmpIsUnsignedOrEq co') ((c.truncate m).zeroExtend n == c)
         | _ => none
       let tryMem (x : Nat) (other : Arg VNat (.bits n)) : Option CmpFold :=
-        if !I.supportsCmpMem (.bits n) then none
+        if !(memCo && I.supportsCmpMem (.bits n)) then none
         else match availLoad.find? x with
           | some (ipL, lw, ldeps) =>
             if Nat.beq lw n then
@@ -538,12 +582,12 @@ def recordCmpCand (I : Isa) (ip : Nat) {ts : List Ty} (op : Op VNat ts) :
   | _, _ => none
 
 mutual
-def scanCmpElide (I : Isa) (useCnt : Trie Nat) (addrDeps : Trie (List Nat))
+def scanCmpElide (I : Isa) (zx : Trie Bool) (useCnt : Trie Nat) (addrDeps : Trie (List Nat))
     (availLoad : Trie (Nat × Nat × List Nat)) (availOp : Trie CmpElideOp) :
     Tree → List CmpFold → List CmpFold
   | .let_ _ ip nv0 _ op k, acc =>
     match matchCmpFuse I useCnt availLoad availOp ip op with
-    | some fold => scanCmpElide I useCnt addrDeps availLoad availOp k (fold :: acc)
+    | some fold => scanCmpElide I zx useCnt addrDeps availLoad availOp k (fold :: acc)
     | none =>
       let availOp' :=
         if useCnt.getD nv0 0 > 0 then
@@ -551,38 +595,40 @@ def scanCmpElide (I : Isa) (useCnt : Trie Nat) (addrDeps : Trie (List Nat))
           | some cand => availOp.insert nv0 cand
           | none => availOp
         else availOp
-      scanCmpElide I useCnt addrDeps availLoad availOp' k acc
+      scanCmpElide I zx useCnt addrDeps availLoad availOp' k acc
   | .load _ ip x t a k, acc =>
     let availLoad' :=
       if useCnt.getD x 0 > 0 then
         match t with
         | .bits w =>
-          if I.supportsCmpMem (.bits w) || I.supportsTestMem (.bits w) then
+          if (I.supportsCmpMem (.bits w) || I.supportsTestMem (.bits w)) &&
+              !(match a with | .var v => zx.getD v false | .imm _ => false) then
             availLoad.insert x (ip, w, addrDeps.getD ip (argVarIds a))
           else availLoad
         | _ => availLoad
       else availLoad
-    scanCmpElide I useCnt addrDeps availLoad' availOp k acc
+    scanCmpElide I zx useCnt addrDeps availLoad' availOp k acc
   | .store _ _ _ _ _ k, acc =>
-    scanCmpElide I useCnt addrDeps .empty availOp k acc
+    scanCmpElide I zx useCnt addrDeps .empty availOp k acc
   | .call _ _ _ _ _ _ _ k, acc =>
-    scanCmpElide I useCnt addrDeps .empty availOp k acc
+    scanCmpElide I zx useCnt addrDeps .empty availOp k acc
   | .jnz _ _ _ _ t e, acc =>
-    let acc1 := scanCmpElide I useCnt addrDeps availLoad availOp t acc
-    scanCmpElide I useCnt addrDeps availLoad availOp e acc1
+    let acc1 := scanCmpElide I zx useCnt addrDeps availLoad availOp t acc
+    scanCmpElide I zx useCnt addrDeps availLoad availOp e acc1
   | .skip _ _ k, acc =>
-    scanCmpElide I useCnt addrDeps availLoad availOp k acc
+    scanCmpElide I zx useCnt addrDeps availLoad availOp k acc
   | .group _ bs k, acc =>
-    let acc1 := scanCmpElideB I useCnt addrDeps bs acc
-    scanCmpElide I useCnt addrDeps availLoad availOp k acc1
+    let acc1 := scanCmpElideB I zx useCnt addrDeps bs acc
+    scanCmpElide I zx useCnt addrDeps availLoad availOp k acc1
   | _, acc => acc
 
-def scanCmpElideB (I : Isa) (useCnt : Trie Nat) (addrDeps : Trie (List Nat)) :
+def scanCmpElideB (I : Isa) (zx : Trie Bool) (useCnt : Trie Nat)
+    (addrDeps : Trie (List Nat)) :
     TreeBlocks → List CmpFold → List CmpFold
   | .nil, acc => acc
   | .cons _ _ b bs, acc =>
-    let acc1 := scanCmpElide I useCnt addrDeps .empty .empty b acc
-    scanCmpElideB I useCnt addrDeps bs acc1
+    let acc1 := scanCmpElide I zx useCnt addrDeps .empty .empty b acc
+    scanCmpElideB I zx useCnt addrDeps bs acc1
 end
 
 def commitCmpFolds (useCnt : Trie Nat) (folds : List CmpFold)
@@ -666,13 +712,14 @@ end
 (into memory-operand `cmp`/`test`) when every raw use of the candidate folds before any
 intervening `store`/`call`/block boundary and `I` supports it. -/
 def elideCmpTreeDeps (I : Isa) (t : Tree) (elideIps : Trie Bool)
-    (addrDeps : Trie (List Nat)) : Tree × Trie Bool × Trie (List Nat) :=
+    (addrDeps : Trie (List Nat)) (zx : Trie Bool := .empty) :
+    Tree × Trie Bool × Trie (List Nat) :=
   let enabled := I.supportsTestFuse ||
     I.frame.bitWidths.any fun w => I.supportsCmpMem (.bits w) || I.supportsTestMem (.bits w)
   if !enabled then (t, elideIps, addrDeps)
   else
     let useCnt := countRawUses addrDeps t .empty
-    let folds := scanCmpElide I useCnt addrDeps .empty .empty t []
+    let folds := scanCmpElide I zx useCnt addrDeps .empty .empty t []
     let (newEip, newDeps) := commitCmpFolds useCnt folds (elideIps, addrDeps)
     (rewriteCmpElide newEip t, newEip, newDeps)
 
@@ -694,7 +741,7 @@ def scanRmwElide (I : Isa) (useCnt : Trie Nat) (addrDeps : Trie (List Nat))
     Tree → Trie Bool × Trie (List Nat) → Trie Bool × Trie (List Nat)
   | .let_ _ ip nv0 ts op k, acc =>
     let { sig := _, code, args } := op
-    let df? := recordDef defs code args
+    let df? := recordDefC I.gpr.addrCse defs code args
     let defs' := match df? with | some df => defs.insert nv0 df | none => defs
     if acc.1.getD ip false then
       scanRmwElide I useCnt addrDeps defs' (elidedVars.insert nv0 true) availLoad availRmw k acc

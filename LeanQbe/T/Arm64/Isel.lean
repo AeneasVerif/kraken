@@ -3,6 +3,7 @@ module
 public import LeanQbe.T.Arm64.Base
 public import LeanQbe.T.IselStepAttr
 public import LeanQbe.T.Arm64.IselFlagHooks
+public import LeanQbe.T.Arm64.IselShift
 
 /-!
 # AArch64 Scalar Instruction Selection (`GprIsa`)
@@ -1496,6 +1497,104 @@ def armLeaArithZext (base? : Option Reg) (idx : Reg) (shift : Nat) (disp : Int64
     (rd : Reg) : Option (List Directive × FlagMask) :=
   emitCleanPair (armLeaArithZextIns base? idx shift disp rd)
 
+/-- Finish a list of flag-setting compare instructions for `.flag c` or `.gpr (.reg d)`. -/
+def armCmpSeqFinish (cmpCode : List Instr) (cond : ArmCond)
+    (dst : PDst Reg Empty ArmCond .bool) : Option (List Instr × FlagMask) :=
+  match dst with
+  | .flag c => if c == cond then some (cmpCode, maskNZCV) else none
+  | .gpr (.reg d) => some (cmpCode ++ [armCset64I d cond], maskNZCV)
+  | .gpr .SP | .vec _ => none
+
+/-! ## 2. Fused Memory-Operand Compare (`armCmpMem`, `LDRSB`/`LDRSH` + `CMP`) -/
+
+/-- `armCmpMem` targets `.flag cc` with `cc = armCmpCond o.swap ≠ armCmpCond o` (Rega's
+`tryFuseCmp` swapped hint): emit the reversed compare `pb - mem`. -/
+def armCmpMemSwapped (o : CmpOp) : PDst Reg Empty ArmCond .bool → Bool
+  | .flag cf => cf != armCmpCond o && cf == armCmpCond o.swap
+  | _ => false
+
+/-- Reversed compare `SUBS zr, pb, x17` (`pb` in `rb`/`x16`; `8`/`16`-bit sign/zero-extended to
+32 bits per `sgn`) for the swapped-condition form of `armCmpMem`. -/
+def armCmpMemSwapSeq (sgn : Bool) (n : Nat) (pb : PArg Reg Empty ArmCond (.bits n)) :
+    Option (List Instr) :=
+  let rw := armWidthOf n
+  match pb with
+  | .gpr (.reg rb) =>
+    if n == 8 || n == 16 then
+      some [armExt32I sgn n .X16 rb, armIselInsI (.SUBS_s (xzr .W32) (zr .X16 .W32) (sh .X17))]
+    else some [armIselInsI (.SUBS_s (xzr rw) (zr rb rw) (sh .X17))]
+  | .imm cb =>
+    if n == 8 || n == 16 then
+      let c32 := if sgn then cb.signExtend 32 else cb.setWidth 32
+      some (armMovImmI .X16 (c32.setWidth 64) ++
+        [armIselInsI (.SUBS_s (xzr .W32) (zr .X16 .W32) (sh .X17))])
+    else
+      some (armMovImmI .X16 (cb.setWidth 64) ++
+        [armIselInsI (.SUBS_s (xzr rw) (zr .X16 rw) (sh .X17))])
+  | .gpr .SP | .vec _ => none
+
+/-- Fused memory-operand compare `co.evalBits (load (.bits n) a) pb` (`Instr` builder).
+Uses `LDRSB`/`LDRSH` for signed `8`/`16`-bit compares (`ldrb + sxtb + cmp -> ldrsb + cmp`),
+`LDRB`/`LDRH` (no `UBFM`) for unsigned `8`/`16`-bit compares, and `LDR` for `32`/`64`-bit.
+For `armCmpMemSwapped o dst` emits the reversed `pb - mem` compare (`armCmpMemSwapSeq`). -/
+def armCmpMemIns (o : CmpOp) (n : Nat) (a : AddrArg Reg) (pb : PArg Reg Empty ArmCond (.bits n))
+    (dst : PDst Reg Empty ArmCond .bool) : Option (List Instr × FlagMask) := do
+  if ![8, 16, 32, 64].contains n then none
+  else
+    let scale ← armMemScale (.bits n)
+    if !armAddrValid scale a then none
+    else
+      let (setup, addr) := armSetupAddrIns scale a
+      let sgn := armIsSignedCmp o
+      let ldDir ← if (n == 8 || n == 16) && sgn then armLoadSextDirI n .X17 addr
+                  else armLoadDirI (.bits n) .X17 addr
+      let rw := armWidthOf n
+      if armCmpMemSwapped o dst then
+        let sq ← armCmpMemSwapSeq sgn n pb
+        armCmpSeqFinish (setup ++ [ldDir] ++ sq) (armCmpCond o.swap) dst
+      else
+        let cmpSeq ← match pb with
+          | .gpr (.reg rb) =>
+            if n == 8 || n == 16 then
+              some [armExt32I sgn n .X16 rb,
+                armIselInsI (.SUBS_s (xzr .W32) (zr .X17 .W32) (sh .X16))]
+            else
+              some [armIselInsI (.SUBS_s (xzr rw) (zr .X17 rw) (sh rb))]
+          | .imm cb =>
+            if n == 8 || n == 16 then
+              let c32 := if sgn then cb.signExtend 32 else cb.setWidth 32
+              match armCmpImmIns? .W32 .X17 c32 with
+              | some cmp => some cmp
+              | none => some (armMovImmI .X16 (c32.setWidth 64) ++
+                  [armIselInsI (.SUBS_s (xzr .W32) (zr .X17 .W32) (sh .X16))])
+            else
+              match armCmpImmIns? rw .X17 cb with
+              | some cmp => some cmp
+              | none => some (armMovImmI .X16 (cb.setWidth 64) ++
+                  [armIselInsI (.SUBS_s (xzr rw) (zr .X17 rw) (sh .X16))])
+          | .gpr .SP | .vec _ => none
+        armCmpSeqFinish (setup ++ [ldDir] ++ cmpSeq) (armCmpCond o) dst
+
+/-- Fused memory-operand compare `co.evalBits (load (.bits n) a) pb` returning clean directives
+and `maskNZCV`. -/
+def armCmpMem (o : CmpOp) (n : Nat) (a : AddrArg Reg) (pb : PArg Reg Empty ArmCond (.bits n))
+    (dst : PDst Reg Empty ArmCond .bool) : Option (List Directive × FlagMask) :=
+  emitCleanPair (armCmpMemIns o n a pb dst)
+
+/-- Operand-order flag-reuse oracle (`some true` = `va - vb`) matching `armCmpMem`.
+Guarantees full `FlagCmpOk ... false` on `32`/`64`-bit compares and signed `8`/`16`-bit
+compares (`LDRSB`/`LDRSH` sign-extended to 32 bits). -/
+def armCmpMemFlagsOut (o : CmpOp) (n : Nat) (pb : PArg Reg Empty ArmCond (.bits n))
+    (dst : PDst Reg Empty ArmCond .bool) : Option Bool :=
+  if ![8, 16, 32, 64].contains n then none
+  else if (n == 8 || n == 16) && !armIsSignedCmp o then none
+  else
+    let pbOk := match pb with | .gpr (.reg _) | .imm _ => true | _ => false
+    let dstOk := match dst with
+      | .gpr (.reg _) => true
+      | .flag cf => cf == armCmpCond o
+      | _ => false
+    if pbOk && dstOk then some true else none
 /-- AArch64 `GprIsa` instance over `LeanQbe.T.Arm64.Base`. -/
 @[reducible] def armGpr : GprIsa Reg Empty ArmCond Directive where
   condReads := armCondReads
@@ -1527,10 +1626,18 @@ def armLeaArithZext (base? : Option Reg) (idx : Reg) (shift : Nat) (disp : Int64
   loadSextZextIdx := armLoadSextZextIdx
   storeZextIdx := armStoreZextIdx
   leaArithZext := armLeaArithZext
+  cmpMem := armCmpMem
   jnzGprInv? := some armJnzGprInv
   condOfCmp? := some ∘ armCmpCond
   boolFlagOut? := armBoolFlagOut
   cmpFlagsOut? := armCmpFlagsOut
   hasTestFlags := true
+  addrCse := true
+  widenZextCmp := true
+  shiftAlu := armShiftAlu
+  zeroUpper32ShiftAlu := true
+  deferShiftAlu := true
+  shiftCmp := armShiftCmp
+  shiftCmpFlagsOut? := armShiftedCmpFlagsOut
 
 end LeanQbe.T.Arm64

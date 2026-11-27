@@ -186,6 +186,8 @@ def DefOk (G : VCtx) (x : Nat) : DefFact → Prop
     ∃ va : BitVec w, ⟨.bits w, va, a⟩ ∈ G ∧ v = op.eval va (c.setWidth w)
   | .shlVarImm w a sh => w ≤ 64 ∧ sh < w ∧ ∀ v : BitVec w, ⟨.bits w, v, x⟩ ∈ G →
     ∃ va : BitVec w, ⟨.bits w, va, a⟩ ∈ G ∧ v = va <<< sh
+  | .shiftVarImm w sk a k => w ≤ 64 ∧ k < w ∧ ∀ v : BitVec w, ⟨.bits w, v, x⟩ ∈ G →
+    ∃ va : BitVec w, ⟨.bits w, va, a⟩ ∈ G ∧ v = sk.eval va k
   | .sextVar m n a => 0 < m ∧ m < n ∧ n ≤ 64 ∧ ∀ v : BitVec n, ⟨.bits n, v, x⟩ ∈ G →
     ∃ va : BitVec m, ⟨.bits m, va, a⟩ ∈ G ∧ v = va.signExtend n
   | .zextVar m n a => 0 < m ∧ m < n ∧ n ≤ 64 ∧ ∀ v : BitVec n, ⟨.bits n, v, x⟩ ∈ G →
@@ -472,7 +474,7 @@ theorem DefOk.grow {G G' : VCtx} {nv x : Nat} {d : DefFact} (hG : ∀ p ∈ G', 
   | binVarImm w op a c =>
     refine ⟨h.1, fun v hv => ?_⟩
     obtain ⟨va, h1, h2⟩ := h.2 v (hm _ _ hv); exact ⟨va, hsub _ h1, h2⟩
-  | shlVarImm w a sh =>
+  | shlVarImm _ _ _ | shiftVarImm _ _ _ _ =>
     refine ⟨h.1, h.2.1, fun v hv => ?_⟩
     obtain ⟨va, h1, h2⟩ := h.2.2 v (hm _ _ hv); exact ⟨va, hsub _ h1, h2⟩
   | sextVar m n a =>
@@ -1882,7 +1884,7 @@ private theorem defOk_addVarImm {G : VCtx} {nv x : Nat} {vx c : BitVec 64}
           by simp [hvx, BitVec.add_assoc]⟩
     | andVarVar _ _ _ | andVarImm _ _ _ | binVarVar _ _ _ _ | binVarImm _ _ _ _
     | shlVarImm _ _ _ | sextVar _ _ _ | zextVar _ _ _ | cmpZeroVar _ _ _
-    | testBitVar _ _ _ _ =>
+    | testBitVar _ _ _ _ | shiftVarImm _ _ _ _ =>
       refine ⟨fun t v hv => by cases mem_cons_top hlt hv; rfl, fun v hv => ?_⟩
       cases mem_cons_top hlt hv
       exact ⟨vx, List.mem_cons_of_mem _ hm, rfl⟩
@@ -2058,7 +2060,7 @@ private theorem recordDef_rs {defs : Trie DefFact} {sig rs : List Ty} {code : Op
     {args : Tup (Arg VNat) sig} {df : DefFact} (hd : recordDef defs code args = some df) :
     ∃ w, rs = [.bits w] := by
   cases code with
-  | add t | sub t | shl t | copy t | and t | or t | xor t =>
+  | add t | sub t | shl t | copy t | and t | or t | xor t | lshr t | ashr t =>
     cases t with
     | bits n => exact ⟨n, rfl⟩
     | _ => simp [recordDef] at hd
@@ -2213,7 +2215,7 @@ theorem wp_recordDef {G : VCtx} {nv : Nat} {defs : Trie DefFact}
                 · cases hd
               | addrSum _ _ _ _ | andVarVar _ _ _ | andVarImm _ _ _ | binVarVar _ _ _ _
               | binVarImm _ _ _ _ | shlVarImm _ _ _ | sextVar _ _ _ | zextVar _ _ _
-              | cmpZeroVar _ _ _ | testBitVar _ _ _ _ =>
+              | cmpZeroVar _ _ _ | testBitVar _ _ _ _ | shiftVarImm _ _ _ _ =>
                 cases hd; intro v hv; simp only [Tup.zip, Tup.levels] at hv
                 cases mem_cons_top hlt hv
                 exact ⟨_, List.mem_cons_of_mem _ hm, by simp⟩
@@ -2235,6 +2237,31 @@ theorem wp_recordDef {G : VCtx} {nv : Nat} {defs : Trie DefFact}
               simp only [Tup.zip, Tup.levels] at hv; cases mem_cons_top hlt hv
               exact ⟨_, List.mem_cons_of_mem _ hm, rfl⟩
             · cases hd
+    | _ => simp [recordDef] at hd
+  | lshr t | ashr t =>
+    cases t with
+    | bits n =>
+      rcases args with ⟨a, b, ⟨⟩⟩
+      rcases hrel with _ | ⟨h1, _ | ⟨h2, -⟩⟩
+      cases a with
+      | imm _ => simp [recordDef] at hd
+      | var x =>
+        cases b with
+        | var _ => simp [recordDef] at hd
+        | imm k =>
+          simp only [recordDef, recordShiftImm] at hd
+          split at hd
+          · rename_i hc
+            simp only [Bool.and_eq_true, Nat.ble_eq, Nat.blt_eq] at hc
+            cases hd; cases h1 with | var hm => cases h2 with | imm =>
+            dsimp only [vals, Arg.val] at hwp ⊢
+            simp only [OpCode.wp_lshr, OpCode.wp_ashr, lift2, Ty.hasFloat, Bool.false_eq_true,
+              ite_false] at hwp ⊢
+            rw [Nat.mod_eq_of_lt hc.2] at hwp ⊢
+            refine ⟨hwp, by simp, hc.1, hc.2, fun v hv => ?_⟩
+            simp only [Tup.zip, Tup.levels] at hv; cases mem_cons_top hlt hv
+            exact ⟨_, List.mem_cons_of_mem _ hm, rfl⟩
+          · cases hd
     | _ => simp [recordDef] at hd
   | copy t =>
     cases t with
@@ -2291,7 +2318,7 @@ theorem wp_recordDef {G : VCtx} {nv : Nat} {defs : Trie DefFact}
             exact ⟨vb, vi, List.mem_cons_of_mem _ hb, List.mem_cons_of_mem _ hi, hvx⟩
           | andVarVar _ _ _ | andVarImm _ _ _ | binVarVar _ _ _ _ | binVarImm _ _ _ _
           | shlVarImm _ _ _ | sextVar _ _ _ | zextVar _ _ _ | cmpZeroVar _ _ _
-          | testBitVar _ _ _ _ =>
+          | testBitVar _ _ _ _ | shiftVarImm _ _ _ _ =>
             simp only [DefFact.isAddr, Bool.false_eq_true, ↓reduceIte, Option.some.injEq] at hd
             subst hd
             refine ⟨fun t v hv => by
@@ -2400,11 +2427,67 @@ theorem recordDef_elide_ok {G : VCtx} {nv : Nat} {defs : Trie DefFact}
   | shl _ =>
     simp only [OpCode.wp_shl, Ty.hasFloat, Bool.false_eq_true, ite_false] at hwp'
     exact ⟨w, rfl, _, hwp'.1, hwp'.2.2⟩
+  | lshr _ | ashr _ =>
+    simp only [OpCode.wp_lshr, OpCode.wp_ashr, Ty.hasFloat, Bool.false_eq_true, ite_false] at hwp'
+    exact ⟨w, rfl, _, hwp'.1, hwp'.2.2⟩
   | copy _ => simp only [OpCode.wp_copy] at hwp'; exact ⟨w, rfl, _, hwp'.1, hwp'.2.2⟩
   | and _ => simp only [OpCode.wp_and] at hwp'; exact ⟨w, rfl, _, hwp'.1, hwp'.2.2⟩
   | sext _ _ => simp only [OpCode.wp_sext] at hwp'; exact ⟨w, rfl, _, hwp'.2.1, hwp'.2.2.2⟩
   | zext _ _ => simp only [OpCode.wp_zext] at hwp'; exact ⟨w, rfl, _, hwp'.2.1, hwp'.2.2.2⟩
   | _ => simp [recordDef] at hd
+
+/-- `addrDefOf` (the `GprIsa.addrCse` address view) preserves `DefOk`. -/
+theorem addrDefOf_ok {G : VCtx} {cse : Bool} {defs : Trie DefFact}
+    (hdefs : ∀ x d, defs.find? x = some d → DefOk G x d) {x : Nat} {df : DefFact}
+    (h : addrDefOf cse defs x = some df) : DefOk G x df := by
+  unfold addrDefOf at h
+  split at h
+  · rename_i p c hx
+    have hdx := hdefs x _ hx
+    split at h
+    · split at h
+      · rename_i b i sh d hp
+        cases h
+        intro v hv
+        obtain ⟨vp, hmp, hvp⟩ := hdx.2 v hv
+        obtain ⟨vb, vi, hb, hi, hvb⟩ := hdefs p _ hp vp hmp
+        exact ⟨vb, vi, hb, hi, by rw [hvp, hvb, BitVec.add_assoc]⟩
+      · cases h; exact hdx
+    · cases h; exact hdx
+  · rename_i hx; exact hdefs x df (by rw [← h])
+
+private theorem recordDefC_ok_app {G : VCtx} {cse : Bool} {defs : Trie DefFact}
+    (hdefs : ∀ x d, defs.find? x = some d → DefOk G x d) {sig rs : List Ty}
+    {code : OpCode sig rs} {args : Tup (Arg VNat) sig} {df : DefFact}
+    (hd : recordDefC cse defs code args = some df) :
+    ∃ defs' : Trie DefFact, (∀ x d, defs'.find? x = some d → DefOk G x d) ∧
+      recordDef defs' code args = some df := by
+  unfold recordDefC at hd
+  split at hd
+  · exact ⟨_, fun _ _ hx => by simp at hx, hd⟩
+  · exact ⟨_, hdefs, hd⟩
+
+theorem wp_recordDefC {G : VCtx} {nv : Nat} {cse : Bool} {defs : Trie DefFact}
+    (hdefs : ∀ x d, defs.find? x = some d → DefOk G x d) {sig rs : List Ty}
+    {code : OpCode sig rs} {args₁ : Tup (Arg Val) sig} {args : Tup (Arg VNat) sig}
+    (hrel : TRel (ArgRel G) args₁ args) (hlt : ∀ p ∈ G, p.2.2 < nv) {P : Tup Val rs → Prop}
+    (hwp : code.wp (vals args₁) P) {df : DefFact}
+    (hd : recordDefC cse defs code args = some df) :
+    code.wp (vals args₁) (fun rvs => P rvs ∧
+      0 < rs.length ∧ DefOk (Tup.zip rvs (Tup.levels rs nv) ++ G) nv df) :=
+  let ⟨_, hok, hd'⟩ := recordDefC_ok_app hdefs hd
+  wp_recordDef hok hrel hlt hwp hd'
+
+theorem recordDefC_elide_ok {G : VCtx} {nv : Nat} {cse : Bool} {defs : Trie DefFact}
+    (hdefs : ∀ x d, defs.find? x = some d → DefOk G x d) {sig rs : List Ty}
+    {code : OpCode sig rs} {args₁ : Tup (Arg Val) sig} {args : Tup (Arg VNat) sig}
+    (hrel : TRel (ArgRel G) args₁ args) (hlt : ∀ p ∈ G, p.2.2 < nv) {P : Tup Val rs → Prop}
+    (hwp : code.wp (vals args₁) P) {df : DefFact}
+    (hd : recordDefC cse defs code args = some df) :
+    ∃ (w : Nat) (_h : rs = [.bits w]) (rvs : Tup Val rs), P rvs ∧
+      DefOk (Tup.zip rvs (Tup.levels rs nv) ++ G) nv df :=
+  let ⟨_, hok, hd'⟩ := recordDefC_ok_app hdefs hd
+  recordDef_elide_ok hok hrel hlt hwp hd'
 
 end Rega
 end LeanQbe.T

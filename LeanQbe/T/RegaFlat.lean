@@ -329,18 +329,19 @@ def deferJnzNextFlat {rs : List Ty} (I : Isa) (h : I.Hints) (fn : Sym)
 
 def deferLeaNextFlat {rs : List Ty} (I : Isa) (h : I.Hints) (vd' : Nat) (ve' : Trie Nat)
     (nv ip : Nat) (st1 : SymState I) {ts : List Ty} (op : Op VNat ts) (k : TFlat rs) : Bool :=
-  if !isLeaDeferCand op.code then false
+  if !isLeaDeferCand I.gpr.deferShiftAlu op.code then false
   else
     match ts, k with
     | [_], .let_ (ts := ts2) op2 _ =>
       let op2' := flatOp vd' ve' op2
-      match recordDef st1.defs op.code op.args with
+      match recordDefC I.gpr.addrCse st1.defs op.code op.args with
       | some df =>
         match stepPre I h (ip + 1) { st1 with defs := st1.defs.insert nv df } with
         | some (_, stAfter) =>
           match resolveDsts I h ts2 (nv + 1) with
           | some dsts2 =>
-            (tryLeaArith I stAfter op2'.code op2'.args dsts2).isSome &&
+            ((tryLeaArith I stAfter op2'.code op2'.args dsts2).isSome ||
+              (tryShiftCmpFuse I stAfter op2'.code op2'.args dsts2).isSome) &&
               h.deferLea.getD ip false
           | none => false
         | none => false

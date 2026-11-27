@@ -1,6 +1,7 @@
 module
 
 public import LeanQbe.T.Arm64.IselLemmas3
+public import LeanQbe.T.Arm64.IselNarrowLemmas
 import LeanQbe.T.Arm64.IselFlagHooksLemmas
 import Kraken.AArch64.Parser
 
@@ -2054,6 +2055,83 @@ theorem armLeaArithZext_noLab {base? : Option Reg} {idx : Reg} {shift : Nat}
     Kraken.Directive.label l ∉ c :=
   emitCleanPair_noLab hc l
 
+/-- `armMach.Run` specification for `armCmpZeroZextJcc` under `AbiGprHolds`. -/
+theorem armCmpZeroZextJcc_spec {h : Host} {k j : Nat} {isZext : Bool} {co : CmpOp} {n : Nat}
+    {r : Reg} {l : Sym} {c : List Directive} {clob : FlagMask} {v : BitVec n}
+    {s : MachineData} {post : MachineState → Prop}
+    (hins : armCmpZeroZextJcc isZext co n r l = some (c, clob))
+    (hc : c.IsInfixAt (armMach.prog h) k) (hl : armMach.labelAddr h l = armMach.addrOf h j)
+    (hr : r ∉ armScratch)
+    (hv : if isZext then AbiGprHolds (armMach.getGpr s r) (.bits n) v
+          else GprHolds (armMach.getGpr s r) (.bits n) v)
+    (hk : ∀ s', armMach.Frame armCondReads s s' armScratch [] clob → s'.dmem = s.dmem →
+      (co.evalBits v 0#n = true → armMach.Run h j s' post) ∧
+      (co.evalBits v 0#n = false → armMach.Run h (k + c.length) s' post)) :
+    armMach.Run h k s post := by
+  letI := h
+  have hv_gpr : GprHolds (armMach.getGpr s r) (.bits n) v := by
+    cases isZext; exact hv; exact AbiGprHolds.toGprHolds (by simpa using hv)
+  have fallback : armCmpZeroJcc co n r l = some (c, clob) → armMach.Run h k s post := fun hf =>
+    armCmpZeroJcc_spec hf hc hl hr hv_gpr hk
+  obtain ⟨ci, hci, rfl⟩ := emitCleanPair_eq_some.mp hins
+  dsimp only [armCmpZeroZextJccIns] at hci
+  by_cases hcond : (isZext && (n == 8 || n == 16)) = true
+  · simp only [hcond, ↓reduceIte] at hci
+    have hisZ : isZext = true := by simp only [Bool.and_eq_true] at hcond; exact hcond.1
+    subst hisZ
+    have h816 : n = 8 ∨ n = 16 := by
+      simp only [Bool.and_eq_true, Bool.or_eq_true, beq_iff_eq] at hcond; exact hcond.2
+    have hn32 : n ≤ 32 := by rcases h816 with rfl | rfl <;> decide
+    cases r with
+    | SP => exact fallback (emitCleanPair_eq_some.mpr ⟨ci, hci, rfl⟩)
+    | reg x =>
+      have hx32 := armAbi32 hn32 hv
+      have run_cb (isNz : Bool)
+          (hco : co.evalBits v 0#n = if isNz then (v != 0#n) else (v == 0#n))
+          (heq : ci = [armIselInsI (w := .W32) (if isNz then .CBNZ (zr x .W32) (.label l)
+            else .CBZ (zr x .W32) (.label l))]) (hcl : clob = maskNone) :
+          armMach.Run h k s post := by
+        subst heq hcl
+        simp only [emitClean_cons, emitClean_nil, List.length_singleton] at hc hk
+        have hrun := hk s (Machine.Frame.refl (M := armMach) armCondReads s armScratch [] maskNone)
+          rfl
+        have hv0 : (v.setWidth 32 == 0#32) = (v == 0#n) := by
+          simpa [BitVec.setWidth_zero] using setWidth32_eq_iff hn32 v 0#n
+        refine eval_cbz_cbnz .W32 isNz x l hc hl ⟨fun ht => hrun.1 ?_, fun hf => hrun.2 ?_⟩
+        · rw [hco]; cases isNz <;> simp_all [RegWidth.bits, bne]
+        · rw [hco]; cases isNz <;> simp_all [RegWidth.bits, bne]
+      have hule0 : CmpOp.evalBits .ule v 0#n = (v == 0#n) := by
+        rw [CmpOp.evalBits, BitVec.ule, Bool.eq_iff_iff]
+        simp only [BitVec.toNat_ofNat, Nat.zero_mod, decide_eq_true_eq, beq_iff_eq]
+        constructor <;> intro h
+        · apply BitVec.eq_of_toNat_eq; simp; omega
+        · simp [h]
+      have hugt0 : CmpOp.evalBits .ugt v 0#n = (v != 0#n) := by
+        rw [CmpOp.evalBits, BitVec.ult, Bool.eq_iff_iff]
+        simp only [BitVec.toNat_ofNat, Nat.zero_mod, decide_eq_true_eq, bne_iff_ne]
+        constructor
+        · intro h hv; simp [hv] at h
+        · intro h
+          have : v.toNat ≠ 0 := fun hz => h (BitVec.eq_of_toNat_eq (by simp [hz]))
+          omega
+      cases co
+      case eq =>
+        have hp := Prod.mk.inj (Option.some.inj hci)
+        exact run_cb false (Bool.eq_iff_iff.mpr (by simp [CmpOp.evalBits])) hp.1.symm hp.2.symm
+      case ne =>
+        have hp := Prod.mk.inj (Option.some.inj hci)
+        exact run_cb true (Bool.eq_iff_iff.mpr (by simp [CmpOp.evalBits])) hp.1.symm hp.2.symm
+      case ule =>
+        have hp := Prod.mk.inj (Option.some.inj hci)
+        exact run_cb false hule0 hp.1.symm hp.2.symm
+      case ugt =>
+        have hp := Prod.mk.inj (Option.some.inj hci)
+        exact run_cb true hugt0 hp.1.symm hp.2.symm
+      all_goals exact fallback (emitCleanPair_eq_some.mpr ⟨ci, hci, rfl⟩)
+  · have hfalse : (isZext && (n == 8 || n == 16)) = false := Bool.eq_false_iff.mpr hcond
+    simp only [hfalse, Bool.false_eq_true, ↓reduceIte] at hci
+    exact fallback (emitCleanPair_eq_some.mpr ⟨ci, hci, rfl⟩)
+
 /-- Verified AArch64 scalar `GprTarget` specification. -/
 theorem armGprSpec : GprTarget armMach armGpr armScratch where
   negCond_reads := armNegCond_reads
@@ -2085,11 +2163,16 @@ theorem armGprSpec : GprTarget armMach armGpr armScratch where
   loadSextZextIdx_spec := @armLoadSextZextIdx_spec
   storeZextIdx_spec := @armStoreZextIdx_spec
   leaArithZext_spec := @armLeaArithZext_spec
+  cmpMem_spec := @armCmpMem_spec
   jnzGprInv_spec := @armJnzGprInv_spec
   op_boolFlag_spec := @armBoolFlagOut_spec
   op_cmpFlags_spec := @armCmpFlagsOut_spec
   testOp_boolFlag_spec := @armTestOp_boolFlag_spec
   testMem_boolFlag_spec := @armTestMem_boolFlag_spec
+  shiftAlu_spec := @armShiftAlu_spec
+  shiftAlu_zero32 _ := @armShiftAlu_zero32
+  shiftCmp_spec := @armShiftCmp_spec
+  shiftCmp_flags_spec := @armShiftCmp_flags_spec
 
 /-! ## 3. `armOp_noLab` for downstream `Rega.LabelClean` -/
 

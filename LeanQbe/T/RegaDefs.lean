@@ -62,7 +62,13 @@ inductive DefFact where
   | cmpZeroVar (co : CmpOp) (w x : Nat)
   | testBitVar (neg : Bool) (w x : Nat) (c : BitVec 64)
   | shlVarImm (w x sh : Nat)
+  /-- `x` shifted right (`sk ∈ {lsr, asr}`) by an immediate `k < w` at width `w`. -/
+  | shiftVarImm (w : Nat) (sk : AluShift) (x k : Nat)
   deriving DecidableEq, Repr
+
+/-- `recordDef` fact of `lshr`/`ashr (.bits n) (.var x) (.imm k)`. -/
+def recordShiftImm (n : Nat) (sk : AluShift) (x : Nat) (k : BitVec n) : Option DefFact :=
+  if Nat.ble n 64 && Nat.blt k.toNat n then some (.shiftVarImm n sk x k.toNat) else none
 
 def DefFact.isAddr : DefFact → Bool
   | .imm64 _ | .addImm64 _ _ | .scaleOff _ _ _ | .addrSum _ _ _ _ => true

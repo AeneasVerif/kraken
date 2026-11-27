@@ -208,6 +208,27 @@ private theorem findGprFor_var_ok {G : VCtx} {nv : Nat} {st : SymState T.toIsa} 
     · cases he
   | _ => simp at he
 
+/-- `widenZextCmp?` soundness: a narrow unsigned/equality compare of a canonical `.gprZ` value
+against `0` agrees with the 64-bit compare of the whole register. -/
+theorem widenZextCmp_ok {G : VCtx} {nv : Nat} {st : SymState T.toIsa} {s : T.mach.MData}
+    {σ : List (BitVec 64)} (hA : Agree T G nv st s σ) {co : CmpOp} {w y : Nat} {g : T.Reg}
+    {va : BitVec w} {cv : Bool} (hwz : widenZextCmp? T.toIsa st.regs co w y g = true)
+    (hmy : (⟨.bits w, va, y⟩ : (t : Ty) × Val t × VNat t) ∈ G) (hcv : cv = co.evalBits va 0#w) :
+    ∃ va' : BitVec 64, GprHolds (T.mach.getGpr s g) (.bits 64) va' ∧
+      cv = co.evalBits va' 0#64 := by
+  simp only [widenZextCmp?, Bool.and_eq_true, Nat.blt_eq] at hwz
+  obtain ⟨⟨⟨-, hw⟩, hco⟩, hz⟩ := hwz
+  simp only [hasVarGprZ, List.any_eq_true, Bool.and_eq_true] at hz
+  obtain ⟨⟨sa', rl'⟩, hmem, hsa⟩ := hz
+  have heq1 := symArgEq_eq hsa.1; have heq2 := regLocEq_eq hsa.2
+  subst heq1; subst heq2
+  have hzv := (hA.regs _ hmem).2 (.bits w) va hmy
+  refine ⟨va.setWidth 64, ⟨Nat.le_refl _, by rw [hzv.2, BitVec.setWidth_eq]⟩, ?_⟩
+  rw [hcv]
+  have h0 := cmpOp_evalBits_zeroExtend hw hco va 0#64 (by simp)
+  simp only [BitVec.truncate_eq_setWidth, BitVec.setWidth_zero] at h0
+  exact h0.symm
+
 /-- `jnz` condition lookup. -/
 theorem findJnzCond_ok {zl : Bool} {G : VCtx} {nv : Nat} {st : SymState T.toIsa}
     {s : T.mach.MData} {σ : List (BitVec 64)} {m : Mem 64}
@@ -313,6 +334,11 @@ theorem findJnzCond_ok {zl : Bool} {G : VCtx} {nv : Nat} {st : SymState T.toIsa}
             | _ => simp [hmd] at hm
         · obtain ⟨g, hgy, hd'⟩ := Option.bind_eq_some_iff.mp hg
           have ⟨hns, hsym⟩ := findGprFor_var_ok hA hgy
+          split at hd'
+          · rename_i hwz
+            simp only [Option.some.injEq] at hd'; subst hd'
+            simp only [Bool.and_eq_true] at hwz
+            exact ⟨hns, widenZextCmp_ok hA hwz.1 hmy hcv⟩
           split at hd'
           · simp only [Option.some.injEq] at hd'; subst hd'
             exact ⟨hns, va, hsym _ _ hmy, hcv⟩

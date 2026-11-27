@@ -75,6 +75,7 @@ theorem audit_arm_to_isa :
         supportsAddrDisp := armSupportsAddrDisp,
         supportsAddrIdx := armSupportsAddrIdx,
         supportsTestFuse := true,
+        supportsCmpMem := armSupportsCmpMem,
         supportsAddrZextIdx := armSupportsAddrIdx } :=
   armTarget_toIsa
 
