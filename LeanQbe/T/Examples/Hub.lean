@@ -73,7 +73,6 @@ public import LeanQbe.T.Examples.LratBytesLemmas
 public import LeanQbe.T.Examples.LratBytesProg
 public import LeanQbe.T.Examples.LratBytesRupLemmas
 public import LeanQbe.T.Examples.LratBytesSpec
-public import LeanQbe.T.Examples.LratTrim
 public import LeanQbe.T.Examples.LratTrimProg
 public import LeanQbe.T.Examples.Programs
 public import LeanQbe.T.Examples.UnionFind

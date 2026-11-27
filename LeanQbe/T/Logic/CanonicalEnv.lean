@@ -33,10 +33,6 @@ namespace LeanQbe.T
 theorem Spec.Le.refl {as bs : List Ty} (S : Spec as bs) : S.Le S :=
   fun _ _ _ _ h => h
 
-theorem Spec.Le.trans {as bs : List Ty} {S T U : Spec as bs}
-    (h₁ : S.Le T) (h₂ : T.Le U) : S.Le U :=
-  fun xs m Q X h => h₂ xs m Q X (h₁ xs m Q X h)
-
 /-- Multi-mode contract (`{P₁}f{Q₁} ∧ {P₂}f{Q₂}`): the caller chooses the mode. -/
 @[expose] def Spec.or {as bs : List Ty} (S T : Spec as bs) : Spec as bs :=
   fun xs m Q X => S xs m Q X ∨ T xs m Q X
@@ -50,19 +46,6 @@ theorem Spec.le_or_left {as bs : List Ty} {S T : Spec as bs} : S.Le (S.or T) :=
 
 theorem Spec.le_or_right {as bs : List Ty} {S T : Spec as bs} : T.Le (S.or T) :=
   fun _ _ _ _ => Or.inr
-
-theorem Spec.or_le {as bs : List Ty} {S₁ S₂ T : Spec as bs}
-    (h₁ : S₁.Le T) (h₂ : S₂.Le T) : (S₁.or S₂).Le T :=
-  fun xs m Q X h => h.elim (h₁ xs m Q X) (h₂ xs m Q X)
-
-theorem Spec.le_iUnion {ι : Type} {as bs : List Ty}
-    (S : ι → Spec as bs) (i : ι) : (S i).Le (Spec.iUnion S) :=
-  fun _ _ _ _ h => ⟨i, h⟩
-
-theorem Spec.iUnion_le {ι : Type} {as bs : List Ty}
-    {S : ι → Spec as bs} {T : Spec as bs}
-    (h : ∀ i, (S i).Le T) : (Spec.iUnion S).Le T :=
-  fun xs m Q X ⟨i, hi⟩ => h i xs m Q X hi
 
 theorem Spec.impl_or {Γ : Env} {as rs : List Ty} {f : Func as rs} {S T : Spec as rs}
     (h₁ : ∀ xs m Q X, S xs m Q X → Func.wp Γ f xs m Q X)
@@ -109,12 +92,6 @@ theorem Env.Has.of_le {Γ : Env} {f : Sym} {as bs : List Ty} {S T : Spec as bs}
 theorem Env.Sat.nil (Γ : Env) : Γ.Sat [] :=
   fun _ h => nomatch h
 
-theorem Env.Sat.cons_iff {Γ : Env} {e : SpecEntry} {es : List SpecEntry} :
-    Γ.Sat (e :: es) ↔ Γ.Has e.name e.eff ∧ Γ.Sat es := by
-  simp only [Env.Sat, List.mem_cons]
-  exact ⟨fun h => ⟨h e (.inl rfl), fun e' he' => h e' (.inr he')⟩,
-    fun ⟨he, hes⟩ e' h => h.elim (fun eq => eq ▸ he) (hes e')⟩
-
 theorem Env.Sat.append_iff {Γ : Env} {a b : List SpecEntry} :
     Γ.Sat (a ++ b) ↔ Γ.Sat a ∧ Γ.Sat b := by
   simp only [Env.Sat, List.mem_append]
@@ -130,14 +107,6 @@ theorem Env.Sat.left {Γ : Env} {a b : List SpecEntry} (h : Γ.Sat (a ++ b)) : �
 
 theorem Env.Sat.right {Γ : Env} {a b : List SpecEntry} (h : Γ.Sat (a ++ b)) : Γ.Sat b :=
   fun e he => h e (List.mem_append_right a he)
-
-theorem Env.Sat.sub {Γ : Env} {s t : List SpecEntry}
-    (h : Γ.Sat t) (hst : ∀ e ∈ s, e ∈ t) : Γ.Sat s :=
-  fun e he => h e (hst e he)
-
-theorem Env.Sat.has_eff {Γ : Env} {tbl : List SpecEntry}
-    (h : Γ.Sat tbl) {e : SpecEntry} (he : e ∈ tbl) : Γ.Has e.name e.eff :=
-  h e he
 
 /-- Project a single `XFree` capability from `Γ.Sat tbl` using an explicit `List.Mem` proof. -/
 theorem Env.Sat.has {Γ : Env} {tbl : List SpecEntry} (h : Γ.Sat tbl) {e : SpecEntry}
@@ -212,9 +181,6 @@ theorem names_eq_of_sigs_eq {tbl : List SpecEntry} {fs : List Fn}
 @[expose] def SegCert (deps : List SpecEntry) (fns : List Fn) (rows : List SpecEntry) : Prop :=
   ∀ Γ : Env, Γ.Sat deps → Γ.Sat rows → TableImpl Γ fns rows
 
-theorem SegCert.nil (deps : List SpecEntry) : SegCert deps [] [] :=
-  fun _ _ _ => trivial
-
 theorem TableImpl.append {Γ : Env} : ∀ {f₁ f₂ : List Fn} {r₁ r₂ : List SpecEntry},
     TableImpl Γ f₁ r₁ → f₁.length = r₁.length → TableImpl Γ f₂ r₂ →
     TableImpl Γ (f₁ ++ f₂) (r₁ ++ r₂)
@@ -230,11 +196,6 @@ theorem TableImpl.append_sigs {Γ : Env} {f₁ f₂ : List Fn} {r₁ r₂ : List
     have hlen := congrArg List.length hsig
     simp only [List.length_map] at hlen
     exact hlen.symm) h₂
-
-theorem AllFns.of_forall {P : Fn → Prop} :
-    ∀ {fs : List Fn}, (∀ f ∈ fs, P f) → AllFns P fs
-  | [], _ => trivial
-  | _ :: _, h => ⟨h _ (.head _), AllFns.of_forall fun f hf => h f (.tail _ hf)⟩
 
 theorem AllFns.append {P : Fn → Prop} :
     ∀ {f₁ f₂ : List Fn}, AllFns P f₁ → AllFns P f₂ → AllFns P (f₁ ++ f₂)
@@ -724,13 +685,5 @@ theorem ModuleOk.ofCanonicalTrie {M : Module} {tbl : List SpecEntry}
   refine ⟨hndM, fun pre fn post hsplit => ?_⟩
   have hmem : fn ∈ M.fns := hsplit ▸ by simp
   exact ⟨hwf.mem fn hmem, hcalls pre fn post hsplit, hsound fn hmem⟩
-
-/-- `ModuleOk.ofCanonicalTrie` variant taking full signature-list alignment (`SpecEntry.sig`). -/
-theorem ModuleOk.ofCanonicalTrieSigs {M : Module} {tbl : List SpecEntry}
-    (hchk : M.checkAcyclicTrie = true) (hwf : AllFns Fn.Wf M.fns)
-    (hsigs : tbl.map SpecEntry.sig = M.fns.map Fn.sig)
-    (hcert : ∀ Γ : Env, Γ.Sat tbl → TableImpl Γ M.fns tbl) :
-    ModuleOk (Env.ofTable tbl) M :=
-  ModuleOk.ofCanonicalTrie hchk hwf (names_eq_of_sigs_eq hsigs) hcert
 
 end LeanQbe.T
