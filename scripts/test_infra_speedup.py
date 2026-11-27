@@ -92,6 +92,7 @@ class TestSelectTests(unittest.TestCase):
                 [
                     "LeanQbe-README.md",
                     "docs/design.md",
+                    "img/kissat_dual_arch_survival.svg",
                     "scripts/check.sh",
                     "scripts/headlines.d/core.txt",
                     "LeanQbe.lean",
@@ -219,7 +220,10 @@ class TestCheckAndFastLandSmoke(unittest.TestCase):
             )
             return res.stdout.strip()
 
-        self.assertEqual(classify(["scripts/preflight.sh", "scripts/select_tests.py"]), "class0")
+        self.assertEqual(
+            classify(["scripts/preflight.sh", "scripts/select_tests.py", "img/kissat_dual_arch_survival.svg"]),
+            "class0",
+        )
         self.assertEqual(classify(["scripts/check.sh"]), "full")
         self.assertEqual(classify(["scripts/AuditAxioms.lean"]), "full")
         self.assertEqual(classify(["LeanQbe/T/Amd64/Frame.lean"]), "x64")
@@ -411,7 +415,7 @@ class TestP1DecouplingAndHubs(unittest.TestCase):
         data = tomllib.loads((REPO_ROOT / "lakefile.toml").read_text(encoding="utf-8"))
         self.assertEqual(
             data["defaultTargets"],
-            ["LeanQbe", "LeanQbeAmd64", "LeanQbeArm64", "LeanQbeTest", "leanqbe", "leanqbe-arm64"],
+            ["LeanQbe", "LeanQbeAmd64", "LeanQbeArm64", "leanqbe", "leanqbe-arm64"],
         )
         libs = {entry["name"] for entry in data.get("lean_lib", [])}
         for name in ("LeanQbeCore", "LeanQbeAmd64Core", "LeanQbeArm64Core"):

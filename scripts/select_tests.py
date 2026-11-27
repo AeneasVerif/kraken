@@ -37,7 +37,7 @@ SUITE_ORDER: tuple[str, ...] = (
 )
 
 DOC_ONLY_RE = re.compile(
-    r"^(?:.*\.md|docs/.*|scripts/headlines\.d/.*|scripts/headline\.txt|\.gitignore)$"
+    r"^(?:.*\.md|docs/.*|img/.*|scripts/headlines\.d/.*|scripts/headline\.txt|\.gitignore)$"
 )
 
 SCRIPT_ONLY_RE = re.compile(r"^scripts/.*\.(?:sh|py|lean)$")
