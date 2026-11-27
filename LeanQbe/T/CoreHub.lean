@@ -175,6 +175,7 @@ public import LeanQbe.T.OptFlatMemLemmas
 public import LeanQbe.T.OptFlatPathCond
 public import LeanQbe.T.OptFlatPathCondLemmas
 public import LeanQbe.T.OptFlatPlanKit
+public import LeanQbe.T.OptFlatSimKit
 public import LeanQbe.T.OptFlatValue
 public import LeanQbe.T.OptFlatValueLemmas
 public import LeanQbe.T.OptLemmas

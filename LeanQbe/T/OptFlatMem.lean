@@ -32,21 +32,6 @@ namespace OptFlatMem
 
 open OptFlatPlanKit
 
-/-- Resolve a `TFlat` operand `Arg K t` directly into a lowered `Arg K t` output level. -/
-def resolveFlatArg (inDepth : Nat) (env : Trie ((t : Ty) × Arg K t)) {t : Ty} :
-    Arg K t → Arg K t
-  | .imm c => .imm c
-  | .var idx =>
-    match lookupEnv inDepth env t idx with
-    | some a => a
-    | none => .var 0
-
-/-- Resolve a tuple of `TFlat` operands directly into `Tup (Arg K) ts`. -/
-def resolveFlatArgs (inDepth : Nat) (env : Trie ((t : Ty) × Arg K t)) :
-    {ts : List Ty} → Tup (Arg K) ts → Tup (Arg K) ts
-  | [], () => ()
-  | _ :: _, (a, as) => (resolveFlatArg inDepth env a, resolveFlatArgs inDepth env as)
-
 /-! ## 1. Native `TFlat` `memLoadFlat` (Phase 1 `analyzeMemFlat` + Phase 2 `memLoadSweepFlat`) -/
 
 /-- Convert a de Bruijn index operand at depth `next` into its `FKey` level. -/
@@ -205,80 +190,22 @@ def memLoadFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs) : TFlat rs :=
 
 /-! ## 2. Native `TFlat` `assumeBitsFlat` -/
 
-/-- Resolve a `TFlat` operand into `Arg (ABVal K) t`. -/
-def resolveABArg (inDepth : Nat) (env : Trie ((t : Ty) × ABVal K t)) {t : Ty}
-    (a : Arg K t) : Arg (ABVal K) t :=
-  resolveEnvArg inDepth env a (fun _ => .var ⟨.var 0, {}⟩)
-
-/-- Resolve a tuple of `TFlat` operands into `Tup (Arg (ABVal K)) ts`. -/
-def resolveABArgs (inDepth : Nat) (env : Trie ((t : Ty) × ABVal K t)) {ts : List Ty}
-    (args : Tup (Arg K) ts) : Tup (Arg (ABVal K)) ts :=
-  resolveEnvArgs inDepth env args (fun _ => .var ⟨.var 0, {}⟩)
-
-/-- Resolve and re-index `assumeBits` output operands directly at `outDepth`. -/
-def resolveAOuts (inDepth outDepth : Nat) (env : Trie ((t : Ty) × ABVal K t)) :
-    {ts : List Ty} → Tup (Arg K) ts → Tup (Arg K) ts
-  | [], () => ()
-  | _ :: _, (a, as) =>
-    (idxArg outDepth (resolveABArg inDepth env a).abOut, resolveAOuts inDepth outDepth env as)
-
-mutual
-/-- Direct `TFlat` known-bits and branch-implied simplification sweep. -/
-def assumeBitsGo {rs : List Ty} (inDepth outDepth : Nat) (F : List BitFact) :
-    TFlat rs → Trie ((t : Ty) × ABVal K t) → TFlat rs
-  | .let_ (ts := ts) op k, inEnv =>
-    let abArgs := resolveABArgs inDepth inEnv op.args
-    match ({ code := op.code, args := abArgs } : Op (ABVal K) ts).abLet F outDepth with
-    | .elim res =>
-      assumeBitsGo (inDepth + ts.length) outDepth F k (insertTupEnv inDepth inEnv res)
-    | .emit op' wrap =>
-      let res := wrap (Tup.levels ts outDepth)
-      .let_ ⟨op'.code, idxArgs outDepth op'.args⟩
-        (assumeBitsGo (inDepth + ts.length) (outDepth + ts.length) F k
-          (insertTupEnv inDepth inEnv res))
-  | .load t a k, inEnv =>
-    let a' := resolveABArg inDepth inEnv a
-    let inEnv' := inEnv.insert inDepth ⟨t, ABVal.fresh outDepth outDepth⟩
-    .load t (idxArg outDepth a'.abOut)
-      (assumeBitsGo (inDepth + 1) (outDepth + 1) F k inEnv')
-  | .store v a k, inEnv =>
-    let v' := resolveABArg inDepth inEnv v
-    let a' := resolveABArg inDepth inEnv a
-    .store (idxArg outDepth v'.abOut) (idxArg outDepth a'.abOut)
-      (assumeBitsGo inDepth outDepth F k inEnv)
-  | .call f bs args k, inEnv =>
-    let outs := resolveAOuts inDepth outDepth inEnv args
-    let inEnv' := insertFreshWith (fun _ _ outD => ABVal.fresh outD outD)
-      inDepth outDepth bs inEnv
-    .call f bs outs (assumeBitsGo (inDepth + bs.length) (outDepth + bs.length) F k inEnv')
-  | .jnz c t e, inEnv =>
-    let c' := resolveABArg inDepth inEnv c
-    .jnz (idxArg outDepth c'.abOut)
-      (assumeBitsGo inDepth outDepth (c'.abInfo.nf ++ F) t inEnv)
-      (assumeBitsGo inDepth outDepth (c'.abInfo.zf ++ F) e inEnv)
-  | .jump j args, inEnv => .jump j (resolveAOuts inDepth outDepth inEnv args)
-  | .ret vs, inEnv => .ret (resolveAOuts inDepth outDepth inEnv vs)
-  | .exit f args, inEnv => .exit f (resolveAOuts inDepth outDepth inEnv args)
-  | .hlt, _ => .hlt
-  | .group bodies k, inEnv =>
-    .group (assumeBitsBGo inDepth outDepth F bodies inEnv)
-      (assumeBitsGo inDepth outDepth F k inEnv)
-
-/-- Block-list companion of `assumeBitsGo`. -/
-def assumeBitsBGo {rs : List Ty} (inDepth outDepth : Nat) (F : List BitFact) :
-    {sig : List (List Ty)} → TBlocks rs sig → Trie ((t : Ty) × ABVal K t) → TBlocks rs sig
-  | _, .nil, _ => .nil
-  | _, .cons (ts := ts) b bs, inEnv =>
-    let inEnv' := insertFreshWith (fun _ _ outD => ABVal.fresh outD outD)
-      inDepth outDepth ts inEnv
-    .cons (assumeBitsGo (inDepth + ts.length) (outDepth + ts.length) F b inEnv')
-      (assumeBitsBGo inDepth outDepth F bs inEnv)
-end
+/-- `SweepKL` specification for `assumeBitsFlat`. -/
+def assumeBitsSweep : SweepKL (ABVal K) (List BitFact) where
+  dflt _ := .var ⟨.var 0, {}⟩
+  argOut := Arg.abOut
+  freshLoad outD t := @ABVal.fresh K t outD outD
+  freshTup ts outD := freshABVals ts (Tup.levels ts outD) outD
+  onLet F outD {ts} op :=
+    match op.abLet F outD with
+    | .elim res => .elim res F
+    | .emit op' wrap => .emit1 op' (wrap (Tup.levels ts outD)) F (outD + ts.length)
+  onJnz F c := .emit c.abOut (c.abInfo.nf ++ F) (c.abInfo.zf ++ F)
 
 /-- Native `TFlat` known-bits and branch-implied simplification pass. -/
 def assumeBitsFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs) : TFlat rs :=
   let initEnv := insertFreshWith (fun _ _ outD => ABVal.fresh outD outD) 0 0 as .empty
-  assumeBitsGo as.length as.length [] tf initEnv
+  assumeBitsSweep.run tf as.length initEnv as.length []
 
 /-! ## 3. Native `TFlat` `divConstFlat` (Fast-Path + Full `divConstGo`) -/
 
@@ -450,59 +377,24 @@ def divConstEmit {sig ts : List Ty} :
     (emitSRemConstPlan n x d outD).map fun p => ⟨p.outDepth, (p.res, ()), p.wrap⟩
   | _, _, _ => none
 
-mutual
-/-- Direct `TFlat` constant division/remainder lowering sweep. -/
-def divConstGo {rs : List Ty} (inDepth outDepth : Nat) :
-    TFlat rs → Trie ((t : Ty) × Arg K t) → TFlat rs
-  | .let_ (ts := ts) op k, inEnv =>
-    let args' := resolveFlatArgs inDepth inEnv op.args
-    match divConstEmit op.code args' outDepth with
-    | some p =>
-      let inEnv' := insertTupEnv inDepth inEnv p.res
-      p.wrap (divConstGo (inDepth + ts.length) p.outDepth k inEnv')
-    | none =>
-      let inEnv' := insertFreshWith (fun _ _ outD => .var outD) inDepth outDepth ts inEnv
-      .let_ ⟨op.code, idxArgs outDepth args'⟩
-        (divConstGo (inDepth + ts.length) (outDepth + ts.length) k inEnv')
-  | .load t a k, inEnv =>
-    let a' := resolveFlatArg inDepth inEnv a
-    .load t (idxArg outDepth a')
-      (divConstGo (inDepth + 1) (outDepth + 1) k (inEnv.insert inDepth ⟨t, .var outDepth⟩))
-  | .store v a k, inEnv =>
-    let v' := resolveFlatArg inDepth inEnv v
-    let a' := resolveFlatArg inDepth inEnv a
-    .store (idxArg outDepth v') (idxArg outDepth a') (divConstGo inDepth outDepth k inEnv)
-  | .call f bs args k, inEnv =>
-    let args' := resolveFlatArgs inDepth inEnv args
-    let inEnv' := insertFreshWith (fun _ _ outD => .var outD) inDepth outDepth bs inEnv
-    .call f bs (idxArgs outDepth args')
-      (divConstGo (inDepth + bs.length) (outDepth + bs.length) k inEnv')
-  | .jnz c t e, inEnv =>
-    let c' := resolveFlatArg inDepth inEnv c
-    .jnz (idxArg outDepth c')
-      (divConstGo inDepth outDepth t inEnv) (divConstGo inDepth outDepth e inEnv)
-  | .jump j args, inEnv => .jump j (idxArgs outDepth (resolveFlatArgs inDepth inEnv args))
-  | .ret vs, inEnv => .ret (idxArgs outDepth (resolveFlatArgs inDepth inEnv vs))
-  | .exit f args, inEnv => .exit f (idxArgs outDepth (resolveFlatArgs inDepth inEnv args))
-  | .hlt, _ => .hlt
-  | .group bodies k, inEnv =>
-    .group (divConstBGo inDepth outDepth bodies inEnv) (divConstGo inDepth outDepth k inEnv)
-
-/-- Block-list companion of `divConstGo`. -/
-def divConstBGo {rs : List Ty} (inDepth outDepth : Nat) :
-    {sig : List (List Ty)} → TBlocks rs sig → Trie ((t : Ty) × Arg K t) → TBlocks rs sig
-  | _, .nil, _ => .nil
-  | _, .cons (ts := ts) b bs, inEnv =>
-    let inEnv' := insertFreshWith (fun _ _ outD => .var outD) inDepth outDepth ts inEnv
-    .cons (divConstGo (inDepth + ts.length) (outDepth + ts.length) b inEnv')
-      (divConstBGo inDepth outDepth bs inEnv)
-end
+/-- `SweepKL` specification for `divConstFlat`. -/
+def divConstSweep : SweepKL (Arg K) Unit where
+  dflt _ := .var (.var 0)
+  argOut := flattenArg
+  freshLoad outD _ := .var outD
+  freshTup ts outD := toArgTup (Tup.levels ts outD)
+  onLet _ outD {ts} op :=
+    let args' := flattenArgs op.args
+    match divConstEmit op.code args' outD with
+    | some p => .wrap p.wrap p.res () p.outDepth
+    | none => .emit1 ⟨op.code, args'⟩ (toArgTup (Tup.levels ts outD)) () (outD + ts.length)
+  onJnz _ c := .emit (flattenArg c) () ()
 
 /-- Native `TFlat` constant division/remainder pass with `O(N)` `hasDivRem` fast-path. -/
 def divConstFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs) : TFlat rs :=
   if hasDivRem tf then
     let initEnv := insertFreshWith (fun _ _ outD => .var outD) 0 0 as .empty
-    divConstGo as.length as.length tf initEnv
+    divConstSweep.run tf as.length initEnv as.length ()
   else tf
 
 end OptFlatMem
