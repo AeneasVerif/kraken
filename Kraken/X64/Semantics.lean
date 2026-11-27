@@ -19,10 +19,10 @@ instance : Coe Bool Nat where coe := Bool.toNat
 namespace BitVec
 def unsigned {w} (x : BitVec w) : Int := x.toNat
 def signed {w} (x : BitVec w) : Int := x.toInt
-@[kstep] def take {w} (x : BitVec w) (n : Nat) : BitVec n := x.extractLsb' 0 n
-@[kstep] def drop {w} (x : BitVec w) (n : Nat) : BitVec (w - n) := x.extractLsb' n (w-n)
+@[kreduce] def take {w} (x : BitVec w) (n : Nat) : BitVec n := x.extractLsb' 0 n
+@[kreduce] def drop {w} (x : BitVec w) (n : Nat) : BitVec (w - n) := x.extractLsb' n (w-n)
 end BitVec
-attribute [kstep]
+attribute [kreduce]
   BitVec.extractLsb'
   BitVec.ofInt_add
   BitVec.ofInt_toInt
@@ -32,11 +32,11 @@ def BitVec.replaceLow {w n} (old : BitVec w) (new : BitVec n) : BitVec w :=
   (BitVec.append (old.drop n) new).setWidth _
 
 namespace Reg
-@[kstep] def base {w} (r : Reg w) : Reg64 := match r with
+@[kreduce] def base {w} (r : Reg w) : Reg64 := match r with
   | .low r _ => r
   | .ah => .rax | .bh => .rbx | .ch => .rcx | .dh => .rdx
 
-@[kstep] def offset {w} (r : Reg w) : Nat := match r with
+@[kreduce] def offset {w} (r : Reg w) : Nat := match r with
   | .low _ _ => 0
   | .ah | .bh | .ch | .dh => 8
 end Reg
@@ -67,13 +67,13 @@ structure Reg64s where
   r15 : UInt64 := 0
   deriving Repr, BEq, DecidableEq, Hashable, Hashable, Lean.ToExpr
 
-@[kstep] def Reg64s.get64 (s : Reg64s) (r : Reg64) : Width.W64.type := UInt64.toBitVec (match r with
+@[kreduce] def Reg64s.get64 (s : Reg64s) (r : Reg64) : Width.W64.type := UInt64.toBitVec (match r with
   | .rax => s.rax | .rbx => s.rbx | .rcx => s.rcx | .rdx => s.rdx
   | .rsi => s.rsi | .rdi => s.rdi | .rsp => s.rsp | .rbp => s.rbp
   | .r8  => s.r8  | .r9  => s.r9  | .r10 => s.r10 | .r11 => s.r11
   | .r12 => s.r12 | .r13 => s.r13 | .r14 => s.r14 | .r15 => s.r15)
 
-@[kstep] def Reg64s.set64 (regs : Reg64s) (r : Reg64) (v : Width.W64.type) : Reg64s :=
+@[kreduce] def Reg64s.set64 (regs : Reg64s) (r : Reg64) (v : Width.W64.type) : Reg64s :=
   let  v := UInt64.ofBitVec v
   match r with
   | .rax => { regs with rax := v } | .rbx => { regs with rbx := v }
@@ -85,11 +85,11 @@ structure Reg64s where
   | .r12 => { regs with r12 := v } | .r13 => { regs with r13 := v }
   | .r14 => { regs with r14 := v } | .r15 => { regs with r15 := v }
 
-@[kstep] def Reg64s.get (s : Reg64s) {w} (r : Reg w) : w.type :=
+@[kreduce] def Reg64s.get (s : Reg64s) {w} (r : Reg w) : w.type :=
   ((s.get64 r.base).drop r.offset).take w.bits
   -- BitVec because it may be signed or unsigned depending on context
 
-@[kstep] def Reg64s.set (s : Reg64s) {w} (r : Reg w) (v : w.type) : Reg64s := match r with
+@[kreduce] def Reg64s.set (s : Reg64s) {w} (r : Reg w) (v : w.type) : Reg64s := match r with
   | .low r .W64 => s.set64 r v
   | .low r .W32 => s.set64 r (v.zeroExtend _)
   | .low r w => s.set64 r ((s.get64 r).replaceLow v)
@@ -183,7 +183,7 @@ def RegZmms.setLegacy (s : RegZmms) {w} (r : AvxReg w) (v : w.type) : RegZmms :=
   | .ymm r => s.set512 r ((s.get512 r).replaceLow v)  -- impossible
   | .xmm r => s.set512 r ((s.get512 r).replaceLow v)
 
-@[kstep]
+@[kreduce]
 def BitVec.toAddressSize [address_size: AddressSize] (w: BitVec 64): BitVec address_size.address_size.bits :=
   w.take address_size.address_size.bits
 
@@ -404,7 +404,7 @@ def require_access (access : Std.Rco AddressBound → (Unit → Effects) → Eff
 
 -- the unused `Std.Rco Int64` argument and the unmodified `MachineData` return
 -- value are present for uniformity with RegOrMem.interp
-@[kstep] def Reg.interp {w} (r : Reg w) (s : MachineData) (_ : Std.Rco Int64)
+@[kreduce] def Reg.interp {w} (r : Reg w) (s : MachineData) (_ : Std.Rco Int64)
   (ret : w.type → MachineData → Effects) : Effects :=
   ret (s.regs.get r) s
 
@@ -468,24 +468,17 @@ def MachineData.storeAvx (s : MachineData) (addr : BitVec 64) {w : AvxWidth} (v 
 class Labels where label? : Label → Option Int64
 export Labels (label?)
 
-def Labels.label! [Labels] (l : Label) : Int64 :=
-  match label? l with
-  | .some a => a
-  | .none => panic! s!"unresolved label: {l}"
-export Labels (label!)
+abbrev Labels.label! [Labels] (l : Label) : Int64 :=
+  (label? l).get!
 
-@[grind =]
-theorem Labels.label!_eq_get!_label? {_ : Labels} (l : Label) :
-    label! l = (label? l).get! := by
-  simp only [label!, Option.get!]
-  cases label? l <;> rfl
+export Labels (label!)
 
 @[simp]
 theorem Labels.label!_of_label? {_ : Labels} {l : Label} {a : Int64} (h : label? l = some a) :
     label! l = a := by
   simp [label!, h]
 
-@[kstep] def ConstExpr.interp (e : ConstExpr) (p : Std.Rco _root_.Int64)
+@[kreduce] def ConstExpr.interp (e : ConstExpr) (p : Std.Rco _root_.Int64)
     (ret : _root_.Int64 → Effects) : Effects :=
   match e with
   | .label l => .resolve_label l ret
@@ -495,7 +488,7 @@ theorem Labels.label!_of_label? {_ : Labels} {l : Label} {a : Int64} (h : label?
   | .add e1 e2 => e1.interp p (fun v1 => e2.interp p (fun v2 => ret (v1 + v2)))
   | .sub e1 e2 => e1.interp p (fun v1 => e2.interp p (fun v2 => ret (v1 - v2)))
 
-@[kstep] def AddrExpr.interp [address_size : AddressSize] (a : AddrExpr) (s : Reg64s) (p : Std.Rco Int64)
+@[kreduce] def AddrExpr.interp [address_size : AddressSize] (a : AddrExpr) (s : Reg64s) (p : Std.Rco Int64)
     (ret : BitVec address_size.address_size.bits → Effects) : Effects :=
   a.disp.interp p (fun disp =>
     ret <| BitVec.ofInt address_size.address_size.bits (
@@ -508,7 +501,7 @@ theorem Labels.label!_of_label? {_ : Labels} {l : Label} {a : Int64} (h : label?
        | .none => 0) +
       disp.toInt))
 
-@[kstep] def RegOrMem.interp {w} [AddressSize]
+@[kreduce] def RegOrMem.interp {w} [AddressSize]
   (o : RegOrMem w) (s : MachineData) (p : Std.Rco Int64)
   (ret : w.type → MachineData → Effects) :=
 match o with
@@ -522,7 +515,7 @@ match o with
   | .avx r => ret (s.zmms.get r) s
   | .mem a => a.interp s.regs p (fun addr => s.loadAvx (addr.zeroExtend _) w ret checkAlign)
 
-@[kstep]
+@[kreduce]
 def MachineData.setReg (s : MachineData) {w} (r : Reg w) (v : w.type) : MachineData :=
   { s with regs := s.regs.set r v }
 
@@ -532,7 +525,7 @@ def MachineData.setAvxReg (s : MachineData) {w : AvxWidth} (r : AvxReg w) (v : w
 def MachineData.setAvxLegacyReg (s : MachineData) {w : AvxWidth} (r : AvxReg w) (v : w.type) : MachineData :=
   { s with zmms := s.zmms.setLegacy r v }
 
-@[kstep]
+@[kreduce]
 def MachineData.set {w} [AddressSize] (s : MachineData) (d : Dst w) (v : w.type) (p : Std.Rco Int64) (ret : MachineData → Effects) : Effects :=
   match d with
   | .reg r => ret (s.setReg r v)
@@ -548,7 +541,7 @@ match d with
   | .avx r => ret (s.setAvxLegacyReg r v)
   | .mem a => a.interp s.regs p (fun addr => s.storeAvx (addr.zeroExtend _) v ret checkAlign)
 
-@[kstep] def Operand.interp {w} [AddressSize]
+@[kreduce] def Operand.interp {w} [AddressSize]
   (o : Operand w) (s : MachineData) (p : Std.Rco Int64)
   (ret : w.type → MachineData → Effects) :=
   match o with
@@ -562,7 +555,7 @@ def AvxOperand.interp {aw} [AddressSize]
 match o with
   | regOrMem rm => rm.interp s p ret checkAlign
 
-@[kstep]
+@[kreduce]
 def CondCode.interp (cc : CondCode) (s : StatusFlags) : Bool := match cc with
   | .o  => s.of | .no => !s.of
   | .c  => s.cf | .nc => !s.cf
@@ -573,17 +566,17 @@ def CondCode.interp (cc : CondCode) (s : StatusFlags) : Bool := match cc with
   | .l  => s.sf != s.of | .ge => s.sf == s.of
   | .le => (s.sf != s.of) || s.zf | .g  => !s.zf && (s.sf == s.of)
 
-@[kstep] def ShiftCountExpr.interp (c : ShiftCountExpr) (s : MachineData) (p : Std.Rco Int64)
+@[kreduce] def ShiftCountExpr.interp (c : ShiftCountExpr) (s : MachineData) (p : Std.Rco Int64)
     (ret : BitVec 8 → Effects) : Effects :=
   match c with
   | .cl => ret (s.regs.rcx.toBitVec.take 8)
   | .imm8 v => v.interp p (fun v => ret (v.toBitVec.take _))
-@[kstep] def ShiftCountExpr.interpMasked (c : ShiftCountExpr) (s : MachineData) (p : Std.Rco Int64) (w : Width)
+@[kreduce] def ShiftCountExpr.interpMasked (c : ShiftCountExpr) (s : MachineData) (p : Std.Rco Int64) (w : Width)
     (ret : Nat → Effects) : Effects :=
   -- "masked to 5 bits (or 6 bits with a 64-bit operand)"
   c.interp s p (fun cnt => ret (cnt.toNat &&& match w with | .W64 => 0x3f | _ => 0x1f))
 
-@[kstep] def RelRegOrMem.interp [AddressSize]
+@[kreduce] def RelRegOrMem.interp [AddressSize]
   (o : RelRegOrMem) (s : MachineData) (p : Std.Rco Int64)
   (ret : BitVec 64 → MachineData → Effects) :=
   match o with
@@ -608,7 +601,7 @@ def cpopNatRec_ {w} (x : BitVec w) (pos acc : Nat) : Nat :=
 def cpop_ {w} (x : BitVec w) : BitVec w := BitVec.ofNat w (cpopNatRec_ x w 0)
 end BitVec
 
-@[kstep] def StatusFlags.from_result {w} (result : BitVec w) (f : from_result.Remaining) : StatusFlags :=
+@[kreduce] def StatusFlags.from_result {w} (result : BitVec w) (f : from_result.Remaining) : StatusFlags :=
   { pf := (result.take 8).cpop_ % 2 == BitVec.zero _
     zf := result == BitVec.zero _
     sf := result.msb, cf := f.cf, af := f.af, of := f.of }
@@ -644,7 +637,7 @@ def MachineData.repString [address_size : AddressSize]
   else repeatString step count s next
 
 set_option maxHeartbeats 1000000
-@[kstep] def Operation.interp [address_size : AddressSize]
+@[kreduce] def Operation.interp [address_size : AddressSize]
   {w} (i : Operation w) (p : Std.Rco Int64) (s : MachineData)
   (next : MachineData → Effects) (jmp : Int64 → MachineData → Effects) : Effects :=
   match (generalizing := false) (motive := Operation w → Effects) i with
@@ -1038,7 +1031,7 @@ match i with
     imm.interp p (fun imm =>
       s.setAvx dst (BitVec.ternaryLogic a b c (imm.toBitVec.take 8)) p next))))
 
-@[kstep]
+@[kreduce]
 def Instr.interp
   (i : Instr) (s : MachineData) (p : Std.Rco Int64)
   (next : MachineData → Effects) (jmp : Int64 → MachineData → Effects) : Effects :=
@@ -1050,7 +1043,7 @@ def Instr.interp
           AvxOperation.interp (w := op_sz) (address_size := .mk addr_sz) op p s next
   )
 
-@[kstep] def Directive.interp
+@[kreduce] def Directive.interp
   (d : Directive) (s : MachineData) (p : Std.Rco Int64)
   (next : MachineData → Effects) (jmp : Int64 → MachineData → Effects) : Effects :=
   match d with

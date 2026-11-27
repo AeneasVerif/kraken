@@ -93,3 +93,63 @@ theorem List.mem_takeWhile {α : Type _} {p : α → Bool} {l : List α} {x : α
   induction l <;> grind [List.takeWhile_cons, List.takeWhile_nil]
 
 end
+
+public meta section
+
+open Lean Meta Elab Tactic Sym
+
+-- TODO: Move to ForLean.lean
+-- FIXME: a copy-paste of the Lean implementation since it's marked as private
+def rwTarget (goal: Grind.Goal) (symm : Bool) (term : Expr) : Grind.GrindTacticM (Grind.Goal × List Grind.Goal) := do
+  goal.withContext do
+    let mvarCounterSaved := (← getMCtx).mvarCounter
+    let r ← Term.withSynthesize do
+      let heq := term
+      /-
+      The target is in `sym` normal form (e.g., reducible constants have been unfolded), but the
+      given equation is not. We unfold reducible constants in its statement so that `kabstract`
+      key-matching can find occurrences of the lhs in the target, and the rhs requires less
+      normalization after the rewrite.
+      -/
+      let heqType ← instantiateMVars (← inferType heq)
+      let heqType' ← Sym.unfoldReducible heqType
+      let heq ← if isSameExpr heqType heqType' then pure heq else mkExpectedTypeHint heq heqType'
+      goal.mvarId.rewrite (← goal.mvarId.getType) heq symm
+    let mctx ← getMCtx
+    let mvarIds := r.mvarIds.filter fun mvarId => (mctx.getDecl mvarId |>.index) >= mvarCounterSaved
+    let eNew ← Grind.liftSymM <| Sym.preprocessExpr r.eNew
+    let mvarId ← goal.mvarId.replaceTargetEq eNew r.eqProof
+    let mvarIds ← mvarIds.filterM fun mvarId => return !(← mvarId.isAssigned)
+    let sideGoals ← mvarIds.mapM fun mvarId => do
+      let target ← mvarId.getType
+      let target' ← Grind.liftSymM <| Sym.preprocessExpr target
+      if isSameExpr target target' then
+        -- The metavariable was created by `forallMetaTelescopeReducing` with kind `.natural`;
+        -- prevent it from being assigned by unification in later steps.
+        mvarId.setKind .syntheticOpaque
+        return { goal with mvarId }
+      else
+        let mvarId ← mvarId.replaceTargetDefEq target'
+        return { goal with mvarId }
+    pure ({ goal with mvarId }, sideGoals)
+
+-- NOTE: a copy-paste of Lean's private `Lean.Elab.Tactic.Grind.getOrCreateBackwardRule`
+/-- Get or create a `BackwardRule` for a declaration, using the `Grind.State` name cache. -/
+def getOrCreateBackwardRule (declName : Name) : Grind.GrindTacticM Sym.BackwardRule := do
+  if let some rule := (← get).cache.backwardRuleName.find? declName then
+    return rule
+  let rule ← Sym.mkBackwardRuleFromDecl declName
+  modify fun s => { s with cache.backwardRuleName := s.cache.backwardRuleName.insert declName rule }
+  return rule
+
+open Lean Meta Elab Tactic in
+macro "run_grind_tac " e:doSeq : tactic => do `(tactic|
+  run_tac withMainContext do
+    let mvarId : MVarId ← Tactic.getMainGoal
+    let params ← Grind.mkDefaultParams {}
+    let ⟨_, st⟩ ← Grind.GrindTacticM.runAtGoal mvarId params (sym := true) <| do
+      $e
+    Tactic.replaceMainGoal (st.goals.map (·.mvarId))
+)
+
+end

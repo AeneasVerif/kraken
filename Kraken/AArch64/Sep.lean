@@ -10,7 +10,7 @@ open Std
 open Std.ExtHashMap
 open List
 
-@[kspec]
+@[kmem]
 theorem store_sep (s : MachineData) (addr : BitVec 64) (w : MemWidth) (v : w.type) (ret : MachineData → Effects)
     (bs : List UInt8) (R : DataMem → Prop)
     (h_mem : s.dmem =⋆ Eq (bs.At addr) ⋆ R)
@@ -23,7 +23,7 @@ theorem store_sep (s : MachineData) (addr : BitVec 64) (w : MemWidth) (v : w.typ
     Mem.loadInt_sep bs addr w.bytes R s.dmem h_mem h_len (by cases w <;> decide)
   simp only [MachineData.store, h_load]
 
-@[kspec]
+@[kmem]
 theorem load_sep (s : MachineData) (addr : BitVec 64) (w : MemWidth) (ret : w.type → MachineData → Effects)
     (bs : List UInt8) (R : DataMem → Prop)
     (h_mem : s.dmem =⋆ Eq (bs.At addr) ⋆ R)

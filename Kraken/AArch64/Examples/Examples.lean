@@ -57,7 +57,7 @@ theorem swap_correct [layout : WellFormedLayout swap] (d : MachineData) :
         s'.1.regs.getRegOrZr .X1 = d.regs.getRegOrZr .X0)
       ⟨d, layout.start⟩ := by
   kprologue swap with d
-  sym => kstep; tactic =>
+  kstep
   refine .done _ ⟨rfl, ?_⟩
   grind
 
@@ -75,7 +75,7 @@ theorem arith_shift_correct [layout : WellFormedLayout arith_shift] (d : Machine
         s'.1.regs.getRegOrZr .X3 = 3 * (d.regs.getRegOrZr .X1 + 42))
       ⟨d, layout.start⟩ := by
   kprologue arith_shift with d
-  sym => kstep; tactic =>
+  kstep
   refine .done _ ⟨rfl, ?_⟩
   simp (config := { zetaDelta := true }) only [show BitVec.ofInt 64 (Int64.toInt 42) = 42#64 from rfl,
     show (Int64.toInt 0).toNat = 0 from rfl]
@@ -95,11 +95,11 @@ theorem p4_correct [layout : WellFormedLayout controlflow] (d : MachineData) :
       (fun s' => s'.pc = controlflow.toExecutable.addrOf controlflow.length ∧ s'.1.regs.X1 = 42)
       ⟨d, layout.start⟩ := by
   kprologue controlflow with d
-  sym => kstep; tactic =>
+  kstep
   rename_i v v1
   have : v1 = 0 := by grind
   simp [this]
-  sym => kstep; tactic =>
+  kstep
   refine .done _ ⟨rfl, ?_⟩
   simp (config := { zetaDelta := true }) only [show BitVec.ofInt 64 (Int64.toInt 42) = 42#64 from rfl]
   bv_decide
@@ -118,15 +118,17 @@ theorem controlflow_jump_correct [layout : WellFormedLayout controlflow_jump] (d
       (fun s' => s'.pc = controlflow_jump.toExecutable.addrOf controlflow_jump.length ∧ s'.1.regs.X1 = 42)
       ⟨d, layout.start⟩ := by
   kprologue controlflow_jump with d
-  sym => kstep; tactic =>
+  kstep
   rename_i v v1
+  have hv : v = 1 := by grind
   have : v1 = 1 := by grind
-  simp [this]
-  sym => kstep; tactic =>
-  rename_i v2
-  have : v2 = 0 := by grind
-  simp [this]
-  sym => kstep; tactic =>
+  simp [hv, this]
+  kstep
+  rename_i v2 v3
+  have hv2 : v2 = 0 := by grind
+  have : v3 = 0 := by grind
+  simp [hv2, this]
+  kstep
   refine .done _ ⟨rfl, ?_⟩
   simp (config := { zetaDelta := true }) only [show BitVec.ofInt 64 (Int64.toInt 42) = 42#64 from rfl]
   bv_decide
@@ -158,14 +160,12 @@ theorem move_2_regs_to_heap_correct [layout : WellFormedLayout move_2_regs_to_he
 
   have h_bs1 : v1.toBytes.length = 8 := UInt64.toBytes_length v1
   have h_bs2 : v2.toBytes.length = 8 := UInt64.toBytes_length v2
-  have h_mem1 := Mem.storeInt_sep X2.toBitVec 8 v1.toBytes (Eq (v2.At (X2.toBitVec + 8#64)) ⋆ R) mem ⟨by ecancel, h_bs1⟩ X0.toBitVec.toInt
-  have h_mem1' : (Eq (v2.At (X2.toBitVec + 8#64)) ⋆ (Eq ((Int.toBytes 8 X0.toBitVec.toInt).At X2) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem1
-  have h_mem2 := Mem.storeInt_sep (X2.toBitVec + 8#64) 8 v2.toBytes _ _ ⟨h_mem1', h_bs2⟩ X1.toBitVec.toInt
-  have h_mem2' : (Eq ((Int.toBytes 8 X0.toBitVec.toInt).At X2) ⋆ (Eq ((Int.toBytes 8 X1.toBitVec.toInt).At (X2.toBitVec + 8#64)) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem2
-  have h_mem2'' : (Eq ((Int.toBytes 8 X1.toBitVec.toInt).At (X2.toBitVec + 8#64)) ⋆ (Eq ((Int.toBytes 8 X0.toBitVec.toInt).At X2.toBitVec) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem2'
-  simp at h_mem
-  sym =>
-  kstep
+  have h_mem1 := Mem.storeInt_sep s₀.regs.X2.toBitVec 8 v1.toBytes (Eq (v2.At (s₀.regs.X2.toBitVec + 8#64)) ⋆ R) s₀.dmem ⟨by ecancel, h_bs1⟩ s₀.regs.X0.toBitVec.toInt
+  have h_mem1' : (Eq (v2.At (s₀.regs.X2.toBitVec + 8#64)) ⋆ (Eq ((Int.toBytes 8 s₀.regs.X0.toBitVec.toInt).At s₀.regs.X2) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem1
+  have h_mem2 := Mem.storeInt_sep (s₀.regs.X2.toBitVec + 8#64) 8 v2.toBytes _ _ ⟨h_mem1', h_bs2⟩ s₀.regs.X1.toBitVec.toInt
+  have h_mem2' : (Eq ((Int.toBytes 8 s₀.regs.X0.toBitVec.toInt).At s₀.regs.X2) ⋆ (Eq ((Int.toBytes 8 s₀.regs.X1.toBitVec.toInt).At (s₀.regs.X2.toBitVec + 8#64)) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem2
+  have h_mem2'' : (Eq ((Int.toBytes 8 s₀.regs.X1.toBitVec.toInt).At (s₀.regs.X2.toBitVec + 8#64)) ⋆ (Eq ((Int.toBytes 8 s₀.regs.X0.toBitVec.toInt).At s₀.regs.X2.toBitVec) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem2'
+  kstep =>
   case h_mem => tactic => simp; ecancel
   case h_len => exact h_bs1
   kstep
@@ -178,7 +178,6 @@ theorem move_2_regs_to_heap_correct [layout : WellFormedLayout move_2_regs_to_he
   case h_mem => tactic => simp; exact h_mem2''
   case h_len => tactic => rfl
   kstep
-  tactic =>
   apply Eventually.done
   rw [BitVec.ofInt_ofBytes_toBytes 64 8 rfl, BitVec.ofInt_ofBytes_toBytes 64 8 rfl]
   exact ⟨rfl, rfl, rfl, rfl⟩
@@ -202,14 +201,12 @@ theorem reg_offset_example_correct [layout : WellFormedLayout reg_offset_example
   kprologue reg_offset_example with s₀
   have h_bs : v.toBytes.length = 8 := UInt64.toBytes_length v
   simp at h_mem
-  have h_mem' := Mem.storeInt_sep (X1.toBitVec + BitVec.ofInt 64 (X2.toBitVec.toNat <<< 3)) 8 v.toBytes R mem ⟨h_mem, h_bs⟩ 42
-  sym =>
-  kstep
+  have h_mem' := Mem.storeInt_sep (s₀.regs.X1.toBitVec + BitVec.ofInt 64 (s₀.regs.X2.toBitVec.toNat <<< 3)) 8 v.toBytes R s₀.dmem ⟨h_mem, h_bs⟩ 42
+  kstep =>
   case h_mem => tactic => simp; exact h_mem
   case h_len => exact h_bs
   kstep
   case h_mem => tactic => simp; exact h_mem'
   case h_len => exact by decide
   kstep
-  tactic =>
   exact .done _ ⟨rfl, rfl⟩
