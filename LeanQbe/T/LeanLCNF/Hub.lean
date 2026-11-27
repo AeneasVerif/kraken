@@ -21,6 +21,7 @@ public import LeanQbe.T.LeanLCNF.LcnfC0BigNumProof7
 public import LeanQbe.T.LeanLCNF.LcnfC0BigNumProof8
 public import LeanQbe.T.LeanLCNF.LcnfC0BigNumSpec
 public import LeanQbe.T.LeanLCNF.LcnfC0Containers
+public import LeanQbe.T.LeanLCNF.LcnfC0ContainersCow
 public import LeanQbe.T.LeanLCNF.LcnfC0ContainersProof
 public import LeanQbe.T.LeanLCNF.LcnfC0ContainersProof1
 public import LeanQbe.T.LeanLCNF.LcnfC0ContainersProof2
