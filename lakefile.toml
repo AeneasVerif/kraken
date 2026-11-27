@@ -19,6 +19,9 @@ name = "LeanQbeCore"
 roots = []
 globs = [
   "LeanQbe.T.CoreHub",
+  "LeanQbe.T.Logic.ExtraHub",
+  "LeanQbe.T.Unified.Hub",
+  "LeanQbe.T.Wasm.Hub",
   "LeanQbe.T.Frontend.C0.Hub",
   "LeanQbe.T.LeanLCNF.Hub",
   "LeanQbe.T.LeanLRC.Hub",

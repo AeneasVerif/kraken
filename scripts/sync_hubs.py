@@ -2,8 +2,8 @@
 """Check and generate LeanQbe barrel and subsystem hub modules.
 
 Inspects tracked `.lean` files under `LeanQbe/` and validates or generates the
-17 pure re-export barrel/hub files (`LeanQbe.lean`, `LeanQbeAmd64.lean`,
-`LeanQbeArm64.lean`, `LeanQbeBootstrap0.lean`, and the 13 subsystem `*Hub.lean`
+20 pure re-export barrel/hub files (`LeanQbe.lean`, `LeanQbeAmd64.lean`,
+`LeanQbeArm64.lean`, `LeanQbeBootstrap0.lean`, and the 16 subsystem `*Hub.lean`
 files), respecting the exact arch-isolation partition from `lakefile.toml` and
 `scripts/check.sh`.
 
@@ -53,6 +53,18 @@ HUB_DOCSTRINGS: dict[str, str] = {
     "LeanQbe.T.CoreHub": (
         "/-! Subsystem hub re-exporting core compiler IR, passes, lemmas, "
         "linking, and driver modules. -/"
+    ),
+    "LeanQbe.T.Logic.ExtraHub": (
+        "/-! Subsystem hub re-exporting non-core Logic helper and layout "
+        "modules. -/"
+    ),
+    "LeanQbe.T.Unified.Hub": (
+        "/-! Subsystem hub re-exporting Unified CFG recovery and contification "
+        "modules (`LeanQbe.T.Unified.*`). -/"
+    ),
+    "LeanQbe.T.Wasm.Hub": (
+        "/-! Subsystem hub re-exporting WebAssembly AST, decoder, lowering, and "
+        "safety modules (`LeanQbe.T.Wasm.*`). -/"
     ),
     "LeanQbe.T.Frontend.C0.Hub": (
         "/-! Subsystem hub re-exporting C0 frontend modules "
@@ -209,6 +221,16 @@ def list_tracked_lean_modules(root: Path) -> dict[str, Path]:
     return out
 
 
+NONCORE_LOGIC_MODULES: frozenset[str] = frozenset(
+    {
+        "LeanQbe.T.Logic.CanonicalEnv",
+        "LeanQbe.T.Logic.MemAlgebra",
+        "LeanQbe.T.Logic.SlabLayoutElab",
+        "LeanQbe.T.Logic.U32",
+    }
+)
+
+
 def classify_module(mod: str) -> str | None:
     """Assign a tracked `LeanQbe.*` module to its exact hub/barrel partition."""
     if mod in SUBSYSTEM_HUBS:
@@ -217,6 +239,12 @@ def classify_module(mod: str) -> str | None:
         return "LeanQbeAmd64"
     if mod.startswith("LeanQbe.T.Arm64."):
         return "LeanQbeArm64"
+    if mod in NONCORE_LOGIC_MODULES:
+        return "LeanQbe.T.Logic.ExtraHub"
+    if mod.startswith("LeanQbe.T.Unified."):
+        return "LeanQbe.T.Unified.Hub"
+    if mod.startswith("LeanQbe.T.Wasm."):
+        return "LeanQbe.T.Wasm.Hub"
     if mod == "LeanQbe.T.Frontend.C0" or mod.startswith("LeanQbe.T.Frontend.C0."):
         return "LeanQbe.T.Frontend.C0.Hub"
     if mod.startswith("LeanQbe.T.LeanLCNF."):
@@ -340,7 +368,7 @@ def render_hub(hub: str, imports: list[str]) -> str:
 
 
 def run_check(root: Path, strict: bool) -> int:
-    """Verify all 17 hub/barrel files against tracked modules and invariants."""
+    """Verify all 20 hub/barrel files against tracked modules and invariants."""
     errors = verify_lakefile(root)
     tracked = list_tracked_lean_modules(root)
     partitions, part_errors = build_partitions(tracked)
@@ -427,7 +455,7 @@ def run_check(root: Path, strict: bool) -> int:
 
 
 def run_write(root: Path) -> int:
-    """Regenerate all 17 hub/barrel files deterministically from tracked files."""
+    """Regenerate all 20 hub/barrel files deterministically from tracked files."""
     errors = verify_lakefile(root)
     tracked = list_tracked_lean_modules(root)
     partitions, part_errors = build_partitions(tracked)

@@ -669,7 +669,8 @@ def audit_lean_source(
 
 
 SUBSYSTEM_HUBS: tuple[str, ...] = (
-    "LeanQbe.T.CoreHub", "LeanQbe.T.Frontend.C0.Hub", "LeanQbe.T.LeanLCNF.Hub",
+    "LeanQbe.T.CoreHub", "LeanQbe.T.Logic.ExtraHub", "LeanQbe.T.Unified.Hub",
+    "LeanQbe.T.Wasm.Hub", "LeanQbe.T.Frontend.C0.Hub", "LeanQbe.T.LeanLCNF.Hub",
     "LeanQbe.T.LeanLRC.Hub", "LeanQbe.T.Examples.Hub", "LeanQbe.T.Examples.Kissat.BaseHub",
     "LeanQbe.T.Examples.Kissat.M3Hub", "LeanQbe.T.Examples.Kissat.M4Hub",
     "LeanQbe.T.Examples.Kissat.M5Hub", "LeanQbe.T.Examples.Kissat.M6Hub",

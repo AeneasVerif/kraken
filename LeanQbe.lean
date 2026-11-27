@@ -1,6 +1,9 @@
 module
 
 public import LeanQbe.T.CoreHub
+public import LeanQbe.T.Logic.ExtraHub
+public import LeanQbe.T.Unified.Hub
+public import LeanQbe.T.Wasm.Hub
 public import LeanQbe.T.Frontend.C0.Hub
 public import LeanQbe.T.LeanLCNF.Hub
 public import LeanQbe.T.LeanLRC.Hub
