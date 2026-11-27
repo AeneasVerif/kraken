@@ -352,7 +352,8 @@ def RtC0State.hasFree (st : RtC0State) (bytes : Nat) : Prop :=
   (bytes < 512 ∧ st.smallPools (bytes / 8) ≠ []) ∨
   (512 ≤ bytes ∧ ∃ x ∈ st.largeNodes, x.2 = bytes)
 
-/-- Full separation-logic predicate for the `LcnfC0Rt` block, worklist, freelists, and bump arena. -/
+/-- Full separation-logic predicate for the `LcnfC0Rt` block, worklist, freelists, and bump arena.
+-/
 def rtC0Inv (rt : BitVec 64) (st : RtC0State) : Mem 64 → Prop :=
   array64 rt st.extraArgs ⋆
   array64 (rt + BitVec.ofNat 64 rtGlobalsOff) st.globals ⋆
@@ -375,7 +376,8 @@ def RtC0State.PreservesMeta (st st' : RtC0State) : Prop :=
   st'.hdr.s_nchunks = st.hdr.s_nchunks ∧
   st'.hdr.s_chunks_cap = st.hdr.s_chunks_cap
 
-/-- Concrete initial `RtC0State` packed into one contiguous slab `[rt, rt + 33672 + 8*workCap + rem)`. -/
+/-- Concrete initial `RtC0State` packed into one contiguous slab
+`[rt, rt + 33672 + 8*workCap + rem)`. -/
 def initRtC0State (rt : BitVec 64) (workCap rem : Nat)
     (hrt0 : rt.toNat + 33672 + 8 * workCap + rem < 2 ^ 64)
     (halign : rt.toNat % 8 = 0) : RtC0State where
@@ -572,7 +574,8 @@ theorem rtC0Slab_to_region (rt : BitVec 64) (workCap rem : Nat)
 /-! ## 4. Heap Objects (`LcnfObj`), Footprints, and `RcSound` -/
 
 /-- Descriptor of any R0-supported `lean_object`:
-ctor (`≤ 244`), closure (`245`), `Array` (`246`), `SArray` (`248`), `String` (`249`), `MPZ` (`250`). -/
+ctor (`≤ 244`), closure (`245`), `Array` (`246`), `SArray` (`248`), `String` (`249`),
+`MPZ` (`250`). -/
 structure LcnfObj where
   addr : BitVec 64
   rc : BitVec 32
@@ -589,7 +592,8 @@ structure LcnfObj where
   limbs : List (BitVec 64) := []
   deriving Repr, BEq
 
-/-- 64-bit object header word (`m_rc : i32 @0`, `m_cs_sz : u16 @4`, `m_other : u8 @6`, `m_tag : u8 @7`). -/
+/-- 64-bit object header word (`m_rc : i32 @0`, `m_cs_sz : u16 @4`, `m_other : u8 @6`,
+`m_tag : u8 @7`). -/
 def LcnfObj.header (o : LcnfObj) : BitVec 64 :=
   BitVec.ofNat 64 o.rc.toNat |||
   (BitVec.ofNat 64 o.csSz <<< 32) |||
@@ -1055,7 +1059,8 @@ theorem lcnfObjMem_to_freeObjLayout {o : LcnfObj} (hwf : o.Wf) {m : Mem 64}
       refine sep_mono_r (fun _ x => ?_) hm3
       rw [show o.addr + BitVec.ofNat 64 (24 + 8 * o.fields.length) =
         (o.addr + 8#64) + BitVec.ofNat 64 (16 + 8 * o.fields.length) by
-        rw [ptr_add_nat, show 8 + (16 + 8 * o.fields.length) = 24 + 8 * o.fields.length by omega]] at x
+        rw [ptr_add_nat,
+          show 8 + (16 + 8 * o.fields.length) = 24 + 8 * o.fields.length by omega]] at x
       exact merge_reg_2 (by omega) (by omega) x
     simpa [htb] using hm4
   · by_cases ha : o.tag = arrayTag
@@ -1093,7 +1098,8 @@ theorem lcnfObjMem_to_freeObjLayout {o : LcnfObj} (hwf : o.Wf) {m : Mem 64}
         simp only [freeObjLayout, htagN, hsa, show sarrayTag ≠ arrayTag by decide, ↓reduceIte]
         refine ⟨BitVec.ofNat 64 o.cap,
           by rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]; exact hcaple,
-          by rw [heszN, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (show o.cap < 2 ^ 64 by omega)]; exact htb,
+          by rw [heszN, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (show o.cap < 2 ^ 64 by omega)]
+             exact htb,
           ?_⟩
         rw [sep_assoc] at hm
         have hm1 : (((cell64 o.addr o.header ⋆ region (o.addr + 8#64) 8) ⋆
@@ -1101,7 +1107,8 @@ theorem lcnfObjMem_to_freeObjLayout {o : LcnfObj} (hwf : o.Wf) {m : Mem 64}
             (region (o.addr + 24#64) o.scalarData.length ⋆
             region (o.addr + BitVec.ofNat 64 (24 + o.scalarData.length))
               (o.totalBytes - (24 + o.scalarData.length)))) m :=
-          sep_mono2 (fun _ x => sep_mono (fun _ y => sep_mono_r (fun _ h => cell64_to_region h) y) x)
+          sep_mono2 (fun _ x =>
+            sep_mono (fun _ y => sep_mono_r (fun _ h => cell64_to_region h) y) x)
             (fun _ x => sep_mono (fun _ h => bytes_to_reg_mem h) x) _ hm
         have hmrg := region_merge_eq (a := o.addr + 24#64) (n1 := o.scalarData.length)
           (n2 := o.totalBytes - (24 + o.scalarData.length)) (n := o.totalBytes - 24)
@@ -1131,7 +1138,8 @@ theorem lcnfObjMem_to_freeObjLayout {o : LcnfObj} (hwf : o.Wf) {m : Mem 64}
               (region (o.addr + 24#64) 8 ⋆ (region (o.addr + 32#64) o.scalarData.length ⋆
               region (o.addr + BitVec.ofNat 64 (32 + o.scalarData.length))
                 (o.totalBytes - (32 + o.scalarData.length))))) m :=
-            sep_mono2 (fun _ x => sep_mono (fun _ y => sep_mono_r (fun _ h => cell64_to_region h) y) x)
+            sep_mono2 (fun _ x =>
+              sep_mono (fun _ y => sep_mono_r (fun _ h => cell64_to_region h) y) x)
               (fun _ x => sep_mono2 (fun _ h => cell64_to_region h)
                 (fun _ y => sep_mono (fun _ h => bytes_to_reg_mem h) y) _ x) _ hm
           refine sep_mono_r (fun m' x => ?_) hm1
@@ -1142,7 +1150,8 @@ theorem lcnfObjMem_to_freeObjLayout {o : LcnfObj} (hwf : o.Wf) {m : Mem 64}
             exact merge_reg_l (by omega) (by omega) x
           rw [show o.addr + BitVec.ofNat 64 (32 + o.scalarData.length) =
             (o.addr + 24#64) + BitVec.ofNat 64 (8 + o.scalarData.length) by
-            rw [ptr_add_nat, show 24 + (8 + o.scalarData.length) = 32 + o.scalarData.length by omega]] at hm2
+            rw [ptr_add_nat,
+              show 24 + (8 + o.scalarData.length) = 32 + o.scalarData.length by omega]] at hm2
           exact merge_reg_2 (by omega) (by omega) hm2
         · by_cases hmpz : o.tag = mpzTag
           · simp only [lcnfObjMem, hmpz, show mpzTag ≠ closureTag by decide,
@@ -1159,8 +1168,10 @@ theorem lcnfObjMem_to_freeObjLayout {o : LcnfObj} (hwf : o.Wf) {m : Mem 64}
             simp only [freeObjLayout, htagN, hmpz, show mpzTag ≠ arrayTag by decide,
               show mpzTag ≠ sarrayTag by decide, show mpzTag ≠ stringTag by decide, ↓reduceIte]
             refine ⟨o.mpzMeta,
-              by rw [o.mpzMeta_cap hcap32, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]; exact hcaple,
-              by rw [o.mpzMeta_cap hcap32, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]; exact htb, ?_⟩
+              by rw [o.mpzMeta_cap hcap32, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]
+                 exact hcaple,
+              by rw [o.mpzMeta_cap hcap32, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]
+                 exact htb, ?_⟩
             exact sep_mono_r (fun _ h => by simpa [htb, hlim] using array64_to_region h8l h) hm
           · simp only [lcnfObjMem, hc, ha, hsa, hstr, hmpz, ↓reduceIte] at hm
             simp only [hc, ha, hsa, hstr, hmpz, ↓reduceIte] at hspec
@@ -1316,7 +1327,8 @@ theorem rtC0Env_alloc (xs : Tup Val [i64, i64]) (m : Mem 64) (Q : Post [i64]) (X
 
 theorem rtC0Env_free_obj (xs : Tup Val [i64, i64]) (m : Mem 64) (Q : Post []) (X : XPost)
     (h : lcnfFreeObjSpec xs m Q X) : rtC0Env "lcnf_free_obj" [i64, i64] [] xs m Q X :=
-  Env.ofTable_of_mem (tbl := rtC0SpecEntries) (e := SpecEntry.ofFn lcnf_free_obj lcnfFreeObjSpec true)
+  Env.ofTable_of_mem (tbl := rtC0SpecEntries)
+    (e := SpecEntry.ofFn lcnf_free_obj lcnfFreeObjSpec true)
     (by simp [rtC0SpecEntries]) rtC0SpecEntries_nodup h
 
 theorem rtC0Env_dec_ref_cold (xs : Tup Val [i64, i64]) (m : Mem 64) (Q : Post []) (X : XPost)
