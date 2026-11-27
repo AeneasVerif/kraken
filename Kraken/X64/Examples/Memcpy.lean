@@ -185,7 +185,7 @@ theorem memcpy_correct [layout : WellFormedLayout memcpy]
       have hzf : (v == BitVec.zero 64) = false := by grind
       simp only [hzf, Bool.false_eq_true, ↓reduceIte]
       sym => kstep 0; tactic =>
-      refine tailrec_loop_measure
+      refine tailrec_loop
         (onLoop := fun (g : LoopGhost) st =>
           st.pc = memcpy.toExecutable.addrOf 4 ∧
           0 < g.dst.length ∧
@@ -199,8 +199,8 @@ theorem memcpy_correct [layout : WellFormedLayout memcpy]
           g.src.length = g.dst.length ∧
           (st.data.dmem =⋆ Eq (g.dst.At g.dstPtr) ⋆ Eq (g.src.At g.srcPtr) ⋆ g.frame))
         (onExit := Q)
-        (measure := (·.dst.length))
-        (· < ·) Nat.lt_wfRel.wf
+        (fun g' g => g'.dst.length < g.dst.length)
+        (InvImage.wf (fun g : LoopGhost => g.dst.length) Nat.lt_wfRel.wf)
         ⟨dst_ptr, src_ptr, dst, src, frame₀⟩
         ⟨rfl, by rw [h_dst_len]; exact Nat.pos_of_ne_zero hn,
           by grind, h_rdi, h_rsi, by grind, rfl, hdf, ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩,

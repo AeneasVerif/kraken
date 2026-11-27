@@ -63,18 +63,3 @@ theorem tailrec_loop {State : Type} {Ghost : Sort _}
     rintro mid_s (⟨hQ⟩ | ⟨g', hP', hlt, hQ'⟩)
     · exact .done mid_s (hpost mid_s hQ)
     · exact ih g' hlt hP' (fun t h => hpost t (hQ' t h))
-
--- Tailrec-style loop rule with an explicit termination measure extracted from the ghost state
-theorem tailrec_loop_measure {State : Type} {Ghost : Sort _} {Measure : Sort _}
-    {trans : State → Post → Prop} {post : Post} {initial : State}
-    (onLoop onExit : Ghost → Post)
-    (measure : Ghost → Measure)
-    (lt : Measure → Measure → Prop)
-    (Hwf : WellFounded lt)
-    (g0 : Ghost) :
-    onLoop g0 initial →
-    (∀ g state, onLoop g state →
-      Eventually trans (LoopPost onLoop onExit (fun g' g => lt (measure g') (measure g)) g) state) →
-    (∀ state, onExit g0 state → post state) →
-    Eventually trans post initial :=
-  tailrec_loop onLoop onExit (fun g' g => lt (measure g') (measure g)) (InvImage.wf measure Hwf) g0
