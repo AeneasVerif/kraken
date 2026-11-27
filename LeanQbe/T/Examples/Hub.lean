@@ -13,6 +13,14 @@ public import LeanQbe.T.Examples.Bitblast.Proof.Driver1
 public import LeanQbe.T.Examples.Bitblast.Proof.DriverHelpers
 public import LeanQbe.T.Examples.Bitblast.Proof.DriverInit
 public import LeanQbe.T.Examples.Bitblast.Proof.Full
+public import LeanQbe.T.Examples.Bitblast.Proof.OpsDivCpop
+public import LeanQbe.T.Examples.Bitblast.Proof.OpsDivCpop0
+public import LeanQbe.T.Examples.Bitblast.Proof.OpsDivCpop1
+public import LeanQbe.T.Examples.Bitblast.Proof.OpsDivCpop1Helpers
+public import LeanQbe.T.Examples.Bitblast.Proof.OpsDivCpop2
+public import LeanQbe.T.Examples.Bitblast.Proof.OpsDivCpop2CpopHelpers
+public import LeanQbe.T.Examples.Bitblast.Proof.OpsDivCpop2Helpers
+public import LeanQbe.T.Examples.Bitblast.Proof.OpsDivCpopHelpers
 public import LeanQbe.T.Examples.Bitblast.Proof.Specs
 public import LeanQbe.T.Examples.Bitblast.Proof.Tseitin
 public import LeanQbe.T.Examples.Bitblast.Proof.Tseitin0
