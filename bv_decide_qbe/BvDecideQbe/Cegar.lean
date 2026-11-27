@@ -60,7 +60,7 @@ where
   checkTermination : CegarM Unit := do
     checkSystem "bv_decide_qbe"
     if (← CegarM.getRounds) == 0 then
-      throwError m!"bv_decide_qbe reached its round limit; increase `cegarRounds` if needed"
+      throwError m!"bv_decide_qbe reached its round limit, consider increasing it via the `cegarRounds` config option"
     CegarM.consumeRound
 
   cegarLoop : UnsatProver CegarResult := CegarM.run ctx do

@@ -112,11 +112,11 @@ private def logicalExprEq : BVLogicalExpr → BVLogicalExpr → Bool
     logicalExprEq d1 d2 && logicalExprEq l1 l2 && logicalExprEq r1 r2
   | _, _ => false
 
-/-- Minimum upfront scratch workspace (`256 KiB`). -/
-def minWorkBytes : Nat := 256 * 1024
+/-- Minimum upfront scratch workspace (`2 MiB`, sized for `KissatFidelity` `M6Hdr`). -/
+def minWorkBytes : Nat := 2 * 1024 * 1024
 
-/-- Maximum upfront scratch workspace (`512 MiB`). -/
-def maxWorkBytes : Nat := 512 * 1024 * 1024
+/-- Maximum upfront scratch workspace (`1 GiB`). -/
+def maxWorkBytes : Nat := 1024 * 1024 * 1024
 
 /-- Encoded `BVP1` statistics used for deterministic upfront workspace sizing. -/
 structure ProgStats where
@@ -199,7 +199,7 @@ def estimateWorkBytesNat (stats : ProgStats) : Nat :=
     32 * estClauses
   let bitblastBytes := fixedBytes + remBytes
   let maxVarsEst := estAig + min (estAig / 2 + 16) 4096
-  let kissatFixed := 4096 + 160 * maxVarsEst
+  let kissatFixed := 4096 + 384 * maxVarsEst
   let kissatClauseHeadroom := 4 * estClauses * 48
   let rawBytes := bitblastBytes + kissatFixed + kissatClauseHeadroom
   min maxWorkBytes (max minWorkBytes (nextPow2 rawBytes))

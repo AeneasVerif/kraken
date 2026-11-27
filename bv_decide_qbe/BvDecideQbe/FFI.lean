@@ -42,6 +42,7 @@ private inductive RawSolveResult where
   | sat (model : ByteArray)
   | unknown
   | workTooSmall
+  | timeout
   deriving BEq, Inhabited
 
 @[extern "leanqbe_alloc_work_buf"]
@@ -51,14 +52,29 @@ private opaque allocWorkBuf (n : UInt64) : ByteArray
 private opaque solveBVBytesRaw (prog : @& ByteArray) (work : ByteArray) (fuel : UInt64) :
     RawSolveResult
 
-/-- Default initial scratch workspace size (`256 KiB`). -/
-def defaultInitWorkBytes : UInt64 := 256 * 1024
+/-- Default initial scratch workspace size (`2 MiB`, sized for `KissatFidelity` `M6Hdr`). -/
+def defaultInitWorkBytes : UInt64 := 2 * 1024 * 1024
 
-/-- Default maximum scratch workspace size (`512 MiB`). -/
-def defaultMaxWorkBytes : UInt64 := 512 * 1024 * 1024
+/-- Default maximum scratch workspace size (`1 GiB`). -/
+def defaultMaxWorkBytes : UInt64 := 1024 * 1024 * 1024
 
-/-- Default Kissat fuel budget. -/
-def defaultFuel : UInt64 := 100000000
+/-- Calibrated `KissatFidelity` propagation/search fuel units per second of wall-clock timeout. -/
+def fuelPerSecond : UInt64 := 15000000
+
+/-- Convert a wall-clock `timeout` in seconds into a deterministic `KissatFidelity` fuel budget
+(`0` yields `0`, triggering an immediate `.timeout`). -/
+def fuelOfTimeout (timeoutSec : Nat) : UInt64 :=
+  if timeoutSec == 0 then
+    0
+  else
+    let prod := timeoutSec * fuelPerSecond.toNat
+    if prod >= UInt64.size then
+      UInt64.ofNat (UInt64.size - 1)
+    else
+      prod.toUInt64
+
+/-- Default Kissat fuel budget (`10` seconds). -/
+def defaultFuel : UInt64 := fuelOfTimeout 10
 
 /-- Unforgeable UNSAT witness produced only when in-process `bv_solve_bytes` returns `20`.
 Constructor `UnsatWitness.mk` is `private` to `BvDecideQbe.FFI`. -/
@@ -73,6 +89,7 @@ inductive VerifiedSolveResult where
   | sat (model : ByteArray)
   | unknown
   | workTooSmall
+  | timeout
 
 instance : Inhabited VerifiedSolveResult := ⟨.unknown⟩
 
@@ -174,6 +191,12 @@ where
       | .unknown =>
         return {
           result := .unknown
+          workBytesUsed := curWork.toNat
+          attempts := attempts
+        }
+      | .timeout =>
+        return {
+          result := .timeout
           workBytesUsed := curWork.toNat
           attempts := attempts
         }
