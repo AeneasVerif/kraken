@@ -97,6 +97,10 @@ structure LegalTarget where
   /-- Whether bitwise logic (`and`/`or`/`xor`/`not`/`ternlog`) is legal directly on scalar floats
   (false: `bitcast` to integer `bits`, run bitwise op, `bitcast` back). -/
   scalarFloatBitwise : Bool := false
+  /-- Whether `addrRangeOpt` folds constant displacements into hoisted invariant base pointers
+  (beneficial on AArch64 where `[xB, xI, lsl #2]` has no immediate offset; off on x86-64 where
+  `disp(%base,%iv,4)` is free and extra live base registers increase register pressure). -/
+  foldAddrDisp : Bool := false
   /-- Packed vector integer/shuffle/SHA opcodes supported natively at packed vector type `t`,
   given whether the right-hand operand (if any) is a uniform immediate shift/rotate count. -/
   vecIntOpSupported : {as rs : List Ty} → OpCode as rs → Ty → (uniformImmRhs : Bool) → Bool
@@ -121,6 +125,7 @@ def LegalTarget.aarch64 : LegalTarget where
   allowPackBridge := false
   bitWidths := [8, 16, 32, 64]
   floatFmts := []
+  foldAddrDisp := true
   vecIntOpSupported _ _ _ := false
   vecFloatOpSupported _ _ := false
 

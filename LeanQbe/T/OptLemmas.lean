@@ -348,18 +348,19 @@ theorem Func.lateCore_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : 
   rw [Func.lateCore_eq]
   exact h2
 
-/-- `Func.lateCfgPre` preserves well-formedness. -/
-theorem Func.lateCfgPre_wf {as rs : List Ty} {f : Func as rs} (_hf : f.Wf) :
-    (Func.lateCfgPre f).Wf := by
-  rw [Func.lateCfgPre_eq]
-  exact Func.gvn_wf (Func.addrRangeOpt_wf (Func.fold_wf (Func.assumeElim_wf
+/-- `Func.lateCfgPreWith` preserves well-formedness. -/
+theorem Func.lateCfgPreWith_wf (foldAddrDisp : Bool) {as rs : List Ty} {f : Func as rs}
+    (_hf : f.Wf) : (Func.lateCfgPreWith foldAddrDisp f).Wf := by
+  rw [Func.lateCfgPreWith_eq]
+  exact Func.gvn_wf (Func.addrRangeOptWith_wf foldAddrDisp (Func.fold_wf (Func.assumeElim_wf
     (Func.deadLoadElim_wf (Func.simplifyGroupFast_wf (Func.ifOptBits f))))))
 
-/-- `Func.lateCfgPre` refines function contracts. -/
-theorem Func.lateCfgPre_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
-    {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
-    (h : Func.spec Γ f xs m Q X) : Func.spec Γ (Func.lateCfgPre f) xs m Q X := by
-  rw [Func.lateCfgPre_eq]
+/-- `Func.lateCfgPreWith` refines function contracts. -/
+theorem Func.lateCfgPreWith_spec (foldAddrDisp : Bool) {as rs : List Ty} {f : Func as rs}
+    (hf : f.Wf) {Γ : Env} {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
+    (h : Func.spec Γ f xs m Q X) :
+    Func.spec Γ (Func.lateCfgPreWith foldAddrDisp f) xs m Q X := by
+  rw [Func.lateCfgPreWith_eq]
   have hf1 := Func.ifOptBits_wf hf
   have hs1 := Func.ifOptBits_spec hf h
   have hf2 := Func.simplifyGroupFast_wf (Func.ifOptBits f)
@@ -370,9 +371,26 @@ theorem Func.lateCfgPre_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ 
   have hs4 := Func.assumeElim_spec hf3 hs3
   have hf5 := Func.fold_wf hf4
   have hs5 := Func.fold_spec hf4 hs4
-  have hf6 := Func.addrRangeOpt_wf hf5
-  have hs6 := Func.addrRangeOpt_spec hf5 hs5
+  have hf6 := Func.addrRangeOptWith_wf foldAddrDisp hf5
+  have hs6 := Func.addrRangeOptWith_spec foldAddrDisp hf5 hs5
   exact Func.gvn_spec hf6 hs6
+
+/-- `Func.lateCfgPre` preserves well-formedness. -/
+theorem Func.lateCfgPre_wf {as rs : List Ty} {f : Func as rs} (hf : f.Wf) :
+    (Func.lateCfgPre f).Wf := by
+  rw [Func.lateCfgPre_eq]
+  dsimp only [Func.addrRangeOpt]
+  rw [← Func.lateCfgPreWith_eq false]
+  exact Func.lateCfgPreWith_wf false hf
+
+/-- `Func.lateCfgPre` refines function contracts. -/
+theorem Func.lateCfgPre_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
+    {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
+    (h : Func.spec Γ f xs m Q X) : Func.spec Γ (Func.lateCfgPre f) xs m Q X := by
+  rw [Func.lateCfgPre_eq]
+  dsimp only [Func.addrRangeOpt]
+  rw [← Func.lateCfgPreWith_eq false]
+  exact Func.lateCfgPreWith_spec false hf h
 
 /-- `Func.lateCfgPost` preserves well-formedness. -/
 theorem Func.lateCfgPost_wf {as rs : List Ty} {f : Func as rs} (hf : f.Wf) :

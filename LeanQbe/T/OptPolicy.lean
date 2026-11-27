@@ -664,26 +664,29 @@ theorem Func.lateCorePolicy_spec (pol : SnippetOptPolicy) {as rs : List Ty} {f :
     (Func.renorm_spec (Func.lateCorePrePolicy_wf pol hf) (Func.lateCorePrePolicy_spec pol hf h))
 
 /-- Policy-parameterized post-`Legal` pre-`licm` CFG/cleanup core. -/
-def Func.lateCfgPrePolicy (pol : SnippetOptPolicy) {as rs : List Ty} (f : Func as rs) :
-    Func as rs :=
+def Func.lateCfgPrePolicy (pol : SnippetOptPolicy) {as rs : List Ty} (f : Func as rs)
+    (foldAddrDisp : Bool := false) : Func as rs :=
   let f1 := applyPassIf (!pol.noIfOpt) Func.ifOptBits f
   let f2 := applyPassIf (!pol.noSimplifyGrp) Func.simplifyGroupFast f1
   let f3 := Func.foldPolicy pol (Func.assumeElim (Func.deadLoadElim f2))
-  let f4 := applyPassIf (!pol.noAddrRange) Func.addrRangeOpt f3
+  let f4 := applyPassIf (!pol.noAddrRange) (Func.addrRangeOptWith foldAddrDisp) f3
   Func.gvn f4
 
 theorem Func.lateCfgPrePolicy_wf (pol : SnippetOptPolicy) {as rs : List Ty} {f : Func as rs}
-    (hf : f.Wf) : (Func.lateCfgPrePolicy pol f).Wf := by
+    (hf : f.Wf) (foldAddrDisp : Bool := false) :
+    (Func.lateCfgPrePolicy pol f foldAddrDisp).Wf := by
   dsimp only [Func.lateCfgPrePolicy]
   have hf1 := applyPassIf_wf (!pol.noIfOpt) Func.ifOptBits Func.ifOptBits_wf hf
   have hf2 := applyPassIf_wf (!pol.noSimplifyGrp) Func.simplifyGroupFast
     (fun {g} _ => Func.simplifyGroupFast_wf g) hf1
   have hf3 := Func.foldPolicy_wf pol (Func.assumeElim_wf (Func.deadLoadElim_wf hf2))
-  exact Func.gvn_wf (applyPassIf_wf (!pol.noAddrRange) Func.addrRangeOpt Func.addrRangeOpt_wf hf3)
+  exact Func.gvn_wf (applyPassIf_wf (!pol.noAddrRange) (Func.addrRangeOptWith foldAddrDisp)
+    (Func.addrRangeOptWith_wf foldAddrDisp) hf3)
 
 theorem Func.lateCfgPrePolicy_spec (pol : SnippetOptPolicy) {as rs : List Ty} {f : Func as rs}
     (hf : f.Wf) {Γ : Env} {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
-    (h : Func.spec Γ f xs m Q X) : Func.spec Γ (Func.lateCfgPrePolicy pol f) xs m Q X := by
+    (h : Func.spec Γ f xs m Q X) (foldAddrDisp : Bool := false) :
+    Func.spec Γ (Func.lateCfgPrePolicy pol f foldAddrDisp) xs m Q X := by
   dsimp only [Func.lateCfgPrePolicy]
   have hf1 := applyPassIf_wf (!pol.noIfOpt) Func.ifOptBits Func.ifOptBits_wf hf
   have hs1 := applyPassIf_spec (!pol.noIfOpt) Func.ifOptBits Func.ifOptBits_spec hf h
@@ -697,8 +700,10 @@ theorem Func.lateCfgPrePolicy_spec (pol : SnippetOptPolicy) {as rs : List Ty} {f
   have hs4 := Func.assumeElim_spec hf3 hs3
   have hf5 := Func.foldPolicy_wf pol hf4
   have hs5 := Func.foldPolicy_spec pol hf4 hs4
-  have hf6 := applyPassIf_wf (!pol.noAddrRange) Func.addrRangeOpt Func.addrRangeOpt_wf hf5
-  have hs6 := applyPassIf_spec (!pol.noAddrRange) Func.addrRangeOpt Func.addrRangeOpt_spec hf5 hs5
+  have hf6 := applyPassIf_wf (!pol.noAddrRange) (Func.addrRangeOptWith foldAddrDisp)
+    (Func.addrRangeOptWith_wf foldAddrDisp) hf5
+  have hs6 := applyPassIf_spec (!pol.noAddrRange) (Func.addrRangeOptWith foldAddrDisp)
+    (Func.addrRangeOptWith_spec foldAddrDisp) hf5 hs5
   exact Func.gvn_spec hf6 hs6
 
 /-- Policy-parameterized post-`licm` core (`noHoistOut` disables `licm`). -/
@@ -782,40 +787,42 @@ theorem Func.lateCondThreadPolicy_spec (pol : SnippetOptPolicy) {as rs : List Ty
 
 /-- Boxed `MidBody` stage pipeline matching `Func.lateOptPolicy` without LCNF eta-expansion. -/
 @[noinline] def Func.lateOptPolicyStage (pol : SnippetOptPolicy) {as rs : List Ty}
-    (f : Func as rs) : MidBody as rs :=
+    (f : Func as rs) (foldAddrDisp : Bool := false) : MidBody as rs :=
   let s1 := renormMidBody (Func.lateCorePrePolicy pol f)
   let s2 := renormMidBody (Func.lateCorePostPolicy pol s1.body)
-  let s3 := renormMidBody (Func.lateCfgPrePolicy pol s2.body)
+  let s3 := renormMidBody (Func.lateCfgPrePolicy pol s2.body foldAddrDisp)
   let s4 := renormMidBody (Func.lateLoopRotatePolicy pol s3.body)
   renormMidBody (Func.lateCondThreadPolicy pol s4.body)
 
 /-- Policy-parameterized post-`Legal` pipeline, matching `Func.lateOpt` when `pol = .default`. -/
-def Func.lateOptPolicy (pol : SnippetOptPolicy) {as rs : List Ty} (f : Func as rs) :
-    Func as rs :=
+def Func.lateOptPolicy (pol : SnippetOptPolicy) {as rs : List Ty} (f : Func as rs)
+    (foldAddrDisp : Bool := false) : Func as rs :=
   let s1 := Func.renorm (Func.lateCorePrePolicy pol f)
   let s2 := Func.renorm (Func.lateCorePostPolicy pol s1)
-  let s3 := Func.renorm (Func.lateCfgPrePolicy pol s2)
+  let s3 := Func.renorm (Func.lateCfgPrePolicy pol s2 foldAddrDisp)
   let s4 := Func.renorm (Func.lateLoopRotatePolicy pol s3)
   Func.renorm (Func.lateCondThreadPolicy pol s4)
 
-theorem Func.lateOptPolicyStage_eq (pol : SnippetOptPolicy) {as rs : List Ty} (f : Func as rs) :
-    (Func.lateOptPolicyStage pol f).body = Func.lateOptPolicy pol f :=
+theorem Func.lateOptPolicyStage_eq (pol : SnippetOptPolicy) {as rs : List Ty} (f : Func as rs)
+    (foldAddrDisp : Bool := false) :
+    (Func.lateOptPolicyStage pol f foldAddrDisp).body = Func.lateOptPolicy pol f foldAddrDisp :=
   rfl
 
 theorem Func.lateOptPolicy_wf (pol : SnippetOptPolicy) {as rs : List Ty} {f : Func as rs}
-    (_hf : f.Wf) : (Func.lateOptPolicy pol f).Wf :=
+    (_hf : f.Wf) (foldAddrDisp : Bool := false) : (Func.lateOptPolicy pol f foldAddrDisp).Wf :=
   Func.renorm_wf _
 
 theorem Func.lateOptPolicy_spec (pol : SnippetOptPolicy) {as rs : List Ty} {f : Func as rs}
     (hf : f.Wf) {Γ : Env} {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
-    (h : Func.spec Γ f xs m Q X) : Func.spec Γ (Func.lateOptPolicy pol f) xs m Q X := by
+    (h : Func.spec Γ f xs m Q X) (foldAddrDisp : Bool := false) :
+    Func.spec Γ (Func.lateOptPolicy pol f foldAddrDisp) xs m Q X := by
   dsimp only [Func.lateOptPolicy]
   have h1 := Func.renorm_spec (Func.lateCorePrePolicy_wf pol hf)
     (Func.lateCorePrePolicy_spec pol hf h)
   have h2 := Func.renorm_spec (Func.lateCorePostPolicy_wf pol (Func.renorm_wf _))
     (Func.lateCorePostPolicy_spec pol (Func.renorm_wf _) h1)
-  have h3 := Func.renorm_spec (Func.lateCfgPrePolicy_wf pol (Func.renorm_wf _))
-    (Func.lateCfgPrePolicy_spec pol (Func.renorm_wf _) h2)
+  have h3 := Func.renorm_spec (Func.lateCfgPrePolicy_wf pol (Func.renorm_wf _) foldAddrDisp)
+    (Func.lateCfgPrePolicy_spec pol (Func.renorm_wf _) h2 foldAddrDisp)
   have h4 := Func.renorm_spec (Func.lateLoopRotatePolicy_wf pol (Func.renorm_wf _))
     (Func.lateLoopRotatePolicy_spec pol (Func.renorm_wf _) h3)
   exact Func.renorm_spec (Func.lateCondThreadPolicy_wf pol (Func.renorm_wf _))
@@ -834,7 +841,8 @@ def Fn.lateOptPolicy (pol : SnippetOptPolicy) (fn : Fn) : Fn :=
 /-- Materialize `Func.lateOptPolicy pol` starting from a post-`earlyOptPolicy` function. -/
 def Fn.midFromEarlyPolicy (lt : LegalTarget) (pol : SnippetOptPolicy) (ef : Fn) : Fn :=
   let lf := ef.legal lt
-  ⟨ef.name, lt.legalSig ef.as, lt.legalSig ef.rs, (Func.lateOptPolicyStage pol lf.body).body⟩
+  ⟨ef.name, lt.legalSig ef.as, lt.legalSig ef.rs,
+    (Func.lateOptPolicyStage pol lf.body lt.foldAddrDisp).body⟩
 
 /-- Full staged mid-end pipeline (`earlyOptPolicy → legal lt → lateOptPolicy`) under `pol`. -/
 def Fn.midPolicy (lt : LegalTarget) (pol : SnippetOptPolicy) (fn : Fn) : Fn :=
@@ -859,11 +867,12 @@ private theorem Func.lateCorePostPolicy_default_eq {as rs : List Ty} (f : Func a
     Bool.false_eq_true, ite_false]
   rw [Func.lateCorePost_eq]
 
-private theorem Func.lateCfgPrePolicy_default_eq {as rs : List Ty} (f : Func as rs) :
-    Func.lateCfgPrePolicy .default f = Func.lateCfgPre f := by
+private theorem Func.lateCfgPrePolicy_default_eq (foldAddrDisp : Bool) {as rs : List Ty}
+    (f : Func as rs) :
+    Func.lateCfgPrePolicy .default f foldAddrDisp = Func.lateCfgPreWith foldAddrDisp f := by
   simp only [Func.lateCfgPrePolicy, applyPassIf, SnippetOptPolicy.default, Bool.not_false,
     Bool.false_eq_true, ite_true, ite_false, Func.foldPolicy]
-  rw [Func.lateCfgPre_eq]
+  rw [Func.lateCfgPreWith_eq]
 
 private theorem Func.lateCfgPostPolicy_default_eq {as rs : List Ty} (f : Func as rs) :
     Func.lateCfgPostPolicy .default f = Func.lateCfgPost f := by
@@ -888,7 +897,8 @@ theorem Fn.midPolicy_default_eq (lt : LegalTarget) (fn : Fn) :
     Fn.midPolicy lt .default fn = fn.mid lt := by
   dsimp only [Fn.midPolicy, Fn.midFromEarlyPolicy, Fn.mid, Fn.midFromEarly, Fn.earlyOptPolicy,
     Fn.earlyOpt]
-  rw [Func.earlyOptPolicyStage_eq, Func.lateOptPolicyStage_eq, Func.earlyOptPolicy_default_eq]
+  rw [Func.earlyOptPolicyStage_eq, Func.lateOptPolicyStage_eq _ _ lt.foldAddrDisp,
+    Func.earlyOptPolicy_default_eq]
   dsimp only [Fn.legal]
   apply congrArg (Fn.mk fn.name (lt.legalSig fn.as) (lt.legalSig fn.rs))
   rw [Fn.midStage_eq]
@@ -902,8 +912,9 @@ theorem Fn.midPolicy_wf (lt : LegalTarget) (pol : SnippetOptPolicy) {fn : Fn} (h
     (fn.midPolicy lt pol).Wf := by
   have _ := hwf
   dsimp only [Fn.midPolicy, Fn.midFromEarlyPolicy, Fn.earlyOptPolicy, Fn.legal]
-  rw [Func.lateOptPolicyStage_eq, Func.earlyOptPolicyStage_eq]
+  rw [Func.lateOptPolicyStage_eq _ _ lt.foldAddrDisp, Func.earlyOptPolicyStage_eq]
   exact Func.lateOptPolicy_wf pol (Func.legal_wf lt (Func.earlyOptPolicy_wf pol hwf))
+    lt.foldAddrDisp
 
 /-- End-to-end WP refinement across `Fn.midPolicy` (`earlyOptPolicy → legal lt → lateOptPolicy`). -/
 theorem Fn.midPolicy_spec {lt : LegalTarget} {pol : SnippetOptPolicy} {fn : Fn} (hwf : fn.Wf)
@@ -918,12 +929,12 @@ theorem Fn.midPolicy_spec {lt : LegalTarget} {pol : SnippetOptPolicy} {fn : Fn} 
   subst hxs
   dsimp only [Fn.midPolicy, Fn.midFromEarlyPolicy, Fn.earlyOptPolicy, Fn.legal] at hsupp ⊢
   rw [Func.earlyOptPolicyStage_eq] at hsupp ⊢
-  rw [Func.lateOptPolicyStage_eq]
+  rw [Func.lateOptPolicyStage_eq _ _ lt.foldAddrDisp]
   have hwf1 := Func.earlyOptPolicy_wf pol hwf
   have hopt := Func.earlyOptPolicy_spec pol hwf hs
   have hleg := Func.legal_spec lt (Func.earlyOptPolicy pol fn.body) hwf1 hsupp Γ xs m P E hopt
   have hmono := Func.spec_mono (legalEnv lt Γ) (Func.legal lt (Func.earlyOptPolicy pol fn.body))
     (encodeTup lt fn.as xs) m (legalPost lt P) Q' (legalXPost lt E) X' hQ hX hleg
-  exact Func.lateOptPolicy_spec pol (Func.legal_wf lt hwf1) hmono
+  exact Func.lateOptPolicy_spec pol (Func.legal_wf lt hwf1) hmono lt.foldAddrDisp
 
 end LeanQbe.T

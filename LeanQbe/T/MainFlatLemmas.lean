@@ -569,6 +569,17 @@ private theorem denoteFunc_zeroPeel24 {as rs : List Ty} (tf : TFlat rs)
   · simp [hsz]
   · simp [hsz]
 
+theorem addrRangeOptFlatWith_wfCheck (foldDisp : Bool) (as : List Ty) {rs : List Ty} (tf : TFlat rs)
+    (hwf : tf.wfCheck (pushTypes as []) [] = true) :
+    (addrRangeOptFlatWith foldDisp as tf).wfCheck (pushTypes as []) [] = true :=
+  OptFlatAddrRange.addrRangeOptFlatWith_wfCheck foldDisp tf hwf
+
+theorem denoteFunc_addrRangeOptFlatWith (foldDisp : Bool) (as : List Ty) {rs : List Ty}
+    (tf : TFlat rs) (hwf : tf.wfCheck (pushTypes as []) [] = true) :
+    denoteFunc (as := as) (addrRangeOptFlatWith foldDisp as tf) =
+      Func.addrRangeOptWith foldDisp (denoteFunc (as := as) tf) :=
+  OptFlatAddrRange.denoteFunc_addrRangeOptFlatWith foldDisp tf hwf
+
 delegate_flat_pass addrRangeOptFlat Func.addrRangeOpt
   addrRangeOptFlat_wfCheck denoteFunc_addrRangeOptFlat addrRangeOptFlat_eq
   OptFlatAddrRange.addrRangeOptFlat_wfCheck OptFlatAddrRange.denoteFunc_addrRangeOptFlat
@@ -623,7 +634,7 @@ attribute [local irreducible]
   OptFlatMem.memLoadFlat OptFlatMem.assumeBitsFlat OptFlatMem.divConstFlat
   OptFlatCfg.dcePFlat OptFlatCfg.deadLoadElimFlat OptFlatCfg.ifOptFlat
   simplifyGroupFastFlat peelFastFlat licmFlat loopRotateFlat TFlat.zeroPeelWith
-  legalFlat addrRangeOptFlat condThreadLateOptFlat tailDupFlat
+  legalFlat addrRangeOptFlatWith addrRangeOptFlat condThreadLateOptFlat tailDupFlat
 
 private abbrev mkFS {as rs : List Ty} (flat : TFlat rs → TFlat rs) (phoas : Func as rs → Func as rs)
     (wf : ∀ tf, tf.wfCheck (pushTypes as []) [] = true →
@@ -663,7 +674,8 @@ private abbrev earlyStages (as rs : List Ty) : List (OptFlatSimKit.FlatStage as 
       wfCheck_zeroPeel24 denoteFunc_zeroPeel24,
     fsCopy as rs, fsFold as rs, fsDceP as rs ]
 
-private abbrev midStages (as rs : List Ty) : List (OptFlatSimKit.FlatStage as rs) :=
+private abbrev midStages (foldAddrDisp : Bool) (as rs : List Ty) :
+    List (OptFlatSimKit.FlatStage as rs) :=
   [ fsFold as rs, fsCanon as rs,
     mkFS (OptFlatMem.divConstFlat as) Func.divConst
       OptFlatMem.divConstFlat_wfCheck OptFlatMem.denoteFunc_divConstFlat,
@@ -683,8 +695,9 @@ private abbrev midStages (as rs : List Ty) : List (OptFlatSimKit.FlatStage as rs
     mkFS assumeElimFlat Func.assumeElim
       (fun _ => TFlat.wfCheck_assumeElim) denoteFunc_assumeElimFlat,
     fsFold as rs,
-    mkFS (addrRangeOptFlat as) Func.addrRangeOpt
-      (addrRangeOptFlat_wfCheck as) (denoteFunc_addrRangeOptFlat as),
+    mkFS (addrRangeOptFlatWith foldAddrDisp as) (Func.addrRangeOptWith foldAddrDisp)
+      (addrRangeOptFlatWith_wfCheck foldAddrDisp as)
+      (denoteFunc_addrRangeOptFlatWith foldAddrDisp as),
     fsGvn as rs,
     mkFS (licmFlat as) Func.licm (licmFlat_wfCheck as) (denoteFunc_licmFlat as),
     fsDceP as rs,
@@ -726,7 +739,8 @@ theorem midStageFlat_wfCheck (lt : LegalTarget) (ef : TFlatFn) (hwf : ef.wfCheck
     rw [legalFlat_eq lt ef.body hwf]
     exact wfCheck_reifyBridge (Func.legal_wf lt (Func.wf_of_denote ef.body rfl))
   dsimp only [midStageFlat, TFlatFn.wfCheck]
-  exact OptFlatSimKit.FlatStage.run_wfCheck (midStages as' (lt.legalSig ef.rs)) tf0 h0
+  exact OptFlatSimKit.FlatStage.run_wfCheck
+    (midStages lt.foldAddrDisp as' (lt.legalSig ef.rs)) tf0 h0
 
 /-- `(midStageFlat lt ef).toFn = Fn.midFromEarly lt ef.toFn` whenever `ef.wfCheck = true`. -/
 theorem midStageFlat_toFn (lt : LegalTarget) (ef : TFlatFn) (hwf : ef.wfCheck = true) :
@@ -749,16 +763,17 @@ theorem midStageFlat_toFn (lt : LegalTarget) (ef : TFlatFn) (hwf : ef.wfCheck = 
     Func.legal_wf lt (Func.wf_of_denote (as := ef.as) ef.body rfl)
   have hwf1 := Func.lateCorePre_wf hwfLeg
   have hwf2 := Func.lateCorePost_wf hwf1
-  have hwf3 := Func.lateCfgPre_wf hwf2
+  have hwf3 := Func.lateCfgPreWith_wf lt.foldAddrDisp hwf2
   have hwf4 := Func.lateLoopRotate_wf hwf3
   have hwf5 := Func.lateCondThread_wf hwf4
   rw [Func.renorm_eq_self hwf1, Func.renorm_eq_self hwf2, Func.renorm_eq_self hwf3,
     Func.renorm_eq_self hwf4, Func.renorm_eq_self hwf5,
-    Func.lateCondThread_eq, Func.lateLoopRotate_eq, Func.lateCfgPost_eq, Func.lateCfgPre_eq,
-    Func.lateCorePost_eq, Func.lateCorePre_eq]
+    Func.lateCondThread_eq, Func.lateLoopRotate_eq, Func.lateCfgPost_eq,
+    Func.lateCfgPreWith_eq, Func.lateCorePost_eq, Func.lateCorePre_eq]
   change denoteFunc (as := as')
-    (OptFlatSimKit.FlatStage.run (midStages as' (lt.legalSig ef.rs)) tf0) = _
-  rw [OptFlatSimKit.FlatStage.run_denoteFunc (midStages as' (lt.legalSig ef.rs)) tf0 h0, d0]
+    (OptFlatSimKit.FlatStage.run (midStages lt.foldAddrDisp as' (lt.legalSig ef.rs)) tf0) = _
+  rw [OptFlatSimKit.FlatStage.run_denoteFunc
+    (midStages lt.foldAddrDisp as' (lt.legalSig ef.rs)) tf0 h0, d0]
   dsimp only [OptFlatSimKit.FlatStage.runPhoas, List.foldl]
   rfl
 

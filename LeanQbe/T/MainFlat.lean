@@ -137,9 +137,14 @@ def loopRotateFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs)
 
 /-! ## 2. Native `OptFlat{AddrRange,PathCond}` & Gated Bridges (`condThreadPass`, `tailDup`) -/
 
+/-- Native `TFlat` loop-aware address reassociation and range-check collapse (`addrRangeOptWith`). -/
+def addrRangeOptFlatWith (foldDisp : Bool) (as : List Ty) {rs : List Ty} (tf : TFlat rs) :
+    TFlat rs :=
+  OptFlatAddrRange.addrRangeOptFlatWith foldDisp as tf
+
 /-- Native `TFlat` loop-aware address reassociation and range-check collapse (`addrRangeOpt`). -/
 def addrRangeOptFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs) : TFlat rs :=
-  OptFlatAddrRange.addrRangeOptFlat as tf
+  addrRangeOptFlatWith false as tf
 
 /-- Native `TFlat` dominating path-fact and known-condition pass (`pathCondOpt`). -/
 def pathCondOptFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs) : TFlat rs :=
@@ -182,9 +187,9 @@ def midStageFlat (lt : LegalTarget) (ef : TFlatFn) : TFlatFn :=
     (OptFlatValue.canonFlat as' (OptFlatValue.foldFlat as' tf0)))
   let tf2 := OptFlatValue.foldFlat as' (OptFlatMem.assumeBitsFlat as'
     (OptFlatValue.gvnFlat as' (OptFlatMem.memLoadFlat as' tf1)))
-  let tf3 := OptFlatValue.gvnFlat as' (addrRangeOptFlat as' (OptFlatValue.foldFlat as'
-    (assumeElimFlat (OptFlatCfg.deadLoadElimFlat as' (simplifyGroupFastFlat as'
-      (OptFlatCfg.ifOptFlat true as' tf2))))))
+  let tf3 := OptFlatValue.gvnFlat as' (addrRangeOptFlatWith lt.foldAddrDisp as'
+    (OptFlatValue.foldFlat as' (assumeElimFlat (OptFlatCfg.deadLoadElimFlat as'
+      (simplifyGroupFastFlat as' (OptFlatCfg.ifOptFlat true as' tf2))))))
   let tf4 := loopRotateFlat as' (OptFlatCfg.dcePFlat as' (licmFlat as' tf3))
   let tf5 := mergeRetsFlat (tailDupFlat as' (OptFlatCfg.dcePFlat as'
     (OptFlatValue.foldFlat as' (condThreadLateOptFlat as' tf4))))
