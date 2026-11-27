@@ -37,8 +37,7 @@ if [ -n "$kissat_c0_changed" ]; then
   echo "== preflight: 4. Kissat C0-direct C99 syntax & warning fail-fast (<1s) =="
   TMP_C="$(mktemp "${TMPDIR:-/tmp}/preflight-c0.XXXXXX.c")"
   trap 'rm -f "$TMP_C"' EXIT
-  TGT="m7fidelity"
-  [ -f LeanQbe/T/Examples/Kissat/FullFidelityAssembly.lean ] && TGT="fidelity"
+  TGT="fidelity"
   timeout 30 python3 -B bench/kissat/extract_c0_direct.py --target "$TGT" --out "$TMP_C"
   timeout 30 clang -std=c99 -O2 -fwrapv -fno-strict-aliasing -Wall -Wextra -Werror \
     -ILeanQbe/T/Frontend/C0 -fsyntax-only "$TMP_C"

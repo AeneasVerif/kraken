@@ -51,7 +51,7 @@ CERT_LEAN_RE = re.compile(
 )
 
 TEST_TREE_RE = re.compile(
-    r"^(?:LeanQbeTest|LeanQbeLegacyTest|LeanQbeBootstrap0Test)/.*\.lean$"
+    r"^(?:LeanQbeTest|LeanQbeBootstrap0Test)/.*\.lean$"
 )
 
 EXEC_DECL_RE = re.compile(

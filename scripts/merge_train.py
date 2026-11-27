@@ -91,7 +91,6 @@ INFRA_PREFIXES: tuple[str, ...] = (
     "docs/",
     "tool/",
     ".github/",
-    "LeanQbeLegacyTest/",
 )
 TOP_HUB_FILES: frozenset[str] = frozenset(f"{m}.lean" for m in ROOT_LIBS)
 TOP_DOC_FILES: frozenset[str] = frozenset({"LICENSE", ".gitignore", ".gitattributes"})
@@ -171,30 +170,28 @@ def is_cert_slice_module(mod: str) -> bool:
 def _diff_name_status(
     repo: Path, base_sha: str, target_sha: str
 ) -> tuple[list[str], set[str], set[str]]:
-    """Return `(changed_paths, deleted_paths, renamed_legacy_sources)`."""
+    """Return `(changed_paths, deleted_paths, renamed_sources)`."""
     res = run_git(repo, "diff", "--name-status", f"{base_sha}...{target_sha}")
     if res.returncode != 0:
         res = run_git(repo, "diff", "--name-status", base_sha, target_sha, check=True)
     changed: list[str] = []
     deleted: set[str] = set()
-    renamed_legacy: set[str] = set()
+    renamed: set[str] = set()
     for raw in res.stdout.splitlines():
         if not raw.strip():
             continue
         parts = raw.split("\t")
         st = parts[0]
         if st.startswith(("R", "C")) and len(parts) >= 3:
-            old_p, new_p = parts[1], parts[2]
+            _old_p, new_p = parts[1], parts[2]
             changed.append(new_p)
-            if new_p.startswith("LeanQbeLegacyTest/"):
-                renamed_legacy.add(old_p)
         elif st.startswith("D"):
             path = parts[-1]
             changed.append(path)
             deleted.add(path)
         else:
             changed.append(parts[-1])
-    return sorted(set(changed)), deleted, renamed_legacy
+    return sorted(set(changed)), deleted, renamed
 
 
 def _ls_tree_lean_oids(repo: Path, rev: str) -> dict[str, str]:
@@ -221,7 +218,6 @@ def compute_commit_lean_rdeps(
     changed: list[str],
     *,
     deleted: set[str] | None = None,
-    include_legacy: bool = False,
     import_cache: dict[str, list[str]] | None = None,
 ) -> list[str] | None:
     """Compute exact non-barrel Lean reverse-import closure at `target_sha`."""
@@ -281,7 +277,6 @@ def compute_commit_lean_rdeps(
         lean_rel_paths=[Path(p) for p in tree_oids],
         read_imports_fn=read_commit_imports,
         barrels=BARRELS,
-        include_legacy=include_legacy,
         max_rdeps=None,
     )
 

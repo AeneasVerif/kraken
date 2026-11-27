@@ -19,7 +19,6 @@ public import LeanQbe.T.Examples.Kissat.FullM6CompactFlushLemmas
 public import LeanQbe.T.Examples.Kissat.FullM6CompactFlushProof1
 public import LeanQbe.T.Examples.Kissat.FullM6CompactFlushProof2
 public import LeanQbe.T.Examples.Kissat.FullM6CongSubst
-public import LeanQbe.T.Examples.Kissat.FullM6CongSubstLemmas
 public import LeanQbe.T.Examples.Kissat.FullM6CongSubstProof0
 public import LeanQbe.T.Examples.Kissat.FullM6CongSubstProof0b
 public import LeanQbe.T.Examples.Kissat.FullM6CongSubstProof1a
@@ -35,14 +34,6 @@ public import LeanQbe.T.Examples.Kissat.FullM6HdrProof
 public import LeanQbe.T.Examples.Kissat.FullM6HdrProof0
 public import LeanQbe.T.Examples.Kissat.FullM6HdrProof1
 public import LeanQbe.T.Examples.Kissat.FullM6HdrProof2
-public import LeanQbe.T.Examples.Kissat.FullM6Inl
-public import LeanQbe.T.Examples.Kissat.FullM6Inl0
-public import LeanQbe.T.Examples.Kissat.FullM6Inl1
-public import LeanQbe.T.Examples.Kissat.FullM6Inl2
-public import LeanQbe.T.Examples.Kissat.FullM6Inl3
-public import LeanQbe.T.Examples.Kissat.FullM6Inl4
-public import LeanQbe.T.Examples.Kissat.FullM6Inl5
-public import LeanQbe.T.Examples.Kissat.FullM6InlBase
 public import LeanQbe.T.Examples.Kissat.FullM6InlPolicy
 public import LeanQbe.T.Examples.Kissat.FullM6LuckyS15
 public import LeanQbe.T.Examples.Kissat.FullM6MinShrink
@@ -94,11 +85,6 @@ public import LeanQbe.T.Examples.Kissat.FullM6SweepProofVar1a
 public import LeanQbe.T.Examples.Kissat.FullM6SweepProofVar1b
 public import LeanQbe.T.Examples.Kissat.FullM6SweepProofVar2a
 public import LeanQbe.T.Examples.Kissat.FullM6SweepProofVar2b
-public import LeanQbe.T.Examples.Kissat.FullM6Tiers
-public import LeanQbe.T.Examples.Kissat.FullM6TiersProof
-public import LeanQbe.T.Examples.Kissat.FullM6TiersProof0
-public import LeanQbe.T.Examples.Kissat.FullM6TiersProof1a
-public import LeanQbe.T.Examples.Kissat.FullM6TiersProof1b
 public import LeanQbe.T.Examples.Kissat.FullM6Transport0
 public import LeanQbe.T.Examples.Kissat.FullM6Transport1
 public import LeanQbe.T.Examples.Kissat.FullM6VivBackbone
@@ -113,7 +99,6 @@ public import LeanQbe.T.Examples.Kissat.FullM6VivBackboneProof4a
 public import LeanQbe.T.Examples.Kissat.FullM6VivBackboneProof4b
 public import LeanQbe.T.Examples.Kissat.FullM6VivBackboneProof4c
 public import LeanQbe.T.Examples.Kissat.FullM6WalkParse
-public import LeanQbe.T.Examples.Kissat.FullM6WalkParseLemmas
 public import LeanQbe.T.Examples.Kissat.FullM6WalkParseProof1
 public import LeanQbe.T.Examples.Kissat.FullM6WalkParseProof2
 public import LeanQbe.T.Examples.Kissat.FullM6WalkParseProof3

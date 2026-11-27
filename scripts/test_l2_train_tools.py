@@ -418,7 +418,7 @@ class TestL2Audit(unittest.TestCase):
     def test_c0_memo_cache_roundtrip(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             cache = Path(td) / "c0_memo.json"
-            key = "m7fidelity:abc123"
+            key = "fidelity:abc123"
             l2.save_c0_memo(cache, {key: {"verified": True, "c0_sha256": "abc123"}})
             loaded = l2.load_c0_memo(cache)
             self.assertTrue(loaded[key]["verified"])
@@ -746,7 +746,7 @@ class TestMergeTrain(unittest.TestCase):
             "module\nimport LeanQbe.T.IL\n", encoding="utf-8"
         )
         (repo / "LeanQbe" / "T" / "Amd64").mkdir(parents=True)
-        (repo / "LeanQbe" / "T" / "Amd64" / "KissatM7FidelityCert1.lean").write_text(
+        (repo / "LeanQbe" / "T" / "Amd64" / "KissatPlainCert1.lean").write_text(
             "module\nimport LeanQbe.T.Examples.Kissat.FullFidelityStep7\n",
             encoding="utf-8",
         )
@@ -806,7 +806,7 @@ class TestMergeTrain(unittest.TestCase):
             _git(repo, "checkout", "-b", "cert_slice_heavy", base_sha)
             _commit_file(
                 repo,
-                "LeanQbe/T/Amd64/KissatM7FidelityCert1.lean",
+                "LeanQbe/T/Amd64/KissatPlainCert1.lean",
                 "module\n-- slice\n",
                 "cert slice",
             )
@@ -866,12 +866,12 @@ class TestMergeTrain(unittest.TestCase):
                 base_sha,
                 "disjoint_lean_leaf",
                 changed_files=["LeanQbe/T/Leaf.lean"],
-                rdeps_mods=["LeanQbe.T.Leaf", "LeanQbe.T.Amd64.KissatM7FidelityCert2"],
+                rdeps_mods=["LeanQbe.T.Leaf", "LeanQbe.T.Amd64.KissatPlainCert2"],
             )
             self.assertEqual(cert_dep["lane"], "core_heavy")
 
     def test_classify_real_repo_speedup_and_step7_commits(self) -> None:
-        needed = ("4fa7421b", "f14f305a", "55281008", "9fdf1370", "176dbe49")
+        needed = ("4fa7421b", "55281008", "9fdf1370", "176dbe49")
         for rev in needed:
             ok = subprocess.run(
                 ["git", "-C", str(REPO_ROOT), "cat-file", "-e", f"{rev}^{{commit}}"],
@@ -881,7 +881,7 @@ class TestMergeTrain(unittest.TestCase):
             if ok.returncode != 0:
                 self.skipTest(f"commit {rev} not present in repo")
 
-        for rev in ("f14f305a", "55281008", "9fdf1370"):
+        for rev in ("55281008", "9fdf1370"):
             cls = mt.classify_branch(REPO_ROOT, "4fa7421b", rev)
             self.assertEqual(cls["lane"], "infra_fast", (rev, cls))
             self.assertEqual(cls["priority"], 0)

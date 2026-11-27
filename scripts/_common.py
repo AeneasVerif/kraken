@@ -19,7 +19,6 @@ if str(SCRIPTS_DIR) not in sys.path:
 
 from lean_imports import (  # noqa: E402
     END_SCOPE_RE,
-    LEGACY_CERT_RE,
     NS_OPEN_RE,
     SEC_OPEN_RE,
     classify_module_arch,
@@ -33,7 +32,7 @@ from lean_imports import (  # noqa: E402
 
 DEFAULT_CGROUP_SLICE = "leanqbe-builds.slice"
 LEANQBE_MOD_PREFIXES: tuple[str, ...] = (
-    "LeanQbe.", "LeanQbeTest.", "LeanQbeLegacyTest.", "LeanQbeBootstrap0Test.",
+    "LeanQbe.", "LeanQbeTest.", "LeanQbeBootstrap0Test.",
 )
 DEF_MAIN_RE = re.compile(r"^(?:(?:public|private|protected|noncomputable)\s+)*def\s+main\b")
 
@@ -339,7 +338,7 @@ def plan_audit_batches(
 
 
 def check_import_closures(root: Path, tmp_dir: Path, raw_scope: str) -> list[str]:
-    """Verify Step 3 arch isolation, legacy exclusion, and `LeanQbe/T/` reachability."""
+    """Verify Step 3 arch isolation and `LeanQbe/T/` reachability."""
     scope = "full" if raw_scope == "rdeps" else raw_scope
     has_external = False
     manifest_p = root / "lake-manifest.json"
@@ -389,18 +388,11 @@ def check_import_closures(root: Path, tmp_dir: Path, raw_scope: str) -> list[str
             bad = sorted(m for m in closures[r] if m.startswith(bad_pfx))
             if bad:
                 errors.append(f"{msg} ({', '.join(bad)})")
-            bad_leg = sorted(m for m in closures[r] if LEGACY_CERT_RE.match(m))
-            if bad_leg:
-                errors.append(
-                    f"active {r} closure imports legacy Kissat certs ({', '.join(bad_leg)})"
-                )
     for r in case_roots:
         if r not in closures[r]:
             errors.append(f"could not compute the closure of {r}")
 
     extra_specs = [
-        ("legacy_Amd64", ["LeanQbeLegacyAmd64"], "legacy_closure_Amd64.txt"),
-        ("legacy_Arm64", ["LeanQbeLegacyArm64"], "legacy_closure_Arm64.txt"),
         ("bootstrap0", ["LeanQbeBootstrap0"], "bootstrap0_closure.txt"),
         ("bootstrap0_test", [
             p.with_suffix("").as_posix().replace("/", ".")
@@ -414,40 +406,26 @@ def check_import_closures(root: Path, tmp_dir: Path, raw_scope: str) -> list[str
 
     if scope != "arm64":
         for key, label in (
-            ("legacy_Amd64", "LeanQbeLegacyAmd64"),
             ("bootstrap0", "LeanQbeBootstrap0"),
             ("bootstrap0_test", "LeanQbeBootstrap0Test"),
         ):
             if any(m.startswith(("Kraken.AArch64", "LeanQbe.T.Arm64.")) for m in closures[key]):
                 errors.append(f"{label} imports AArch64/Arm64 modules")
-        for key, label in (
-            ("bootstrap0", "LeanQbeBootstrap0"),
-            ("bootstrap0_test", "LeanQbeBootstrap0Test"),
-        ):
-            if any(LEGACY_CERT_RE.match(m) for m in closures[key]):
-                errors.append(f"{label} closure imports legacy Kissat certs")
-    if scope != "x64":
-        if any(m.startswith(("Kraken.X64", "LeanQbe.T.Amd64.")) for m in closures["legacy_Arm64"]):
-            errors.append("LeanQbeLegacyArm64 imports X64/Amd64 modules")
 
-    c_x64_full = closures.get("LeanQbeAmd64", set()) | closures.get("legacy_Amd64", set())
-    c_arm_full = closures.get("LeanQbeArm64", set()) | closures.get("legacy_Arm64", set())
+    c_x64_full = closures.get("LeanQbeAmd64", set())
+    c_arm_full = closures.get("LeanQbeArm64", set())
     for rel in list_lean_files(root, "LeanQbe/T", include_untracked=False):
         f = rel.as_posix()
         m = f[:-5].replace("/", ".")
         if m.startswith("LeanQbe.T.Amd64."):
             if scope != "arm64" and m not in c_x64_full:
-                errors.append(
-                    f"{f} is not imported by LeanQbeAmd64.lean or LeanQbeLegacyAmd64.lean"
-                )
+                errors.append(f"{f} is not imported by LeanQbeAmd64.lean")
         elif m.startswith("LeanQbe.T.Bootstrap0."):
             if scope != "arm64" and m not in closures.get("bootstrap0", set()):
                 errors.append(f"{f} is not imported by LeanQbeBootstrap0.lean")
         elif m.startswith("LeanQbe.T.Arm64."):
             if scope != "x64" and m not in c_arm_full:
-                errors.append(
-                    f"{f} is not imported by LeanQbeArm64.lean or LeanQbeLegacyArm64.lean"
-                )
+                errors.append(f"{f} is not imported by LeanQbeArm64.lean")
         elif m not in closures.get("LeanQbe", set()):
             errors.append(f"{f} is not imported by the root LeanQbe.lean (so it is not built)")
     return errors
@@ -464,9 +442,10 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     cmd = args[0]
     if cmd == "collect-headlines":
-        entries = collect_active_headlines(Path(args[1]).resolve(), include_legacy=(args[2] == "1"))
+        entries = collect_active_headlines(Path(args[1]).resolve())
         lines = [f"{m} {c}" for m, c in entries]
-        Path(args[3]).write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+        out_path = Path(args[2] if len(args) == 3 else args[3])
+        out_path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
         return 0
     if cmd == "scoped-tests":
         mods = select_scoped_test_modules(

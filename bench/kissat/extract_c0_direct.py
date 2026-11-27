@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Extract spliced Kissat C0 functions (fidelity|m8opt|plain|m7fidelity|m7plus|m7|m6|m5) to C99."""
+"""Extract spliced Kissat C0 functions (fidelity|m8opt|plain) to C99."""
 import argparse
 import hashlib
 import io
@@ -591,12 +591,6 @@ BASE_TARGET_SPECS = {
     "step10": ("FullFidelityAssemblyStep10", "FullFidelityAssemblyStep10", "fidStep10Fns"),
     "fidelity-step9": ("FullFidelityAssemblyStep9", "FullFidelityAssemblyStep9", "fidStep9Fns"),
     "step9": ("FullFidelityAssemblyStep9", "FullFidelityAssemblyStep9", "fidStep9Fns"),
-    "fidelity-step9-memshrink": (
-        "FullFidelityStep9MemShrink", "FullFidelityStep9MemShrink", "fidStep9MemShrinkFns"
-    ),
-    "step9-memshrink": (
-        "FullFidelityStep9MemShrink", "FullFidelityStep9MemShrink", "fidStep9MemShrinkFns"
-    ),
     "fidelity-step8": ("FullFidelityAssemblyStep8", "FullFidelityAssemblyStep8", "fidStep8Fns"),
     "step8": ("FullFidelityAssemblyStep8", "FullFidelityAssemblyStep8", "fidStep8Fns"),
     "fidelity-step7": ("FullFidelityAssemblyStep7", "FullFidelityAssemblyStep7", "fidStep7Fns"),
@@ -605,47 +599,38 @@ BASE_TARGET_SPECS = {
     "m8opt": ("FullM8OptAssembly", "FullM8OptAssembly", "m8OptFns"),
     "opt": ("FullM8OptAssembly", "FullM8OptAssembly", "m8OptFns"),
     "m8": ("FullM8OptAssembly", "FullM8OptAssembly", "m8OptFns"),
-    "m5": ("FullM5", "FullM5", "m5Fns"),
-    "m6": ("FullM6", "FullM6", "m6Fns"),
-    "m7": ("FullM7", "FullM7", "m7Fns"),
-    "m7plus": ("FullM7PlusAssembly", "FullM7Plus", "m7PlusFns"),
-    "m7fidelity": ("FullM7FidelityAssembly", "FullM7Fidelity", "m7FidelityFns"),
-    "m7plus-memshrink": (
-        "FullM7MemShrinkAssembly", "FullM7MemShrinkV5", "m7PlusMemShrinkFns"
-    ),
-    "m7fidelity-memshrink": (
-        "FullM7MemShrinkAssembly", "FullM7MemShrinkV5", "m7FidelityMemShrinkFns"
-    ),
 }
 
 ALL_TARGET_CHOICES = [
     "plain", "fidelity", "fid", "fidelity-step12", "step12", "fidelity-step11", "step11",
-    "fidelity-step10", "step10",
-    "fidelity-step9", "step9",
-    "fidelity-step9-memshrink", "step9-memshrink", "fidelity-step8", "step8",
-    "fidelity-step7", "fidelity-step6", "fidelity-c0",
-    "m8opt", "opt", "m8", "m5", "m6", "m7", "m7plus", "m7fidelity",
-    "m7plus-memshrink", "m7fidelity-memshrink",
+    "fidelity-step10", "step10", "fidelity-step9", "step9", "fidelity-step8", "step8",
+    "fidelity-step7", "fidelity-step6", "fidelity-c0", "m8opt", "opt", "m8",
 ]
 
 
 def resolve_target_spec(kdir, target):
     """Resolve CLI target name to `(file_mod, ns_mod, fn_list_sym)` in `kdir`."""
     if target in ("fidelity", "fid"):
-        if (kdir / "FullFidelityAssemblyStep7.lean").is_file():
-            return BASE_TARGET_SPECS["fidelity-step7"]
+        for step_key in (
+            "fidelity-step12", "fidelity-step11", "fidelity-step10",
+            "fidelity-step9", "fidelity-step8", "fidelity-step7", "fidelity-step6",
+        ):
+            file_mod = BASE_TARGET_SPECS[step_key][0]
+            if (kdir / f"{file_mod}.lean").is_file():
+                return BASE_TARGET_SPECS[step_key]
         return BASE_TARGET_SPECS["fidelity-step6"]
     return BASE_TARGET_SPECS[target]
 
 
 def default_target_for_kdir(kdir):
     """Select the highest landed fidelity target in `kdir`."""
-    if ((kdir / "FullFidelityAssemblyStep7.lean").is_file()
-            or (kdir / "FullFidelityAssembly.lean").is_file()):
-        return "fidelity"
-    if (kdir / "FullM7FidelityAssembly.lean").is_file():
-        return "m7fidelity"
-    return "m5"
+    for step_key in (
+        "fidelity-step12", "fidelity-step11", "fidelity-step10",
+        "fidelity-step9", "fidelity-step8", "fidelity-step7", "fidelity-step6",
+    ):
+        if (kdir / f"{BASE_TARGET_SPECS[step_key][0]}.lean").is_file():
+            return "fidelity"
+    return "plain"
 
 
 def load_fns_for_target(kdir, target):

@@ -11,8 +11,8 @@ public import LeanQbe.T.Examples.Kissat.FullM6Hdr
 public import LeanQbe.T.Examples.Kissat.FullM6Orch
 public import LeanQbe.T.Examples.Kissat.FullM6
 public import LeanQbe.T.Examples.Kissat.FullM6SatNv
-public import LeanQbe.T.Examples.Kissat.FullM7PlusAssembly
 public import LeanQbe.T.Examples.Kissat.FullM7FidelityAssembly
+public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12
 public import Kraken.Mem
 
 public meta import LeanQbe.T.InterpKissat
@@ -26,8 +26,8 @@ public meta import LeanQbe.T.Examples.Kissat.FullM6Hdr
 public meta import LeanQbe.T.Examples.Kissat.FullM6Orch
 public meta import LeanQbe.T.Examples.Kissat.FullM6
 public meta import LeanQbe.T.Examples.Kissat.FullM6SatNv
-public meta import LeanQbe.T.Examples.Kissat.FullM7PlusAssembly
 public meta import LeanQbe.T.Examples.Kissat.FullM7FidelityAssembly
+public meta import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12
 
 /-!
 # Tests and Soundness Audit for Kissat IL Executable Interpreter
@@ -36,11 +36,12 @@ This module validates the verified, fuel-indexed Lean executable interpreter for
 (`LeanQbe.T.InterpKissat`):
 1. Compile-time `#guard` execution checks on mathematical routines (`plain_isqrt`, `plain_ilog10`),
 2. Compile-time `#guard` execution checks on end-to-end SAT / UNSAT DIMACS payloads across
-   `Plain`, `FullM5` (270 fns), `FullM6` (382 fns), `FullM7Plus` (410 fns), and `FullM7Fidelity` (413 fns),
+   `Plain` (59 fns), `FullM5` (270 fns), `FullM6` (382 fns), `FullM7Fidelity` (413 fns), and
+   `FullFidelityAssemblyStep12` (517 fns),
 3. Standalone audit restatements of all headline interpreter soundness theorems (`interpFlat_sound`,
    `interpModule_sound`, `interpModule_not_ub`, `interpModule_ok_witness`, `ModuleOk.env_sound`),
 4. `#print axioms` assertions verifying that the entire semantic and operational verification
-   rests strictly upon standard Lean axioms (`std3`: `[propext, Classical.choice, Quot.sound]`, `0` `sorry`).
+   rests strictly upon standard Lean axioms (`std3`, `0` `sorry`).
 -/
 
 set_option autoImplicit false
@@ -57,8 +58,8 @@ open LeanQbe.T.Examples.Kissat.Full
 open LeanQbe.T.Examples.Kissat.FullM5
 open LeanQbe.T.Examples.Kissat.FullM6Hdr
 open LeanQbe.T.Examples.Kissat.FullM6
-open LeanQbe.T.Examples.Kissat.FullM7Plus
 open LeanQbe.T.Examples.Kissat.FullM7Fidelity
+open LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12
 open Kraken
 
 /-! ## 1. Headline Soundness Theorems Audit -/
@@ -92,7 +93,7 @@ theorem audit_interpFn_sound :
       InterpOk Q X (interpFn M fuel fn args m) :=
   interpFn_sound
 
-/-- Audit: `interpModule_sound` relates `Func.wp` directly to whole-module interpreter execution. -/
+/-- Audit: `interpModule_sound` relates `Func.wp` to whole-module interpreter execution. -/
 theorem audit_interpModule_sound :
     ∀ (M : Module) (Γ : Env) (hEnv : ModuleEnvSound Γ M)
       (entry : Sym) (as rs : List Ty) (args : Tup Val as) (m : Mem 64)
@@ -103,7 +104,7 @@ theorem audit_interpModule_sound :
   fun M Γ hEnv entry as rs args m Q X fnBody hlook hWf hwp fuel =>
     interpModule_sound M Γ hEnv entry as rs args m Q X fnBody hlook hWf hwp fuel
 
-/-- Audit: `interpModule_not_ub` proves execution never encounters undefined behavior under `wp`. -/
+/-- Audit: `interpModule_not_ub` proves execution never encounters UB under `wp`. -/
 theorem audit_interpModule_not_ub :
     ∀ (M : Module) (Γ : Env) (hEnv : ModuleEnvSound Γ M)
       (entry : Sym) (as rs : List Ty) (args : Tup Val as) (m : Mem 64)
@@ -114,19 +115,20 @@ theorem audit_interpModule_not_ub :
   fun M Γ hEnv entry as rs args m Q X fnBody hlook hWf hwp fuel =>
     interpModule_not_ub M Γ hEnv entry as rs args m Q X fnBody hlook hWf hwp fuel
 
-/-- Audit: `interpModule_ok_witness` proves terminating `.ok` result witnesses the exact postcondition `Q`. -/
+/-- Audit: `interpModule_ok_witness` proves `.ok` results satisfy the postcondition `Q`. -/
 theorem audit_interpModule_ok_witness :
     ∀ (M : Module) (Γ : Env) (hEnv : ModuleEnvSound Γ M)
       (entry : Sym) (as rs : List Ty) (args : Tup Val as) (m : Mem 64)
       (Q : Post rs) (X : XPost) (fnBody : Func as rs),
       lookupFn M entry as rs = some fnBody →
-      fnBody.Wf → Func.wp Γ fnBody args m Q X → ∀ (fuel : Nat) (res : Tup Val rs) (m' : Mem 64),
+      fnBody.Wf → Func.wp Γ fnBody args m Q X →
+      ∀ (fuel : Nat) (res : Tup Val rs) (m' : Mem 64),
       interpModule M fuel entry as rs args m = .ok res m' →
       Q res m' :=
   fun M Γ hEnv entry as rs args m Q X fnBody hlook hWf hwp fuel res m' hrun =>
     interpModule_ok_witness M Γ hEnv entry as rs args m Q X fnBody hlook hWf hwp fuel res m' hrun
 
-/-- Audit: `ModuleOk.env_sound` establishes that a closed verified module generates a sound environment. -/
+/-- Audit: `ModuleOk.env_sound` establishes a closed verified module's sound environment. -/
 theorem audit_moduleOk_env_sound :
     ∀ {Γ : Env} {M : Module}, ModuleOk Γ M → M.externs = [] →
       ModuleEnvSound (Env.ofModule M Γ) M :=
@@ -198,28 +200,29 @@ private def m6Args : Tup Val [i64, i64, i64, i64, i64] :=
    nvM6UnsatWorkPtr, BitVec.ofNat 64 nvM6WorkLen, 16#64, ())
 
 private def testFullM6Unsat : Bool :=
-  match interpModule m6Module 300000 "kissat_solve_bytes" [i64, i64, i64, i64, i64] [i64] m6Args nvM6UnsatInitMem with
+  match interpModule m6Module 300000 "kissat_solve_bytes"
+      [i64, i64, i64, i64, i64] [i64] m6Args nvM6UnsatInitMem with
   | .ok (r, ()) _ => r == 20#64
   | _ => false
 
 #guard testFullM6Unsat
 
-/-! ## 6. Executable Smoke Tests: FullM7Plus (410 functions) UNSAT Execution -/
-
-private def testFullM7PlusUnsat : Bool :=
-  match interpModule m7PlusModule 300000 "kissat_solve_bytes" [i64, i64, i64, i64, i64] [i64] m6Args nvM6UnsatInitMem with
-  | .ok (r, ()) _ => r == 20#64
-  | _ => false
-
-#guard testFullM7PlusUnsat
-
-/-! ## 7. Executable Smoke Tests: FullM7Fidelity (413 functions) UNSAT Execution -/
+/-! ## 6. Executable Smoke Tests: FullM7Fidelity (413 fns) & Step12 (517 fns) UNSAT Execution -/
 
 private def testFullM7FidelityUnsat : Bool :=
-  match interpModule m7FidelityModule 300000 "kissat_solve_bytes" [i64, i64, i64, i64, i64] [i64] m6Args nvM6UnsatInitMem with
+  match interpModule m7FidelityModule 300000 "kissat_solve_bytes"
+      [i64, i64, i64, i64, i64] [i64] m6Args nvM6UnsatInitMem with
   | .ok (r, ()) _ => r == 20#64
   | _ => false
 
 #guard testFullM7FidelityUnsat
+
+private def testFullFidelityStep12Unsat : Bool :=
+  match interpModule fidStep12Module 300000 "kissat_solve_bytes"
+      [i64, i64, i64, i64, i64] [i64] m6Args nvM6UnsatInitMem with
+  | .ok (r, ()) _ => r == 20#64
+  | _ => false
+
+#guard testFullFidelityStep12Unsat
 
 end LeanQbe.T.InterpKissatTest

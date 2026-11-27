@@ -23,73 +23,22 @@ import select_tests as st  # noqa: E402
 import sync_hubs as sh  # noqa: E402
 
 
-class TestLegacyStageA(unittest.TestCase):
-    def test_shared_legacy_regex_partition(self) -> None:
-        self.assertIs(sh.load_legacy_regex(REPO_ROOT), li.LEGACY_CERT_RE)
-        # Retired generations
-        for mod in (
-            "LeanQbe.T.Amd64.KissatM5",
-            "LeanQbe.T.Arm64.KissatM5Cert12",
-            "LeanQbe.T.Amd64.KissatM6",
-            "LeanQbe.T.Arm64.KissatM6CertLink",
-            "LeanQbe.T.Amd64.KissatM7Plus",
-            "LeanQbe.T.Amd64.KissatM7PlusCert",
-            "LeanQbe.T.Amd64.KissatM7PlusCertLink",
-            "LeanQbe.T.Amd64.KissatM7PlusCert1",
-            "LeanQbe.T.Amd64.KissatM7PlusCert14",
-            "LeanQbe.T.Arm64.KissatM7PlusCert22",
-            "LeanQbe.T.Amd64.KissatM7PlusCert45",
-            "LeanQbe.T.Arm64.KissatM7PlusCert56",
-        ):
-            self.assertIsNotNone(li.LEGACY_CERT_RE.match(mod), mod)
-
-        # Active kept modules: KissatM7PlusBounds + 38 reused slices + all KissatM7Fidelity*
-        for mod in (
-            "LeanQbe.T.Amd64.KissatM7PlusBounds",
-            "LeanQbe.T.Arm64.KissatM7PlusBounds",
-            "LeanQbe.T.Amd64.KissatM7PlusCert2",
-            "LeanQbe.T.Amd64.KissatM7PlusCert13",
-            "LeanQbe.T.Amd64.KissatM7PlusCert16",
-            "LeanQbe.T.Amd64.KissatM7PlusCert23",
-            "LeanQbe.T.Amd64.KissatM7PlusCert42",
-            "LeanQbe.T.Amd64.KissatM7PlusCert43",
-            "LeanQbe.T.Amd64.KissatM7PlusCert44",
-            "LeanQbe.T.Arm64.KissatM7PlusCert44",
-            "LeanQbe.T.Amd64.KissatM7Fidelity",
-            "LeanQbe.T.Amd64.KissatM7FidelityCert",
-            "LeanQbe.T.Arm64.KissatM7FidelityCert49",
-        ):
-            self.assertIsNone(li.LEGACY_CERT_RE.match(mod), mod)
-
-    def test_no_active_test_leaks_legacy(self) -> None:
-        imp_cache: dict[str, list[str]] = {}
-
-        def imps(mod: str) -> list[str]:
-            if mod not in imp_cache:
-                p = REPO_ROOT / li.mod_to_rel_path(mod)
-                imp_cache[mod] = [i.module for i in li.parse_imports(p)[1]] if p.is_file() else []
-            return imp_cache[mod]
+class TestHubIsolationAndNoLegacy(unittest.TestCase):
+    def test_no_legacy_libs_or_imports(self) -> None:
+        self.assertEqual(len(sh.ALL_HUBS), 17)
+        for hub in sh.ALL_HUBS:
+            self.assertNotIn("Legacy", hub)
+        self.assertFalse((REPO_ROOT / "LeanQbeLegacyTest").exists())
+        self.assertFalse((REPO_ROOT / "LeanQbeLegacyAmd64.lean").exists())
+        self.assertFalse((REPO_ROOT / "LeanQbeLegacyArm64.lean").exists())
 
         for p in sorted((REPO_ROOT / "LeanQbeTest").rglob("*.lean")):
-            root_mod = li.rel_path_to_mod(p.relative_to(REPO_ROOT))
-            seen: set[str] = set()
-            stack = [root_mod]
-            while stack:
-                cur = stack.pop()
-                if cur in seen:
-                    continue
-                seen.add(cur)
+            _, imps = li.parse_imports(p)
+            for imp in imps:
                 self.assertFalse(
-                    cur.startswith("LeanQbeLegacy"),
-                    f"{root_mod} transitively imports {cur}",
+                    imp.module.startswith("LeanQbeLegacy"),
+                    f"{p} imports retired {imp.module}",
                 )
-                self.assertIsNone(
-                    li.LEGACY_CERT_RE.match(cur),
-                    f"{root_mod} transitively imports legacy cert {cur}",
-                )
-                for nxt in imps(cur):
-                    if nxt not in seen:
-                        stack.append(nxt)
 
 
 class TestRdepsScope(unittest.TestCase):
@@ -149,9 +98,9 @@ class TestSelectTests(unittest.TestCase):
                     "LeanQbeAmd64.lean",
                     "LeanQbe/T/Examples/Kissat/FullFidelityAssemblyProof.lean",
                     "LeanQbe/T/OptLemmas.lean",
-                    "LeanQbe/T/Amd64/KissatM7FidelityCert1.lean",
+                    "LeanQbe/T/Amd64/KissatPlainCert1.lean",
                     "LeanQbeTest/T/Smoke.lean",
-                    "LeanQbeLegacyTest/KissatM5Test.lean",
+                    "LeanQbeTest/T/KissatM5Test.lean",
                 ]
             ),
             [],
@@ -410,7 +359,7 @@ class TestP1DecouplingAndHubs(unittest.TestCase):
             f"{pfx}Core": f"{pfx}BaseHub",
         }
         for mod, want in cases.items():
-            self.assertEqual(sh.classify_module(mod, li.LEGACY_CERT_RE), want, mod)
+            self.assertEqual(sh.classify_module(mod), want, mod)
             self.assertIn(want, sh.ALL_HUBS)
             self.assertIn(want, rs.BARRELS)
 
@@ -418,8 +367,6 @@ class TestP1DecouplingAndHubs(unittest.TestCase):
         for root_mod in (
             "LeanQbeAmd64",
             "LeanQbeArm64",
-            "LeanQbeLegacyAmd64",
-            "LeanQbeLegacyArm64",
         ):
             _, imps = li.parse_imports(REPO_ROOT / li.mod_to_rel_path(root_mod))
             direct = {i.module for i in imps}
@@ -467,8 +414,15 @@ class TestP1DecouplingAndHubs(unittest.TestCase):
             ["LeanQbe", "LeanQbeAmd64", "LeanQbeArm64", "LeanQbeTest", "leanqbe", "leanqbe-arm64"],
         )
         libs = {entry["name"] for entry in data.get("lean_lib", [])}
-        for name in ("LeanQbeCore", "LeanQbeAmd64Core", "LeanQbeArm64Core", "LeanQbeCoreTest"):
+        for name in ("LeanQbeCore", "LeanQbeAmd64Core", "LeanQbeArm64Core"):
             self.assertIn(name, libs)
+        for retired in (
+            "LeanQbeCoreTest",
+            "LeanQbeLegacyAmd64",
+            "LeanQbeLegacyArm64",
+            "LeanQbeLegacyTest",
+        ):
+            self.assertNotIn(retired, libs)
         exes = {entry["name"]: entry for entry in data.get("lean_exe", [])}
         self.assertIn("audit_axioms", exes)
         self.assertEqual(exes["audit_axioms"]["root"], "scripts.AuditAxioms")
@@ -665,14 +619,9 @@ class TestPreflightAndGateParity(unittest.TestCase):
         self.assertIn("run_cgroup", check_txt)
         self.assertIn("unittest discover", check_txt)
 
-        for name in ("tier3_check.sh", "fast_land.sh"):
-            txt = (SCRIPTS_DIR / name).read_text(encoding="utf-8")
-            self.assertIn("common.sh", txt)
-            self.assertIn("run_cgroup", txt)
-
-        tier3_txt = (SCRIPTS_DIR / "tier3_check.sh").read_text(encoding="utf-8")
-        self.assertIn("--slice=leanqbe-builds.slice", tier3_txt)
-        self.assertIn("MemorySwapMax=0", tier3_txt)
+        fast_txt = (SCRIPTS_DIR / "fast_land.sh").read_text(encoding="utf-8")
+        self.assertIn("common.sh", fast_txt)
+        self.assertIn("run_cgroup", fast_txt)
 
     def test_common_sh_build_and_run_cgroup(self) -> None:
         common_sh = SCRIPTS_DIR / "common.sh"

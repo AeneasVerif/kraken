@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # Stage 4 (D-Full) 300+ CNF Inprocessing Stress & Differential Verification Suite.
 #
-# Tests selected LeanQbe Kissat module(s) (`--module CorePlus | Plain | Full`, default:
-# `CorePlus` + `Plain`, plus `Full` automatically when `LeanQbe/T/Examples/Kissat/Full.lean`
-# exists) across:
+# Tests selected LeanQbe Kissat module(s) (`--module Plain | KissatFidelity | KissatM8Opt | Full`,
+# default: `Plain` + `KissatFidelity`) across:
 #   1. PrintCpp + clang++ -std=c++20 -O2 -fsanitize=undefined,address -DTQBE_CATCH_UB
 #      (stratified representative CNFs across all 9 families + unaligned work_ptr & edge checks)
 #   2. Native x64 (`x64Target`) with mmap guard pages + DIMACS model verifier (300+ CNFs)
@@ -28,9 +27,9 @@ CPP_CASES="${CPP_CASES:-36}"
 usage() {
   cat <<'EOF'
 usage: bench/kissat/run_full.sh [options]
-  --module <Plain|KissatFidelity|KissatM8Opt|FullM7Fidelity|CorePlus|Full|All>
+  --module <Plain|KissatFidelity|KissatM8Opt|Full|All>
                                        Module(s) to test (repeatable or comma-separated;
-                                       aliases: fid, fidelity, m8opt, opt, m8, m7fid)
+                                       aliases: fid, fidelity, step12, m8opt, opt, m8)
   --no-kissat                          Skip reference Kissat 4.0.4 build & comparison
   --no-cpp                             Skip PrintCpp C++20 ASan/UBSan check
   --with-ktest                         Also include stock kissat test/cnf/*.cnf if available
@@ -44,24 +43,18 @@ EOF
 
 norm_mod() {
   case "${1,,}" in
-    coreplus) echo "CorePlus" ;;
     plain|kissatplain) echo "Plain" ;;
     full) echo "Full" ;;
-    kissatfidelity|fullfidelity|fidelity|fid) echo "KissatFidelity" ;;
+    kissatfidelity|fullfidelity|fidelity|fid|step12) echo "KissatFidelity" ;;
     kissatm8opt|fullm8opt|m8opt|opt|fullm8|m8) echo "KissatM8Opt" ;;
-    fullm7fidelity|m7fidelity|m7fid) echo "FullM7Fidelity" ;;
     all) echo "All" ;;
-    *) echo "ERROR: unknown module '$1' (expected Plain|KissatFidelity|KissatM8Opt|FullM7Fidelity|CorePlus|Full|All)" >&2; exit 2 ;;
+    *) echo "ERROR: unknown module '$1' (expected Plain|KissatFidelity|KissatM8Opt|Full|All)" >&2; exit 2 ;;
   esac
 }
 
 append_all_modules() {
   [ -f "$ROOT/LeanQbe/T/Examples/Kissat/Plain.lean" ] && MODULES+=(Plain)
-  if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityAssembly.lean" ]; then
-    MODULES+=(KissatFidelity)
-  elif [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM7FidelityAssembly.lean" ]; then
-    MODULES+=(FullM7Fidelity)
-  fi
+  [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityAssemblyStep12.lean" ] && MODULES+=(KissatFidelity)
   [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM8OptAssembly.lean" ] && MODULES+=(KissatM8Opt)
 }
 
@@ -110,12 +103,10 @@ has_full_module() {
 }
 
 if [ ${#MODULES[@]} -eq 0 ]; then
-  if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityAssembly.lean" ]; then
+  if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityAssemblyStep12.lean" ]; then
     MODULES=(Plain KissatFidelity)
-  elif [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM7FidelityAssembly.lean" ]; then
-    MODULES=(Plain FullM7Fidelity)
   else
-    MODULES=(CorePlus Plain)
+    MODULES=(Plain)
     if has_full_module; then
       MODULES+=(Full)
     fi
@@ -137,14 +128,11 @@ for m in "${MODULES[@]}"; do
   if [ "$m" = "Full" ] && ! has_full_module; then
     echo "ERROR: --module Full requested, but LeanQbe.T.Examples.Kissat.Full is not landed yet." >&2
     exit 2
-  elif [ "$m" = "KissatFidelity" ] && [ ! -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityAssembly.lean" ]; then
-    echo "ERROR: --module KissatFidelity requested, but FullFidelityAssembly.lean is not landed yet." >&2
+  elif [ "$m" = "KissatFidelity" ] && [ ! -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityAssemblyStep12.lean" ]; then
+    echo "ERROR: --module KissatFidelity requested, but FullFidelityAssemblyStep12.lean is not landed yet." >&2
     exit 2
   elif [ "$m" = "KissatM8Opt" ] && [ ! -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM8OptAssembly.lean" ]; then
     echo "ERROR: --module KissatM8Opt requested, but FullM8OptAssembly.lean is not landed yet." >&2
-    exit 2
-  elif [ "$m" = "FullM7Fidelity" ] && [ ! -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM7FidelityAssembly.lean" ]; then
-    echo "ERROR: --module FullM7Fidelity requested, but FullM7FidelityAssembly.lean is not landed yet." >&2
     exit 2
   fi
 done
@@ -251,9 +239,9 @@ fi
 
 mod_lean() {
   case "$1" in
-    CorePlus|Plain|Full) echo "LeanQbe.T.Examples.Kissat.$1" ;;
+    Plain|Full) echo "LeanQbe.T.Examples.Kissat.$1" ;;
     KissatFidelity)
-      local deps=("LeanQbe.T.Examples.Kissat.FullFidelityAssembly")
+      local deps=("LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12")
       if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityInlPolicy.lean" ]; then
         deps+=("LeanQbe.T.MainInline" "LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy")
       fi
@@ -264,36 +252,27 @@ mod_lean() {
         deps+=("LeanQbe.T.MainInline" "LeanQbe.T.Examples.Kissat.FullM8InlPolicy")
       fi
       echo "${deps[*]}" ;;
-    FullM7Fidelity)
-      local deps=("LeanQbe.T.Examples.Kissat.FullM7FidelityAssembly")
-      if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM7InlPolicy.lean" ]; then
-        deps+=("LeanQbe.T.MainInline" "LeanQbe.T.Examples.Kissat.FullM7InlPolicy")
-      fi
-      echo "${deps[*]}" ;;
   esac
 }
 
 mod_expr() {
   case "$1" in
-    CorePlus) echo "LeanQbe.T.Examples.Kissat.CorePlus.coreplusModule" ;;
     Plain) echo "LeanQbe.T.Examples.Kissat.Plain.plainModule" ;;
     Full) echo "LeanQbe.T.Examples.Kissat.Full.fullModule" ;;
-    KissatFidelity) echo "LeanQbe.T.Examples.Kissat.FullFidelityAssembly.fidModule" ;;
+    KissatFidelity) echo "LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12.fidStep12Module" ;;
     KissatM8Opt) echo "LeanQbe.T.Examples.Kissat.FullM8OptAssembly.m8OptModule" ;;
-    FullM7Fidelity) echo "LeanQbe.T.Examples.Kissat.FullM7Fidelity.m7FidelityModule" ;;
   esac
 }
 
 mod_fns_expr() {
   case "$1" in
-    CorePlus) echo "(LeanQbe.T.Examples.Kissat.CorePlus.coreplusModule).fns" ;;
     Plain) echo "(LeanQbe.T.Examples.Kissat.Plain.plainModule).fns" ;;
     Full) echo "(LeanQbe.T.Examples.Kissat.Full.fullModule).fns" ;;
     KissatFidelity)
       if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityInlPolicy.lean" ]; then
-        echo "((LeanQbe.T.Examples.Kissat.FullFidelityAssembly.fidModule).optInlinePolicy LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy.fidInlPolicy).fns"
+        echo "((LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12.fidStep12Module).optInlinePolicy LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy.fidInlPolicy).fns"
       else
-        echo "(LeanQbe.T.Examples.Kissat.FullFidelityAssembly.fidModule).fns"
+        echo "(LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12.fidStep12Module).fns"
       fi ;;
     KissatM8Opt)
       if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM8InlPolicy.lean" ]; then
@@ -301,18 +280,12 @@ mod_fns_expr() {
       else
         echo "(LeanQbe.T.Examples.Kissat.FullM8OptAssembly.m8OptModule).fns"
       fi ;;
-    FullM7Fidelity)
-      if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM7InlPolicy.lean" ]; then
-        echo "((LeanQbe.T.Examples.Kissat.FullM7Fidelity.m7FidelityModule).optInlinePolicy LeanQbe.T.Examples.Kissat.FullM7InlPolicy.m7InlPolicy).fns"
-      else
-        echo "(LeanQbe.T.Examples.Kissat.FullM7Fidelity.m7FidelityModule).fns"
-      fi ;;
   esac
 }
 
 mod_tel_flag() {
   case "$1" in
-    CorePlus|KissatFidelity|KissatM8Opt|FullM7Fidelity) echo "--telemetry" ;;
+    KissatFidelity|KissatM8Opt) echo "--telemetry" ;;
     Plain) echo "--plain-telemetry" ;;
     Full) echo "" ;;
   esac
@@ -320,7 +293,7 @@ mod_tel_flag() {
 
 mod_edge_work() {
   case "$1" in
-    Plain|CorePlus|Full) echo "4096" ;;
+    Plain|Full) echo "4096" ;;
     *) echo "6144" ;;
   esac
 }
@@ -728,7 +701,7 @@ for name, m, tbl in solvers:
         sw = sum(tbl[p][8] for p in paths)
         pct = (100.0 * mrem / (lrn + mrem)) if (lrn + mrem) > 0 else 0.0
         note = f"confl={confs} lrn={lrn} rem={mrem}({pct:.1f}%) rst={rst} red={red} sw={sw}"
-    elif m in ("CorePlus", "KissatFidelity", "KissatM8Opt", "FullM7Fidelity"):
+    elif m in ("KissatFidelity", "KissatM8Opt"):
         confs = sum(tbl[p][2] for p in paths)
         lrn = sum(tbl[p][3] for p in paths)
         mrem = sum(tbl[p][4] for p in paths)

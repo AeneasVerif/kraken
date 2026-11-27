@@ -12,12 +12,11 @@ KISSAT_BIN="${KISSAT_BIN:-}"
 C4_BIN=""
 C3B_BIN=""
 GEN_HPP=""
-if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityAssembly.lean" ]; then
+if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityAssemblyStep12.lean" ] || \
+   [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityAssembly.lean" ]; then
   LABEL="KissatFidelity"
-elif [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM7FidelityAssembly.lean" ]; then
-  LABEL="FullM7Fidelity"
 else
-  LABEL="FullM4"
+  LABEL="Plain"
 fi
 PER_TIMEOUT=15
 QUICK=0
@@ -32,7 +31,7 @@ Usage: bench/kissat/run_c11_guardrails.sh [OPTIONS]
   --c4-bin PATH        Optional C4 native bench_main binary for C4==C3b parity checks
   --c3b-bin PATH       Optional prebuilt C3b bench_main binary (fallback if no --gen-hpp)
   --kissat PATH        Upstream Kissat 4.0.4 (C1) binary (auto-detected on PATH if omitted)
-  --label NAME         Model prefix for canary checks (default: auto KissatFidelity/FullM7Fidelity; e.g. KissatFidelity, KissatM8Opt, Plain, FullM7Fidelity, FullM6)
+  --label NAME         Model prefix for canary checks (default: auto KissatFidelity/Plain; e.g. KissatFidelity, KissatM8Opt, Plain)
   --timeout SEC        Per-solver timeout in seconds (default: 15)
   --quick              Use --fast fuzzing grid
   --with-base          Also run check_canaries.py --include-c11 across all 40 canaries

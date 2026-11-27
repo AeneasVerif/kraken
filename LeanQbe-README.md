@@ -164,9 +164,8 @@ Computing Base:
 | **ChaCha20, Curve25519, UnionFind** | [ChaCha.lean](LeanQbe/T/Examples/ChaCha.lean), [Bignum.lean](LeanQbe/T/Examples/Bignum.lean), [UnionFind.lean](LeanQbe/T/Examples/UnionFind.lean) | [WorkloadsAuditSpec.lean](LeanQbeTest/T/WorkloadsAuditSpec.lean) / [WorkloadsAuditX64.lean](LeanQbeTest/T/WorkloadsAuditX64.lean) / [WorkloadsAuditArm64.lean](LeanQbeTest/T/WorkloadsAuditArm64.lean) |
 | **LRAT Proof Checker (`lrat_check_bytes`)** | [LratBytes.lean](LeanQbe/T/Examples/LratBytes.lean), [LratBytesSpec.lean](LeanQbe/T/Examples/LratBytesSpec.lean) | [LratAuditSpec.lean](LeanQbeTest/T/LratAuditSpec.lean) / [LratAuditX64.lean](LeanQbeTest/T/LratAuditX64.lean) / [LratAuditArm64.lean](LeanQbeTest/T/LratAuditArm64.lean) |
 | **WebAssembly Sandbox** | [Wasm/Safety.lean](LeanQbe/T/Wasm/Safety.lean), [Wasm/BulkSafety.lean](LeanQbe/T/Wasm/BulkSafety.lean) | [WasmAuditSpec.lean](LeanQbeTest/T/WasmAuditSpec.lean) / [WasmAuditX64.lean](LeanQbeTest/T/WasmAuditX64.lean) / [WasmAuditArm64.lean](LeanQbeTest/T/WasmAuditArm64.lean) |
-| **Kissat SAT Solver (Full-Fidelity)** | [FidelityHub.lean](LeanQbe/T/Examples/Kissat/FidelityHub.lean), [FullFidelityBase.lean](LeanQbe/T/Examples/Kissat/FullFidelityBase.lean), [504-fn assembly](LeanQbe/T/Examples/Kissat/FullFidelityAssemblyStep9.lean) | [KissatFidelityStep9Test.lean](LeanQbeTest/T/KissatFidelityStep9Test.lean) / [KissatFidelityParamAuditX64.lean](LeanQbeTest/T/KissatFidelityParamAuditX64.lean) / [KissatFidelityParamAuditArm64.lean](LeanQbeTest/T/KissatFidelityParamAuditArm64.lean) |
-| **Kissat SAT Solver (413-fn Certified Baseline)** | [413-fn assembly](LeanQbe/T/Examples/Kissat/FullM7FidelityAssembly.lean) | [Spec audit](LeanQbeTest/T/KissatM7FidelityAuditSpec.lean) / [x86-64 audit](LeanQbeTest/T/KissatM7FidelityAuditX64.lean) / [AArch64 audit](LeanQbeTest/T/KissatM7FidelityAuditArm64.lean) |
-| **Kissat Minimal CDCL (`KissatPlain`, Optional)** | [Plain.lean](LeanQbe/T/Examples/Kissat/Plain.lean) | [x86-64 audit](LeanQbeLegacyTest/KissatM3PlainLegacyAuditX64.lean) / [AArch64 audit](LeanQbeLegacyTest/KissatM3PlainLegacyAuditArm64.lean) |
+| **Kissat SAT Solver (Full-Fidelity)** | [FidelityHub.lean](LeanQbe/T/Examples/Kissat/FidelityHub.lean), [FullFidelityBase.lean](LeanQbe/T/Examples/Kissat/FullFidelityBase.lean), [517-fn Step-12 assembly](LeanQbe/T/Examples/Kissat/FullFidelityAssemblyStep12.lean) | [KissatFidelityStep12Test.lean](LeanQbeTest/T/KissatFidelityStep12Test.lean) / [KissatFidelityParamAuditX64.lean](LeanQbeTest/T/KissatFidelityParamAuditX64.lean) / [KissatFidelityParamAuditArm64.lean](LeanQbeTest/T/KissatFidelityParamAuditArm64.lean) |
+| **Kissat Minimal CDCL (`KissatPlain`)** | [Plain.lean](LeanQbe/T/Examples/Kissat/Plain.lean) | [x86-64 audit](LeanQbeTest/T/KissatPlainAuditX64.lean) / [AArch64 audit](LeanQbeTest/T/KissatPlainAuditArm64.lean) |
 | **Stage-0 Bootstrap (`LeanQbeBootstrap0`)** | [Bootstrap0/Mod0.lean](LeanQbe/T/Bootstrap0/Mod0.lean), [Bootstrap0/Cert.lean](LeanQbe/T/Bootstrap0/Cert.lean), [Bootstrap0/Sound0.lean](LeanQbe/T/Bootstrap0/Sound0.lean) | [Bootstrap0Audit.lean](LeanQbeBootstrap0Test/Bootstrap0Audit.lean), [Sound0Test.lean](LeanQbeBootstrap0Test/Sound0Test.lean), [Codec0Test.lean](LeanQbeBootstrap0Test/Codec0Test.lean), [PrintDir0Test.lean](LeanQbeBootstrap0Test/PrintDir0Test.lean), [StageCTest.lean](LeanQbeBootstrap0Test/StageCTest.lean) |
 
 ### Building, Auditing, and Testing
@@ -196,15 +195,13 @@ timeout 1800 lake build --wfail \
   LeanQbeTest.T.LcnfC0FullCertTest LeanQbeTest.T.LcnfC0FullCertArm64Test \
   LeanQbeTest.T.MainFlatParityTest LeanQbeTest.T.UnifiedPipelineTest \
   LeanQbeTest.T.XcapBridgeTest \
-  LeanQbeTest.T.KissatFidelityStep9Test LeanQbeTest.T.KissatFidelityAuditSpec \
+  LeanQbeTest.T.KissatFidelityStep12Test LeanQbeTest.T.KissatFidelityAuditSpec \
   LeanQbeTest.T.KissatFidelityParamAuditX64 LeanQbeTest.T.KissatFidelityParamAuditArm64 \
   LeanQbeTest.T.KissatFidelityCompileGuardX64 LeanQbeTest.T.KissatFidelityCompileGuardArm64 \
-  LeanQbeTest.T.KissatM7FidelityAuditSpec \
-  LeanQbeTest.T.KissatM7FidelityAuditX64 LeanQbeTest.T.KissatM7FidelityAuditArm64
+  LeanQbeTest.T.KissatPlainAuditX64 LeanQbeTest.T.KissatPlainAuditArm64
 
-# Optional: Stage-0 bootstrap audit and minimal SAT+UNSAT KissatPlain legacy audits
+# Optional: Stage-0 bootstrap audit
 timeout 900 lake build --wfail LeanQbeBootstrap0Test
-timeout 900 lake build --wfail LeanQbeLegacyTest.KissatM3PlainLegacyAuditX64 LeanQbeLegacyTest.KissatM3PlainLegacyAuditArm64
 ```
 
 Native differential execution suites validate emitted x86-64 assembly, AArch64 assembly (under
@@ -276,9 +273,8 @@ symbols) with verified end-to-end compilation:
 
 | Target | Functions | Soundness Scope | Architecture Status | Primary Audits |
 | :--- | :--- | :--- | :--- | :--- |
-| **Full-Fidelity Kissat** | `504` | UNSAT soundness + framing + concrete `8,192 B` UNSAT non-vacuity | Source/IR proofs (`ModuleOk`); parameterized machine-code proofs & compile guards on SysV x86-64 (`≤ 1,560 B`) and AAPCS64 AArch64 (`≤ 1,392 B`) | [KissatFidelityStep9Test.lean](LeanQbeTest/T/KissatFidelityStep9Test.lean), [KissatFidelityParamAuditX64.lean](LeanQbeTest/T/KissatFidelityParamAuditX64.lean), [KissatFidelityParamAuditArm64.lean](LeanQbeTest/T/KissatFidelityParamAuditArm64.lean), [KissatFidelityCompileGuardX64.lean](LeanQbeTest/T/KissatFidelityCompileGuardX64.lean), [KissatFidelityCompileGuardArm64.lean](LeanQbeTest/T/KissatFidelityCompileGuardArm64.lean) |
-| **Certified Baseline (413 functions)** | `413` | UNSAT soundness + framing + materialized `LinkedCert` + concrete machine non-vacuity | Materialized x86-64 & AArch64 machine certificates + 140-CNF benchmark measurements | [Spec](LeanQbeTest/T/KissatM7FidelityAuditSpec.lean), [x86-64](LeanQbeTest/T/KissatM7FidelityAuditX64.lean), [AArch64](LeanQbeTest/T/KissatM7FidelityAuditArm64.lean) |
-| **Minimal CDCL (`KissatPlain`)** | `59` | **Dual SAT + UNSAT** soundness + framing + concrete SAT/UNSAT non-vacuity (`2,048 B`) | Materialized x86-64 & AArch64 machine certificates (pure CDCL, no inprocessing) | [x86-64](LeanQbeLegacyTest/KissatM3PlainLegacyAuditX64.lean), [AArch64](LeanQbeLegacyTest/KissatM3PlainLegacyAuditArm64.lean) |
+| **Full-Fidelity Kissat** | `517` | UNSAT soundness + framing + concrete `8,192 B` UNSAT non-vacuity | Source/IR proofs (`ModuleOk`); parameterized machine-code proofs & compile guards on SysV x86-64 (`≤ 1,560 B`) and AAPCS64 AArch64 (`≤ 1,392 B`) | [KissatFidelityStep12Test.lean](LeanQbeTest/T/KissatFidelityStep12Test.lean), [KissatFidelityParamAuditX64.lean](LeanQbeTest/T/KissatFidelityParamAuditX64.lean), [KissatFidelityParamAuditArm64.lean](LeanQbeTest/T/KissatFidelityParamAuditArm64.lean), [KissatFidelityCompileGuardX64.lean](LeanQbeTest/T/KissatFidelityCompileGuardX64.lean), [KissatFidelityCompileGuardArm64.lean](LeanQbeTest/T/KissatFidelityCompileGuardArm64.lean) |
+| **Minimal CDCL (`KissatPlain`)** | `59` | **Dual SAT + UNSAT** soundness + framing + concrete SAT/UNSAT non-vacuity (`2,048 B`) | Materialized x86-64 & AArch64 machine certificates (pure CDCL, no inprocessing) | [x86-64](LeanQbeTest/T/KissatPlainAuditX64.lean), [AArch64](LeanQbeTest/T/KissatPlainAuditArm64.lean) |
 
 ### Building and Running the Native Solver
 
@@ -367,5 +363,5 @@ Lean-extracted Stage-0 compiler (`leanqbe0Compile`) with `LeanQbe.T` itself:
 | `LeanQbe/T/Logic/` | Separation-logic tree/slab automation, symbolic C0 stepper (`C0Step`), and control/legality combinators |
 | `LeanQbe/T/Examples/` | Verified `ChaCha20`, `Curve25519` bignum, `UnionFind`, `LratBytes`, `LratTrim`, litmus programs, and Kissat SAT solver modules |
 | `LeanQbe/T/Bootstrap0/` | Stage-0 bootstrapping compiler modules, codec, sound scalar checker, and AT&T printer |
-| `LeanQbeTest/T/`, `LeanQbeBootstrap0Test/`, `LeanQbeLegacyTest/` | Lean audit specifications, parity/unit tests, compile guards, and optional legacy solver audits |
+| `LeanQbeTest/T/`, `LeanQbeBootstrap0Test/` | Lean audit specifications, parity/unit tests, and compile guards |
 | `scripts/`, `test/`, `bench/` | [check.sh](scripts/check.sh) / [preflight.sh](scripts/preflight.sh) gates, native differential suites, and Kissat / QBE benchmark harnesses |

@@ -19,18 +19,6 @@ IMPORT_LINE_RE = re.compile(
 
 IMPORT_RE = IMPORT_LINE_RE
 
-# Stage A: M5, M6, and non-reused M7Plus certs move to LeanQbeLegacy* (Tier 3).
-# Keep KissatM7PlusBounds + the 38 KissatM7PlusCert* slices imported by
-# KissatM7FidelityCert active until Stage B (standalone KissatFidelity certs).
-LEGACY_CERT_DEFAULT = (
-    r"^LeanQbe\.T\.(Amd64|Arm64)\."
-    r"(Kissat|KissatCorePlus|KissatFull.*|KissatFastSched.*|KissatFast.*"
-    r"|KissatPlain.*|KissatM3.*|KissatM4.*|KissatM5.*|KissatM6.*"
-    r"|KissatM7Plus(?:Cert|CertLink|Cert(?:1|14|15|18|21|22|4[5-9]|5[0-6]))?)$"
-)
-
-LEGACY_CERT_RE = re.compile(LEGACY_CERT_DEFAULT)
-
 DEFAULT_MAX_LOC = 2500
 DEFAULT_MAX_COL = 100
 DEFAULT_MAX_PROOF_THM_LOC = 450
@@ -689,8 +677,7 @@ SUBSYSTEM_HUBS: tuple[str, ...] = (
     "LeanQbe.T.Examples.Kissat.FidelityHub",
 )
 ROOT_LIBS: tuple[str, ...] = (
-    "LeanQbe", "LeanQbeAmd64", "LeanQbeArm64",
-    "LeanQbeLegacyAmd64", "LeanQbeLegacyArm64", "LeanQbeBootstrap0",
+    "LeanQbe", "LeanQbeAmd64", "LeanQbeArm64", "LeanQbeBootstrap0",
 )
 ALL_HUBS: tuple[str, ...] = ROOT_LIBS + SUBSYSTEM_HUBS
 BARRELS: frozenset[str] = frozenset(ALL_HUBS)
@@ -713,7 +700,7 @@ FORBIDDEN_CLASS0_RE = re.compile(
 )
 CLASS0_RE = re.compile(
     r"^(?:(?:LeanQbe-)?README\.md|NOTES\.md|DEVELOPER\.md|CONTRIBUTING\.md|docs/.*|bench/.*"
-    r"|test/.*\.(?:c|h|py|sh|cnf|lrat)|scripts/(?:fast_land|tier3_check|all|preflight)\.sh"
+    r"|test/.*\.(?:c|h|py|sh|cnf|lrat)|scripts/(?:fast_land|all|preflight)\.sh"
     r"|scripts/(?:gen_cert_slices|test_gen_cert_slices|test_infra_speedup"
     r"|merge_lean_imports|select_tests)\.py)$"
 )
@@ -819,7 +806,6 @@ def collect_lean_rdeps(
     lean_rel_paths: Iterable[Path | str] | None = None,
     read_imports_fn: Callable[[Path], Iterable[str]] | None = None,
     barrels: AbstractSet[str] = BARRELS,
-    include_legacy: bool = False,
     max_rdeps: int | None = None,
 ) -> list[str] | None:
     """Build non-barrel reverse-import graph and return BFS closure of `seeds`."""
@@ -837,9 +823,6 @@ def collect_lean_rdeps(
         mod = rel_path_to_mod(rel)
         if mod in barrels:
             continue
-        if not include_legacy and mod not in seed_set:
-            if (rel.parts and rel.parts[0] == "LeanQbeLegacyTest") or LEGACY_CERT_RE.match(mod):
-                continue
         if read_imports_fn is not None:
             imps = read_imports_fn(rel)
         else:
@@ -932,14 +915,11 @@ def read_headline_entries(lines: Iterable[str]) -> list[tuple[str, str]]:
     return entries
 
 
-def collect_active_headlines(root: Path, *, include_legacy: bool = False) -> list[tuple[str, str]]:
+def collect_active_headlines(root: Path) -> list[tuple[str, str]]:
     """Collect `<module> <constant>` entries from `scripts/headlines.d/` or `headline.txt`."""
     hdir = root / "scripts" / "headlines.d"
     files = sorted(hdir.glob("*.txt")) if hdir.is_dir() else []
-    if files:
-        if not include_legacy:
-            files = [f for f in files if "legacy" not in f.name]
-    else:
+    if not files:
         single = root / "scripts" / "headline.txt"
         files = [single] if single.is_file() else []
     out: list[tuple[str, str]] = []

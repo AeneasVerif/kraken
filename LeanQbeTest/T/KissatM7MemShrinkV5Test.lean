@@ -5,13 +5,11 @@ Released under Apache 2.0 license as described in the file LICENSE.
 module
 
 public import LeanQbe.T.Examples.Kissat.FullM7MemShrinkV5
-public import LeanQbe.T.Examples.Kissat.FullM7MemShrinkAssembly
 public import LeanQbe.T.Examples.Kissat.FullM7MemShrinkV5Proof
 public import LeanQbe.T.PrintCpp
 public import LeanQbe.T.PrintQbe
 public import LeanQbe.T.Legal
 meta import LeanQbe.T.Examples.Kissat.FullM7MemShrinkV5
-meta import LeanQbe.T.Examples.Kissat.FullM7MemShrinkAssembly
 meta import LeanQbe.T.Examples.Kissat.FullM7MemShrinkV5Proof
 meta import LeanQbe.T.PrintCpp
 meta import LeanQbe.T.PrintQbe
@@ -21,8 +19,7 @@ meta import LeanQbe.T.Legal
 # Verification, V5 BVA Parity Guards, `ModuleOk`, Framing & Axiom Audit (`KissatM7MemShrinkV5Test`)
 
 1. Executable `#guard` checks on `m7msStandaloneModule` (`14` fns, `1` extern, `0` exits),
-   `m7msM6Module` (`16` fns, `1` extern, `0` exits), `m7PlusMemShrinkModule` (`412` fns),
-   `m7FidelityMemShrinkModule` (`415` fns), V5 `cand = 4096` BVA parity (`Cause B` fix),
+   `m7msM6Module` (`16` fns, `1` extern, `0` exits), V5 `cand = 4096` BVA parity (`Cause B` fix),
    `PrintCpp`, `PrintQbe`, and 4-ISA legalization.
 2. Audit-ready restated headline theorems covering `Wf`, `checkAcyclic`, `m7msStandalone_moduleOk`,
    `m7msM6_moduleOk`, `full_calc_max_v_m7v5_wp`, `full_init_arenas_m7ms_wp`,
@@ -66,10 +63,6 @@ open Kraken.Bedrock2.Test
 #guard m7msM6SpecTable.map (fun e => (e.name, e.as, e.rs)) == m7msM6Module.sigs
 #guard m7V5BvaCap 20000000 2000 100000 1000000 == 4096
 #guard m7V5CalcMaxV 20000000 2000 100000 (m7FixedBytes 2000) == 6096
-#guard m7PlusMemShrinkFns.length == 412
-#guard m7FidelityMemShrinkFns.length == 415
-#guard m7PlusMemShrinkModule.checkAcyclic == true
-#guard m7FidelityMemShrinkModule.checkAcyclic == true
 #guard (ppTModule m7msStandaloneModule).isOk
 #guard (PrintQbe.module m7msStandaloneModule).isOk
 #guard (ppTModule m7msM6Module).isOk
@@ -87,13 +80,6 @@ theorem msv5_standalone_mod_ok : ModuleOk m7msEnv m7msStandaloneModule := m7msSt
 theorem msv5_m6_wf : AllFns Fn.Wf m7msM6Module.fns := m7msM6_fns_wf
 theorem msv5_m6_acyc : m7msM6Module.checkAcyclic = true := m7msM6_acyclic
 theorem msv5_m6_mod_ok : ModuleOk m7msM6Env m7msM6Module := m7msM6_moduleOk
-theorem msv5_plus_wf : ∀ f ∈ m7PlusMemShrinkFns, f.Wf := m7PlusMemShrinkFns_wf
-theorem msv5_plus_len : m7PlusMemShrinkFns.length = 412 := m7PlusMemShrinkFns_length
-theorem msv5_plus_acyc : m7PlusMemShrinkModule.checkAcyclic = true := m7PlusMemShrink_acyclic
-theorem msv5_fid_wf : ∀ f ∈ m7FidelityMemShrinkFns, f.Wf := m7FidelityMemShrinkFns_wf
-theorem msv5_fid_len : m7FidelityMemShrinkFns.length = 415 := m7FidelityMemShrinkFns_length
-theorem msv5_fid_acyc : m7FidelityMemShrinkModule.checkAcyclic = true :=
-  m7FidelityMemShrink_acyclic
 
 theorem msv5_calc_max_v_wp (Γ : Env)
     (hFixed : EnvSpec Γ "full_fixed_bytes" m7FixedBytesSpec)
@@ -206,12 +192,6 @@ abbrev msv5_ax_smod := @LeanQbeTest.T.KissatM7MemShrinkV5Test.msv5_standalone_mo
 abbrev msv5_ax_mwf := @LeanQbeTest.T.KissatM7MemShrinkV5Test.msv5_m6_wf
 abbrev msv5_ax_macyc := @LeanQbeTest.T.KissatM7MemShrinkV5Test.msv5_m6_acyc
 abbrev msv5_ax_mmod := @LeanQbeTest.T.KissatM7MemShrinkV5Test.msv5_m6_mod_ok
-abbrev msv5_ax_pwf := @LeanQbeTest.T.KissatM7MemShrinkV5Test.msv5_plus_wf
-abbrev msv5_ax_plen := @LeanQbeTest.T.KissatM7MemShrinkV5Test.msv5_plus_len
-abbrev msv5_ax_pacyc := @LeanQbeTest.T.KissatM7MemShrinkV5Test.msv5_plus_acyc
-abbrev msv5_ax_fwf := @LeanQbeTest.T.KissatM7MemShrinkV5Test.msv5_fid_wf
-abbrev msv5_ax_flen := @LeanQbeTest.T.KissatM7MemShrinkV5Test.msv5_fid_len
-abbrev msv5_ax_facyc := @LeanQbeTest.T.KissatM7MemShrinkV5Test.msv5_fid_acyc
 abbrev msv5_ax_maxv := @LeanQbeTest.T.KissatM7MemShrinkV5Test.msv5_calc_max_v_wp
 abbrev msv5_ax_arenas := @LeanQbeTest.T.KissatM7MemShrinkV5Test.msv5_init_arenas_wp
 abbrev msv5_ax_init := @LeanQbeTest.T.KissatM7MemShrinkV5Test.msv5_init_state_wp
@@ -232,12 +212,6 @@ abbrev msv5_ax_nv_4k := @LeanQbeTest.T.KissatM7MemShrinkV5Test.msv5_nv_m6_4k
 #print axioms msv5_ax_mwf
 #print axioms msv5_ax_macyc
 #print axioms msv5_ax_mmod
-#print axioms msv5_ax_pwf
-#print axioms msv5_ax_plen
-#print axioms msv5_ax_pacyc
-#print axioms msv5_ax_fwf
-#print axioms msv5_ax_flen
-#print axioms msv5_ax_facyc
 #print axioms msv5_ax_maxv
 #print axioms msv5_ax_arenas
 #print axioms msv5_ax_init
