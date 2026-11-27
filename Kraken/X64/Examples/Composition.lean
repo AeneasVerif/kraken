@@ -15,7 +15,7 @@ swap: xor %rax, %rbx
       jmp %rcx
 ⸩
 
-theorem swap.sem (l : Layout) [l.WellFormed swap]
+theorem swap.sem (l : Layout) [Program.AssemblableWith swap l]
   (st : MachineData) :
     letI e : Executable := l.apply swap
     letI : Labels := e.labels
@@ -53,7 +53,7 @@ def client := ⸨prog|
 
 def final := client ++ swap
 
-theorem final.sem (l : Layout) [hl : l.WellFormed final]
+theorem final.sem (l : Layout) [hl : Program.AssemblableWith final l]
   (st : MachineData) :
     letI e : Executable := l.apply final
     Eventually (step1 e)
@@ -64,7 +64,7 @@ theorem final.sem (l : Layout) [hl : l.WellFormed final]
       ⟨st, l.start⟩ := by
   kprologue final with st
   sym => kstep 4; tactic =>
-  have : (l.offset client).WellFormed swap := Layout.WellFormed.append_right (p₂ := swap) hl
+  have : Program.AssemblableWith swap (l.offset client) := Kraken.Program.AssemblableWith.append_right (p₂ := swap) hl
   -- `swap` starts where `client` ends: definitionally the address of directive 7 of `final`.
   have addrOf_7 : (l.offset client).start = (l.apply final).addrOf 7 := rfl
   refine eventually_trans _ _ _ _
