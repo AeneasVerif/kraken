@@ -4,9 +4,9 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 module
 
-public import LeanQbe.T.Examples.Kissat.Proof.Minimize.WpSortAsts
+public import LeanQbe.T.Examples.Kissat.Proof.Minimize.WpSortSteps
 import LeanQbe.T.Examples.Kissat.Proof.Minimize.MinTactics
-import LeanQbe.T.Logic.C0Step
+import LeanQbe.T.Logic.C0Grind
 import LeanQbe.T.Logic.C0HeadStep
 import LeanQbe.T.Logic.ControlComb
 import LeanQbe.T.Logic.MemLemmas
@@ -27,7 +27,6 @@ public section
 namespace LeanQbe.T.Examples.Kissat.Proof.Minimize
 
 open LeanQbe.T
-open LeanQbe.T.C0Step
 open LeanQbe.T.C0HeadStep
 open LeanQbe.T.ProofUtil
 open LeanQbe.T.Examples.LratBytes
@@ -36,40 +35,42 @@ open LeanQbe.T.Examples.Kissat.Proof.Spec.FullArenaTactics
 open scoped LeanQbe.T.Examples.Kissat.Proof.Minimize.FullMinTactics
 open Kraken.Bedrock2.Test
 
-local syntax "m7_lets_core" : tactic
-local macro_rules
-  | `(tactic| m7_lets_core) => `(tactic| repeat (first
-      | rw [FullMinTactics.ml_copy_bool] | rw [FullMinTactics.ml_copy8]
-      | rw [FullMinTactics.ml_copy32] | rw [FullMinTactics.ml_copy64]
-      | rw [FullMinTactics.ml_add32] | rw [FullMinTactics.ml_add64]
-      | rw [FullMinTactics.ml_sub64] | rw [FullMinTactics.ml_mul64]
-      | rw [FullMinTactics.ml_shl64] | rw [FullMinTactics.ml_lshr64]
-      | rw [FullMinTactics.ml_zext32_64] | rw [FullMinTactics.ml_sext32_64]
-      | rw [FullMinTactics.ml_trunc64_32]
-      | rw [FullMinTactics.ml_ult32] | rw [FullMinTactics.ml_ule32]
-      | rw [FullMinTactics.ml_ugt32] | rw [FullMinTactics.ml_eq32]
-      | rw [FullMinTactics.ml_ne32]
-      | rw [FullMinTactics.ml_ult64] | rw [FullMinTactics.ml_ule64]
-      | rw [FullMinTactics.ml_ugt64] | rw [FullMinTactics.ml_uge64]
-      | rw [FullMinTactics.ml_eq64] | rw [FullMinTactics.ml_ne64]
-      | rw [Arg.val_var] | rw [Arg.val_imm]))
+private theorem s7_get_tmp {st s : FullState} {t : List (BitVec 32)}
+    (hc : st.core = { s.core with tmp := t }) {i : Nat} (hi : i < t.length) :
+    st.core.tmp[i]'(by rw [hc]; exact hi) = t[i]'hi := by
+  have h : st.core.tmp = t := by rw [hc]
+  cases h; rfl
 
-local macro "m7_dsimp" : tactic =>
-  `(tactic| dsimp (zeta := false) only [LeanQbe.T.vals, Arg.val, Prod.fst, Prod.snd])
+private theorem s7_get_wsort {st s : FullState} {ws : List (BitVec 32)}
+    (hs : st.scratch = { s.scratch with wsort := ws }) {i : Nat} (hi : i < ws.length) :
+    st.scratch.wsort[i]'(by rw [hs]; exact hi) = ws[i]'hi := by
+  have h : st.scratch.wsort = ws := by rw [hs]
+  cases h; rfl
 
-local macro "m7_lets" : tactic =>
-  `(tactic| (m7_lets_core; (try rw [LeanQbe.T.wp_jump]); try m7_dsimp))
+private theorem s7_get_lvl_of {st s : FullState} {t : List (BitVec 32)}
+    (hc : st.core = { s.core with tmp := t }) {i j : Nat} (hi : i < st.core.lvl.length)
+    (hij : i = j) (hj : j < s.core.lvl.length) :
+    st.core.lvl[i]'hi = s.core.lvl[j]'hj := by
+  subst hij; simp only [hc]
 
-local syntax "m7_jnz" : tactic
-local macro_rules
-  | `(tactic| m7_jnz) => `(tactic| (m7_lets; rw [LeanQbe.T.wp_jnz]; dsimp only [Arg.val]))
+private theorem s7_lshr1 (v : BitVec 32) :
+    (v.setWidth 64 >>> ((BitVec.signExtend 64 1#32).toNat % 64)).toNat =
+      v.toNat / 2 := by c0_bound
 
-local syntax "m7_ld " term : tactic
-local macro_rules
-  | `(tactic| m7_ld $lem:term) => `(tactic| (m7_lets; rw [LeanQbe.T.wp]; refine ⟨_, $lem, ?_⟩))
+private theorem s7_lshr1_one (v : BitVec 32) :
+    (v.setWidth 64 >>> (1 : Nat)).toNat = v.toNat / 2 := by c0_bound
 
-local macro "m7_st " m:ident ", " h:ident " := " lem:term : tactic =>
-  `(tactic| (m7_lets; refine LeanQbe.T.wp_store_sep $lem fun $m:ident $h:ident => ?_))
+private theorem s7_st_upd_tmp {st s : FullState} {t : List (BitVec 32)}
+    (hc : st.core = { s.core with tmp := t }) {i : Nat} {v : BitVec 32} :
+    ({ st with core := { st.core with tmp := st.core.tmp.set i v } }).core =
+      { s.core with tmp := t.set i v } := by
+  rw [hc]
+
+private theorem s7_st_upd_wsort {st s : FullState} {ws : List (BitVec 32)}
+    (hs : st.scratch = { s.scratch with wsort := ws }) {i : Nat} {v : BitVec 32} :
+    ({ st with scratch := { st.scratch with wsort := st.scratch.wsort.set i v } }).scratch =
+      { s.scratch with wsort := ws.set i v } := by
+  rw [hs]
 
 /-! ## 1. Pure Helpers: Level Key, Merge Invariant, Run Arithmetic -/
 
@@ -270,10 +271,7 @@ private theorem s7_pass_step {lvl t tc : List (BitVec 32)} {N w lo B : Nat}
     exact hsuf i j (by omega) hij hj hdiv
 
 private theorem s7_shl1_bv64 {w : Nat} :
-    BitVec.ofNat 64 w <<< ((BitVec.signExtend 64 (1 : BitVec 32)).toNat % 64) =
-      BitVec.ofNat 64 (2 * w) := by
-  have h1 : (BitVec.signExtend 64 (1 : BitVec 32)).toNat % 64 = 1 := rfl
-  rw [h1]
+    BitVec.ofNat 64 w <<< (1 : Nat) = BitVec.ofNat 64 (2 * w) := by
   apply BitVec.eq_of_toNat_eq
   rw [BitVec.toNat_shiftLeft, BitVec.toNat_ofNat, BitVec.toNat_ofNat, Nat.shiftLeft_eq,
     Nat.pow_one]
@@ -282,7 +280,7 @@ private theorem s7_shl1_bv64 {w : Nat} :
 /-! ## 2. Sub-AST Abbreviations (`rfl`-identical sub-terms of `s7SortMergeExpr`) -/
 
 /-- Copy-back loop `tmp[lo, hi) := sh[lo, hi)`, then `lo := hi`. -/
-private abbrev s7CopyExpr {Val : Ty → Type} {Cont : List Ty → Type}
+abbrev s7CopyExpr {Val : Ty → Type} {Cont : List Ty → Type}
     (lo hi pTmp pWsort : Val i64) (JL : Cont [i64]) : Expr Val Cont [] :=
   .group (sig := [[i64]]) (fun JC =>
     .cons (fun xc =>
@@ -301,7 +299,7 @@ private abbrev s7CopyExpr {Val : Ty → Type} {Cont : List Ty → Type}
     (fun J => .jump J.1 (Arg.var lo, ()))
 
 /-- Tail loop draining the second run `t[i1, hi)`, then the copy-back. -/
-private abbrev s7Tail1Expr {Val : Ty → Type} {Cont : List Ty → Type}
+abbrev s7Tail1Expr {Val : Ty → Type} {Cont : List Ty → Type}
     (i1 dst lo hi pTmp pWsort : Val i64) (JL : Cont [i64]) : Expr Val Cont [] :=
   .group (sig := [[i64, i64]]) (fun JT1 =>
     .cons (fun t1 =>
@@ -321,7 +319,7 @@ private abbrev s7Tail1Expr {Val : Ty → Type} {Cont : List Ty → Type}
     (fun J => .jump J.1 (Arg.var i1, Arg.var dst, ()))
 
 /-- Tail loop draining the first run `t[i0, mid)`, then the second tail. -/
-private abbrev s7Tail0Expr {Val : Ty → Type} {Cont : List Ty → Type}
+abbrev s7Tail0Expr {Val : Ty → Type} {Cont : List Ty → Type}
     (i0 i1 dst lo mid hi pTmp pWsort : Val i64) (JL : Cont [i64]) : Expr Val Cont [] :=
   .group (sig := [[i64, i64]]) (fun JT0 =>
     .cons (fun t0 =>
@@ -341,7 +339,7 @@ private abbrev s7Tail0Expr {Val : Ty → Type} {Cont : List Ty → Type}
     (fun J => .jump J.1 (Arg.var i0, Arg.var dst, ()))
 
 /-- Merge loop over `(i0, i1, dst)` of the block `[lo, mid) ∪ [mid, hi)`. -/
-private abbrev s7MergeExpr {Val : Ty → Type} {Cont : List Ty → Type}
+abbrev s7MergeExpr {Val : Ty → Type} {Cont : List Ty → Type}
     (lo mid hi pTmp pLvl pWsort : Val i64) (JL : Cont [i64]) : Expr Val Cont [] :=
   .group (sig := [[i64, i64, i64]]) (fun JM =>
     .cons (fun xm =>
@@ -400,7 +398,7 @@ private abbrev s7MergeExpr {Val : Ty → Type} {Cont : List Ty → Type}
     (fun J => .jump J.1 (Arg.var lo, Arg.var mid, Arg.var lo, ()))
 
 /-- One `lo`-pass over all `2w`-blocks (`mid` / `hi` computation, merge), then `w := 2w`. -/
-private abbrev s7PassExpr {Val : Ty → Type} {Cont : List Ty → Type}
+abbrev s7PassExpr {Val : Ty → Type} {Cont : List Ty → Type}
     (xw n64 pTmp pLvl pWsort : Val i64) (JW : Cont [i64]) : Expr Val Cont [] :=
   .group (sig := [[i64]]) (fun JL =>
     .cons (fun xlo =>
@@ -435,6 +433,17 @@ private abbrev s7PassExpr {Val : Ty → Type} {Cont : List Ty → Type}
     .nil)
     (fun J => .jump J.1 (Arg.imm 1, ()))
 
+/-- Bottom-up merge-sort fallback phase of `full_sort_tmp`, with `n64 = tlen`,
+`nm1 = tlen - 1` and `wsort` (`pWsort`) as merge scratch. -/
+abbrev s7SortMergeExpr {Val : Ty → Type} {Cont : List Ty → Type}
+    (n64 nm1 pTmp pLvl pWsort : Val i64) : Expr Val Cont [] :=
+  .group (sig := [[i64]]) (fun JW =>
+    .cons (fun xw =>
+      .let_ (Op.mk (.cmp .ult i64 .bool rfl) (Arg.var xw.1, Arg.var nm1, ())) fun c1 =>
+      .jnz (Arg.var c1.1) (s7PassExpr xw.1 n64 pTmp pLvl pWsort JW.1) (.ret ()))
+    .nil)
+    (fun J => .jump J.1 (Arg.imm 1, ()))
+
 /-! ## 3. Copy-Back Loop -/
 
 private theorem s7_copy_wp {Γ : Env} {c : FullCfg} {s st0 : FullState} {R : Mem 64 → Prop}
@@ -462,45 +471,39 @@ private theorem s7_copy_wp {Γ : Env} {c : FullCfg} {s st0 : FullState} {R : Mem
   refine wp_loop_group Inv ?_ ?_
   · intro JC meas xs m hIH ⟨cp, st, tc, hxs, hcp1, hcp2, hmeas, hst_c, hst_s, htc_len, hin,
       hout, hm⟩
-    rw [Blocks.get_here]
-    m7_jnz
-    refine ⟨fun hlt => ?_, fun hge => ?_⟩
-    · have hcp : cp < hi := by
-        have h1 := s7_ult64_true hlt
-        rw [hxs, BitVec.toNat_ofNat, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega),
-          Nat.mod_eq_of_lt (by omega)] at h1
-        exact h1
-      m7_lets
-      rw [hxs]
-      have hcp_h : cp < h.length := by omega
-      have hld := s7_load_wsort_nat hst_s hcp_h (by omega) hm
-      m7_ld hld
-      have hcp_t : cp < tc.length := by omega
-      obtain ⟨st', hc', hs', hok, hm'⟩ :=
-        s7_store_tmp_nat (i := cp) (h[cp]'hcp_h) hst_c hst_s hcp_t (by omega) hm
-      m7_st m', hm'' := And.intro hok hm'
-      m7_lets
-      have hadd : BitVec.ofNat 64 cp + (1 : BitVec 64) = BitVec.ofNat 64 (cp + 1) :=
-        s7_add1_bv64 (by omega)
+    rcases xs with ⟨cp_bv, ⟨⟩⟩; dsimp only at hxs; subst hxs
+    rw [Blocks.get_here]; c0_hsplit
+    · have hcp : cp < hi := by c0_grind
+      have hcp_h : (BitVec.ofNat 64 cp).toNat < st.scratch.wsort.length := by
+        rw [m7_scr_ws_eq hst_s, hhl, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]; omega
+      have hcp_t : (BitVec.ofNat 64 cp).toNat < st.core.tmp.length := by
+        rw [m7_core_tmp_eq hst_c, htc_len, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]; omega
+      c0_hsteps!
+      have hidx : (BitVec.ofNat 64 cp).toNat = cp := by c0_bound
+      have hgw : st.scratch.wsort[(BitVec.ofNat 64 cp).toNat]'hcp_h = h[cp]'(by omega) := by
+        simpa only [hidx] using s7_get_wsort hst_s (i := cp) (by omega)
+      have hadd : BitVec.ofNat 64 cp + (1 : BitVec 64) = BitVec.ofNat 64 (cp + 1) := by c0_bound
       rw [hadd]
-      refine hIH (hi - (cp + 1)) _ _ (by omega) ⟨cp + 1, st', tc.set cp (h[cp]'hcp_h), rfl,
-        by omega, by omega, rfl, hc', hs', by simp [htc_len], ?_, ?_, hm''⟩
+      let core1 := st.core
+      let tmp1 := core1.tmp.set (BitVec.ofNat 64 cp).toNat
+        (st.scratch.wsort[(BitVec.ofNat 64 cp).toNat]'hcp_h)
+      refine hIH (hi - (cp + 1)) _ _ (by omega) ⟨cp + 1,
+        { core := { core1 with tmp := tmp1 }, scratch := st.scratch },
+        tc.set cp (h[cp]'(by omega)), rfl,
+        by omega, by omega, rfl, ?_, hst_s, by simp [htc_len], ?_, ?_, hm⟩
+      · dsimp only [core1, tmp1]
+        rw [hgw, hidx]
+        exact s7_st_upd_tmp hst_c
       · intro q hq1 hq2
         by_cases hqc : q = cp
-        · rw [hqc, List.getElem?_set_self hcp_t, List.getElem?_eq_getElem hcp_h]
+        · rw [hqc, List.getElem?_set_self (by omega), List.getElem?_eq_getElem (by omega)]
         · rw [List.getElem?_set_ne (Ne.symm hqc)]; exact hin q hq1 (by omega)
-      · intro q hq
-        rw [List.getElem?_set_ne (by omega)]; exact hout q (by omega)
-    · have hcp : hi ≤ cp := by
-        have h1 := s7_ult64_false hge
-        rw [hxs, BitVec.toNat_ofNat, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega),
-          Nat.mod_eq_of_lt (by omega)] at h1
-        exact h1
-      m7_lets
+      · intro q hq; rw [List.getElem?_set_ne (by omega)]; exact hout q (by omega)
+    · have hcp : hi ≤ cp := by c0_grind
+      c0_hsteps!
       exact hJL st tc m hst_c hst_s htc_len (fun q h1 h2 => hin q h1 (by omega))
         (fun q hq => hout q (by omega)) hm
-  · intro J hJ
-    m7_lets
+  · intro J hJ; c0_hsteps!
     exact hJ _ _ _ ⟨lo, st0, t, rfl, Nat.le_refl _, hlohi, rfl, hc0, hs0, htl,
       fun q h1 h2 => by omega, fun q _ => rfl, hm0⟩
 
@@ -535,40 +538,33 @@ private theorem s7_tail1_wp {Γ : Env} {c : FullCfg} {s st0 : FullState} {R : Me
       h.length = 2 * c.max_vars ∧ (FullMem c st ⋆ R) m
   refine wp_loop_group Inv ?_ ?_
   · intro JT meas xs m hIH ⟨j1, d, st, h, hx1, hx2, hmeas, hinv, hst_c, hst_s, hhl', hm⟩
-    have hb := hinv
-    obtain ⟨hlm, _, hmj, hjhi, hd, _⟩ := hb
-    rw [Blocks.get_here]
-    m7_jnz
-    refine ⟨fun hlt => ?_, fun hge => ?_⟩
-    · have hj : j1 < hi := by
-        have h1 := s7_ult64_true hlt
-        rw [hx1, BitVec.toNat_ofNat, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega),
-          Nat.mod_eq_of_lt (by omega)] at h1
-        exact h1
-      m7_lets
-      rw [hx1, hx2]
-      have hj_t : j1 < t.length := by omega
-      have hld := s7_load_tmp_nat hst_c hj_t (by omega) hm
-      m7_ld hld
-      have hd_h : d < h.length := by omega
-      obtain ⟨st', hc', hs', hok, hm'⟩ :=
-        s7_store_wsort_nat (i := d) (t[j1]'hj_t) hst_c hst_s hd_h (by omega) hm
-      m7_st m', hm'' := And.intro hok hm'
-      m7_lets
-      have ha1 : BitVec.ofNat 64 j1 + (1 : BitVec 64) = BitVec.ofNat 64 (j1 + 1) :=
-        s7_add1_bv64 (by omega)
-      have ha2 : BitVec.ofNat 64 d + (1 : BitVec 64) = BitVec.ofNat 64 (d + 1) :=
-        s7_add1_bv64 (by omega)
+    have ⟨hlm, _, hmj, hjhi, hd, _⟩ := hinv
+    rcases xs with ⟨j1_bv, d_bv, ⟨⟩⟩; dsimp only at hx1 hx2; subst hx1 hx2
+    rw [Blocks.get_here]; c0_hsplit
+    · have hj : j1 < hi := by c0_grind
+      have hj_t : (BitVec.ofNat 64 j1).toNat < st.core.tmp.length := by
+        rw [m7_core_tmp_eq hst_c, htl, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]; omega
+      have hd_h : (BitVec.ofNat 64 d).toNat < st.scratch.wsort.length := by
+        rw [m7_scr_ws_eq hst_s, hhl', BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]; omega
+      c0_hsteps!
+      have hj_i : (BitVec.ofNat 64 j1).toNat = j1 := by c0_bound
+      have hd_i : (BitVec.ofNat 64 d).toNat = d := by c0_bound
+      have hgt : st.core.tmp[(BitVec.ofNat 64 j1).toNat]'hj_t = t[j1]'(by omega) := by
+        simpa only [hj_i] using s7_get_tmp hst_c (i := j1) (by omega)
+      have ha1 : BitVec.ofNat 64 j1 + (1 : BitVec 64) = BitVec.ofNat 64 (j1 + 1) := by c0_bound
+      have ha2 : BitVec.ofNat 64 d + (1 : BitVec 64) = BitVec.ofNat 64 (d + 1) := by c0_bound
       rw [ha1, ha2]
-      refine hIH (hi - (j1 + 1)) _ _ (by omega) ⟨j1 + 1, d + 1, st', h.set d (t[j1]'hj_t),
-        rfl, rfl, rfl, ?_, hc', hs', by simp [hhl'], hm''⟩
-      exact s7MInv_step1 hinv hj (by omega) (by omega) (List.getElem?_eq_getElem hj_t) hr0 hr1
-        (fun h' => absurd h' (Nat.lt_irrefl _))
-    · have hj : hi ≤ j1 := by
-        have h1 := s7_ult64_false hge
-        rw [hx1, BitVec.toNat_ofNat, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega),
-          Nat.mod_eq_of_lt (by omega)] at h1
-        exact h1
+      let scr1 := st.scratch
+      let ws1 := scr1.wsort.set (BitVec.ofNat 64 d).toNat
+        (st.core.tmp[(BitVec.ofNat 64 j1).toNat]'hj_t)
+      refine hIH (hi - (j1 + 1)) _ _ (by omega) ⟨j1 + 1, d + 1,
+        { core := st.core, scratch := { scr1 with wsort := ws1 } },
+        h.set d (t[j1]'(by omega)), rfl, rfl, rfl, ?_, hst_c, ?_, by simp [hhl'], hm⟩
+      · exact s7MInv_step1 hinv hj (by omega) (by omega) (List.getElem?_eq_getElem (by omega)) hr0
+          hr1 (fun h' => absurd h' (Nat.lt_irrefl _))
+      · simpa only [scr1, ws1, hd_i, hgt] using s7_st_upd_wsort hst_s
+          (i := (BitVec.ofNat 64 d).toNat) (v := st.core.tmp[(BitVec.ofNat 64 j1).toNat]'hj_t)
+    · have hj : hi ≤ j1 := by c0_grind
       have hjeq : j1 = hi := by omega
       rw [hjeq] at hinv
       obtain ⟨_, hperm, hsort⟩ := s7MInv_final hinv (by omega)
@@ -580,8 +576,7 @@ private theorem s7_tail1_wp {Γ : Env} {c : FullCfg} {s st0 : FullState} {R : Me
       · intro a b ha hab hb
         rw [s7kAt_of_eq (hin a ha (by omega)), s7kAt_of_eq (hin b (by omega) hb)]
         exact hsort a b ha hab hb
-  · intro J hJ
-    m7_lets
+  · intro J hJ; c0_hsteps!
     exact hJ _ _ _ ⟨i1, dst, st0, h0, rfl, rfl, rfl, hinv0, hc0, hs0, hhl, hm0⟩
 
 private theorem s7_tail0_wp {Γ : Env} {c : FullCfg} {s st0 : FullState} {R : Mem 64 → Prop}
@@ -614,48 +609,40 @@ private theorem s7_tail0_wp {Γ : Env} {c : FullCfg} {s st0 : FullState} {R : Me
       h.length = 2 * c.max_vars ∧ (FullMem c st ⋆ R) m
   refine wp_loop_group Inv ?_ ?_
   · intro JT meas xs m hIH ⟨j0, d, st, h, hx1, hx2, hmeas, hinv, hex, hst_c, hst_s, hhl', hm⟩
-    have hb := hinv
-    obtain ⟨hlj, hjm, hmi, hihi, hd, _⟩ := hb
-    rw [Blocks.get_here]
-    m7_jnz
-    refine ⟨fun hlt => ?_, fun hge => ?_⟩
-    · have hj : j0 < mid := by
-        have h1 := s7_ult64_true hlt
-        rw [hx1, BitVec.toNat_ofNat, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega),
-          Nat.mod_eq_of_lt (by omega)] at h1
-        exact h1
+    have ⟨hlj, hjm, hmi, hihi, hd, _⟩ := hinv
+    rcases xs with ⟨j0_bv, d_bv, ⟨⟩⟩; dsimp only at hx1 hx2; subst hx1 hx2
+    rw [Blocks.get_here]; c0_hsplit
+    · have hj : j0 < mid := by c0_grind
       have hi1 : i1 = hi := by omega
-      m7_lets
-      rw [hx1, hx2]
-      have hj_t : j0 < t.length := by omega
-      have hld := s7_load_tmp_nat hst_c hj_t (by omega) hm
-      m7_ld hld
-      have hd_h : d < h.length := by omega
-      obtain ⟨st', hc', hs', hok, hm'⟩ :=
-        s7_store_wsort_nat (i := d) (t[j0]'hj_t) hst_c hst_s hd_h (by omega) hm
-      m7_st m', hm'' := And.intro hok hm'
-      m7_lets
-      have ha1 : BitVec.ofNat 64 j0 + (1 : BitVec 64) = BitVec.ofNat 64 (j0 + 1) :=
-        s7_add1_bv64 (by omega)
-      have ha2 : BitVec.ofNat 64 d + (1 : BitVec 64) = BitVec.ofNat 64 (d + 1) :=
-        s7_add1_bv64 (by omega)
+      have hj_t : (BitVec.ofNat 64 j0).toNat < st.core.tmp.length := by
+        rw [m7_core_tmp_eq hst_c, htl, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]; omega
+      have hd_h : (BitVec.ofNat 64 d).toNat < st.scratch.wsort.length := by
+        rw [m7_scr_ws_eq hst_s, hhl', BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]; omega
+      c0_hsteps!
+      have hj_i : (BitVec.ofNat 64 j0).toNat = j0 := by c0_bound
+      have hd_i : (BitVec.ofNat 64 d).toNat = d := by c0_bound
+      have hgt : st.core.tmp[(BitVec.ofNat 64 j0).toNat]'hj_t = t[j0]'(by omega) := by
+        simpa only [hj_i] using s7_get_tmp hst_c (i := j0) (by omega)
+      have ha1 : BitVec.ofNat 64 j0 + (1 : BitVec 64) = BitVec.ofNat 64 (j0 + 1) := by c0_bound
+      have ha2 : BitVec.ofNat 64 d + (1 : BitVec 64) = BitVec.ofNat 64 (d + 1) := by c0_bound
       rw [ha1, ha2]
-      refine hIH (mid - (j0 + 1)) _ _ (by omega) ⟨j0 + 1, d + 1, st', h.set d (t[j0]'hj_t),
-        rfl, rfl, rfl, ?_, Or.inr hi1, hc', hs', by simp [hhl'], hm''⟩
-      exact s7MInv_step0 hinv hj (by omega) (by omega) (List.getElem?_eq_getElem hj_t) hr0 hr1
-        (fun h' => absurd h' (by omega))
-    · have hj : mid ≤ j0 := by
-        have h1 := s7_ult64_false hge
-        rw [hx1, BitVec.toNat_ofNat, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega),
-          Nat.mod_eq_of_lt (by omega)] at h1
-        exact h1
+      let scr1 := st.scratch
+      let ws1 := scr1.wsort.set (BitVec.ofNat 64 d).toNat
+        (st.core.tmp[(BitVec.ofNat 64 j0).toNat]'hj_t)
+      refine hIH (mid - (j0 + 1)) _ _ (by omega) ⟨j0 + 1, d + 1,
+        { core := st.core, scratch := { scr1 with wsort := ws1 } },
+        h.set d (t[j0]'(by omega)), rfl, rfl, rfl, ?_, Or.inr hi1, hst_c, ?_, by simp [hhl'], hm⟩
+      · exact s7MInv_step0 hinv hj (by omega) (by omega) (List.getElem?_eq_getElem (by omega)) hr0
+          hr1 (fun h' => absurd h' (by omega))
+      · simpa only [scr1, ws1, hd_i, hgt] using s7_st_upd_wsort hst_s
+          (i := (BitVec.ofNat 64 d).toNat) (v := st.core.tmp[(BitVec.ofNat 64 j0).toNat]'hj_t)
+    · have hj : mid ≤ j0 := by c0_grind
       have hjeq : j0 = mid := by omega
       rw [hjeq] at hinv
-      exact s7_tail1_wp (xi1 := BitVec.ofNat 64 i1) (xdst := xs.2.1)
-        (xlo := BitVec.ofNat 64 lo) (xhi := BitVec.ofNat 64 hi) rfl hx2 rfl rfl
+      exact s7_tail1_wp (xi1 := BitVec.ofNat 64 i1) (xdst := BitVec.ofNat 64 d)
+        (xlo := BitVec.ofNat 64 lo) (xhi := BitVec.ofNat 64 hi) rfl rfl rfl rfl
         hhi htl hhl' hr0 hr1 hinv hst_c hst_s hm hJL
-  · intro J hJ
-    m7_lets
+  · intro J hJ; c0_hsteps!
     exact hJ _ _ _ ⟨i0, dst, st0, h0, rfl, rfl, rfl, hinv0, hex0, hc0, hs0, hhl, hm0⟩
 
 /-! ## 5. Merge Loop of One Block -/
@@ -692,120 +679,124 @@ private theorem s7_merge_wp {Γ : Env} {c : FullCfg} {s st0 : FullState} {R : Me
   refine wp_loop_group Inv ?_ ?_
   · intro JM meas xs m hIH ⟨j0, j1, d, st, h, hx1, hx2, hx3, hmeas, hinv, hst_c, hst_s,
       hhl', hm⟩
-    have hb := hinv
-    obtain ⟨hlj0, hj0m, hmj1, hj1h, hd, _⟩ := hb
+    have ⟨hlj0, hj0m, hmj1, hj1h, hd, _⟩ := hinv
+    rcases xs with ⟨j0_bv, j1_bv, d_bv, ⟨⟩⟩; dsimp only at hx1 hx2 hx3; subst hx1 hx2 hx3
     rw [Blocks.get_here]
     refine wp_join_group (fun _ m' => m' = m ∧ (j0 = mid ∨ j1 = hi)) ?_ ?_
     · intro JA u m' ⟨hm', hex⟩
       rw [hm', Blocks.get_here]
-      exact s7_tail0_wp (xi0 := xs.1) (xi1 := xs.2.1) (xdst := xs.2.2.1)
-        (xlo := BitVec.ofNat 64 lo) (xmid := BitVec.ofNat 64 mid) (xhi := BitVec.ofNat 64 hi)
-        hx1 hx2 hx3 rfl rfl rfl hhi htl hhl' hr0 hr1 hinv hex hst_c hst_s hm hJL
+      exact s7_tail0_wp (xi0 := BitVec.ofNat 64 j0) (xi1 := BitVec.ofNat 64 j1)
+        (xdst := BitVec.ofNat 64 d) (xlo := BitVec.ofNat 64 lo) (xmid := BitVec.ofNat 64 mid)
+        (xhi := BitVec.ofNat 64 hi) rfl rfl rfl rfl rfl rfl hhi htl hhl' hr0 hr1 hinv hex
+        hst_c hst_s hm hJL
     · intro JA hExitA
-      m7_jnz
-      refine ⟨fun hlt0 => ?_, fun hge0 => ?_⟩
-      · have hj0 : j0 < mid := by
-          have h1 := s7_ult64_true hlt0
-          rw [hx1, BitVec.toNat_ofNat, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega),
-            Nat.mod_eq_of_lt (by omega)] at h1
-          exact h1
-        m7_jnz
-        refine ⟨fun hlt1 => ?_, fun hge1 => ?_⟩
-        · have hj1 : j1 < hi := by
-            have h1 := s7_ult64_true hlt1
-            rw [hx2, BitVec.toNat_ofNat, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega),
-              Nat.mod_eq_of_lt (by omega)] at h1
-            exact h1
+      c0_hsplit
+      · have hj0 : j0 < mid := by c0_grind
+        c0_hsplit
+        · have hj1 : j1 < hi := by c0_grind
           refine wp_join_group
-            (fun xu m' => ∃ n', n' < meas ∧ Inv n' (xu.1, xu.2.1, xs.2.2.1 + 1, ()) m') ?_ ?_
+            (fun xu m' => ∃ n', n' < meas ∧
+              Inv n' (xu.1, xu.2.1, BitVec.ofNat 64 d + 1, ()) m') ?_ ?_
           · intro JU xu m' ⟨n', hn', hinv'⟩
-            rw [Blocks.get_here]
-            m7_lets
-            exact hIH n' _ m' hn' hinv'
+            rw [Blocks.get_here]; c0_hsteps!; exact hIH n' _ m' hn' hinv'
           · intro JU hExitU
-            m7_lets
-            rw [hx1, hx2, hx3]
-            have hj0_t : j0 < t.length := by omega
-            have hj1_t : j1 < t.length := by omega
-            have hld_a := s7_load_tmp_nat hst_c hj0_t (by omega) hm
-            m7_ld hld_a
-            m7_lets
-            rw [s7_var_idx64 (t[j0]'hj0_t)]
-            have hbd_a : (t[j0]'hj0_t).toNat < 2 * c.max_vars := by
+            have hj0_i : (BitVec.ofNat 64 j0).toNat = j0 := by c0_bound
+            have hj1_i : (BitVec.ofNat 64 j1).toNat = j1 := by c0_bound
+            have hd_i : (BitVec.ofNat 64 d).toNat = d := by c0_bound
+            have hj0_t : (BitVec.ofNat 64 j0).toNat < st.core.tmp.length := by
+              rw [m7_core_tmp_eq hst_c, htl, hj0_i]; omega
+            have hj1_t : (BitVec.ofNat 64 j1).toNat < st.core.tmp.length := by
+              rw [m7_core_tmp_eq hst_c, htl, hj1_i]; omega
+            have hgt0 : st.core.tmp[(BitVec.ofNat 64 j0).toNat]'hj0_t = t[j0]'(by omega) := by
+              simpa only [hj0_i] using s7_get_tmp hst_c (i := j0) (by omega)
+            have hgt1 : st.core.tmp[(BitVec.ofNat 64 j1).toNat]'hj1_t = t[j1]'(by omega) := by
+              simpa only [hj1_i] using s7_get_tmp hst_c (i := j1) (by omega)
+            have hbd_a : (t[j0]'(by omega)).toNat < 2 * c.max_vars := by
               have h1 := hbd j0 hlj0 (by omega)
-              rwa [List.getElem?_eq_getElem hj0_t, Option.getD_some] at h1
-            have hla : (t[j0]'hj0_t).toNat / 2 < s.core.lvl.length := by rw [hlvl_len]; omega
-            have hld_la := s7_load_lvl_nat hst_c hla (by omega) hm
-            m7_ld hld_la
-            m7_lets
-            have hld_b := s7_load_tmp_nat hst_c hj1_t (by omega) hm
-            m7_ld hld_b
-            m7_lets
-            rw [s7_var_idx64 (t[j1]'hj1_t)]
-            have hbd_b : (t[j1]'hj1_t).toNat < 2 * c.max_vars := by
+              rwa [List.getElem?_eq_getElem (by omega), Option.getD_some] at h1
+            have hbd_b : (t[j1]'(by omega)).toNat < 2 * c.max_vars := by
               have h1 := hbd j1 (by omega) hj1
-              rwa [List.getElem?_eq_getElem hj1_t, Option.getD_some] at h1
-            have hlb : (t[j1]'hj1_t).toNat / 2 < s.core.lvl.length := by rw [hlvl_len]; omega
-            have hld_lb := s7_load_lvl_nat hst_c hlb (by omega) hm
-            m7_ld hld_lb
-            have hka := s7kAt_eq (lvl := s.core.lvl) hj0_t hla
-            have hkb := s7kAt_eq (lvl := s.core.lvl) hj1_t hlb
-            have hd_h : d < h.length := by omega
-            m7_jnz
-            refine ⟨fun hle => ?_, fun hgt => ?_⟩
-            · have hle' := s7_ule32_true hle
-              m7_lets
-              have hld_c := s7_load_tmp_nat hst_c hj0_t (by omega) hm
-              m7_ld hld_c
-              obtain ⟨st', hc', hs', hok, hm'⟩ :=
-                s7_store_wsort_nat (i := d) (t[j0]'hj0_t) hst_c hst_s hd_h (by omega) hm
-              m7_st m', hm'' := And.intro hok hm'
-              m7_lets
-              have ha0 : BitVec.ofNat 64 j0 + (1 : BitVec 64) = BitVec.ofNat 64 (j0 + 1) :=
-                s7_add1_bv64 (by omega)
+              rwa [List.getElem?_eq_getElem (by omega), Option.getD_some] at h1
+            have hla : ((st.core.tmp[(BitVec.ofNat 64 j0).toNat]'hj0_t).setWidth 64 >>>
+                ((BitVec.signExtend 64 1#32).toNat % 64)).toNat < st.core.lvl.length := by
+              rw [hgt0, s7_lshr1, m7_core_lvl_eq hst_c, hlvl_len]; omega
+            have hlb : ((st.core.tmp[(BitVec.ofNat 64 j1).toNat]'hj1_t).setWidth 64 >>>
+                ((BitVec.signExtend 64 1#32).toNat % 64)).toNat < st.core.lvl.length := by
+              rw [hgt1, s7_lshr1, m7_core_lvl_eq hst_c, hlvl_len]; omega
+            have hka : s7kAt s.core.lvl t j0 = (s.core.lvl[(t[j0]'(by omega)).toNat / 2]'(by
+                rw [hlvl_len]; omega)).toNat :=
+              s7kAt_eq (by omega) (by rw [hlvl_len]; omega)
+            have hkb : s7kAt s.core.lvl t j1 = (s.core.lvl[(t[j1]'(by omega)).toNat / 2]'(by
+                rw [hlvl_len]; omega)).toNat :=
+              s7kAt_eq (by omega) (by rw [hlvl_len]; omega)
+            have hd_h : (BitVec.ofNat 64 d).toNat < st.scratch.wsort.length := by
+              rw [m7_scr_ws_eq hst_s, hhl', hd_i]; omega
+            c0_hsplit
+            · have hle' : (s.core.lvl[(t[j0]'(by omega)).toNat / 2]'(by
+                  rw [hlvl_len]; omega)).toNat ≤
+                  (s.core.lvl[(t[j1]'(by omega)).toNat / 2]'(by
+                  rw [hlvl_len]; omega)).toNat := by
+                have hc' := hc
+                have hgt0' := hgt0; have hgt1' := hgt1
+                simp only [BitVec.toNat_ofNat] at hgt0' hgt1'
+                rw [s7_get_lvl_of hst_c _ (by rw [hgt0', s7_lshr1_one]) (by rw [hlvl_len]; omega),
+                  s7_get_lvl_of hst_c _ (by rw [hgt1', s7_lshr1_one]) (by rw [hlvl_len]; omega)]
+                  at hc'
+                c0_grind
+              c0_hsteps!
+              have ha0 : BitVec.ofNat 64 j0 + (1 : BitVec 64) = BitVec.ofNat 64 (j0 + 1) := by
+                c0_bound
+              have ha_d : BitVec.ofNat 64 d + (1 : BitVec 64) = BitVec.ofNat 64 (d + 1) := by
+                c0_bound
               rw [ha0]
-              apply hExitU
-              refine ⟨(mid - (j0 + 1)) + (hi - j1), by omega, j0 + 1, j1, d + 1, st',
-                h.set d (t[j0]'hj0_t), rfl, rfl, ?_, rfl, ?_, hc', hs', by simp [hhl'], hm''⟩
-              · show xs.2.2.1 + 1 = BitVec.ofNat 64 (d + 1)
-                rw [hx3]; exact s7_add1_bv64 (by omega)
+              let scr1 := st.scratch
+              let ws1 := scr1.wsort.set (BitVec.ofNat 64 d).toNat
+                (st.core.tmp[(BitVec.ofNat 64 j0).toNat]'hj0_t)
+              refine hExitU _ _ ⟨(mid - (j0 + 1)) + (hi - j1), by omega, j0 + 1, j1, d + 1,
+                { core := st.core, scratch := { scr1 with wsort := ws1 } },
+                h.set d (t[j0]'(by omega)), rfl, rfl, ha_d, rfl, ?_, hst_c, ?_, by simp [hhl'],
+                hm⟩
               · exact s7MInv_step0 hinv hj0 (by omega) (by omega)
-                  (List.getElem?_eq_getElem hj0_t) hr0 hr1 (fun _ => by rw [hka, hkb]; exact hle')
-            · have hgt' := s7_ule32_false hgt
-              m7_lets
-              have hld_d := s7_load_tmp_nat hst_c hj1_t (by omega) hm
-              m7_ld hld_d
-              obtain ⟨st', hc', hs', hok, hm'⟩ :=
-                s7_store_wsort_nat (i := d) (t[j1]'hj1_t) hst_c hst_s hd_h (by omega) hm
-              m7_st m', hm'' := And.intro hok hm'
-              m7_lets
-              have ha1 : BitVec.ofNat 64 j1 + (1 : BitVec 64) = BitVec.ofNat 64 (j1 + 1) :=
-                s7_add1_bv64 (by omega)
+                  (List.getElem?_eq_getElem (by omega)) hr0 hr1
+                  (fun _ => by rw [hka, hkb]; exact hle')
+              · simpa only [scr1, ws1, hd_i, hgt0] using s7_st_upd_wsort hst_s
+                  (i := (BitVec.ofNat 64 d).toNat)
+                  (v := st.core.tmp[(BitVec.ofNat 64 j0).toNat]'hj0_t)
+            · have hgt' : (s.core.lvl[(t[j1]'(by omega)).toNat / 2]'(by
+                  rw [hlvl_len]; omega)).toNat <
+                  (s.core.lvl[(t[j0]'(by omega)).toNat / 2]'(by
+                  rw [hlvl_len]; omega)).toNat := by
+                have hc' := hc
+                have hgt0' := hgt0; have hgt1' := hgt1
+                simp only [BitVec.toNat_ofNat] at hgt0' hgt1'
+                rw [s7_get_lvl_of hst_c _ (by rw [hgt0', s7_lshr1_one]) (by rw [hlvl_len]; omega),
+                  s7_get_lvl_of hst_c _ (by rw [hgt1', s7_lshr1_one]) (by rw [hlvl_len]; omega)]
+                  at hc'
+                c0_grind
+              c0_hsteps!
+              have ha1 : BitVec.ofNat 64 j1 + (1 : BitVec 64) = BitVec.ofNat 64 (j1 + 1) := by
+                c0_bound
+              have ha_d : BitVec.ofNat 64 d + (1 : BitVec 64) = BitVec.ofNat 64 (d + 1) := by
+                c0_bound
               rw [ha1]
-              apply hExitU
-              refine ⟨(mid - j0) + (hi - (j1 + 1)), by omega, j0, j1 + 1, d + 1, st',
-                h.set d (t[j1]'hj1_t), rfl, rfl, ?_, rfl, ?_, hc', hs', by simp [hhl'], hm''⟩
-              · show xs.2.2.1 + 1 = BitVec.ofNat 64 (d + 1)
-                rw [hx3]; exact s7_add1_bv64 (by omega)
+              let scr1 := st.scratch
+              let ws1 := scr1.wsort.set (BitVec.ofNat 64 d).toNat
+                (st.core.tmp[(BitVec.ofNat 64 j1).toNat]'hj1_t)
+              refine hExitU _ _ ⟨(mid - j0) + (hi - (j1 + 1)), by omega, j0, j1 + 1, d + 1,
+                { core := st.core, scratch := { scr1 with wsort := ws1 } },
+                h.set d (t[j1]'(by omega)), rfl, rfl, ha_d, rfl, ?_, hst_c, ?_, by simp [hhl'],
+                hm⟩
               · exact s7MInv_step1 hinv hj1 (by omega) (by omega)
-                  (List.getElem?_eq_getElem hj1_t) hr0 hr1
+                  (List.getElem?_eq_getElem (by omega)) hr0 hr1
                   (fun _ => by rw [hka, hkb]; exact Nat.le_of_lt hgt')
-        · have hj1 : hi ≤ j1 := by
-            have h1 := s7_ult64_false hge1
-            rw [hx2, BitVec.toNat_ofNat, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega),
-              Nat.mod_eq_of_lt (by omega)] at h1
-            exact h1
-          m7_lets
-          exact hExitA () m ⟨rfl, Or.inr (by omega)⟩
-      · have hj0 : mid ≤ j0 := by
-          have h1 := s7_ult64_false hge0
-          rw [hx1, BitVec.toNat_ofNat, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega),
-            Nat.mod_eq_of_lt (by omega)] at h1
-          exact h1
-        m7_lets
-        exact hExitA () m ⟨rfl, Or.inl (by omega)⟩
-  · intro J hJ
-    m7_lets
+              · simpa only [scr1, ws1, hd_i, hgt1] using s7_st_upd_wsort hst_s
+                  (i := (BitVec.ofNat 64 d).toNat)
+                  (v := st.core.tmp[(BitVec.ofNat 64 j1).toNat]'hj1_t)
+        · have hj1 : hi ≤ j1 := by c0_grind
+          c0_hsteps!; exact hExitA () m ⟨rfl, Or.inr (by omega)⟩
+      · have hj0 : mid ≤ j0 := by c0_grind
+        c0_hsteps!; exact hExitA () m ⟨rfl, Or.inl (by omega)⟩
+  · intro J hJ; c0_hsteps!
     exact hJ _ _ _ ⟨lo, mid, lo, st0, h0, rfl, rfl, rfl, rfl,
       s7MInv_init _ _ _ hlomid hmidhi, hc0, hs0, hhl, hm0⟩
 
@@ -834,8 +825,7 @@ private theorem s7_pass_wp {Γ : Env} {c : FullCfg} {s st0 : FullState} {R : Mem
     wp Γ Q X (s7PassExpr xw xn c.pTmp c.pLevel c.pWsort JW) m0 := by
   subst hxw hxn
   have hmv : c.max_vars < 2 ^ 32 := by have := c.hmaxv; unfold Ref.dimacsBound at this; omega
-  have hshl : BitVec.ofNat 64 w <<< ((BitVec.signExtend 64 (1 : BitVec 32)).toNat % 64) =
-      BitVec.ofNat 64 (2 * w) := s7_shl1_bv64
+  have hshl : BitVec.ofNat 64 w <<< (1 : Nat) = BitVec.ofNat 64 (2 * w) := s7_shl1_bv64
   let InvL : Nat → Tup Val [i64] → Mem 64 → Prop := fun meas xs m =>
     ∃ lo st tl wl, xs.1 = BitVec.ofNat 64 lo ∧ 1 ≤ lo ∧ lo ≤ N ∧ meas = N - lo ∧
       (lo = N ∨ ∃ B, lo = 1 + 2 * (B * w)) ∧
@@ -850,26 +840,18 @@ private theorem s7_pass_wp {Γ : Env} {c : FullCfg} {s st0 : FullState} {R : Mem
   refine wp_loop_group InvL ?_ ?_
   · intro JL meas xs m hIH ⟨lo, st, tl, wl, hxs, hlo1, hloN, hmeas, hblk, hst_c, hst_s, htl,
       hwl, hperm, h0, hpre, hsuf, hm⟩
-    rw [Blocks.get_here]
-    m7_jnz
-    refine ⟨fun hlt => ?_, fun hge => ?_⟩
-    · have hlo : lo < N := by
-        have h1 := s7_ult64_true hlt
-        rw [hxs, BitVec.toNat_ofNat, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega),
-          Nat.mod_eq_of_lt (by omega)] at h1
-        exact h1
+    rcases xs with ⟨lo_bv, ⟨⟩⟩; dsimp only at hxs; subst hxs
+    rw [Blocks.get_here]; c0_hsplit
+    · have hlo : lo < N := by c0_grind
       obtain ⟨B, hB⟩ : ∃ B, lo = 1 + 2 * (B * w) := by
-        rcases hblk with h | h
-        · omega
-        · exact h
+        rcases hblk with h | h <;> first | omega | exact h
       clear hblk
       have hbd_l : ∀ p, 1 ≤ p → p < N → (tl[p]?.getD 0#32).toNat < 2 * c.max_vars :=
         m7Slice_perm_bd hperm (by omega) (by omega) hbd
       have hruns2 := s7_pass_runs (lvl := s.core.lvl) (t := tl) (N := N) hB hsuf
-      have haddw : BitVec.ofNat 64 lo + BitVec.ofNat 64 w = BitVec.ofNat 64 (lo + w) :=
-        s7_add_bv64_ofNat (by omega)
+      have haddw : BitVec.ofNat 64 lo + BitVec.ofNat 64 w = BitVec.ofNat 64 (lo + w) := by c0_bound
       have hadd2w : BitVec.ofNat 64 lo + BitVec.ofNat 64 (2 * w) =
-          BitVec.ofNat 64 (lo + 2 * w) := s7_add_bv64_ofNat (by omega)
+          BitVec.ofNat 64 (lo + 2 * w) := by c0_bound
       refine wp_join_group
         (fun xs' m' => xs'.1 = BitVec.ofNat 64 (min (lo + w) N) ∧ m' = m) ?_ ?_
       · intro Jm xmid m' ⟨hxmid, hm'⟩
@@ -878,8 +860,8 @@ private theorem s7_pass_wp {Γ : Env} {c : FullCfg} {s st0 : FullState} {R : Mem
           (fun xs' m' => xs'.1 = BitVec.ofNat 64 (min (lo + 2 * w) N) ∧ m' = m) ?_ ?_
         · intro Jh xhi m'' ⟨hxhi, hm''⟩
           rw [hm'', Blocks.get_here]
-          refine s7_merge_wp (xlo := xs.1) (xmid := xmid.1) (xhi := xhi.1) (JL := JL)
-            hxs hxmid hxhi (by omega) (by omega) (by omega) htl hwl hlvl_len
+          refine s7_merge_wp (xlo := BitVec.ofNat 64 lo) (xmid := xmid.1) (xhi := xhi.1)
+            (JL := JL) rfl hxmid hxhi (by omega) (by omega) (by omega) htl hwl hlvl_len
             (fun p hp1 hp2 => hbd_l p (by omega) (by omega)) hruns2.1 hruns2.2
             hst_c hst_s hm ?_
           intro st' tc h' m3 hc' hs' htc hh' hperm' hout hsort hm3
@@ -888,66 +870,36 @@ private theorem s7_pass_wp {Γ : Env} {c : FullCfg} {s st0 : FullState} {R : Mem
             h', rfl, by omega, by omega, rfl, ?_, hc', hs', htc, hh', ?_, ?_, hstep.1, hstep.2,
             hm3⟩
           · rcases Nat.lt_or_ge (lo + 2 * w) N with h | h
-            · right
-              refine ⟨B + 1, ?_⟩
+            · right; refine ⟨B + 1, ?_⟩
               have e : (B + 1) * w = B * w + w := by rw [Nat.add_mul, Nat.one_mul]
-              rw [Nat.min_eq_left (Nat.le_of_lt h), e]
-              omega
+              rw [Nat.min_eq_left (Nat.le_of_lt h), e]; omega
             · left; exact Nat.min_eq_right h
           · exact (m7_slice_perm_sub hlo1 (by omega) (by omega) (by omega) (by omega) hperm'
               hout).trans hperm
           · rw [hout 0 (Or.inl (by omega))]; exact h0
-        · intro Jh hExit
-          m7_lets
-          rw [hxs, hshl, hadd2w]
-          m7_jnz
-          refine ⟨fun hlt2 => ?_, fun hge2 => ?_⟩
+        · intro Jh hExit; c0_hsplit
           · have h2 : lo + 2 * w < N := by
-              have h1 := s7_ult64_true hlt2
-              rw [BitVec.toNat_ofNat, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega),
-                Nat.mod_eq_of_lt (by omega)] at h1
-              exact h1
-            m7_lets
-            rw [hshl, hadd2w]
-            exact hExit _ _ ⟨by rw [Nat.min_eq_left (by omega)], rfl⟩
+              have : lo + 2 * w < 2 ^ 64 := by omega
+              have : N < 2 ^ 64 := by omega
+              try simp only [Nat.shiftLeft_eq, Nat.pow_one] at hc
+              omega
+            c0_hsteps!; rw [hshl, hadd2w]; exact hExit _ _ ⟨by rw [Nat.min_eq_left (by omega)], rfl⟩
           · have h2 : N ≤ lo + 2 * w := by
-              have h1 := s7_ult64_false hge2
-              rw [BitVec.toNat_ofNat, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega),
-                Nat.mod_eq_of_lt (by omega)] at h1
-              exact h1
-            m7_lets
-            exact hExit _ _ ⟨by rw [Nat.min_eq_right h2], rfl⟩
-      · intro Jm hExit
-        m7_lets
-        rw [hxs, haddw]
-        m7_jnz
-        refine ⟨fun hlt2 => ?_, fun hge2 => ?_⟩
-        · have h2 : lo + w < N := by
-            have h1 := s7_ult64_true hlt2
-            rw [BitVec.toNat_ofNat, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega),
-              Nat.mod_eq_of_lt (by omega)] at h1
-            exact h1
-          m7_lets
-          rw [haddw]
-          exact hExit _ _ ⟨by rw [Nat.min_eq_left (by omega)], rfl⟩
-        · have h2 : N ≤ lo + w := by
-            have h1 := s7_ult64_false hge2
-            rw [BitVec.toNat_ofNat, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega),
-              Nat.mod_eq_of_lt (by omega)] at h1
-            exact h1
-          m7_lets
-          exact hExit _ _ ⟨by rw [Nat.min_eq_right h2], rfl⟩
-    · have hlo : N ≤ lo := by
-        have h1 := s7_ult64_false hge
-        rw [hxs, BitVec.toNat_ofNat, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega),
-          Nat.mod_eq_of_lt (by omega)] at h1
-        exact h1
-      m7_lets
-      rw [hshl]
+              have : lo + 2 * w < 2 ^ 64 := by omega
+              have : N < 2 ^ 64 := by omega
+              try simp only [Nat.shiftLeft_eq, Nat.pow_one] at hc
+              omega
+            c0_hsteps!; exact hExit _ _ ⟨by rw [Nat.min_eq_right h2], rfl⟩
+      · intro Jm hExit; c0_hsplit
+        · have h2 : lo + w < N := by omega
+          c0_hsteps!; rw [haddw]; exact hExit _ _ ⟨by rw [Nat.min_eq_left (by omega)], rfl⟩
+        · have h2 : N ≤ lo + w := by omega
+          c0_hsteps!; exact hExit _ _ ⟨by rw [Nat.min_eq_right h2], rfl⟩
+    · have hlo : N ≤ lo := by c0_grind
+      c0_hsteps!; rw [hshl]
       exact hJW st tl wl m hst_c hst_s htl hwl hperm h0
         (fun i j h1 h2 h3 h4 => hpre i j h1 h2 (by omega) h4) hm
-  · intro J hJ
-    m7_lets
+  · intro J hJ; c0_hsteps!
     exact hJ _ (BitVec.ofNat 64 1, ()) _ ⟨1, st0, tw, ws, rfl, Nat.le_refl _, by omega, rfl,
       Or.inr ⟨0, by simp⟩, hc0, hs0, htw, hws, List.Perm.refl _, rfl,
       fun i j h1 h2 h3 _ => absurd h3 (by omega), hruns, hm0⟩
@@ -990,25 +942,17 @@ theorem s7_sort_merge_wp {Γ : Env} {c : FullCfg} {s st0 : FullState} {ws0 : Lis
   refine wp_loop_group InvW ?_ ?_
   · intro JW meas xs m hIH ⟨w, st, tw, ws, hxs, hw1, hw2, hmeas, hst_c, hst_s, htw, hws,
       hperm, h0, hruns, hm⟩
-    rw [Blocks.get_here]
-    m7_jnz
-    refine ⟨fun hlt => ?_, fun hge => ?_⟩
-    · have hwlt : w < s.core.tmp_len - 1 := by
-        have h1 := s7_ult64_true hlt
-        rw [hxs, BitVec.toNat_ofNat, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega),
-          Nat.mod_eq_of_lt (by omega)] at h1
-        exact h1
-      refine s7_pass_wp (xw := xs.1) (xn := BitVec.ofNat 64 s.core.tmp_len) (JW := JW) hxs rfl
-        htl hw1 (by omega) htw hws hlvl_len
+    rcases xs with ⟨w_bv, ⟨⟩⟩; dsimp only at hxs; subst hxs
+    rw [Blocks.get_here]; c0_hsplit
+    · have hwlt : w < s.core.tmp_len - 1 := by c0_grind
+      refine s7_pass_wp (xw := BitVec.ofNat 64 w) (xn := BitVec.ofNat 64 s.core.tmp_len)
+        (JW := JW) rfl rfl htl hw1 (by omega) htw hws hlvl_len
         (m7Slice_perm_bd hperm (by omega) (by omega) hbd0) hruns hst_c hst_s hm ?_
       intro st' tw' ws' m' hc' hs' htw' hws' hperm' h0' hruns' hm'
       exact hIH (s.core.tmp_len - 2 * w) _ m' (by omega) ⟨2 * w, st', tw', ws', rfl, by omega,
         by omega, rfl, hc', hs', htw', hws', hperm'.trans hperm, h0'.trans h0, hruns', hm'⟩
-    · have hwge : s.core.tmp_len - 1 ≤ w := by
-        have h1 := s7_ult64_false hge
-        rw [hxs, BitVec.toNat_ofNat, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega),
-          Nat.mod_eq_of_lt (by omega)] at h1
-        exact h1
+    · have hwge : s.core.tmp_len - 1 ≤ w := by c0_grind
+      c0_hsteps!
       have hsorted : ∀ i j, 1 ≤ i → i ≤ j → j < s.core.tmp_len →
           s7kAt s.core.lvl tw i ≤ s7kAt s.core.lvl tw j := by
         intro i j hi hij hj
@@ -1016,8 +960,7 @@ theorem s7_sort_merge_wp {Γ : Env} {c : FullCfg} {s st0 : FullState} {ws0 : Lis
         have hdj : (j - 1) / w = 0 := Nat.div_eq_of_lt (by omega)
         exact hruns i j hi hij hj (by rw [hdi, hdj])
       exact hPost st tw ws m hst_c hst_s htw hws hperm h0 hsorted hm
-  · intro J hJ
-    m7_lets
+  · intro J hJ; c0_hsteps!
     refine hJ _ (BitVec.ofNat 64 1, ()) _ ⟨1, st0, s.core.tmp, ws0, rfl, Nat.le_refl _, by omega,
       rfl, hc0, hs0, htmp_len, hws_len, List.Perm.refl _, rfl, ?_, hm0⟩
     intro i j hi hij hj hd

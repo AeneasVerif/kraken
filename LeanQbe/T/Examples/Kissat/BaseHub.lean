@@ -364,7 +364,6 @@ public import LeanQbe.T.Examples.Kissat.Proof.Minimize.WpShrinkBlkHelpers
 public import LeanQbe.T.Examples.Kissat.Proof.Minimize.WpShrinkBlkLemmas
 public import LeanQbe.T.Examples.Kissat.Proof.Minimize.WpShrinkLower
 public import LeanQbe.T.Examples.Kissat.Proof.Minimize.WpSort
-public import LeanQbe.T.Examples.Kissat.Proof.Minimize.WpSortAsts
 public import LeanQbe.T.Examples.Kissat.Proof.Minimize.WpSortMerge
 public import LeanQbe.T.Examples.Kissat.Proof.Minimize.WpSortPerm
 public import LeanQbe.T.Examples.Kissat.Proof.Minimize.WpSortSteps

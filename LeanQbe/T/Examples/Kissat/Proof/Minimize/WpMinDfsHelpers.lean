@@ -561,6 +561,26 @@ structure M8MinStInv (c : FullCfg) (s : FullState) (keepSet : List Nat)
   bit8 : ∀ w < s.core.cur_vars,
     (mrk1[w]?.getD 0#8 &&& 8#8) = (s.core.mrk[w]?.getD 0#8 &&& 8#8)
 
+/-- Mutable scratch fields threaded through `full_min_lit_dfs_m8`. -/
+structure M8DfsScratch where
+  mrk : List (BitVec 8)
+  wsort : List (BitVec 32)
+  min_clr : List (BitVec 32)
+  mcl : Nat
+  mcf : BitVec 64
+  ticks : BitVec 64
+
+abbrev M8DfsScratch.st (d : M8DfsScratch) (s : FullState) : FullState :=
+  m8MinLitDfsState s d.mrk d.wsort d.min_clr d.mcl d.mcf d.ticks
+
+abbrev M8DfsScratch.ofState (s : FullState) : M8DfsScratch :=
+  ⟨s.core.mrk, s.scratch.wsort, s.core.min_clr, s.core.min_clr_len,
+   s.core.min_clr_full, s.scratch.search_ticks⟩
+
+abbrev M8DfsScratch.Inv (d : M8DfsScratch) (c : FullCfg) (s : FullState)
+    (keepSet : List Nat) : Prop :=
+  M8MinStInv c s keepSet d.mrk d.wsort d.min_clr d.mcl d.mcf d.ticks
+
 theorem m8FullOtfsCoreInv_with_state {c : FullCfg} {F0 : CNF Nat} {s : FullState}
     {mrk1 : List (BitVec 8)} {wsort1 mclr1 : List (BitVec 32)} {mcl1 : Nat}
     {mcf1 ticks1 : BitVec 64}

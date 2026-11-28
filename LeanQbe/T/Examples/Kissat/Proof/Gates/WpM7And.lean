@@ -5,6 +5,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 module
 
 public import LeanQbe.T.Examples.Kissat.Proof.Gates.WpHelpers
+import LeanQbe.T.Logic.C0Grind
 
 /-!
 # Kissat Gates WP Proofs — M7 AND (`full_bve_find_and_m7`)
@@ -18,7 +19,7 @@ set_option autoImplicit false
 namespace LeanQbe.T.Examples.Kissat.Proof.Gates
 
 open Std Std.Sat Std.ExtHashMap
-open LeanQbe.T LeanQbe.T.C0Step LeanQbe.T.C0HeadStep LeanQbe.T.ProofUtil
+open LeanQbe.T LeanQbe.T.C0Step LeanQbe.T.C0HeadStep LeanQbe.T.C0Grind LeanQbe.T.ProofUtil
 open LeanQbe.T.Examples.Kissat LeanQbe.T.Examples.Kissat.Ref
 open LeanQbe.T.Examples.Kissat.Src.Gates
 open LeanQbe.T.Examples.Kissat.Proof.Spec
@@ -27,6 +28,37 @@ open Kraken.Bedrock2.Test
 open scoped FullArenaTactics
 
 public section
+
+private theorem m7_xor1_zext64_inv (l : BitVec 32) :
+    ((l ^^^ 1#32).setWidth 64).toNat ^^^ 1 = l.toNat := by
+  have h : (l ^^^ 1#32) ^^^ 1#32 = l := by c0_bv_bit_grind
+  have := congrArg BitVec.toNat h
+  rw [BitVec.toNat_xor, show (1#32 : BitVec 32).toNat = 1 from rfl] at this
+  rwa [zext32_toNat]
+
+private theorem m7_xor1_zext64_lt {lm : List (BitVec 8)} {mv : Nat} {l : BitVec 32}
+    (hlm : lm.length = 2 * mv) (hlt : l.toNat ^^^ 1 < 2 * mv) :
+    ((l ^^^ 1#32).setWidth 64).toNat < lm.length := by
+  rw [hlm, zext32_toNat, BitVec.toNat_xor, show (1#32 : BitVec 32).toNat = 1 from rfl]
+  exact hlt
+
+private theorem m7_and_pol_cases (lit : BitVec 32) :
+    (((lit &&& 1#32) <<< 9).toNat = 0 ∧ (512#32 - ((lit &&& 1#32) <<< 9)).toNat = 512 ∧
+      (1024#32 + ((lit &&& 1#32) <<< 4)).toNat = 1024 ∧
+      (2064#32 - (1024#32 + ((lit &&& 1#32) <<< 4))).toNat = 1040) ∨
+    (((lit &&& 1#32) <<< 9).toNat = 512 ∧ (512#32 - ((lit &&& 1#32) <<< 9)).toNat = 0 ∧
+      (1024#32 + ((lit &&& 1#32) <<< 4)).toNat = 1040 ∧
+      (2064#32 - (1024#32 + ((lit &&& 1#32) <<< 4))).toNat = 1024) := by
+  have h : lit &&& 1#32 = 0#32 ∨ lit &&& 1#32 = 1#32 := by
+    have hlt : (lit &&& 1#32).toNat < 2 := by
+      rw [BitVec.toNat_and]; exact Nat.lt_of_le_of_lt Nat.and_le_right (by decide)
+    rcases Nat.lt_succ_iff_lt_or_eq.mp hlt with h0 | h1
+    · left; apply BitVec.eq_of_toNat_eq
+      rw [show (0#32 : BitVec 32).toNat = 0 from rfl]; omega
+    · right; apply BitVec.eq_of_toNat_eq; exact h1
+  rcases h with h0 | h1
+  · left; rw [h0]; exact ⟨by decide, by decide, by decide, by decide⟩
+  · right; rw [h1]; exact ⟨by decide, by decide, by decide, by decide⟩
 
 private def m7AndClearOppExpr (pScr pLm : Val i64) (oppOff oppN : Val i32)
     (k : Expr Val Cont [.bool]) : Expr Val Cont [.bool] :=
@@ -543,16 +575,10 @@ private theorem m7_and_unmark_tail_wp (Γ : Env) (c : FullCfg) (F0 : CNF Nat)
         hdw0.2.1.arena.lits_lt wf.toNat hwf_f hwf_ng _ hlu_mem
       have hlun_lt : lu.toNat ^^^ 1 < 2 * s0.core.cur_vars := by
         have := fullInv_var_xor1 lu.toNat; omega
-      have hlun_lm : ((lu ^^^ 1#32).setWidth 64).toNat < lm5.length := by
-        rw [hlm5, zext32_toNat, BitVec.toNat_xor, BitVec.toNat_ofNat]
-        rw [show (1 : Nat) % 2 ^ 32 = 1 from rfl]; omega
-      have hlun_inv : ((lu ^^^ 1#32).setWidth 64).toNat ^^^ 1 = lu.toNat := by
-        have h := congrArg BitVec.toNat
-          (by rw [BitVec.xor_assoc, BitVec.xor_self, BitVec.xor_zero] :
-            (lu ^^^ 1#32) ^^^ 1#32 = lu)
-        rw [BitVec.toNat_xor, BitVec.toNat_ofNat,
-          show (1 : Nat) % 2 ^ 32 = 1 from rfl] at h
-        rw [zext32_toNat]; exact h
+      have hlun_lm : ((lu ^^^ 1#32).setWidth 64).toNat < lm5.length :=
+        m7_xor1_zext64_lt hlm5 (by omega)
+      have hlun_inv : ((lu ^^^ 1#32).setWidth 64).toNat ^^^ 1 = lu.toNat :=
+        m7_xor1_zext64_inv lu
       have hku1 : (ku + 1#32).toNat = ku.toNat + 1 := by c0_bound
       c0_hsteps_nogrp
       refine wp_join_group (ts := [])
@@ -749,16 +775,10 @@ private theorem m7_and_cand_wp (Γ : Env) (c : FullCfg) (F0 : CNF Nat) (F_cur : 
         rw [hdw0.1.core_ok.vals_len, zext32_toNat]; omega
       have hlfn_lt : lf.toNat ^^^ 1 < 2 * s0.core.cur_vars := by
         have := fullInv_var_xor1 lf.toNat; omega
-      have hlfn_lm : ((lf ^^^ 1#32).setWidth 64).toNat < lm3.length := by
-        rw [hlm3, zext32_toNat, BitVec.toNat_xor, BitVec.toNat_ofNat]
-        rw [show (1 : Nat) % 2 ^ 32 = 1 from rfl]; omega
-      have hlfn_inv : ((lf ^^^ 1#32).setWidth 64).toNat ^^^ 1 = lf.toNat := by
-        have h := congrArg BitVec.toNat
-          (by rw [BitVec.xor_assoc, BitVec.xor_self, BitVec.xor_zero] :
-            (lf ^^^ 1#32) ^^^ 1#32 = lf)
-        rw [BitVec.toNat_xor, BitVec.toNat_ofNat,
-          show (1 : Nat) % 2 ^ 32 = 1 from rfl] at h
-        rw [zext32_toNat]; exact h
+      have hlfn_lm : ((lf ^^^ 1#32).setWidth 64).toNat < lm3.length :=
+        m7_xor1_zext64_lt hlm3 (by omega)
+      have hlfn_inv : ((lf ^^^ 1#32).setWidth 64).toNat ^^^ 1 = lf.toNat :=
+        m7_xor1_zext64_inv lf
       have hk1 : (k + 1#32).toNat = k.toNat + 1 := by c0_bound
       have hlf_c0_idx :
           (wf.toNat + BitVec.toNat (3 : BitVec 64) + k.toNat) % 2 ^ 64 =
@@ -917,39 +937,20 @@ theorem full_bve_find_and_m7_wp (Γ : Env) :
   rintro ⟨h, lit, lit_n, opp_n, ⟨⟩⟩ m0 Q X hSpec
   obtain ⟨c, F0, F_cur, s0, R, rfl, hdw0, hsc1088, hlit_lt, hln, hon, hp_ok, hn_ok, hm0, hQ⟩ :=
     fullBveFindAndM7Spec_elim hSpec
-  have hpol_lt : (lit &&& 1#32).toNat < 2 := by
-    rw [BitVec.toNat_and, show (1#32 : BitVec 32).toNat = 1 from rfl]
-    exact Nat.lt_of_le_of_lt Nat.and_le_right (by decide)
-  have hpol : lit &&& 1#32 = 0#32 ∨ lit &&& 1#32 = 1#32 := by
-    rcases Nat.lt_succ_iff_lt_or_eq.mp hpol_lt with h0 | h1
-    · left; apply BitVec.eq_of_toNat_eq
-      rw [show (0#32 : BitVec 32).toNat = 0 from rfl]; omega
-    · right; apply BitVec.eq_of_toNat_eq
-      rw [show (1#32 : BitVec 32).toNat = 1 from rfl]; exact h1
-  have hcases : (((lit &&& 1#32) <<< 9).toNat = 0 ∧
-      (512#32 - ((lit &&& 1#32) <<< 9)).toNat = 512 ∧
-      (1024#32 + ((lit &&& 1#32) <<< 4)).toNat = 1024 ∧
-      (2064#32 - (1024#32 + ((lit &&& 1#32) <<< 4))).toNat = 1040) ∨
-      (((lit &&& 1#32) <<< 9).toNat = 512 ∧
-      (512#32 - ((lit &&& 1#32) <<< 9)).toNat = 0 ∧
-      (1024#32 + ((lit &&& 1#32) <<< 4)).toNat = 1040 ∧
-      (2064#32 - (1024#32 + ((lit &&& 1#32) <<< 4))).toNat = 1024) := by
-    rcases hpol with h0 | h1
-    · left; rw [h0]; exact ⟨by decide, by decide, by decide, by decide⟩
-    · right; rw [h1]; exact ⟨by decide, by decide, by decide, by decide⟩
+  have hcases := m7_and_pol_cases lit
   have hlo : ((lit &&& 1#32) <<< 9).toNat + lit_n.toNat ≤ 1024 := by
-    rcases hcases with ⟨h1, h2, h3, h4⟩ | ⟨h1, h2, h3, h4⟩ <;> omega
+    rcases hcases with ⟨h1, _⟩ | ⟨h1, _⟩ <;> omega
   have hoo : (512#32 - ((lit &&& 1#32) <<< 9)).toNat + opp_n.toNat ≤ 1024 := by
-    rcases hcases with ⟨h1, h2, h3, h4⟩ | ⟨h1, h2, h3, h4⟩ <;> omega
+    rcases hcases with ⟨_, h2, _⟩ | ⟨_, h2, _⟩ <;> omega
   have hlm1_b : 1024 ≤ (1024#32 + ((lit &&& 1#32) <<< 4)).toNat := by
-    rcases hcases with ⟨h1, h2, h3, h4⟩ | ⟨h1, h2, h3, h4⟩ <;> omega
+    rcases hcases with ⟨_, _, h3, _⟩ | ⟨_, _, h3, _⟩ <;> omega
   have hlm2_b : (1024#32 + ((lit &&& 1#32) <<< 4)).toNat + 16 ≤ 1056 := by
-    rcases hcases with ⟨h1, h2, h3, h4⟩ | ⟨h1, h2, h3, h4⟩ <;> omega
+    rcases hcases with ⟨_, _, h3, _⟩ | ⟨_, _, h3, _⟩ <;> omega
   have hom1_b : 1024 ≤ (2064#32 - (1024#32 + ((lit &&& 1#32) <<< 4))).toNat := by
-    rcases hcases with ⟨h1, h2, h3, h4⟩ | ⟨h1, h2, h3, h4⟩ <;> omega
+    rcases hcases with ⟨_, _, _, h4⟩ | ⟨_, _, _, h4⟩ <;> omega
   have hom2_b : (2064#32 - (1024#32 + ((lit &&& 1#32) <<< 4))).toNat + 16 ≤ 1056 := by
-    rcases hcases with ⟨h1, h2, h3, h4⟩ | ⟨h1, h2, h3, h4⟩ <;> omega
-  clear hpol_lt hpol hcases
+    rcases hcases with ⟨_, _, _, h4⟩ | ⟨_, _, _, h4⟩ <;> omega
+  clear hcases
   have hmx := c.hmaxv; have hsc := c.hscr; have harc := c.harena
   unfold dimacsBound at hmx hsc harc
   have hcv_le := hdw0.1.core_ok.cur_vars_le
