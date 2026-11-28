@@ -26,6 +26,124 @@ open Kraken.Bedrock2.Test
 
 open scoped PlainIngestTactics open PlainIngestTactics
 
+local elab "pi_unmdata" : tactic => Lean.Elab.Tactic.liftMetaTactic1 fun g => do
+  let ty ← Lean.instantiateMVars (← g.getType)
+  if ty.isMData then return some (← g.replaceTargetDefEq ty.consumeMData) else return some g
+
+local elab "pi_head_steps" : tactic => do
+  let isBranchHead (ty : Lean.Expr) : Bool :=
+    let ty := ty.consumeMData.headBeta
+    if ty.isAppOf ``LeanQbe.T.wp && ty.getAppNumArgs == 6 then
+      let e := (ty.getArg! 4).consumeMData.headBeta
+      e.isAppOf ``LeanQbe.T.Expr.jnz || e.isAppOf ``LeanQbe.T.Expr.group
+    else false
+  let unwrapMData (g : Lean.MVarId) : Lean.MetaM Lean.MVarId := do
+    let ty0 ← Lean.instantiateMVars (← g.getType)
+    let g ← if ty0.isMData then g.replaceTargetDefEq ty0.consumeMData else pure g
+    let ty := (← Lean.instantiateMVars (← g.getType)).headBeta
+    if ty.isAppOf ``LeanQbe.T.wp && ty.getAppNumArgs == 6 then
+      let e := ty.getArg! 4
+      if e.isMData then
+        return ← g.replaceTargetDefEq
+          (Lean.mkAppN ty.getAppFn (ty.getAppArgs.set! 4 e.consumeMData))
+    return g
+  for _ in [:450] do
+    let gs ← Lean.Elab.Tactic.getUnsolvedGoals
+    let some g := gs.head? | break
+    let g ← unwrapMData g
+    if isBranchHead (← Lean.instantiateMVars (← g.getType)) then
+      Lean.Elab.Tactic.setGoals (g :: gs.tail!); break
+    Lean.Elab.Tactic.setGoals [g]
+    let s ← Lean.Elab.Tactic.saveState
+    let ok ← try stepOnce catch _ => s.restore; pure false
+    Lean.Elab.Tactic.setGoals ((← Lean.Elab.Tactic.getUnsolvedGoals) ++ gs.tail!)
+    if !ok then break
+
+local macro "pi_steps" : tactic => `(tactic| (
+  all_goals try pi_unmdata; c0_steps
+  repeat (any_goals pi_clean; all_goals try pi_unmdata; c0_steps)))
+
+private meta def piShallowRun (stopOnMem : Bool) : Lean.Elab.Tactic.TacticM Unit := do
+  let isStopHead (ty : Lean.Expr) : Bool :=
+    let ty := ty.consumeMData.headBeta
+    if ty.isAppOf ``LeanQbe.T.wp && ty.getAppNumArgs == 6 then
+      let e := (ty.getArg! 4).consumeMData.headBeta
+      e.isAppOf ``LeanQbe.T.Expr.jnz || e.isAppOf ``LeanQbe.T.Expr.group ||
+        (stopOnMem && (e.isAppOf ``LeanQbe.T.Expr.store || e.isAppOf ``LeanQbe.T.Expr.load))
+    else false
+  let unwrapMData (g : Lean.MVarId) : Lean.MetaM Lean.MVarId := do
+    let ty0 ← Lean.instantiateMVars (← g.getType)
+    let g ← if ty0.isMData then g.replaceTargetDefEq ty0.consumeMData else pure g
+    let ty := (← Lean.instantiateMVars (← g.getType)).headBeta
+    if ty.isAppOf ``LeanQbe.T.wp && ty.getAppNumArgs == 6 then
+      let e := (ty.getArg! 4).consumeMData.headBeta
+      return ← g.replaceTargetDefEq (Lean.mkAppN ty.getAppFn (ty.getAppArgs.set! 4 e))
+    return g
+  for _ in [:450] do
+    let gs ← Lean.Elab.Tactic.getUnsolvedGoals
+    let some g := gs.head? | break
+    let (nextGs, cont) ← g.withContext do
+      let g ← unwrapMData g
+      let ty ← Lean.instantiateMVars (← g.getType)
+      if isStopHead ty then
+        return (g :: gs.tail!, false)
+      if ty.isAppOf ``LeanQbe.T.wp && ty.getAppNumArgs == 6 then
+        let e := ty.getArg! 4
+        if e.isAppOf ``LeanQbe.T.Blocks.get then
+          let e' ← Lean.Meta.whnf e
+          if e' != e then
+            let g' ← g.replaceTargetDefEq
+              (Lean.mkAppN ty.getAppFn (ty.getAppArgs.set! 4 e'))
+            return (g' :: gs.tail!, true)
+        let kOpt? : Option (Lean.Expr × (Lean.Expr → Lean.Expr)) :=
+          if e.isAppOf ``LeanQbe.T.Expr.let_ && e.getAppNumArgs == 6 then
+            some (e.getArg! 5, fun k' => Lean.mkAppN e.getAppFn (e.getAppArgs.set! 5 k'))
+          else if !stopOnMem && e.isAppOf ``LeanQbe.T.Expr.load && e.getAppNumArgs == 6 then
+            some (e.getArg! 5, fun k' => Lean.mkAppN e.getAppFn (e.getAppArgs.set! 5 k'))
+          else if !stopOnMem && e.isAppOf ``LeanQbe.T.Expr.store && e.getAppNumArgs == 7 then
+            some (e.getArg! 6, fun k' => Lean.mkAppN e.getAppFn (e.getAppArgs.set! 6 k'))
+          else none
+        if let some (k, mkE) := kOpt? then
+          let s ← Lean.Elab.Tactic.saveState
+          let kTy ← Lean.Meta.inferType k
+          let mTy ← Lean.Meta.withLocalDeclD `kTmp kTy fun kVar => do
+            let eqTy ← Lean.Meta.mkEq kVar k
+            Lean.Meta.withLocalDeclD `hkTmp eqTy fun hkVar => do
+              let body := Lean.mkAppN ty.getAppFn (ty.getAppArgs.set! 4 (mkE kVar))
+              Lean.Meta.mkForallFVars #[kVar, hkVar] body
+          let gMasked ← Lean.Meta.mkFreshExprMVar mTy
+          g.assign (Lean.mkApp2 gMasked k (← Lean.Meta.mkEqRefl k))
+          let (kFvar, g1) ← gMasked.mvarId!.intro1P
+          let (hkFvar, g2) ← g1.intro1P
+          Lean.Elab.Tactic.setGoals [g2]
+          let ok ← try stepOnce catch _ => s.restore; pure false
+          if !ok then
+            s.restore
+            return (g :: gs.tail!, false)
+          let mut restGoals : List Lean.MVarId := []
+          for rg in (← Lean.Elab.Tactic.getUnsolvedGoals) do
+            let rg' ← rg.withContext do
+              let rg' ← try
+                let res ← rg.rewrite (← Lean.instantiateMVars (← rg.getType))
+                  (Lean.mkFVar hkFvar)
+                rg.replaceTargetEq res.eNew res.eqProof
+              catch _ => pure rg
+              let rg' ← rg'.tryClear hkFvar
+              let rg' ← rg'.tryClear kFvar
+              unwrapMData rg'
+            restGoals := restGoals ++ [rg']
+          return (restGoals ++ gs.tail!, true)
+      let s ← Lean.Elab.Tactic.saveState
+      Lean.Elab.Tactic.setGoals [g]
+      let ok ← try stepOnce catch _ => s.restore; pure false
+      if !ok then return (g :: gs.tail!, false)
+      return ((← Lean.Elab.Tactic.getUnsolvedGoals) ++ gs.tail!, true)
+    Lean.Elab.Tactic.setGoals nextGs
+    if !cont then break
+
+local elab "pi_shallow_steps" : tactic => piShallowRun false
+local elab "pi_shallow_lets" : tactic => piShallowRun true
+
 private theorem bv64_sub1_toNat {x : BitVec 64} (hx : x ≠ 0#64) :
     (x - 1#64).toNat = x.toNat - 1 := by bv_omega
 

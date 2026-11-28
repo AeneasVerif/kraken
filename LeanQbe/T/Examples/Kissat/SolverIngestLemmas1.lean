@@ -1,8 +1,8 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.SolverSpec
-import all Kraken.Mem
-import all Kraken.Separation
+import Kraken.Mem
+import Kraken.Separation
 
 /-!
 # Soundness Proofs for Kissat `D-Min` C0 State Init & Syntax Skip (Part 1)
@@ -205,45 +205,37 @@ theorem ArenaCfg.avail_to_arrays (c : ArenaCfg) {m : Mem 64}
       (region c.pLpool (4 * c.lcap) ⋆
       c.pad)))))))))) m := by
     unfold ArenaCfg.pad; exact sep_ac h0
-  rcases h1 with ⟨m1, m_r1, hu1, hd1, h_vals, h_r1⟩
-  rcases h_r1 with ⟨m2, m_r2, hu2, hd2, h_mrk, h_r2⟩
-  rcases h_r2 with ⟨m3, m_r3, hu3, hd3, h_lvl, h_r3⟩
-  rcases h_r3 with ⟨m4, m_r4, hu4, hd4, h_rsn, h_r4⟩
-  rcases h_r4 with ⟨m5, m_r5, hu5, hd5, h_trl, h_r5⟩
-  rcases h_r5 with ⟨m6, m_r6, hu6, hd6, h_tmp, h_r6⟩
-  rcases h_r6 with ⟨m7, m_r7, hu7, hd7, h_wh, h_r7⟩
-  rcases h_r7 with ⟨m8, m_r8, hu8, hd8, h_cls, h_r8⟩
-  rcases h_r8 with ⟨m9, m_r9, hu9, hd9, h_wn, h_r9⟩
-  rcases h_r9 with ⟨m10, m_pad, hu10, hd10, h_lp, h_pad⟩
-  obtain ⟨vals, hvl, h_vals'⟩ := region_to_array_i8 (2 * c.mv) (by omega) h_vals
-  obtain ⟨mrk, hmkl, h_mrk'⟩ := region_to_array_i8 c.mv (by omega) h_mrk
-  obtain ⟨lvl, hll, h_lvl'⟩ := region_to_array_i32 c.mv (by omega) h_lvl
-  obtain ⟨rsns, hrsl, h_rsn'⟩ := region_to_array_i32 c.mv (by omega) h_rsn
-  obtain ⟨trl, htrl, h_trl'⟩ := region_to_array_i32 c.mv (by omega) h_trl
-  obtain ⟨tmp, htmpl, h_tmp'⟩ := region_to_array_i32 c.mv (by omega) h_tmp
-  obtain ⟨wh, hwhl, h_wh'⟩ := region_to_array_i32 (2 * c.mv) (by omega) (by
-    simpa [show 4 * (2 * c.mv) = 8 * c.mv by omega] using h_wh)
-  obtain ⟨cls, hclsl, h_cls'⟩ := region_to_array_i32 (4 * c.max_c) (by omega) (by
-    simpa [show 4 * (4 * c.max_c) = 16 * c.max_c by omega] using h_cls)
-  obtain ⟨wn, hwnl, h_wn'⟩ := region_to_array_i32 (2 * c.max_c) (by omega) (by
-    simpa [show 4 * (2 * c.max_c) = 8 * c.max_c by omega] using h_wn)
-  obtain ⟨lpool, hlpl, h_lp'⟩ := region_to_array_i32 c.lcap (by omega) h_lp
-  have h_res : (array (t := i8) c.pVals vals ⋆
-      (array (t := i8) c.pMark mrk ⋆
-      (array (t := i32) c.pLevel lvl ⋆
-      (array (t := i32) c.pReason rsns ⋆
-      (array (t := i32) c.pTrail trl ⋆
-      (array (t := i32) c.pTmp tmp ⋆
-      (array (t := i32) c.pWh wh ⋆
-      (array (t := i32) c.pClauses cls ⋆
-      (array (t := i32) c.pWn wn ⋆
-      (array (t := i32) c.pLpool lpool ⋆ c.pad)))))))))) m :=
-    ⟨m1, m_r1, hu1, hd1, h_vals', m2, m_r2, hu2, hd2, h_mrk', m3, m_r3, hu3, hd3, h_lvl',
-      m4, m_r4, hu4, hd4, h_rsn', m5, m_r5, hu5, hd5, h_trl', m6, m_r6, hu6, hd6, h_tmp',
-      m7, m_r7, hu7, hd7, h_wh', m8, m_r8, hu8, hd8, h_cls', m9, m_r9, hu9, hd9, h_wn',
-      m10, m_pad, hu10, hd10, h_lp', h_pad⟩
+  have sep_ex_l_p : ∀ {α : Type} {P Q : Mem 64 → Prop} {φ : α → Prop}
+      {P' : α → Mem 64 → Prop} {k : Mem 64},
+      (P ⋆ Q) k → (∀ m1, P m1 → ∃ x, φ x ∧ P' x m1) → ∃ x, φ x ∧ (P' x ⋆ Q) k := by
+    intro α P Q φ P' k hk h
+    obtain ⟨x, hx⟩ := sep_ex_l.mp (sep_mono h hk)
+    obtain ⟨hφ, hp⟩ := sep_pure_l.mp hx
+    exact ⟨x, hφ, hp⟩
+  have sep_ex_step : ∀ {α : Type} {P Q R : Mem 64 → Prop} {φ : α → Prop}
+      {P' : α → Mem 64 → Prop} {k : Mem 64},
+      (R ⋆ (P ⋆ Q)) k → (∀ m1, P m1 → ∃ x, φ x ∧ P' x m1) →
+      ∃ x, φ x ∧ ((R ⋆ P' x) ⋆ Q) k := by
+    intro α P Q R φ P' k hk h
+    obtain ⟨x, hφ, hx⟩ := sep_ex_l_p (show (P ⋆ (R ⋆ Q)) k from sep_ac hk) h
+    exact ⟨x, hφ, sep_ac hx⟩
+  obtain ⟨vals, hvl, h1⟩ := sep_ex_l_p h1 (fun _ h => region_to_array_i8 (2 * c.mv) (by omega) h)
+  obtain ⟨mrk, hmkl, h1⟩ := sep_ex_step h1 (fun _ h => region_to_array_i8 c.mv (by omega) h)
+  obtain ⟨lvl, hll, h1⟩ := sep_ex_step h1 (fun _ h => region_to_array_i32 c.mv (by omega) h)
+  obtain ⟨rsns, hrsl, h1⟩ := sep_ex_step h1 (fun _ h => region_to_array_i32 c.mv (by omega) h)
+  obtain ⟨trl, htrl, h1⟩ := sep_ex_step h1 (fun _ h => region_to_array_i32 c.mv (by omega) h)
+  obtain ⟨tmp, htmpl, h1⟩ := sep_ex_step h1 (fun _ h => region_to_array_i32 c.mv (by omega) h)
+  obtain ⟨wh, hwhl, h1⟩ := sep_ex_step h1 (fun _ h => region_to_array_i32 (2 * c.mv) (by omega)
+    (by simpa [show 4 * (2 * c.mv) = 8 * c.mv by omega] using h))
+  obtain ⟨cls, hclsl, h1⟩ := sep_ex_step h1 (fun _ h =>
+    region_to_array_i32 (4 * c.max_c) (by omega)
+      (by simpa [show 4 * (4 * c.max_c) = 16 * c.max_c by omega] using h))
+  obtain ⟨wn, hwnl, h1⟩ := sep_ex_step h1 (fun _ h =>
+    region_to_array_i32 (2 * c.max_c) (by omega)
+      (by simpa [show 4 * (2 * c.max_c) = 8 * c.max_c by omega] using h))
+  obtain ⟨lpool, hlpl, h1⟩ := sep_ex_step h1 (fun _ h => region_to_array_i32 c.lcap (by omega) h)
   exact ⟨vals, mrk, lvl, rsns, trl, tmp, wh, cls, wn, lpool,
-    hvl, hmkl, hll, hrsl, htrl, htmpl, hwhl, hclsl, hwnl, hlpl, sep_ac h_res⟩
+    hvl, hmkl, hll, hrsl, htrl, htmpl, hwhl, hclsl, hwnl, hlpl, sep_ac h1⟩
 
 /-- Every variable in a clause returned by `parseClauseAux` is positive when `acc` is positive. -/
 theorem parseClauseAux_vars_pos {fuel mv : Nat} {acc : List (Literal Nat)}
@@ -394,12 +386,10 @@ theorem kissat_init_state_wp (Γ : Env)
   have hsplit1' : ((region hdr_addr 32) ⋆
       (bytes cnf_ptr cnfBytes ⋆ region (hdr_addr + BitVec.ofNat 64 32) (avail.toNat - 32) ⋆ R)) m :=
     sep_ac hsplit1
-  rcases hsplit1' with ⟨m_d, m_o, hu_do, hd_do, h_d32, h_o⟩
-  obtain ⟨mv0, nc0, cur0, val0, h_dstate⟩ := region32_to_dimacsState h_d32
-  have hm_pre0 : (dimacsState hdr_addr mv0 nc0 cur0 val0 ⋆
-      (bytes cnf_ptr cnfBytes ⋆
-        region (hdr_addr + BitVec.ofNat 64 32) (avail.toNat - 32) ⋆ R)) m :=
-    ⟨m_d, m_o, hu_do, hd_do, h_dstate, h_o⟩
+  obtain ⟨mv0, hm_pre0⟩ := sep_ex_l.mp (sep_mono (fun _ h => region32_to_dimacsState h) hsplit1')
+  obtain ⟨nc0, hm_pre0⟩ := sep_ex_l.mp hm_pre0
+  obtain ⟨cur0, hm_pre0⟩ := sep_ex_l.mp hm_pre0
+  obtain ⟨val0, hm_pre0⟩ := sep_ex_l.mp hm_pre0
   have hm_pre : (bytes cnf_ptr cnfBytes ⋆ dimacsState hdr_addr mv0 nc0 cur0 val0 ⋆
       (region (hdr_addr + BitVec.ofNat 64 32) (avail.toNat - 32) ⋆ R)) m :=
     sep_ac hm_pre0
@@ -516,12 +506,33 @@ theorem kissat_init_state_wp (Γ : Env)
                 dimacsState hdr_addr (BitVec.ofNat 64 mv) (BitVec.ofNat 64 nc)
                   (cnf_ptr + BitVec.ofNat 64 j) (BitVec.ofNat 64 nc) ⋆ R))) m0 := by
           rw [← sep_assoc]; exact hrem_split
-        rcases h168_focus with ⟨m_hdr, m_rest2, hu_hr, hd_hr, h_hdr168, h_rest2⟩
-        obtain ⟨ws, hwslen, h_arr64⟩ := region_to_array64 21 (by decide) h_hdr168
-        rcases h_rest2 with ⟨m_arrs, m_cdr, hu_ac, hd_ac, h_reg200, h_cdr⟩
-        obtain ⟨vals, mrk, lvl, rsns, trl, tmp, wh, cls, wn, lpool,
-          hvl, hmkl, hll, hrsl, htrl, htmpl, hwhl, hclsl, hwnl, hlpl, h_arrs⟩ :=
-          c.avail_to_arrays h_reg200
+        obtain ⟨ws, hw1⟩ := sep_ex_l.mp
+          (sep_mono (fun _ h => region_to_array64 21 (by decide) h) h168_focus)
+        obtain ⟨hwslen, hw2⟩ := sep_pure_l.mp hw1
+        have hw3 : (region (c.hdr + BitVec.ofNat 64 200) (c.avail - 200) ⋆
+            (array64 (c.hdr + 32) ws ⋆ (bytes cnf_ptr cnfBytes ⋆
+              dimacsState hdr_addr (BitVec.ofNat 64 mv) (BitVec.ofNat 64 nc)
+                (cnf_ptr + BitVec.ofNat 64 j) (BitVec.ofNat 64 nc) ⋆ R))) m0 := sep_ac hw2
+        obtain ⟨vals, hw4⟩ := sep_ex_l.mp (sep_mono (fun _ h => c.avail_to_arrays h) hw3)
+        obtain ⟨mrk, hw4⟩ := sep_ex_l.mp hw4
+        obtain ⟨lvl, hw4⟩ := sep_ex_l.mp hw4
+        obtain ⟨rsns, hw4⟩ := sep_ex_l.mp hw4
+        obtain ⟨trl, hw4⟩ := sep_ex_l.mp hw4
+        obtain ⟨tmp, hw4⟩ := sep_ex_l.mp hw4
+        obtain ⟨wh, hw4⟩ := sep_ex_l.mp hw4
+        obtain ⟨cls, hw4⟩ := sep_ex_l.mp hw4
+        obtain ⟨wn, hw4⟩ := sep_ex_l.mp hw4
+        obtain ⟨lpool, hw4⟩ := sep_ex_l.mp hw4
+        obtain ⟨hvl, hw4⟩ := sep_pure_l.mp hw4
+        obtain ⟨hmkl, hw4⟩ := sep_pure_l.mp hw4
+        obtain ⟨hll, hw4⟩ := sep_pure_l.mp hw4
+        obtain ⟨hrsl, hw4⟩ := sep_pure_l.mp hw4
+        obtain ⟨htrl, hw4⟩ := sep_pure_l.mp hw4
+        obtain ⟨htmpl, hw4⟩ := sep_pure_l.mp hw4
+        obtain ⟨hwhl, hw4⟩ := sep_pure_l.mp hw4
+        obtain ⟨hclsl, hw4⟩ := sep_pure_l.mp hw4
+        obtain ⟨hwnl, hw4⟩ := sep_pure_l.mp hw4
+        obtain ⟨hlpl, hw4⟩ := sep_pure_l.mp hw4
         have hm_arr64 : (array64 (c.hdr + 32) ws ⋆
             ((array (t := i8) c.pVals vals ⋆ array (t := i8) c.pMark mrk ⋆
               array (t := i32) c.pLevel lvl ⋆ array (t := i32) c.pReason rsns ⋆
@@ -530,8 +541,7 @@ theorem kissat_init_state_wp (Γ : Env)
               array (t := i32) c.pWn wn ⋆ array (t := i32) c.pLpool lpool ⋆ c.pad) ⋆
               (bytes cnf_ptr cnfBytes ⋆
                 dimacsState hdr_addr (BitVec.ofNat 64 mv) (BitVec.ofNat 64 nc)
-                  (cnf_ptr + BitVec.ofNat 64 j) (BitVec.ofNat 64 nc) ⋆ R))) m0 :=
-          ⟨m_hdr, m_rest2, hu_hr, hd_hr, h_arr64, m_arrs, m_cdr, hu_ac, hd_ac, h_arrs, h_cdr⟩
+                  (cnf_ptr + BitVec.ofNat 64 j) (BitVec.ofNat 64 nc) ⋆ R))) m0 := sep_ac hw4
         have hst : ∀ (k : Nat) (v : BitVec 64) {xs : List (BitVec 64)} {F : Mem 64 → Prop} {mf},
             k < xs.length → (array64 (c.hdr + 32) xs ⋆ F) mf →
             storeOk mf i64 (c.hdr + BitVec.ofNat 64 (32 + 8 * k)) ∧

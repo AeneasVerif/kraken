@@ -1,6 +1,7 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.Plain1
+meta import LeanQbe.T.Frontend.C0.Elab
 
 set_option autoImplicit false
 
@@ -20,6 +21,10 @@ namespace LeanQbe.T.Examples.Kissat.Plain
 
 open LeanQbe.T
 open LeanQbe.T.Examples.Kissat
+
+local elab "kissat_c0! " pfx:ident src:str : command =>
+  LeanQbe.T.Frontend.C0.elabC0Module (some pfx.getId) src.getString
+    (forceExpose := true) (emitModule := false)
 
 kissat_c0! plain2 "
 typedef struct {

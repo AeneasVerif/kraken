@@ -1,8 +1,7 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.Dimacs
-meta import LeanQbe.T.Examples.Kissat.Dimacs
-meta import LeanQbe.T.Frontend.C0
+meta import LeanQbe.T.Frontend.C0.Elab
 
 /-!
 # Kissat `D-Plain` (`--plain`) CDCL SAT Solver in C0 — Part 1 (`Stage 3`)
@@ -27,6 +26,9 @@ namespace LeanQbe.T.Examples.Kissat.Plain
 open LeanQbe.T
 open LeanQbe.T.Frontend.C0
 open LeanQbe.T.Examples.Kissat
+
+local elab "kissat_c0! " pfx:ident src:str : command =>
+  elabC0Module (some pfx.getId) src.getString (forceExpose := true) (emitModule := false)
 
 kissat_c0! plain1 "
 typedef struct {

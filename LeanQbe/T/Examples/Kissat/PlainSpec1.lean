@@ -1,8 +1,8 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.PlainArena
-import all Kraken.Mem
-import all Kraken.Separation
+import Kraken.Mem
+import Kraken.Separation
 
 /-!
 # Kissat `D-Plain` Arena/Watch Invariants & Soundness Lemmas (`Stage 3`)

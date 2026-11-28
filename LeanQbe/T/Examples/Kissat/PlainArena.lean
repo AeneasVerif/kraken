@@ -2,8 +2,8 @@ module
 
 public import LeanQbe.T.Examples.Kissat.PlainArena1
 public import LeanQbe.T.Logic.C0Step
-import all Kraken.Mem
-import all Kraken.Separation
+import Kraken.Mem
+import Kraken.Separation
 
 /-!
 # Kissat `D-Plain` Arena Accessors — Part 2 (`Stage 3`)

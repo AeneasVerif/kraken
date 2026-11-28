@@ -4,8 +4,8 @@ public import LeanQbe.T.Examples.Kissat.Plain
 public import LeanQbe.T.Examples.Kissat.SolverArena
 public import LeanQbe.T.Logic.C0StepAttr
 public import Kraken.SeparationTactics
-import all Kraken.Mem
-import all Kraken.Separation
+import Kraken.Mem
+import Kraken.Separation
 
 /-!
 # Kissat `D-Plain` Arena Layout, State, and Memory Bridges — Part 1 (`Stage 3`)

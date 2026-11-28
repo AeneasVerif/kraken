@@ -1,8 +1,8 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.DimacsLemmas1
-import all Kraken.Mem
-import all Kraken.Separation
+import Kraken.Mem
+import Kraken.Separation
 
 /-!
 # Soundness Proofs for the Kissat C0 DIMACS Parser & Model Checker (Part 2)

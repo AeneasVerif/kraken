@@ -4,7 +4,8 @@ public import Std.Tactic.BVDecide.Reflect
 public import LeanQbe.T.Examples.LratBytes
 public import LeanQbe.T.Examples.LratBytesDimacsLemmas
 public import LeanQbe.T.InterpKissat
-public import LeanQbe.T.Examples.Kissat.PlainLemmas
+public import LeanQbe.T.Examples.Kissat.Proof.Full
+public import LeanQbe.T.Examples.Kissat.Proof.Spec.Solver
 import LeanQbe.T.Logic.MemLemmas
 import Kraken.SeparationMem
 import Kraken.Separation
@@ -15,7 +16,7 @@ import Kraken.Separation
 Purely additive leaf bridge connecting `Std.Tactic.BVDecide` bitblasting (`BVLogicalExpr.bitblast`,
 `AIG.toCNF`, `Entrypoint.relabelNat`) to verified DIMACS byte-level SAT solving
 (`LeanQbe.T.Examples.LratBytes.parseDimacs` / `encodeDimacs` / `parseDimacs_encodeDimacs`) and the
-verified Kissat `D-Plain` interpreter (`interpModule plainModule`).
+verified full Kissat interpreter (`interpModule Src.Full.kissatModule`).
 
 All definitions and proofs use `0` custom axioms (`<= std3`), `0` `@[extern]`, `0`
 `@[implemented_by]`, `0` `native_decide`, `0` `bv_decide`, and `0` `import all`.
@@ -31,7 +32,10 @@ open Std Std.Sat Std.ExtHashMap
 open Std.Tactic.BVDecide
 open LeanQbe.T
 open LeanQbe.T.Examples.LratBytes
-open LeanQbe.T.Examples.Kissat.Plain
+open LeanQbe.T.Examples.Kissat.Src.Full
+open LeanQbe.T.Examples.Kissat.Proof
+open LeanQbe.T.Examples.Kissat.Proof.Spec
+open LeanQbe.T.Examples.Kissat.Proof.Full
 
 /-! ## 1. Decidable `ValidDimacsCnf` and fast `ByteArray` DIMACS encoder -/
 
@@ -150,32 +154,166 @@ theorem unsat_of_verifyBVExprWith (solve : ByteArray → UInt64 → UInt64)
   rw [← AIG.toCNF_equisat]
   exact hunsat0
 
-/-! ## 3. Zero-axiom `M1a` instantiation via `interpModule` on `plainModule` -/
+/-! ## 3. `Kissat.Ref.parseDimacs` vs `LratBytes.parseDimacs` Equivalence -/
 
-/-- Scratch buffer length allocated for `kissat_solve_bytes` on a `cnfSize`-byte DIMACS input. -/
-@[expose] def plainBridgeWorkLen (cnfSize : Nat) : Nat :=
-  max 8192 (cnfSize * 20 + 4096)
+private theorem ref_skipWsCommentsAux_eq (inComment : Bool) (bs : List UInt8) :
+    Kissat.Ref.skipWsCommentsAux inComment bs =
+      LratBytes.skipWsCommentsAux inComment bs := by
+  induction bs generalizing inComment with
+  | nil => cases inComment <;> rfl
+  | cons b bs ih =>
+    cases inComment with
+    | true =>
+      by_cases hb : b = 10
+      · subst hb; exact ih false
+      · simp [Kissat.Ref.skipWsCommentsAux, LratBytes.skipWsCommentsAux, ih true]
+    | false =>
+      simp only [Kissat.Ref.skipWsCommentsAux, LratBytes.skipWsCommentsAux]
+      have hws : Kissat.Ref.isDimacsWs b = LratBytes.isDimacsWs b := rfl
+      rw [hws]
+      cases LratBytes.isDimacsWs b
+      · cases b == 99 <;> simp [ih]
+      · simp [ih]
 
-/-- Run the verified 59-function Kissat `D-Plain` module (`plainModule`) inside the verified
-first-order interpreter (`interpModule`), returning `20` on UNSAT, `10` on SAT, or `0` on
-unknown / out-of-fuel / malformed input. -/
-@[expose] def solvePlainInterp (cnf : ByteArray) (fuel : UInt64) : UInt64 :=
+private theorem ref_skipWsComments_eq (bs : List UInt8) :
+    Kissat.Ref.skipWsComments bs = LratBytes.skipWsComments bs :=
+  ref_skipWsCommentsAux_eq false bs
+
+private theorem ref_skipWs_eq (bs : List UInt8) :
+    Kissat.Ref.skipWs bs = LratBytes.skipWs bs := by
+  induction bs with
+  | nil => rfl
+  | cons b bs ih =>
+    simp only [Kissat.Ref.skipWs, LratBytes.skipWs]
+    have hws : Kissat.Ref.isDimacsWs b = LratBytes.isDimacsWs b := rfl
+    rw [hws]
+    cases LratBytes.isDimacsWs b <;> simp [ih]
+
+private theorem ref_skipWs1_eq (bs : List UInt8) :
+    Kissat.Ref.skipWs1 bs = LratBytes.skipWs1 bs := by
+  cases bs with
+  | nil => rfl
+  | cons b bs =>
+    simp only [Kissat.Ref.skipWs1, LratBytes.skipWs1, ref_skipWs_eq]
+    rfl
+
+private theorem ref_parseDigitsAux_eq (acc : Nat) (bs : List UInt8) :
+    Kissat.Ref.parseDigitsAux acc bs = LratBytes.parseDigitsAux acc bs := by
+  induction bs generalizing acc with
+  | nil => rfl
+  | cons b bs ih =>
+    simp only [Kissat.Ref.parseDigitsAux, LratBytes.parseDigitsAux]
+    have hd : Kissat.Ref.isDimacsDigit b = LratBytes.isDimacsDigit b := rfl
+    have hws : Kissat.Ref.isDimacsWs b = LratBytes.isDimacsWs b := rfl
+    have hbd : Kissat.Ref.dimacsBound = LratBytes.dimacsBound := rfl
+    rw [hd, hws, hbd]
+    cases LratBytes.isDimacsDigit b
+    · rfl
+    · simp only [↓reduceIte]
+      split <;> simp [ih]
+
+private theorem ref_parseNat_eq (bs : List UInt8) :
+    Kissat.Ref.parseNat bs = LratBytes.parseNat bs := by
+  cases bs with
+  | nil => rfl
+  | cons b bs =>
+    simp only [Kissat.Ref.parseNat, LratBytes.parseNat, ref_parseDigitsAux_eq]
+    rfl
+
+private theorem ref_parseHeader_eq (bs : List UInt8) :
+    Kissat.Ref.parseHeader bs = LratBytes.parseHeader bs := by
+  simp only [Kissat.Ref.parseHeader, LratBytes.parseHeader, ref_skipWsComments_eq,
+    ref_skipWs1_eq, ref_parseNat_eq]
+  split
+  · rename_i bs1 heq
+    split
+    · rename_i bs1' heq'
+      rw [heq] at heq'
+      injection heq' with _ htl
+      subst htl
+      cases LratBytes.skipWs1 bs1 with
+      | none => rfl
+      | some bs2 =>
+        dsimp only [bind, Option.bind]
+        split <;> split <;> simp_all
+    · rename_i hnot
+      exact absurd heq (hnot _)
+  · split <;> simp_all
+
+private theorem ref_parseClauseAux_eq (fuel mv : Nat) (acc : List (Literal Nat))
+    (bs : List UInt8) :
+    Kissat.Ref.parseClauseAux fuel mv acc bs = LratBytes.parseClauseAux fuel mv acc bs := by
+  induction fuel generalizing acc bs with
+  | zero => rfl
+  | succ fuel ih =>
+    simp only [Kissat.Ref.parseClauseAux, LratBytes.parseClauseAux, ref_skipWsComments_eq]
+    cases LratBytes.skipWsComments bs with
+    | nil => rfl
+    | cons b rest =>
+      by_cases hb : b = 45
+      · subst hb
+        simp only [ref_parseNat_eq]
+        cases LratBytes.parseNat rest with
+        | none => rfl
+        | some vr => dsimp only; split <;> simp [ih]
+      · simp only [ref_parseNat_eq]
+        cases hpn : LratBytes.parseNat (b :: rest) with
+        | none => split <;> simp_all
+        | some vr =>
+          rcases vr with ⟨v, r'⟩
+          cases v with
+          | zero => split <;> simp_all
+          | succ v => split <;> simp_all
+
+private theorem ref_parseClause_eq (mv : Nat) (bs : List UInt8) :
+    Kissat.Ref.parseClause mv bs = LratBytes.parseClause mv bs :=
+  ref_parseClauseAux_eq (bs.length + 1) mv [] bs
+
+private theorem ref_parseClauses_eq (mv k : Nat) (cnf : CNF Nat) (bs : List UInt8) :
+    Kissat.Ref.parseClauses mv k cnf bs = LratBytes.parseClauses mv k cnf bs := by
+  induction k generalizing cnf bs with
+  | zero =>
+    simp only [Kissat.Ref.parseClauses, LratBytes.parseClauses, ref_skipWsComments_eq]
+  | succ k ih =>
+    simp only [Kissat.Ref.parseClauses, LratBytes.parseClauses, ref_parseClause_eq]
+    cases LratBytes.parseClause mv bs with
+    | none => rfl
+    | some cr => simp [ih]
+
+private theorem ref_parseDimacs_eq_lratBytes (bs : List UInt8) :
+    Kissat.Ref.parseDimacs bs = LratBytes.parseDimacs bs := by
+  simp only [Kissat.Ref.parseDimacs, LratBytes.parseDimacs, ref_parseHeader_eq]
+  cases LratBytes.parseHeader bs with
+  | none => rfl
+  | some hdr => exact ref_parseClauses_eq hdr.1 hdr.2.1 CNF.empty hdr.2.2
+
+/-! ## 4. Zero-axiom `M1a` instantiation via `interpModule` on `Src.Full.kissatModule` -/
+
+/-- Scratch buffer length allocated for full `kissat_solve_bytes` (`M6Hdr` + variable arrays)
+on a `cnfSize`-byte DIMACS input. -/
+@[expose] def fullBridgeWorkLen (cnfSize : Nat) : Nat :=
+  max 16384 (cnfSize * 24 + 8192)
+
+/-- Run the verified `418`-function full Kissat module (`Src.Full.kissatModule`) inside the
+verified first-order interpreter (`interpModule`), returning `20` on UNSAT, `10` on SAT, or `0`
+on unknown / out-of-fuel / malformed input. -/
+@[expose] def solveFullInterp (cnf : ByteArray) (fuel : UInt64) : UInt64 :=
   let cnfBytes := cnf.data.toList
-  let wlen := plainBridgeWorkLen cnfBytes.length
+  let wlen := fullBridgeWorkLen cnfBytes.length
   let cnfPtr : BitVec 64 := 0x1000#64
   let workPtr : BitVec 64 := cnfPtr + BitVec.ofNat 64 cnfBytes.length
   if cnfPtr.toNat + cnfBytes.length + wlen < 2 ^ 64 then
     let m0 : Mem 64 := (cnfBytes ++ List.replicate wlen 0).At cnfPtr
     let args : Tup Val [i64, i64, i64, i64, i64] :=
       (cnfPtr, BitVec.ofNat 64 cnfBytes.length, workPtr, BitVec.ofNat 64 wlen, fuel, ())
-    match interpModule plainModule fuel.toNat "kissat_solve_bytes"
+    match interpModule kissatModule fuel.toNat "kissat_solve_bytes"
         [i64, i64, i64, i64, i64] [i64] args m0 with
     | .ok (r, ()) _ => UInt64.ofBitVec r
     | _ => 0
   else
     0
 
-private theorem plainBridge_mem_sep (cnfPtr : BitVec 64) (cnfBytes : List UInt8) (wlen : Nat)
+private theorem fullBridge_mem_sep (cnfPtr : BitVec 64) (cnfBytes : List UInt8) (wlen : Nat)
     (hfit : cnfPtr.toNat + cnfBytes.length + wlen < 2 ^ 64) :
     (bytes cnfPtr cnfBytes ⋆ region (cnfPtr + BitVec.ofNat 64 cnfBytes.length) wlen ⋆ emp)
       ((cnfBytes ++ List.replicate wlen 0).At cnfPtr) := by
@@ -191,23 +329,24 @@ private theorem plainBridge_mem_sep (cnfPtr : BitVec 64) (cnfBytes : List UInt8)
     sep_mono_r (fun _ hf => ⟨List.replicate wlen 0, hwlen, hf.symm⟩) h0
   rwa [sep_emp]
 
-/-- Zero-axiom soundness of `solvePlainInterp`: combines `plainEnv_moduleOk`,
-`ModuleOk.env_sound`, and `interpModule_ok_witness` (`<= std3`). -/
-theorem solvePlainInterp_sound (ba : ByteArray) (fuel : UInt64)
-    (h : solvePlainInterp ba fuel = 20) :
+/-- Zero-axiom UNSAT soundness of `solveFullInterp`: combines `Proof.Full.full_moduleOk`,
+`Proof.Spec.Solver.solveBytesSpec`, `ModuleOk.env_sound`, and `interpModule_ok_witness`
+(`<= std3`). -/
+theorem solveFullInterp_sound (ba : ByteArray) (fuel : UInt64)
+    (h : solveFullInterp ba fuel = 20) :
     ∃ cnf, parseDimacs ba.data.toList = some cnf ∧ cnf.Unsat := by
-  unfold solvePlainInterp at h
+  unfold solveFullInterp at h
   dsimp only at h
   split at h
   · rename_i hfit
     let cnfBytes := ba.data.toList
-    let wlen := plainBridgeWorkLen cnfBytes.length
+    let wlen := fullBridgeWorkLen cnfBytes.length
     let cnfPtr : BitVec 64 := 0x1000#64
     let workPtr : BitVec 64 := cnfPtr + BitVec.ofNat 64 cnfBytes.length
     let m0 : Mem 64 := (cnfBytes ++ List.replicate wlen 0).At cnfPtr
     let args : Tup Val [i64, i64, i64, i64, i64] :=
       (cnfPtr, BitVec.ofNat 64 cnfBytes.length, workPtr, BitVec.ofNat 64 wlen, fuel, ())
-    cases hrun : interpModule plainModule fuel.toNat "kissat_solve_bytes"
+    cases hrun : interpModule kissatModule fuel.toNat "kissat_solve_bytes"
         [i64, i64, i64, i64, i64] [i64] args m0 with
     | outOfFuel => rw [hrun] at h; simp at h
     | ub => rw [hrun] at h; simp at h
@@ -230,45 +369,65 @@ theorem solvePlainInterp_sound (ba : ByteArray) (fuel : UInt64)
       have hwfit : workPtr.toNat + wlen < 2 ^ 64 := by
         dsimp only [cnfPtr, cnfBytes, wlen] at hfit hwp_work ⊢; rw [h4096] at hfit; omega
       have hm0 : (bytes cnfPtr cnfBytes ⋆ region workPtr wlen ⋆ emp) m0 :=
-        plainBridge_mem_sep cnfPtr cnfBytes wlen hfit
+        fullBridge_mem_sep cnfPtr cnfBytes wlen hfit
       let Q : Post [i64] := fun (r', ()) m'' =>
         (r' = 0#64 ∨ r' = 10#64 ∨ r' = 20#64) ∧
-        (r' = 20#64 → ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) ∧
-        (r' = 10#64 → ∃ cnf, parseDimacs cnfBytes = some cnf ∧ ¬ cnf.Unsat ∧ ∃ α, cnf.Sat α) ∧
+        (r' = 20#64 → ∃ cnf, Kissat.Ref.parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) ∧
         (bytes cnfPtr cnfBytes ⋆ region workPtr wlen ⋆ emp) m''
       let X : XPost := fun _ _ _ _ => False
-      have hEnv : ModuleEnvSound (Env.ofModule plainModule plainEnv) plainModule :=
-        ModuleOk.env_sound plainEnv_moduleOk rfl
-      have hmem : kissat_solve_bytes ∈ plainModule.fns := by
-        simp [plainModule, plainFns, plain2_fns]
-      have hlook : lookupFn plainModule "kissat_solve_bytes"
-          [i64, i64, i64, i64, i64] [i64] = some kissat_solve_bytes_body :=
-        lookupFn_of_mem plainEnv_moduleOk.nodup hmem
-      have hplain : plainEnv "kissat_solve_bytes"
-          [i64, i64, i64, i64, i64] [i64] args m0 Q X :=
-        mkPlainEnv_solve_bytes plainSolveBytesSpec (fun _ _ _ _ hs => hs) args m0 Q X
-          ⟨cnfBytes, wlen, emp, rfl, rfl, hcfit, hwfit, hm0,
-            fun r' m'' hdom hu hs hm'' => ⟨hdom, hu, hs, hm''⟩⟩
+      have hEnv : ModuleEnvSound (Env.ofModule kissatModule fullEnv) kissatModule :=
+        ModuleOk.env_sound full_moduleOk rfl
+      have hmem : fullSolveBytesFn ∈ kissatModule.fns := fullSolveBytesFn_mem
+      have hlook : lookupFn kissatModule "kissat_solve_bytes"
+          [i64, i64, i64, i64, i64] [i64] = some Kissat.Src.Search.kissat_solve_bytes_body :=
+        lookupFn_of_mem full_moduleOk.nodup hmem
+      have hfull : fullEnv "kissat_solve_bytes"
+          [i64, i64, i64, i64, i64] [i64] args m0 Q X := by
+        refine fullEnv_solve_bytes_of ?_
+        unfold Solver.solveBytesSpec
+        refine FnContract.intro (cnfBytes, wlen) emp ⟨rfl, rfl, hcfit, hwfit⟩ hm0 ?_
+        rintro ⟨r', ⟨⟩⟩ ⟨⟩ m'' ⟨hdom, h20, _⟩ hm''
+        exact ⟨hdom, h20, hm''⟩
       have hsig : ("kissat_solve_bytes", [i64, i64, i64, i64, i64], [i64]) ∈
-          plainModule.sigs :=
-        List.mem_append_left _ (List.mem_map.mpr ⟨kissat_solve_bytes, hmem, rfl⟩)
-      have hrestr : (Env.ofModule plainModule plainEnv) "kissat_solve_bytes"
+          kissatModule.sigs :=
+        List.mem_append_left _ (List.mem_map.mpr ⟨fullSolveBytesFn, hmem, rfl⟩)
+      have hrestr : (Env.ofModule kissatModule fullEnv) "kissat_solve_bytes"
           [i64, i64, i64, i64, i64] [i64] args m0 Q X :=
-        ⟨hsig, hplain⟩
+        ⟨hsig, hfull⟩
       rcases List.mem_iff_append.mp hmem with ⟨pre, post, hsplit⟩
-      have ⟨_, _, hwp_fn⟩ := plainEnv_moduleOk.ofModule.fnsOk pre kissat_solve_bytes post hsplit
+      have ⟨hwf, _, hwp_fn⟩ := full_moduleOk.ofModule.fnsOk pre fullSolveBytesFn post hsplit
       have hwp := hwp_fn args m0 Q X hrestr
-      have hpost := interpModule_ok_witness plainModule (Env.ofModule plainModule plainEnv)
+      have hpost := interpModule_ok_witness kissatModule (Env.ofModule kissatModule fullEnv)
         hEnv "kissat_solve_bytes" [i64, i64, i64, i64, i64] [i64] args m0 Q X
-        kissat_solve_bytes_body hlook kissat_solve_bytes_wf hwp fuel.toNat (r, ()) m' hrun
-      exact hpost.2.1 hr20
+        Kissat.Src.Search.kissat_solve_bytes_body hlook hwf hwp fuel.toNat (r, ()) m' hrun
+      obtain ⟨cnf, hparse, hunsat⟩ := hpost.2.1 hr20
+      exact ⟨cnf, by rwa [← ref_parseDimacs_eq_lratBytes], hunsat⟩
   · simp at h
 
 /-- End-to-end zero-axiom `BVLogicalExpr` reflection theorem backed by `interpModule` running
-the verified 59-function `Kissat.Plain` C0 SAT solver (`<= std3`). -/
+the verified `418`-function `Kissat.Src.Full` C0 SAT solver (`<= std3`). -/
+theorem unsat_of_verifyBVExprFullInterp (bv : BVLogicalExpr) (fuel : UInt64)
+    (h : verifyBVExprWith solveFullInterp bv fuel = true) :
+    bv.Unsat :=
+  unsat_of_verifyBVExprWith solveFullInterp solveFullInterp_sound bv fuel h
+
+/-- Compatibility alias forwarding `plainBridgeWorkLen` to `fullBridgeWorkLen`. -/
+abbrev plainBridgeWorkLen : Nat → Nat := fullBridgeWorkLen
+
+/-- Compatibility alias forwarding `solvePlainInterp` to `solveFullInterp` (`Proof.Full`). -/
+abbrev solvePlainInterp : ByteArray → UInt64 → UInt64 := solveFullInterp
+
+/-- Compatibility alias forwarding `solvePlainInterp_sound` to `solveFullInterp_sound`. -/
+theorem solvePlainInterp_sound (ba : ByteArray) (fuel : UInt64)
+    (h : solvePlainInterp ba fuel = 20) :
+    ∃ cnf, parseDimacs ba.data.toList = some cnf ∧ cnf.Unsat :=
+  solveFullInterp_sound ba fuel h
+
+/-- Compatibility alias forwarding `unsat_of_verifyBVExprPlainInterp` to
+`unsat_of_verifyBVExprFullInterp`. -/
 theorem unsat_of_verifyBVExprPlainInterp (bv : BVLogicalExpr) (fuel : UInt64)
     (h : verifyBVExprWith solvePlainInterp bv fuel = true) :
     bv.Unsat :=
-  unsat_of_verifyBVExprWith solvePlainInterp solvePlainInterp_sound bv fuel h
+  unsat_of_verifyBVExprFullInterp bv fuel h
 
 end LeanQbe.T.Examples.BvDecideBridge

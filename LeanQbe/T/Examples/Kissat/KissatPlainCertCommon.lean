@@ -3,8 +3,8 @@ module
 public import LeanQbe.T.Examples.Kissat.KissatAbiCommon
 public import LeanQbe.T.Examples.Kissat.PlainLemmas
 import LeanQbe.T.AbiLemmas
-import all Kraken.Mem
-import all Kraken.Separation
+import Kraken.Mem
+import Kraken.Separation
 
 /-!
 # Arch-Free Kissat `D-Plain` Compilation & Proof Bridge (`KissatPlainCertCommon`)

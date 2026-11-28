@@ -3,8 +3,8 @@ module
 public import LeanQbe.T.Examples.Kissat.PlainSpec2
 public import LeanQbe.T.Examples.Kissat.SolverIngestLemmas1
 public import LeanQbe.T.Logic.C0Step
-import all Kraken.Mem
-import all Kraken.Separation
+import Kraken.Mem
+import Kraken.Separation
 
 /-!
 # Kissat `D-Plain` Per-Function `Spec` Contracts & Specification Table (`Stage 3`)

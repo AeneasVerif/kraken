@@ -1,8 +1,8 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.PlainSpec1
-import all Kraken.Mem
-import all Kraken.Separation
+import Kraken.Mem
+import Kraken.Separation
 
 /-!
 # Kissat `D-Plain` Auxiliary Preservation, GC/Analysis & Minimization Lemmas (`Stage 3`)

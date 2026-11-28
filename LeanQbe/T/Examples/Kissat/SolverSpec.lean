@@ -1,8 +1,8 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.SolverArena
-import all Kraken.Mem
-import all Kraken.Separation
+import Kraken.Mem
+import Kraken.Separation
 
 /-!
 # Kissat `D-Min` C0 `SolverInv` and Core Helper `Func.wp` Proofs

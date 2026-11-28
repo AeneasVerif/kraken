@@ -3,8 +3,8 @@ module
 public import LeanQbe.T.Examples.Kissat.PlainSpec
 import LeanQbe.T.Examples.Kissat.DimacsLemmas
 import LeanQbe.T.Logic.C0Step
-public meta import Lean.Elab.Tactic
-public meta import LeanQbe.T.Logic.C0Step
+meta import Lean.Elab.Tactic
+meta import LeanQbe.T.Logic.C0Step
 
 /-!
 # Soundness Proofs for Kissat `D-Plain` Clause Addition, Skip & Ingestion (`Stage 3`, Part 1)
@@ -165,11 +165,20 @@ attribute [scoped bv_c0 high] LeanQbe.T.bv_c0_zext32_64 LeanQbe.T.bv_c0_zext8_64
     loadVal m i32 (c.pTmp + 4#64) = some s.tmp[1] := load_arena_tmp (i := 1) hi hm
 end BvC0Extras
 
-scoped elab "pi_unmdata" : tactic => Lean.Elab.Tactic.liftMetaTactic1 fun g => do
+scoped macro "pi_clean" : tactic => `(tactic| simp only [Nat.reduceLeDiff, Nat.le_refl, true_and,
+  and_true, Bool.false_or, Bool.or_false, Bool.true_and, Bool.and_true, Bool.not_true,
+  Bool.not_false, decide_eq_true_eq, decide_eq_false_iff_not])
+
+end PlainIngestTactics
+
+open scoped PlainIngestTactics
+open PlainIngestTactics
+
+local elab "pi_unmdata" : tactic => Lean.Elab.Tactic.liftMetaTactic1 fun g => do
   let ty ← Lean.instantiateMVars (← g.getType)
   if ty.isMData then return some (← g.replaceTargetDefEq ty.consumeMData) else return some g
 
-scoped elab "pi_head_steps" : tactic => do
+local elab "pi_head_steps" : tactic => do
   let isBranchHead (ty : Lean.Expr) : Bool :=
     let ty := ty.consumeMData.headBeta
     if ty.isAppOf ``LeanQbe.T.wp && ty.getAppNumArgs == 6 then
@@ -198,18 +207,9 @@ scoped elab "pi_head_steps" : tactic => do
     Lean.Elab.Tactic.setGoals ((← Lean.Elab.Tactic.getUnsolvedGoals) ++ gs.tail!)
     if !ok then break
 
-scoped macro "pi_clean" : tactic => `(tactic| simp only [Nat.reduceLeDiff, Nat.le_refl, true_and,
-  and_true, Bool.false_or, Bool.or_false, Bool.true_and, Bool.and_true, Bool.not_true,
-  Bool.not_false, decide_eq_true_eq, decide_eq_false_iff_not])
-
-scoped macro "pi_steps" : tactic => `(tactic| (
+local macro "pi_steps" : tactic => `(tactic| (
   all_goals try pi_unmdata; c0_steps
   repeat (any_goals pi_clean; all_goals try pi_unmdata; c0_steps)))
-
-end PlainIngestTactics
-
-open scoped PlainIngestTactics
-open PlainIngestTactics
 
 /-! ## 1. `plain_add_clause` -/
 

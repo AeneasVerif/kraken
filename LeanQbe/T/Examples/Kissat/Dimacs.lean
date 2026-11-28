@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.Frontend.C0
 public import LeanQbe.T.FlatLemmas
 public import LeanQbe.T.Module
-public meta import LeanQbe.T.Frontend.C0
+meta import LeanQbe.T.Frontend.C0.Elab
 
 /-!
 # Kissat C0 DIMACS Parser and Mandatory Model Checker
@@ -25,19 +25,8 @@ namespace LeanQbe.T.Examples.Kissat
 open LeanQbe.T
 open LeanQbe.T.Frontend.C0
 
-meta section
-open Lean Elab Command
-
-/-- Elaborate an acyclic C0 translation unit into `@[expose] public` `<fn>_body`, `<fn>`, and
-`<pfx>_fns` declarations (`forceExpose := true`) so downstream `module` proofs and `t_kernel_rfl`
-can unfold definitions across module boundaries. -/
-def elabKissatC0 (pfx : Name) (src : String) : CommandElabM Unit :=
-  elabC0Module (some pfx) src (forceExpose := true) (emitModule := false)
-
-elab "kissat_c0! " pfx:ident src:str : command =>
-  elabKissatC0 pfx.getId src.getString
-
-end
+local elab "kissat_c0! " pfx:ident src:str : command =>
+  elabC0Module (some pfx.getId) src.getString (forceExpose := true) (emitModule := false)
 
 kissat_c0! dimacs "
 typedef struct {

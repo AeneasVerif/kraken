@@ -6,8 +6,8 @@ public import LeanQbe.T.Examples.Kissat.Proof.Ref.Base
 public import LeanQbe.T.Examples.LratBytesDimacsLemmas
 public import LeanQbe.T.Logic.Bytes
 public import LeanQbe.T.Logic.Rules
-import all Kraken.Mem
-import all Kraken.Separation
+import Kraken.Mem
+import Kraken.Separation
 
 /-!
 # Soundness Proofs for the Kissat C0 DIMACS Scanner (Part 1)

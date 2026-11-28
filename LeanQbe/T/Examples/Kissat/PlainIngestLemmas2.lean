@@ -2,9 +2,9 @@ module
 
 public import LeanQbe.T.Examples.Kissat.PlainIngestLemmas1
 import LeanQbe.T.Logic.C0Step
-public meta import Lean.Elab.Tactic
-public meta import LeanQbe.T.Logic.C0Step
-import all Kraken.Separation
+meta import Lean.Elab.Tactic
+meta import LeanQbe.T.Logic.C0Step
+import Kraken.Separation
 
 /-!
 # Soundness Proofs for Kissat `D-Plain` Tables & Initialization (`Stage 3`, Part 2)
@@ -51,14 +51,15 @@ private theorem pi_ptr_add_ofNat (p : BitVec 64) (a b : Nat) :
     (h123 : 32 ≤ off.toNat ∧ (off.toNat - 32) % 8 = 0 ∧ (off.toNat - 32) / 8 < 92) :
     storeOk m i64 (hdr + off) ∧
       (hdrTail92 hdr (ws.set ((off.toNat - 32) / 8) v) ⋆ F) (storeMem m i64 (hdr + off) v) := by
-  obtain ⟨m1, m2, hu, hd, ⟨hwl, ha⟩, hf⟩ := hm
+  unfold hdrTail92 at hm ⊢
+  obtain ⟨hwl, hm'⟩ := sep_pure_l.mp hm
   have h : hdr + (32 : BitVec 64) + BitVec.ofNat 64 (8 * ((off.toNat - 32) / 8)) = hdr + off := by
     rw [show (32 : BitVec 64) = BitVec.ofNat 64 32 from rfl, pi_ptr_add_ofNat,
       show 32 + 8 * ((off.toNat - 32) / 8) = off.toNat by omega, bv_ofNat_toNat_eq]
-  obtain ⟨hok, n1, n2, nhu, nhd, nha, nhf⟩ :=
-    store_array64 (i := (off.toNat - 32) / 8) v (by rw [hwl]; exact h123.2.2)
-      (⟨m1, m2, hu, hd, ha, hf⟩ : (array64 (hdr + 32) ws ⋆ F) m)
-  rw [h] at hok nhu; exact ⟨hok, n1, n2, nhu, nhd, ⟨by simp [hwl], nha⟩, nhf⟩
+  obtain ⟨hok, hst⟩ :=
+    store_array64 (i := (off.toNat - 32) / 8) v (by rw [hwl]; exact h123.2.2) hm'
+  rw [h] at hok hst
+  exact ⟨hok, sep_pure_l.mpr ⟨by simp [hwl], hst⟩⟩
 
 @[scoped c0_load] theorem c0_load_dimacs_mv {d mv nc cur val : BitVec 64}
     {F : Mem 64 → Prop} {m : Mem 64} (hm : (dimacsState d mv nc cur val ⋆ F) m) :
@@ -146,12 +147,41 @@ private meta def piShallowRun (stopOnMem : Bool) : Lean.Elab.Tactic.TacticM Unit
     Lean.Elab.Tactic.setGoals nextGs
     if !cont then break
 
-scoped elab "pi_shallow_steps" : tactic => piShallowRun false
-scoped elab "pi_shallow_lets" : tactic => piShallowRun true
-
 end PlainIngestTactics
 
 open scoped PlainIngestTactics open PlainIngestTactics
+
+local elab "pi_head_steps" : tactic => do
+  let isBranchHead (ty : Lean.Expr) : Bool :=
+    let ty := ty.consumeMData.headBeta
+    if ty.isAppOf ``LeanQbe.T.wp && ty.getAppNumArgs == 6 then
+      let e := (ty.getArg! 4).consumeMData.headBeta
+      e.isAppOf ``LeanQbe.T.Expr.jnz || e.isAppOf ``LeanQbe.T.Expr.group
+    else false
+  let unwrapMData (g : Lean.MVarId) : Lean.MetaM Lean.MVarId := do
+    let ty0 ← Lean.instantiateMVars (← g.getType)
+    let g ← if ty0.isMData then g.replaceTargetDefEq ty0.consumeMData else pure g
+    let ty := (← Lean.instantiateMVars (← g.getType)).headBeta
+    if ty.isAppOf ``LeanQbe.T.wp && ty.getAppNumArgs == 6 then
+      let e := ty.getArg! 4
+      if e.isMData then
+        return ← g.replaceTargetDefEq
+          (Lean.mkAppN ty.getAppFn (ty.getAppArgs.set! 4 e.consumeMData))
+    return g
+  for _ in [:450] do
+    let gs ← Lean.Elab.Tactic.getUnsolvedGoals
+    let some g := gs.head? | break
+    let g ← unwrapMData g
+    if isBranchHead (← Lean.instantiateMVars (← g.getType)) then
+      Lean.Elab.Tactic.setGoals (g :: gs.tail!); break
+    Lean.Elab.Tactic.setGoals [g]
+    let s ← Lean.Elab.Tactic.saveState
+    let ok ← try stepOnce catch _ => s.restore; pure false
+    Lean.Elab.Tactic.setGoals ((← Lean.Elab.Tactic.getUnsolvedGoals) ++ gs.tail!)
+    if !ok then break
+
+local elab "pi_shallow_steps" : tactic => piShallowRun false
+local elab "pi_shallow_lets" : tactic => piShallowRun true
 
 private theorem bv64_align8 {n : Nat} (hn : n + 7 < 2 ^ 64) :
     (BitVec.ofNat 64 n + (7 : BitVec 64)) &&& (~~~(7 : BitVec 64)) =
@@ -229,37 +259,121 @@ theorem plain_init_arena_fits {mv nc avail : Nat}
     unfold plainInitTotalPairs; omega
   omega
 
-private theorem sep_push {P Q : Mem 64 → Prop} {m1 m2 m : Mem 64} (hu : m1.union m2 = m)
-    (hd : m1.inter m2 = ∅) (hp : P m1) (hq : Q m2) : (P ⋆ Q) m := ⟨m1, m2, hu, hd, hp, hq⟩
-
 private theorem reg_peel {a b : BitVec 64} {n1 n2 n : Nat} {m : Mem 64} (hm : region a n m)
     (hb : a + BitVec.ofNat 64 n1 = b := by rfl) (hn : n = n1 + n2 := by omega)
     (hle : n1 + n2 ≤ 2 ^ 64 := by omega) : (region a n1 ⋆ region b n2) m := by
   subst hb hn; rwa [← region_merge_eq (a := a) (n1 := n1) (n2 := n2) (n := n1 + n2) rfl hle] at hm
 
+private theorem sep_ex_pure_l {α : Type} {P Q : Mem 64 → Prop} {φ : α → Prop}
+    {P' : α → Mem 64 → Prop} {m : Mem 64}
+    (hm : (P ⋆ Q) m) (h : ∀ m1, P m1 → ∃ x, φ x ∧ P' x m1) :
+    ∃ x, φ x ∧ (P' x ⋆ Q) m := by
+  obtain ⟨x, hx⟩ := sep_ex_l.mp (sep_mono h hm)
+  obtain ⟨hφ, hp⟩ := sep_pure_l.mp hx
+  exact ⟨x, hφ, hp⟩
+
+private theorem sep_ex_step {α : Type} {P Q R : Mem 64 → Prop} {φ : α → Prop}
+    {P' : α → Mem 64 → Prop} {m : Mem 64}
+    (hm : (R ⋆ (P ⋆ Q)) m) (h : ∀ m1, P m1 → ∃ x, φ x ∧ P' x m1) :
+    ∃ x, φ x ∧ ((R ⋆ P' x) ⋆ Q) m := by
+  obtain ⟨x, hφ, hx⟩ := sep_ex_pure_l (show (P ⋆ (R ⋆ Q)) m from sep_ac hm) h
+  exact ⟨x, hφ, sep_ac hx⟩
+
+private theorem sep_ex_pure_r {α : Type} {R P : Mem 64 → Prop} {φ : α → Prop}
+    {P' : α → Mem 64 → Prop} {m : Mem 64}
+    (hm : (R ⋆ P) m) (h : ∀ m1, P m1 → ∃ x, φ x ∧ P' x m1) :
+    ∃ x, φ x ∧ (R ⋆ P' x) m := by
+  obtain ⟨x, hφ, hx⟩ := sep_ex_pure_l (show (P ⋆ R) m from sep_ac hm) h
+  exact ⟨x, hφ, sep_ac hx⟩
+
+private theorem sep_mono_mid {R P P' Q : Mem 64 → Prop} {m : Mem 64}
+    (hm : (R ⋆ (P ⋆ Q)) m) (h : ∀ m1, P m1 → P' m1) : (P' ⋆ (R ⋆ Q)) m :=
+  sep_mono h (sep_ac hm)
+
+private theorem sep_mono_rr {A B Q Q' : Mem 64 → Prop} {m : Mem 64}
+    (hm : (A ⋆ (B ⋆ Q)) m) (h : ∀ m1, Q m1 → Q' m1) : ((A ⋆ B) ⋆ Q') m :=
+  sep_mono_r h (sep_ac hm)
+
+private theorem sep_rr_mono {A B Q Q' : Mem 64 → Prop} {m : Mem 64}
+    (hm : (A ⋆ (B ⋆ Q)) m) (h : ∀ m1, Q m1 → Q' m1) : (Q' ⋆ (A ⋆ B)) m :=
+  sep_mono h (sep_ac hm)
+
 private theorem reg_split_i8_pad {a : BitVec 64} {act tot : Nat} {m : Mem 64}
     (hle : act ≤ tot) (hfit : tot ≤ 2 ^ 64) (hm : region a tot m) :
     ∃ xs : List (BitVec 8), xs.length = act ∧
-      (array (t := i8) a xs ⋆ region (a + BitVec.ofNat 64 act) (tot - act)) m := by
-  obtain ⟨m1, m2, hu, hd, hr, hp⟩ := reg_peel (n1 := act) (n2 := tot - act) hm
-  obtain ⟨xs, hxl, ha⟩ := region_to_array_i8 act (by omega) hr
-  exact ⟨xs, hxl, sep_push hu hd ha hp⟩
+      (array (t := i8) a xs ⋆ region (a + BitVec.ofNat 64 act) (tot - act)) m :=
+  sep_ex_pure_l (reg_peel (n1 := act) (n2 := tot - act) hm)
+    (fun _ hr => region_to_array_i8 act (by omega) hr)
 
 private theorem reg_split_i32_pad {a : BitVec 64} {cnt tot : Nat} {m : Mem 64}
     (hle : 4 * cnt ≤ tot) (hfit : tot ≤ 2 ^ 64) (hm : region a tot m) :
     ∃ xs : List (BitVec 32), xs.length = cnt ∧
-      (array (t := i32) a xs ⋆ region (a + BitVec.ofNat 64 (4 * cnt)) (tot - 4 * cnt)) m := by
-  obtain ⟨m1, m2, hu, hd, hr, hp⟩ := reg_peel (n1 := 4 * cnt) (n2 := tot - 4 * cnt) hm
-  obtain ⟨xs, hxl, ha⟩ := region_to_array_i32 cnt (by omega) hr
-  exact ⟨xs, hxl, sep_push hu hd ha hp⟩
+      (array (t := i32) a xs ⋆ region (a + BitVec.ofNat 64 (4 * cnt)) (tot - 4 * cnt)) m :=
+  sep_ex_pure_l (reg_peel (n1 := 4 * cnt) (n2 := tot - 4 * cnt) hm)
+    (fun _ hr => region_to_array_i32 cnt (by omega) hr)
 
-private theorem unzip5 {A B C D E A' B' C' D' E' : Mem 64 → Prop} {m : Mem 64}
-    (h : ((A ⋆ A') ⋆ ((B ⋆ B') ⋆ ((C ⋆ C') ⋆ ((D ⋆ D') ⋆ (E ⋆ E'))))) m) :
+private theorem sep_split_i8_l {a : BitVec 64} {act tot : Nat} {Q : Mem 64 → Prop} {m : Mem 64}
+    (hm : (region a tot ⋆ Q) m) (hle : act ≤ tot) (hfit : tot ≤ 2 ^ 64) :
+    ∃ xs : List (BitVec 8), xs.length = act ∧
+      ((array (t := i8) a xs ⋆ region (a + BitVec.ofNat 64 act) (tot - act)) ⋆ Q) m :=
+  sep_ex_pure_l hm (fun _ hr => reg_split_i8_pad hle hfit hr)
+
+private theorem sep_split_i8_step {a : BitVec 64} {act tot : Nat} {R Q : Mem 64 → Prop}
+    {m : Mem 64} (hm : (R ⋆ (region a tot ⋆ Q)) m) (hle : act ≤ tot) (hfit : tot ≤ 2 ^ 64) :
+    ∃ xs : List (BitVec 8), xs.length = act ∧
+      ((R ⋆ (array (t := i8) a xs ⋆ region (a + BitVec.ofNat 64 act) (tot - act))) ⋆ Q) m :=
+  sep_ex_step hm (fun _ hr => reg_split_i8_pad hle hfit hr)
+
+private theorem sep_split_i8_r {a : BitVec 64} {act tot : Nat} {R : Mem 64 → Prop} {m : Mem 64}
+    (hm : (R ⋆ region a tot) m) (hle : act ≤ tot) (hfit : tot ≤ 2 ^ 64) :
+    ∃ xs : List (BitVec 8), xs.length = act ∧
+      (R ⋆ (array (t := i8) a xs ⋆ region (a + BitVec.ofNat 64 act) (tot - act))) m :=
+  sep_ex_pure_r hm (fun _ hr => reg_split_i8_pad hle hfit hr)
+
+private theorem sep_split_i32_l {a : BitVec 64} {cnt tot : Nat} {Q : Mem 64 → Prop}
+    {m : Mem 64} (hm : (region a tot ⋆ Q) m) (hle : 4 * cnt ≤ tot) (hfit : tot ≤ 2 ^ 64) :
+    ∃ xs : List (BitVec 32), xs.length = cnt ∧
+      ((array (t := i32) a xs ⋆
+        region (a + BitVec.ofNat 64 (4 * cnt)) (tot - 4 * cnt)) ⋆ Q) m :=
+  sep_ex_pure_l hm (fun _ hr => reg_split_i32_pad hle hfit hr)
+
+private theorem sep_split_i32_step {a : BitVec 64} {cnt tot : Nat} {R Q : Mem 64 → Prop}
+    {m : Mem 64} (hm : (R ⋆ (region a tot ⋆ Q)) m) (hle : 4 * cnt ≤ tot) (hfit : tot ≤ 2 ^ 64) :
+    ∃ xs : List (BitVec 32), xs.length = cnt ∧
+      ((R ⋆ (array (t := i32) a xs ⋆
+        region (a + BitVec.ofNat 64 (4 * cnt)) (tot - 4 * cnt))) ⋆ Q) m :=
+  sep_ex_step hm (fun _ hr => reg_split_i32_pad hle hfit hr)
+
+private theorem sep_split_i32_r {a : BitVec 64} {cnt tot : Nat} {R : Mem 64 → Prop}
+    {m : Mem 64} (hm : (R ⋆ region a tot) m) (hle : 4 * cnt ≤ tot) (hfit : tot ≤ 2 ^ 64) :
+    ∃ xs : List (BitVec 32), xs.length = cnt ∧
+      (R ⋆ (array (t := i32) a xs ⋆
+        region (a + BitVec.ofNat 64 (4 * cnt)) (tot - 4 * cnt))) m :=
+  sep_ex_pure_r hm (fun _ hr => reg_split_i32_pad hle hfit hr)
+
+private theorem sep_unzip5 {A B C D E A' B' C' D' E' : Mem 64 → Prop} {m : Mem 64}
+    (h : ((((A ⋆ A') ⋆ (B ⋆ B')) ⋆ (C ⋆ C')) ⋆ (D ⋆ D') ⋆ (E ⋆ E')) m) :
     ((A ⋆ B ⋆ C ⋆ D ⋆ E) ⋆ (A' ⋆ B' ⋆ C' ⋆ D' ⋆ E')) m := sep_ac h
 
-private theorem unzip6 {A B C D E F A' B' C' D' E' F' : Mem 64 → Prop} {m : Mem 64}
-    (h : ((A ⋆ A') ⋆ ((B ⋆ B') ⋆ ((C ⋆ C') ⋆ ((D ⋆ D') ⋆ ((E ⋆ E') ⋆ (F ⋆ F')))))) m) :
-    ((A ⋆ B ⋆ C ⋆ D ⋆ E ⋆ F) ⋆ (A' ⋆ B' ⋆ C' ⋆ D' ⋆ E' ⋆ F')) m := sep_ac h
+private theorem sep_arr_i32_l (cnt : Nat) {a : BitVec 64} {n : Nat} {Q : Mem 64 → Prop}
+    {m : Mem 64} (hm : (region a n ⋆ Q) m) (hn : 4 * cnt = n) (hfit : n ≤ 2 ^ 64) :
+    ∃ xs : List (BitVec 32), xs.length = cnt ∧ (array (t := i32) a xs ⋆ Q) m := by
+  subst hn; exact sep_ex_pure_l hm (fun _ hr => region_to_array_i32 cnt hfit hr)
+
+private theorem sep_arr_i32_step (cnt : Nat) {a : BitVec 64} {n : Nat} {R Q : Mem 64 → Prop}
+    {m : Mem 64} (hm : (R ⋆ (region a n ⋆ Q)) m) (hn : 4 * cnt = n) (hfit : n ≤ 2 ^ 64) :
+    ∃ xs : List (BitVec 32), xs.length = cnt ∧ ((R ⋆ array (t := i32) a xs) ⋆ Q) m := by
+  subst hn; exact sep_ex_step hm (fun _ hr => region_to_array_i32 cnt hfit hr)
+
+private theorem sep_arr_i64_l (cnt : Nat) {a : BitVec 64} {n : Nat} {Q : Mem 64 → Prop}
+    {m : Mem 64} (hm : (region a n ⋆ Q) m) (hn : 8 * cnt = n) (hfit : n ≤ 2 ^ 64) :
+    ∃ xs : List (BitVec 64), xs.length = cnt ∧ (array64 a xs ⋆ Q) m := by
+  subst hn; exact sep_ex_pure_l hm (fun _ hr => region_to_array64 cnt hfit hr)
+
+private theorem sep_arr_i64_step (cnt : Nat) {a : BitVec 64} {n : Nat} {R Q : Mem 64 → Prop}
+    {m : Mem 64} (hm : (R ⋆ (region a n ⋆ Q)) m) (hn : 8 * cnt = n) (hfit : n ≤ 2 ^ 64) :
+    ∃ xs : List (BitVec 64), xs.length = cnt ∧ ((R ⋆ array64 a xs) ⋆ Q) m := by
+  subst hn; exact sep_ex_step hm (fun _ hr => region_to_array64 cnt hfit hr)
 
 private theorem split_marks_regs (c : PlainCfg) {m : Mem 64}
     (hm : region c.pVals (valsBytes c.mv + 4 * markBytes c.mv) m) :
@@ -273,23 +387,23 @@ private theorem split_marks_regs (c : PlainCfg) {m : Mem 64}
   have hv := valsBytes_ge c.mv; have hmk := markBytes_ge c.mv
   have hvlt : valsBytes c.mv ≤ 2 * c.mv + 7 := by unfold valsBytes; omega
   have hmlt : markBytes c.mv ≤ c.mv + 7 := by unfold markBytes; omega
-  rcases reg_peel (b := c.pMark) (n1 := valsBytes c.mv) (n2 := 4 * markBytes c.mv) hm
-    rfl rfl (by omega) with ⟨m1, mr1, hu1, hd1, hr1, hm2r⟩
-  rcases reg_peel (b := c.pPhases) (n1 := markBytes c.mv) (n2 := 3 * markBytes c.mv) hm2r
-    rfl (by omega) (by omega) with ⟨m2, mr2, hu2, hd2, hr2, hm3r⟩
-  rcases reg_peel (b := c.pPhasesTarget) (n1 := markBytes c.mv) (n2 := 2 * markBytes c.mv) hm3r
-    rfl (by omega) (by omega) with ⟨m3, mr3, hu3, hd3, hr3, hm4r⟩
-  rcases reg_peel (b := c.pPhasesBest) (n1 := markBytes c.mv) (n2 := markBytes c.mv) hm4r
-    rfl (by omega) (by omega) with ⟨m4, m5, hu4, hd4, hr4, hr5⟩
-  obtain ⟨vals, hvl, h_vals⟩ := reg_split_i8_pad hv (by omega) hr1
-  obtain ⟨mrk, hmkl, h_mrk⟩ := reg_split_i8_pad hmk (by omega) hr2
-  obtain ⟨ph, hphl, h_ph⟩ := reg_split_i8_pad hmk (by omega) hr3
-  obtain ⟨ptgt, hptl, h_pt⟩ := reg_split_i8_pad hmk (by omega) hr4
-  obtain ⟨pbst, hpbl, h_pb⟩ := reg_split_i8_pad hmk (by omega) hr5
+  have h1 := reg_peel (b := c.pMark) (n1 := valsBytes c.mv) (n2 := 4 * markBytes c.mv) hm
+    rfl rfl (by omega)
+  have h2 := sep_mono_r (fun _ h => reg_peel (b := c.pPhases) (n1 := markBytes c.mv)
+    (n2 := 3 * markBytes c.mv) h rfl (by omega) (by omega)) h1
+  have h3 := sep_mono_r (fun _ => sep_mono_r (fun _ h => reg_peel (b := c.pPhasesTarget)
+    (n1 := markBytes c.mv) (n2 := 2 * markBytes c.mv) h rfl (by omega) (by omega))) h2
+  have h4 := sep_mono_r (fun _ => sep_mono_r (fun _ => sep_mono_r (fun _ h =>
+    reg_peel (b := c.pPhasesBest) (n1 := markBytes c.mv) (n2 := markBytes c.mv) h
+      rfl (by omega) (by omega)))) h3
+  obtain ⟨vals, hvl, h5⟩ := sep_split_i8_l h4 hv (by omega)
+  obtain ⟨mrk, hmkl, h6⟩ := sep_split_i8_step h5 hmk (by omega)
+  obtain ⟨ph, hphl, h7⟩ := sep_split_i8_step h6 hmk (by omega)
+  obtain ⟨ptgt, hptl, h8⟩ := sep_split_i8_step h7 hmk (by omega)
+  obtain ⟨pbst, hpbl, h9⟩ := sep_split_i8_r h8 hmk (by omega)
   refine ⟨vals, mrk, ph, ptgt, pbst, hvl, hmkl, hphl, hptl, hpbl, ?_⟩
   unfold PlainCfg.padMarks
-  exact unzip5 (sep_push hu1 hd1 h_vals (sep_push hu2 hd2 h_mrk (sep_push hu3 hd3 h_ph
-    (sep_push hu4 hd4 h_pt h_pb))))
+  exact sep_unzip5 h9
 
 private theorem split_u32_six {a1 a2 a3 a4 a5 a6 : BitVec 64} {mv : Nat} (hmv : mv < dimacsBound)
     (h12 : a2 = a1 + BitVec.ofNat 64 (u32VarBytes mv))
@@ -310,25 +424,25 @@ private theorem split_u32_six {a1 a2 a3 a4 a5 a6 : BitVec 64} {mv : Nat} (hmv : 
          region (a6 + BitVec.ofNat 64 (4 * mv)) (u32VarBytes mv - 4 * mv))) m := by
   unfold dimacsBound at hmv; have hu := u32VarBytes_ge mv
   have hult : u32VarBytes mv ≤ 4 * mv + 7 := by unfold u32VarBytes; omega
-  rcases reg_peel (b := a2) (n1 := u32VarBytes mv) (n2 := 5 * u32VarBytes mv) hm
-    h12.symm (by omega) (by omega) with ⟨m1, mr1, hu1, hd1, hr1, hm2r⟩
-  rcases reg_peel (b := a3) (n1 := u32VarBytes mv) (n2 := 4 * u32VarBytes mv) hm2r
-    h23.symm (by omega) (by omega) with ⟨m2, mr2, hu2, hd2, hr2, hm3r⟩
-  rcases reg_peel (b := a4) (n1 := u32VarBytes mv) (n2 := 3 * u32VarBytes mv) hm3r
-    h34.symm (by omega) (by omega) with ⟨m3, mr3, hu3, hd3, hr3, hm4r⟩
-  rcases reg_peel (b := a5) (n1 := u32VarBytes mv) (n2 := 2 * u32VarBytes mv) hm4r
-    h45.symm (by omega) (by omega) with ⟨m4, mr4, hu4, hd4, hr4, hm5r⟩
-  rcases reg_peel (b := a6) (n1 := u32VarBytes mv) (n2 := u32VarBytes mv) hm5r
-    h56.symm (by omega) (by omega) with ⟨m5, m6, hu5, hd5, hr5, hr6⟩
-  obtain ⟨x1, hx1, h_x1⟩ := reg_split_i32_pad hu (by omega) hr1
-  obtain ⟨x2, hx2, h_x2⟩ := reg_split_i32_pad hu (by omega) hr2
-  obtain ⟨x3, hx3, h_x3⟩ := reg_split_i32_pad hu (by omega) hr3
-  obtain ⟨x4, hx4, h_x4⟩ := reg_split_i32_pad hu (by omega) hr4
-  obtain ⟨x5, hx5, h_x5⟩ := reg_split_i32_pad hu (by omega) hr5
-  obtain ⟨x6, hx6, h_x6⟩ := reg_split_i32_pad hu (by omega) hr6
-  exact ⟨x1, x2, x3, x4, x5, x6, hx1, hx2, hx3, hx4, hx5, hx6, unzip6 (sep_push hu1 hd1 h_x1
-    (sep_push hu2 hd2 h_x2 (sep_push hu3 hd3 h_x3 (sep_push hu4 hd4 h_x4
-      (sep_push hu5 hd5 h_x5 h_x6)))))⟩
+  have h1 := reg_peel (b := a2) (n1 := u32VarBytes mv) (n2 := 5 * u32VarBytes mv) hm
+    h12.symm (by omega) (by omega)
+  have h2 := sep_mono_r (fun _ h => reg_peel (b := a3) (n1 := u32VarBytes mv)
+    (n2 := 4 * u32VarBytes mv) h h23.symm (by omega) (by omega)) h1
+  have h3 := sep_mono_r (fun _ => sep_mono_r (fun _ h => reg_peel (b := a4) (n1 := u32VarBytes mv)
+    (n2 := 3 * u32VarBytes mv) h h34.symm (by omega) (by omega))) h2
+  have h4 := sep_mono_r (fun _ => sep_mono_r (fun _ => sep_mono_r (fun _ h =>
+    reg_peel (b := a5) (n1 := u32VarBytes mv) (n2 := 2 * u32VarBytes mv) h
+      h45.symm (by omega) (by omega)))) h3
+  have h5 := sep_mono_r (fun _ => sep_mono_r (fun _ => sep_mono_r (fun _ => sep_mono_r (fun _ h =>
+    reg_peel (b := a6) (n1 := u32VarBytes mv) (n2 := u32VarBytes mv) h
+      h56.symm (by omega) (by omega))))) h4
+  obtain ⟨x1, hx1, s1⟩ := sep_split_i32_l h5 hu (by omega)
+  obtain ⟨x2, hx2, s2⟩ := sep_split_i32_step s1 hu (by omega)
+  obtain ⟨x3, hx3, s3⟩ := sep_split_i32_step s2 hu (by omega)
+  obtain ⟨x4, hx4, s4⟩ := sep_split_i32_step s3 hu (by omega)
+  obtain ⟨x5, hx5, s5⟩ := sep_split_i32_step s4 hu (by omega)
+  obtain ⟨x6, hx6, s6⟩ := sep_split_i32_r s5 hu (by omega)
+  exact ⟨x1, x2, x3, x4, x5, x6, hx1, hx2, hx3, hx4, hx5, hx6, sep_ac s6⟩
 
 private theorem split_tail_regs (c : PlainCfg) {m : Mem 64}
     (hm : region c.pWvec (c.avail - (768 + valsBytes c.mv + 4 * markBytes c.mv +
@@ -354,50 +468,39 @@ private theorem split_tail_regs (c : PlainCfg) {m : Mem 64}
   let slk := c.avail - (1024 + valsBytes c.mv + 4 * markBytes c.mv + 12 * u32VarBytes c.mv +
     32 * c.mv + 8 * c.minDepth + 4 * c.arena_cap + 4 * c.wcap +
     12 * c.delayed_cap + 4 * c.red_cap)
-  rcases reg_peel (b := c.pWsort) (n1 := 16 * c.mv) (n2 := n_tl - 16 * c.mv) hm
-    rfl (by omega) (by omega) with ⟨mw1, mwr1, huw1, hdw1, hrw, hm1⟩
-  rcases reg_peel (b := c.pScore) (n1 := 8 * c.mv) (n2 := n_tl - 24 * c.mv) hm1
-    rfl (by omega) (by omega) with ⟨mw2, mwr2, huw2, hdw2, hrws, hm2⟩
-  rcases reg_peel (b := c.pMinStk) (n1 := 8 * c.mv) (n2 := n_tl - 32 * c.mv) hm2
-    rfl (by omega) (by omega) with ⟨mw3, mwr3, huw3, hdw3, hrsc, hm3⟩
-  rcases reg_peel (b := c.pGlueUsed) (n1 := 8 * c.minDepth)
-    (n2 := n_tl - 32 * c.mv - 8 * c.minDepth) hm3 rfl (by omega) (by omega)
-    with ⟨mw4, mwr4, huw4, hdw4, hrms, hm4⟩
-  rcases reg_peel (b := c.pArena) (n1 := 256)
-    (n2 := n_tl - 32 * c.mv - 8 * c.minDepth - 256) hm4 rfl (by omega) (by omega)
-    with ⟨mw5, mwr5, huw5, hdw5, hrgu, hm5⟩
-  rcases reg_peel (b := c.pWstk) (n1 := 4 * c.arena_cap)
-    (n2 := 4 * c.wcap + 12 * c.delayed_cap + 4 * c.red_cap + slk) hm5
-    rfl (by omega) (by omega) with ⟨mw6, mwr6, huw6, hdw6, hrar, hm6⟩
-  rcases reg_peel (b := c.pDelayed) (n1 := 4 * c.wcap)
-    (n2 := 12 * c.delayed_cap + 4 * c.red_cap + slk) hm6 rfl (by omega) (by omega)
-    with ⟨mw7, mwr7, huw7, hdw7, hrwk, hm7⟩
-  rcases reg_peel (b := c.pRedRefs) (n1 := 12 * c.delayed_cap) (n2 := 4 * c.red_cap + slk) hm7
-    rfl (by omega) (by omega) with ⟨mw8, mwr8, huw8, hdw8, hrdl, hm8⟩
-  rcases reg_peel (b := c.pSlack) (n1 := 4 * c.red_cap) (n2 := slk) hm8
-    rfl (by omega) (by omega) with ⟨mw9, msl, huw9, hdw9, hrrr, hrslk⟩
-  obtain ⟨wvec, hwl, h_wv⟩ := region_to_array_i32 (4 * c.mv) (by omega)
-    (by simpa [show 4 * (4 * c.mv) = 16 * c.mv by omega] using hrw)
-  obtain ⟨wsort, hwsl, h_ws⟩ := region_to_array_i32 (2 * c.mv) (by omega)
-    (by simpa [show 4 * (2 * c.mv) = 8 * c.mv by omega] using hrws)
-  obtain ⟨score, hscl, h_sc⟩ := region_to_array64 c.mv (by omega) hrsc
-  obtain ⟨mstk, hmstl, h_ms⟩ := region_to_array_i32 (2 * c.minDepth) (by omega)
-    (by simpa [show 4 * (2 * c.minDepth) = 8 * c.minDepth by omega] using hrms)
-  obtain ⟨gu, hgul, h_gu⟩ := region_to_array_i32 64 (by decide)
-    (by simpa [show 4 * 64 = 256 by decide] using hrgu)
-  obtain ⟨arena, harl, h_ar⟩ := region_to_array_i32 c.arena_cap (by omega) hrar
-  obtain ⟨wstk, hwksl, h_wk⟩ := region_to_array_i32 c.wcap (by omega) hrwk
-  obtain ⟨del, hdll, h_dl⟩ := region_to_array_i32 (3 * c.delayed_cap) (by omega)
-    (by simpa [show 4 * (3 * c.delayed_cap) = 12 * c.delayed_cap by omega] using hrdl)
-  obtain ⟨rr, hrrl, h_rr⟩ := region_to_array_i32 c.red_cap (by omega) hrrr
+  have hm1 := reg_peel (b := c.pWsort) (n1 := 16 * c.mv) (n2 := n_tl - 16 * c.mv) hm
+    rfl (by omega) (by omega)
+  obtain ⟨wvec, hwl, hm1⟩ := sep_arr_i32_l (4 * c.mv) hm1 (by omega) (by omega)
+  have hm2 := sep_mono_r (fun _ h => reg_peel (b := c.pScore) (n1 := 8 * c.mv)
+    (n2 := n_tl - 24 * c.mv) h rfl (by omega) (by omega)) hm1
+  obtain ⟨wsort, hwsl, hm2⟩ := sep_arr_i32_step (2 * c.mv) hm2 (by omega) (by omega)
+  have hm3 := sep_mono_r (fun _ h => reg_peel (b := c.pMinStk) (n1 := 8 * c.mv)
+    (n2 := n_tl - 32 * c.mv) h rfl (by omega) (by omega)) hm2
+  obtain ⟨score, hscl, hm3⟩ := sep_arr_i64_step c.mv hm3 rfl (by omega)
+  have hm4 := sep_mono_r (fun _ h => reg_peel (b := c.pGlueUsed) (n1 := 8 * c.minDepth)
+    (n2 := n_tl - 32 * c.mv - 8 * c.minDepth) h rfl (by omega) (by omega)) hm3
+  obtain ⟨mstk, hmstl, hm4⟩ := sep_arr_i32_step (2 * c.minDepth) hm4 (by omega) (by omega)
+  have hm5 := sep_mono_r (fun _ h => reg_peel (b := c.pArena) (n1 := 256)
+    (n2 := n_tl - 32 * c.mv - 8 * c.minDepth - 256) h rfl (by omega) (by omega)) hm4
+  obtain ⟨gu, hgul, hm5⟩ := sep_arr_i32_step 64 hm5 (by decide) (by decide)
+  have hm6 := sep_mono_r (fun _ h => reg_peel (b := c.pWstk) (n1 := 4 * c.arena_cap)
+    (n2 := 4 * c.wcap + 12 * c.delayed_cap + 4 * c.red_cap + slk) h
+    rfl (by omega) (by omega)) hm5
+  obtain ⟨arena, harl, hm6⟩ := sep_arr_i32_step c.arena_cap hm6 rfl (by omega)
+  have hm7 := sep_mono_r (fun _ h => reg_peel (b := c.pDelayed) (n1 := 4 * c.wcap)
+    (n2 := 12 * c.delayed_cap + 4 * c.red_cap + slk) h rfl (by omega) (by omega)) hm6
+  obtain ⟨wstk, hwksl, hm7⟩ := sep_arr_i32_step c.wcap hm7 rfl (by omega)
+  have hm8 := sep_mono_r (fun _ h => reg_peel (b := c.pRedRefs) (n1 := 12 * c.delayed_cap)
+    (n2 := 4 * c.red_cap + slk) h rfl (by omega) (by omega)) hm7
+  obtain ⟨del, hdll, hm8⟩ := sep_arr_i32_step (3 * c.delayed_cap) hm8 (by omega) (by omega)
+  have hm9 := sep_mono_r (fun _ h => reg_peel (b := c.pSlack) (n1 := 4 * c.red_cap) (n2 := slk) h
+    rfl (by omega) (by omega)) hm8
+  obtain ⟨rr, hrrl, hm9⟩ := sep_arr_i32_step c.red_cap hm9 rfl (by omega)
   have hslk : slk = c.slack := by
     unfold PlainCfg.slack plainFixedBytes; rw [← hmd_eq]
-  rw [hslk] at hrslk
+  rw [hslk] at hm9
   exact ⟨wvec, wsort, mstk, gu, arena, wstk, del, rr, score,
-    hwl, hwsl, hscl, hmstl, hgul, harl, hwksl, hdll, hrrl,
-    sep_ac (sep_push huw1 hdw1 h_wv (sep_push huw2 hdw2 h_ws (sep_push huw3 hdw3 h_sc
-      (sep_push huw4 hdw4 h_ms (sep_push huw5 hdw5 h_gu (sep_push huw6 hdw6 h_ar
-        (sep_push huw7 hdw7 h_wk (sep_push huw8 hdw8 h_dl (sep_push huw9 hdw9 h_rr hrslk)))))))))⟩
+    hwl, hwsl, hscl, hmstl, hgul, harl, hwksl, hdll, hrrl, hm9⟩
 
 private structure InitArrs (c : PlainCfg) where
   (vals mrk ph ptgt pbst : List (BitVec 8))
@@ -465,58 +568,111 @@ private theorem avail_to_initArrs (c : PlainCfg) {m : Mem 64}
     unfold PlainCfg.pWvec PlainCfg.pQStamp PlainCfg.pQNext PlainCfg.pQPrev
       PlainCfg.pShrinkStk PlainCfg.pMinClr
     simp only [ptr_add_ofNat]; exact congrArg (fun n => c.pPos + BitVec.ofNat 64 n) (by omega)
-  rcases reg_peel (b := c.pLevel) (n1 := valsBytes c.mv + 4 * markBytes c.mv)
+  have hr1 := reg_peel (b := c.pLevel) (n1 := valsBytes c.mv + 4 * markBytes c.mv)
     (n2 := 12 * u32VarBytes c.mv + n_tail) hm hpL.symm (by omega) (by omega)
-    with ⟨m_mk, m_rest, hu1, hd1, hreg_mk, hrest1⟩
-  rcases reg_peel (b := c.pPos) (n1 := 6 * u32VarBytes c.mv)
-    (n2 := 6 * u32VarBytes c.mv + n_tail) hrest1 hpP.symm (by omega) (by omega)
-    with ⟨m_ua, m_rest2, hu2, hd2, hreg_ua, hrest2⟩
-  rcases reg_peel (b := c.pWvec) (n1 := 6 * u32VarBytes c.mv) (n2 := n_tail) hrest2
-    hpW.symm (by omega) (by omega) with ⟨m_ub, m_tl, hu3, hd3, hreg_ub, hreg_tl⟩
-  obtain ⟨vals, mrk, ph, ptgt, pbst, hvl, hmkl, hphl, hptl, hpbl, h_mk⟩ :=
-    split_marks_regs c hreg_mk
-  obtain ⟨lvl, rsns, trl, tpos, tmp, heap, hll, hrsl, htrl, htpl, htmpl, hhpl, h_ua⟩ :=
-    split_u32_six c.hmv rfl rfl rfl rfl rfl hreg_ua
-  obtain ⟨pos, mclr, sstk, qp, qn, qs, hpsl, hmcl, hssl, hqpl, hqnl, hqsl, h_ub⟩ :=
-    split_u32_six c.hmv rfl rfl rfl rfl rfl hreg_ub
-  obtain ⟨wvec, wsort, mstk, gu, arena, wstk, del, rr, score,
-      hwl, hwsl, hscl, hmstl, hgul, harl, hwksl, hdll, hrrl, h_tl⟩ := split_tail_regs c hreg_tl
+  obtain ⟨vals, hr1⟩ := sep_ex_l.mp (sep_mono (fun _ h => split_marks_regs c h) hr1)
+  obtain ⟨mrk, hr1⟩ := sep_ex_l.mp hr1
+  obtain ⟨ph, hr1⟩ := sep_ex_l.mp hr1
+  obtain ⟨ptgt, hr1⟩ := sep_ex_l.mp hr1
+  obtain ⟨pbst, hr1⟩ := sep_ex_l.mp hr1
+  obtain ⟨hvl, hr1⟩ := sep_pure_l.mp hr1
+  obtain ⟨hmkl, hr1⟩ := sep_pure_l.mp hr1
+  obtain ⟨hphl, hr1⟩ := sep_pure_l.mp hr1
+  obtain ⟨hptl, hr1⟩ := sep_pure_l.mp hr1
+  obtain ⟨hpbl, hr1⟩ := sep_pure_l.mp hr1
+  have hr2 := sep_mono_r (fun _ h => reg_peel (b := c.pPos) (n1 := 6 * u32VarBytes c.mv)
+    (n2 := 6 * u32VarBytes c.mv + n_tail) h hpP.symm (by omega) (by omega)) hr1
+  obtain ⟨lvl, hr2⟩ := sep_ex_l.mp (sep_mono_mid hr2 (fun _ h =>
+    split_u32_six c.hmv rfl rfl rfl rfl rfl h))
+  obtain ⟨rsns, hr2⟩ := sep_ex_l.mp hr2
+  obtain ⟨trl, hr2⟩ := sep_ex_l.mp hr2
+  obtain ⟨tpos, hr2⟩ := sep_ex_l.mp hr2
+  obtain ⟨tmp, hr2⟩ := sep_ex_l.mp hr2
+  obtain ⟨heap, hr2⟩ := sep_ex_l.mp hr2
+  obtain ⟨hll, hr2⟩ := sep_pure_l.mp hr2
+  obtain ⟨hrsl, hr2⟩ := sep_pure_l.mp hr2
+  obtain ⟨htrl, hr2⟩ := sep_pure_l.mp hr2
+  obtain ⟨htpl, hr2⟩ := sep_pure_l.mp hr2
+  obtain ⟨htmpl, hr2⟩ := sep_pure_l.mp hr2
+  obtain ⟨hhpl, hr2⟩ := sep_pure_l.mp hr2
+  have hr3 := sep_mono_rr hr2 (fun _ h => reg_peel (b := c.pWvec) (n1 := 6 * u32VarBytes c.mv)
+    (n2 := n_tail) h hpW.symm (by omega) (by omega))
+  obtain ⟨pos, hr3⟩ := sep_ex_l.mp (sep_mono_mid hr3 (fun _ h =>
+    split_u32_six c.hmv rfl rfl rfl rfl rfl h))
+  obtain ⟨mclr, hr3⟩ := sep_ex_l.mp hr3
+  obtain ⟨sstk, hr3⟩ := sep_ex_l.mp hr3
+  obtain ⟨qp, hr3⟩ := sep_ex_l.mp hr3
+  obtain ⟨qn, hr3⟩ := sep_ex_l.mp hr3
+  obtain ⟨qs, hr3⟩ := sep_ex_l.mp hr3
+  obtain ⟨hpsl, hr3⟩ := sep_pure_l.mp hr3
+  obtain ⟨hmcl, hr3⟩ := sep_pure_l.mp hr3
+  obtain ⟨hssl, hr3⟩ := sep_pure_l.mp hr3
+  obtain ⟨hqpl, hr3⟩ := sep_pure_l.mp hr3
+  obtain ⟨hqnl, hr3⟩ := sep_pure_l.mp hr3
+  obtain ⟨hqsl, hr3⟩ := sep_pure_l.mp hr3
+  obtain ⟨wvec, hr4⟩ := sep_ex_l.mp (sep_rr_mono hr3 (fun _ h => split_tail_regs c h))
+  obtain ⟨wsort, hr4⟩ := sep_ex_l.mp hr4
+  obtain ⟨mstk, hr4⟩ := sep_ex_l.mp hr4
+  obtain ⟨gu, hr4⟩ := sep_ex_l.mp hr4
+  obtain ⟨arena, hr4⟩ := sep_ex_l.mp hr4
+  obtain ⟨wstk, hr4⟩ := sep_ex_l.mp hr4
+  obtain ⟨del, hr4⟩ := sep_ex_l.mp hr4
+  obtain ⟨rr, hr4⟩ := sep_ex_l.mp hr4
+  obtain ⟨score, hr4⟩ := sep_ex_l.mp hr4
+  obtain ⟨hwl, hr4⟩ := sep_pure_l.mp hr4
+  obtain ⟨hwsl, hr4⟩ := sep_pure_l.mp hr4
+  obtain ⟨hscl, hr4⟩ := sep_pure_l.mp hr4
+  obtain ⟨hmstl, hr4⟩ := sep_pure_l.mp hr4
+  obtain ⟨hgul, hr4⟩ := sep_pure_l.mp hr4
+  obtain ⟨harl, hr4⟩ := sep_pure_l.mp hr4
+  obtain ⟨hwksl, hr4⟩ := sep_pure_l.mp hr4
+  obtain ⟨hdll, hr4⟩ := sep_pure_l.mp hr4
+  obtain ⟨hrrl, hr4⟩ := sep_pure_l.mp hr4
   refine ⟨⟨vals, mrk, ph, ptgt, pbst, lvl, rsns, trl, tpos, tmp, heap, pos, mclr, sstk,
     qp, qn, qs, wvec, wsort, mstk, gu, arena, wstk, del, rr, score,
     hvl, hmkl, hphl, hptl, hpbl, hll, hrsl, htrl, htpl, htmpl, hhpl, hpsl, hmcl, hssl,
     hqpl, hqnl, hqsl, hwl, hwsl, hscl, hmstl, hgul, harl, hwksl, hdll, hrrl⟩, ?_⟩
-  unfold PlainCoreArrays PlainHeurArrays PlainCfg.pad initPreState
-  have g0 : (((array (t := i8) c.pVals vals ⋆ array (t := i8) c.pMark mrk) ⋆ (array (t := i8)
-      c.pPhases ph ⋆ array (t := i8) c.pPhasesTarget ptgt ⋆ array (t := i8) c.pPhasesBest pbst)) ⋆
-      c.padMarks) m_mk := sep_mono (fun _ h => sep_ac h) h_mk
-  have g1 : (((array (t := i32) c.pLevel lvl ⋆ array (t := i32) c.pReason rsns ⋆ array (t := i32)
-      c.pTrail trl ⋆ array (t := i32) c.pTrailPos tpos ⋆ array (t := i32) c.pTmp tmp) ⋆
-      array (t := i32) c.pHeap heap) ⋆ c.padU32A) m_ua :=
-    sep_mono (fun _ h => sep_ac h) (show ((array (t := i32) c.pLevel lvl ⋆
-      array (t := i32) c.pReason rsns ⋆ array (t := i32) c.pTrail trl ⋆
-      array (t := i32) c.pTrailPos tpos ⋆ array (t := i32) c.pTmp tmp ⋆
-      array (t := i32) c.pHeap heap) ⋆ c.padU32A) m_ua from h_ua)
-  have g2 : (((array (t := i32) c.pMinClr mclr) ⋆ (array (t := i32) c.pPos pos ⋆
+  let C1 := array (t := i8) c.pVals vals ⋆ array (t := i8) c.pMark mrk
+  let H1 := array (t := i8) c.pPhases ph ⋆ array (t := i8) c.pPhasesTarget ptgt ⋆
+    array (t := i8) c.pPhasesBest pbst
+  let C2 := array (t := i32) c.pLevel lvl ⋆ array (t := i32) c.pReason rsns ⋆
+    array (t := i32) c.pTrail trl ⋆ array (t := i32) c.pTrailPos tpos ⋆
+    array (t := i32) c.pTmp tmp
+  let H2 := array (t := i32) c.pHeap heap
+  let C3 := array (t := i32) c.pMinClr mclr
+  let H3 := array (t := i32) c.pPos pos ⋆ array (t := i32) c.pShrinkStk sstk ⋆
+    array (t := i32) c.pQPrev qp ⋆ array (t := i32) c.pQNext qn ⋆
+    array (t := i32) c.pQStamp qs
+  let C4 := array (t := i32) c.pWvec wvec ⋆ array (t := i32) c.pArena arena ⋆
+    array (t := i32) c.pWstk wstk ⋆ array (t := i32) c.pMinStk mstk
+  let H4 := array64 c.pScore score ⋆ array (t := i32) c.pWsort wsort ⋆
+    array (t := i32) c.pRedRefs rr ⋆ array (t := i32) c.pGlueUsed gu ⋆
+    array (t := i32) c.pDelayed del
+  have hr4' : (((array (t := i32) c.pWvec wvec ⋆ array (t := i32) c.pWsort wsort ⋆
+      array64 c.pScore score ⋆ array (t := i32) c.pMinStk mstk ⋆
+      array (t := i32) c.pGlueUsed gu ⋆ array (t := i32) c.pArena arena ⋆
+      array (t := i32) c.pWstk wstk ⋆ array (t := i32) c.pDelayed del ⋆
+      array (t := i32) c.pRedRefs rr) ⋆ region c.pSlack c.slack) ⋆
+    (((array (t := i32) c.pPos pos ⋆ array (t := i32) c.pMinClr mclr ⋆
       array (t := i32) c.pShrinkStk sstk ⋆ array (t := i32) c.pQPrev qp ⋆
-      array (t := i32) c.pQNext qn ⋆ array (t := i32) c.pQStamp qs)) ⋆ c.padU32B) m_ub :=
-    sep_mono (fun _ h => sep_ac h) (show ((array (t := i32) c.pPos pos ⋆
-      array (t := i32) c.pMinClr mclr ⋆ array (t := i32) c.pShrinkStk sstk ⋆
-      array (t := i32) c.pQPrev qp ⋆ array (t := i32) c.pQNext qn ⋆
-      array (t := i32) c.pQStamp qs) ⋆ c.padU32B) m_ub from h_ub)
-  have g3 : (((array (t := i32) c.pWvec wvec ⋆ array (t := i32) c.pArena arena ⋆
-      array (t := i32) c.pWstk wstk ⋆ array (t := i32) c.pMinStk mstk) ⋆
-      (array (t := i32) c.pWsort wsort ⋆ array64 c.pScore score ⋆
-        array (t := i32) c.pGlueUsed gu ⋆ array (t := i32) c.pDelayed del ⋆
-        array (t := i32) c.pRedRefs rr)) ⋆ region c.pSlack c.slack) m_tl :=
-    sep_mono (fun _ h => sep_ac h) h_tl
-  have hall := sep_push hu1 hd1 g0 (sep_push hu2 hd2 g1 (sep_push hu3 hd3 g2 g3))
-  have h1 : ∀ {A1 B1 P1 A2 B2 P2 A3 B3 P3 A4 B4 P4 : Mem 64 → Prop} {k : Mem 64},
-      (((A1 ⋆ B1) ⋆ P1) ⋆ (((A2 ⋆ B2) ⋆ P2) ⋆ (((A3 ⋆ B3) ⋆ P3) ⋆ ((A4 ⋆ B4) ⋆ P4)))) k →
-      ((A1 ⋆ A2 ⋆ A3 ⋆ A4) ⋆ (B2 ⋆ B3 ⋆ B1 ⋆ B4) ⋆ (P1 ⋆ P2 ⋆ P3 ⋆ P4)) k := fun h => sep_ac h
-  have hfin := h1 hall
-  obtain ⟨ma, mb, hua, hda, ha, hb⟩ := hfin
-  obtain ⟨mb1, mb2, hub, hdb, hb1, hb2⟩ := hb
-  exact sep_push hua hda (sep_ac ha) (sep_push hub hdb (sep_ac hb1) hb2)
+      array (t := i32) c.pQNext qn ⋆ array (t := i32) c.pQStamp qs) ⋆ c.padU32B) ⋆
+    (((array (t := i32) c.pLevel lvl ⋆ array (t := i32) c.pReason rsns ⋆
+      array (t := i32) c.pTrail trl ⋆ array (t := i32) c.pTrailPos tpos ⋆
+      array (t := i32) c.pTmp tmp ⋆ array (t := i32) c.pHeap heap) ⋆ c.padU32A) ⋆
+    ((array (t := i8) c.pVals vals ⋆ array (t := i8) c.pMark mrk ⋆
+      array (t := i8) c.pPhases ph ⋆ array (t := i8) c.pPhasesTarget ptgt ⋆
+      array (t := i8) c.pPhasesBest pbst) ⋆ c.padMarks)))) m := hr4
+  have hg : ((C4 ⋆ H4 ⋆ region c.pSlack c.slack) ⋆
+      ((C3 ⋆ H3 ⋆ c.padU32B) ⋆ ((C2 ⋆ H2 ⋆ c.padU32A) ⋆ (C1 ⋆ H1 ⋆ c.padMarks)))) m :=
+    sep_mono2 (fun _ h => by dsimp only [C4, H4]; exact sep_ac h)
+      (sep_mono2 (fun _ h => by dsimp only [C3, H3]; exact sep_ac h)
+        (sep_mono2 (fun _ h => by dsimp only [C2, H2]; exact sep_ac h)
+          (fun _ h => by dsimp only [C1, H1]; exact sep_ac h))) m hr4'
+  have hc : (((C1 ⋆ C2 ⋆ C4 ⋆ C3) ⋆ (H1 ⋆ H2 ⋆ H3 ⋆ H4)) ⋆
+      (c.padMarks ⋆ c.padU32A ⋆ c.padU32B ⋆ region c.pSlack c.slack)) m := sep_ac hg
+  refine sep_mono2 (sep_mono2 (fun _ h => ?_) (fun _ h => ?_)) (fun _ h => h) m hc
+  · unfold PlainCoreArrays initPreState; dsimp only [C1, C2, C3, C4] at h; exact sep_ac h
+  · unfold PlainHeurArrays initPreState; dsimp only [H1, H2, H3, H4] at h; exact sep_ac h
 
 /-! ## 2. `plain_zero_tables` -/
 
@@ -866,21 +1022,36 @@ private theorem init_state_split_arena (c : PlainCfg) (fuel : BitVec 64) {cnf_pt
           dimacsState c.hdr (BitVec.ofNat 64 c.mv) (BitVec.ofNat 64 c.nc)
             (cnf_ptr + BitVec.ofNat 64 j) (BitVec.ofNat 64 c.nc) ⋆ R)) m0 := by
   have hav_le := c.havail_fit
-  obtain ⟨m_reg, m_cdr, hu_r, hd_r, h_reg, h_cdr⟩ := (show (region (c.hdr + 32#64) (c.avail - 32) ⋆
-    (bytes cnf_ptr cnfBytes ⋆ dimacsState c.hdr (BitVec.ofNat 64 c.mv) (BitVec.ofNat 64 c.nc)
-      (cnf_ptr + BitVec.ofNat 64 j) (BitVec.ofNat 64 c.nc) ⋆ R)) m0 from sep_ac hm0)
+  have h1 : (region (c.hdr + 32#64) (c.avail - 32) ⋆
+      (bytes cnf_ptr cnfBytes ⋆ dimacsState c.hdr (BitVec.ofNat 64 c.mv) (BitVec.ofNat 64 c.nc)
+        (cnf_ptr + BitVec.ofNat 64 j) (BitVec.ofNat 64 c.nc) ⋆ R)) m0 := sep_ac hm0
   rw [← region_merge_eq (a := c.hdr + 32#64) (n1 := 736) (n2 := c.avail - 768) (n := c.avail - 32)
-      (by omega) (by omega), ptr_add_ofNat, show (32 + 736 : Nat) = 768 from rfl] at h_reg
-  rcases h_reg with ⟨m_h, m_a, hu_ha, hd_ha, h_h, h_a⟩
-  obtain ⟨ws, hwl, h_ws⟩ := region_to_array64 92 (by decide) h_h
-  obtain ⟨a, h_arrs⟩ := avail_to_initArrs c h_a
+      (by omega) (by omega), ptr_add_ofNat, show (32 + 736 : Nat) = 768 from rfl] at h1
+  have h1' : (region (c.hdr + 32#64) 736 ⋆
+      (region (c.hdr + BitVec.ofNat 64 768) (c.avail - 768) ⋆
+        (bytes cnf_ptr cnfBytes ⋆ dimacsState c.hdr (BitVec.ofNat 64 c.mv) (BitVec.ofNat 64 c.nc)
+          (cnf_ptr + BitVec.ofNat 64 j) (BitVec.ofNat 64 c.nc) ⋆ R))) m0 := sep_ac h1
+  obtain ⟨ws, hwl, h2⟩ := sep_arr_i64_l 92 h1' (by decide) (by decide)
+  obtain ⟨a, h3⟩ := sep_ex_l.mp (sep_mono_mid h2 (fun _ h => avail_to_initArrs c h))
+  have h3' : ((PlainCoreArrays c (initPreState c 0#64 0#64 0#64 a) ⋆
+      PlainHeurArrays c (initPreState c 0#64 0#64 0#64 a).heur ⋆ c.pad) ⋆
+      (array64 (c.hdr + 32) ws ⋆ (bytes cnf_ptr cnfBytes ⋆
+        dimacsState c.hdr (BitVec.ofNat 64 c.mv) (BitVec.ofNat 64 c.nc)
+          (cnf_ptr + BitVec.ofNat 64 j) (BitVec.ofNat 64 c.nc) ⋆ R))) m0 := h3
   have hca : PlainCoreArrays c (initPreState c 0#64 0#64 0#64 a) = PlainCoreArrays c
       (initPreState c (cnf_ptr + BitVec.ofNat 64 j) (BitVec.ofNat 64 c.nc) fuel a) := rfl
   have hha : PlainHeurArrays c (initPreState c 0#64 0#64 0#64 a).heur = PlainHeurArrays c
       (initPreState c (cnf_ptr + BitVec.ofNat 64 j) (BitVec.ofNat 64 c.nc) fuel a).heur := rfl
-  rw [hca, hha] at h_arrs
-  have h_ht : hdrTail92 c.hdr ws m_h := ⟨hwl, h_ws⟩
-  exact ⟨ws, a, hwl, sep_ac (sep_push hu_r hd_r (sep_push hu_ha hd_ha h_ht h_arrs) h_cdr)⟩
+  rw [hca, hha] at h3'
+  have h4 : (hdrTail92 c.hdr ws ⋆
+      (PlainCoreArrays c (initPreState c (cnf_ptr + BitVec.ofNat 64 j) (BitVec.ofNat 64 c.nc)
+        fuel a) ⋆ PlainHeurArrays c (initPreState c (cnf_ptr + BitVec.ofNat 64 j)
+          (BitVec.ofNat 64 c.nc) fuel a).heur ⋆ c.pad ⋆ bytes cnf_ptr cnfBytes ⋆
+        dimacsState c.hdr (BitVec.ofNat 64 c.mv) (BitVec.ofNat 64 c.nc)
+          (cnf_ptr + BitVec.ofNat 64 j) (BitVec.ofNat 64 c.nc) ⋆ R)) m0 := by
+    unfold hdrTail92
+    exact sep_pure_l.mpr ⟨hwl, sep_ac h3'⟩
+  exact ⟨ws, a, hwl, h4⟩
 
 private theorem init_hdrtail_norm (c : PlainCfg) (d_cur d_val fuel : BitVec 64)
     (a : InitArrs c) (ws : List (BitVec 64)) (hwl : ws.length = 92) (rem : Nat)
@@ -1010,8 +1181,8 @@ private theorem init_state_finish_wp {Γ : Env} {Q : Post [.bool]} {X : XPost}
   have ⟨h1, h2, h3, h4, h5, h6, h7, h8, h9, h10, h11, h12, h13, h14, h15, h16, h17, h18, h19,
     h20, h21, h22, h23, h24, h25, h26⟩ := a.ok
   have hmem1 : (PlainMem c s1 ⋆ (bytes cnf_ptr cnfBytes ⋆ R)) m := by
-    obtain ⟨m1, m2, hu, hd, ⟨_, ha1⟩, hr⟩ := hm
-    have hm' : ((array64 (c.hdr + 32) ws) ⋆ _) m := sep_push hu hd ha1 hr
+    unfold hdrTail92 at hm
+    obtain ⟨_, hm'⟩ := sep_pure_l.mp hm
     rw [hws] at hm'; unfold PlainMem; exact sep_ac hm'
   have hlen1 : s1.LengthsOk c := by
     dsimp only [s1, initPreState]
@@ -1152,12 +1323,12 @@ theorem plain_init_state_wp (Γ : Env)
       region (hdr_addr + BitVec.ofNat 64 32) (avail.toNat - 32)) ⋆ R) m := by
     rw [region_merge_eq (a := hdr_addr) (n1 := 32) (n2 := avail.toNat - 32) (n := avail.toNat)
       (by omega) hav_le]; exact hm_in
-  obtain ⟨m_d, m_o, hu, hd, h_d32, h_o⟩ := (show (region hdr_addr 32 ⋆ (bytes cnf_ptr cnfBytes ⋆
-    region (hdr_addr + BitVec.ofNat 64 32) (avail.toNat - 32) ⋆ R)) m from sep_ac hm0)
-  obtain ⟨mv0, nc0, cur0, val0, h_dstate⟩ := Kissat.region32_to_dimacsState h_d32
-  have hm_pre : (dimacsState hdr_addr mv0 nc0 cur0 val0 ⋆ (bytes cnf_ptr cnfBytes ⋆
-      region (hdr_addr + BitVec.ofNat 64 32) (avail.toNat - 32) ⋆ R)) m :=
-    ⟨m_d, m_o, hu, hd, h_dstate, h_o⟩
+  have hm0' : (region hdr_addr 32 ⋆ (bytes cnf_ptr cnfBytes ⋆
+      region (hdr_addr + BitVec.ofNat 64 32) (avail.toNat - 32) ⋆ R)) m := sep_ac hm0
+  obtain ⟨mv0, hm_pre⟩ := sep_ex_l.mp (sep_mono (fun _ h => Kissat.region32_to_dimacsState h) hm0')
+  obtain ⟨nc0, hm_pre⟩ := sep_ex_l.mp hm_pre
+  obtain ⟨cur0, hm_pre⟩ := sep_ex_l.mp hm_pre
+  obtain ⟨val0, hm_pre⟩ := sep_ex_l.mp hm_pre
   unfold Func.wp plain_init_state_body; apply wp_call_of_spec; apply hHdr
   change kissatParseHeaderSpec (cnf_ptr, cnf_ptr + BitVec.ofNat 64 cnfBytes.length, hdr_addr, ())
     m _ _
