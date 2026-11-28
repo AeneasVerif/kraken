@@ -849,6 +849,27 @@ info: ⸨prog|
 #guard_msgs (whitespace := lax) in
 #check ⸨prog| cld; std ⸩
 
+-- Test: `jrcxz`/`jecxz` pick the address size from the mnemonic
+/--
+info: ⸨prog|
+  jrcxz l
+  jecxz l⸩ : List _root_.Directive
+-/
+#guard_msgs (whitespace := lax) in
+#check ⸨prog| jrcxz l; jecxz l ⸩
+
+section
+variable (lbl : Kraken.Label)
+
+/--
+info: ⸨prog|
+  jrcxz ❰lbl❱
+  jecxz ❰lbl❱⸩ : List _root_.Directive
+-/
+#guard_msgs (whitespace := lax) in
+#check ⸨prog| jrcxz ❰lbl❱; jecxz ❰lbl❱ ⸩
+end
+
 section string_instructions
 
 run_meta do
