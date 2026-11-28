@@ -437,6 +437,8 @@ def _walk_all_imports(
             in {
                 "LeanQbe.T.Examples.Kissat.PatchModule",
                 "LeanQbe.T.Examples.Kissat.KissatCertCommon",
+                "LeanQbe.T.Logic.C0Grind",
+                "LeanQbe.T.Logic.ProofKit",
                 "Kraken.Attribute",
                 "Kraken.Bedrock2.Notation",
             }

@@ -1,5 +1,5 @@
 # One per line: <module to import> <fully qualified constant>.
-# KissatFidelity (`fidStep9Module` 504 fns dual-arch x64/Arm64) Tier-1 parameterized theorems & audits.
+# KissatFidelity (`Src.Full.kissatModule` 418 fns dual-arch x64/Arm64) parameterized theorems & audits.
 LeanQbe.T.Amd64.KissatFidelityParam LeanQbe.T.Amd64.KissatFidelityParam.fid_module_fnspec_x64_of_compile
 LeanQbe.T.Amd64.KissatFidelityParam LeanQbe.T.Amd64.KissatFidelityParam.fid_module_fnspec_x64_maxB_of_compile
 LeanQbe.T.Amd64.KissatFidelityParam LeanQbe.T.Amd64.KissatFidelityParam.fid_solve_bytes_unsat_x64_of_compile

@@ -546,6 +546,8 @@ public import LeanQbe.T.Examples.Kissat.Proof.Forward.Wp2a
 public import LeanQbe.T.Examples.Kissat.Proof.Forward.Wp2b
 public import LeanQbe.T.Examples.Kissat.Proof.Forward.Wp3
 public import LeanQbe.T.Examples.Kissat.Proof.Forward.Wp4
+public import LeanQbe.T.Examples.Kissat.Proof.Full
+public import LeanQbe.T.Examples.Kissat.Proof.FullNv
 public import LeanQbe.T.Examples.Kissat.Proof.Gates.Cert
 public import LeanQbe.T.Examples.Kissat.Proof.Gates.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Gates.WpHelpers

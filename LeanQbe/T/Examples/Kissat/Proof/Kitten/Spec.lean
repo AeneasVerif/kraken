@@ -370,7 +370,7 @@ theorem specs_nodup : (specs.map SpecEntry.name).Nodup := by decide
 
 theorem specs_noExit : specs.all SpecEntry.noExit = true := rfl
 
-def deps : List SpecEntry := []
+@[expose] def deps : List SpecEntry := []
 
 /-! ## 3. `Env.Sat specs` Projections -/
 

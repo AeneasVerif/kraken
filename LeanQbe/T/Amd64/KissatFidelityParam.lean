@@ -5,22 +5,21 @@ Released under Apache 2.0 license as described in the file LICENSE.
 module
 
 public import LeanQbe.T.Amd64.KissatAbi
-public import LeanQbe.T.Examples.Kissat.KissatCertParamCommon
-public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep9Proof
-public import LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy
+public import LeanQbe.T.Examples.Kissat.Build.Common.CertParamCommon
+public import LeanQbe.T.Examples.Kissat.Proof.Full
 import Kraken.Mem
 import Kraken.Separation
 
 /-!
-# KissatFidelity (`504` fns) Tier-1 Parameterized SysV x64 Theorems
+# KissatFidelity (`Src.Full.kissatModule`, `418` fns) Parameterized SysV x64 Theorems
 
 Proves full-module `FnSpec`, concrete Kraken x64 `Eventually` UNSAT soundness, non-vacuity,
 and closed-host `run_unsat` parameterized over both raw
 `compileModuleOptInlinePolicy ... = .ok (code, bounds)` and `cert : FidCertX64`
 (exposing both exact `cert.bound` and fixed `2048`-byte stack contracts) over
-`FullFidelityAssemblyStep9.fidStep9Module` (`504` fns, including 6-arg packed
-`full_bva_upd_lit_fid`).
-Imports zero `*Cert*`, zero materialized `*Inl*`, and zero `MainCertElab` modules (`std3`).
+`Src.Full.kissatModule` (`418` fns) and `Proof.Full.fullEnv`.
+Imports zero `Kissat.Full*`, zero `*Cert*`, zero materialized `*Inl*`, and zero `MainCertElab`
+modules (`<= std3`).
 -/
 
 set_option autoImplicit false
@@ -30,70 +29,59 @@ public section
 namespace LeanQbe.T.Amd64.KissatFidelityParam
 
 open Std Std.Sat Std.ExtHashMap
-open LeanQbe.T LeanQbe.T.Examples.LratBytes
-open LeanQbe.T.Examples.Kissat LeanQbe.T.Examples.Kissat.KissatCertCommon
-open LeanQbe.T.Examples.Kissat.KissatCertParamCommon
-open LeanQbe.T.Examples.Kissat.FullM6 LeanQbe.T.Examples.Kissat.FullM6Orch
-open LeanQbe.T.Examples.Kissat.FullM7Fidelity
-open LeanQbe.T.Examples.Kissat.FullFidelityAssemblyUtil
-open LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep9
-open LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy
+open LeanQbe.T
+open LeanQbe.T.Examples.Kissat
+open LeanQbe.T.Examples.Kissat.Ref
+open LeanQbe.T.Examples.Kissat.Src
+open LeanQbe.T.Examples.Kissat.Src.Full
+open LeanQbe.T.Examples.Kissat.Src.InlPolicy
+open LeanQbe.T.Examples.Kissat.Proof
+open LeanQbe.T.Examples.Kissat.Proof.Spec
+open LeanQbe.T.Examples.Kissat.Proof.Full
+open LeanQbe.T.Examples.Kissat.Build.Common.CertParamCommon
 open LeanQbe.T.Amd64 Kraken
 
 /-- Concrete SysV x64 certificate witness type for
-`fidStep9Module.optInlinePolicy fidInlPolicy`. -/
+`kissatModule.optInlinePolicy kissatInlPolicy`. -/
 abbrev FidCertX64 : Type 1 :=
   LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean
-    (fidStep9Module.optInlinePolicy fidInlPolicy)
-
-private def fidPkg : KissatUnsatPkg where
-  mod := fidStep9Module
-  inlPolicy := fidInlPolicy
-  entryFn := "kissat_solve_bytes"
-  entryFn_fn := m6oSolveBytesFn
-  entryFn_sig := ⟨rfl, rfl, rfl⟩
-  entry_mem := fidStep9_solveBytes_mem
-  env := fidStep9Env
-  moduleOk := fidStep9_moduleOk
-  noExit := fun f _ args m Q X X' h => fidStep9Env_noExit f.name f.as f.rs args m Q X X' h
-  solve_intro := fun hcfit hwfit hm hreq =>
-    fidStep9Env_solve_bytes_of (m7FidSolveBytesSpec_intro hcfit hwfit hm hreq)
+    (kissatModule.optInlinePolicy kissatInlPolicy)
 
 /-! ## 1. Raw `compileModuleOptInlinePolicy`-Parameterized SysV x64 Theorems -/
 
 /-- Whole-module `Defined` + `FnSpec` over raw `compileModuleOptInlinePolicy` (exact bound `b`). -/
 theorem fid_module_fnspec_x64_of_compile
-    (hleg : LegalSigAll x64LegalTarget fidStep9Module.fns)
+    (hleg : LegalSigAll x64LegalTarget kissatModule.fns)
     (hints : List x64Isa.Hints) (code : List Directive) (bounds : List (Sym × Nat))
     (hcm : compileModuleOptInlinePolicy x64Isa x64LegalTarget 8 [] [] 0
-      fidStep9Module hints fidInlPolicy = .ok (code, bounds))
+      kissatModule hints kissatInlPolicy = .ok (code, bounds))
     [hh : Host] (k₀ : Nat) (hc : code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
-    {f : Fn} (hf : f ∈ fidStep9Module.fns) {b : Nat} (hb : (f.name, b) ∈ bounds) :
+    {f : Fn} (hf : f ∈ kissatModule.fns) {b : Nat} (hb : (f.name, b) ∈ bounds) :
     x64Target.Defined hh f.name ∧
-      x64Target.FnSpec hh f.name (fidStep9Env f.name f.as f.rs) b 0 :=
-  module_fnspec_of_compile x64KissatAbi fidPkg hleg hints code bounds
+      x64Target.FnSpec hh f.name (fullEnv f.name f.as f.rs) b 0 :=
+  module_fnspec_of_compile x64KissatAbi kissatUnsatPkg hleg hints code bounds
     hcm hh k₀ hc hu hf hb
 
 /-- Whole-module `Defined` + `FnSpec` over raw `compileModuleOptInlinePolicy` (fixed `2048B`). -/
 theorem fid_module_fnspec_x64_maxB_of_compile
-    (hleg : LegalSigAll x64LegalTarget fidStep9Module.fns)
+    (hleg : LegalSigAll x64LegalTarget kissatModule.fns)
     (hints : List x64Isa.Hints) (code : List Directive) (bounds : List (Sym × Nat))
     (hcm : compileModuleOptInlinePolicy x64Isa x64LegalTarget 8 [] [] 0
-      fidStep9Module hints fidInlPolicy = .ok (code, bounds))
+      kissatModule hints kissatInlPolicy = .ok (code, bounds))
     (hble : ∀ p ∈ bounds, p.2 ≤ 2048)
     [hh : Host] (k₀ : Nat) (hc : code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
-    {f : Fn} (hf : f ∈ fidStep9Module.fns) :
+    {f : Fn} (hf : f ∈ kissatModule.fns) :
     x64Target.Defined hh f.name ∧
-      x64Target.FnSpec hh f.name (fidStep9Env f.name f.as f.rs) 2048 0 :=
-  module_fnspec_of_compile_maxB x64KissatAbi fidPkg hleg hints code bounds hble
-    (by decide) hcm hh k₀ hc hu hf
+      x64Target.FnSpec hh f.name (fullEnv f.name f.as f.rs) 2048 0 :=
+  module_fnspec_of_compile_maxB x64KissatAbi kissatUnsatPkg hleg hints code bounds
+    hble (by decide) hcm hh k₀ hc hu hf
 
 /-- Raw `compileModuleOptInlinePolicy`-parameterized SysV x64 UNSAT soundness + framing
 (`2048B` fixed stack contract). -/
 theorem fid_solve_bytes_unsat_x64_of_compile
     (hints : List x64Isa.Hints) (code : List Directive) (bounds : List (Sym × Nat))
     (hcm : compileModuleOptInlinePolicy x64Isa x64LegalTarget 8 [] [] 0
-      fidStep9Module hints fidInlPolicy = .ok (code, bounds))
+      kissatModule hints kissatInlPolicy = .ok (code, bounds))
     {b : Nat} (hb : ("kissat_solve_bytes", b) ∈ bounds) (hble : b ≤ 2048)
     [hh : Host] (k₀ : Nat) (hc : code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
     (cnf_ptr work_ptr fuel : BitVec 64) (cnfBytes : List UInt8) (wlen : Nat)
@@ -124,7 +112,7 @@ theorem fid_solve_bytes_unsat_x64_of_compile
       ⟨s, Labels.label "kissat_solve_bytes"⟩ := by
   refine eventually_weaken _ _ _ _
     (fun _ ⟨hpc, hdom, hu', ⟨hcal, hrsp⟩, hst⟩ => ⟨hpc, hdom, hu', hcal, hrsp, hst⟩)
-    (solve_bytes_unsat_of_compile_maxB x64KissatAbi fidPkg rfl rfl
+    (solve_bytes_unsat_of_compile_maxB x64KissatAbi kissatUnsatPkg rfl rfl
       hints code bounds hcm hb hble (by decide) hh k₀ hc hu
       cnf_ptr work_ptr fuel cnfBytes wlen hcfit hwfit s ra R
       ⟨hrdi, hrsi, hrdx, hrcx, hr8⟩ hsp hmem)
@@ -133,7 +121,7 @@ theorem fid_solve_bytes_unsat_x64_of_compile
 theorem kissat_fid_x64_unsat_correct_of_compile
     (hints : List x64Isa.Hints) (code : List Directive) (bounds : List (Sym × Nat))
     (hcm : compileModuleOptInlinePolicy x64Isa x64LegalTarget 8 [] [] 0
-      fidStep9Module hints fidInlPolicy = .ok (code, bounds))
+      kissatModule hints kissatInlPolicy = .ok (code, bounds))
     {b : Nat} (hb : ("kissat_solve_bytes", b) ∈ bounds) (hble : b ≤ 2048)
     [hh : Host] (k₀ : Nat) (hc : code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
     (cnf_ptr work_ptr fuel : BitVec 64) (cnfBytes : List UInt8) (wlen : Nat)
@@ -166,7 +154,7 @@ theorem kissat_fid_x64_unsat_correct_of_compile
 theorem kissat_fid_x64_unsat_nonvacuous_of_compile
     (hints : List x64Isa.Hints) (code : List Directive) (bounds : List (Sym × Nat))
     (hcm : compileModuleOptInlinePolicy x64Isa x64LegalTarget 8 [] [] 0
-      fidStep9Module hints fidInlPolicy = .ok (code, bounds))
+      kissatModule hints kissatInlPolicy = .ok (code, bounds))
     {b : Nat} (hb : ("kissat_solve_bytes", b) ∈ bounds) (hble : b ≤ 2048)
     [hh : Host] (k₀ : Nat) (hc : code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique) :
     ∃ (cnf_ptr work_ptr fuel : BitVec 64) (cnfBytes : List UInt8) (wlen : Nat)
@@ -188,7 +176,7 @@ theorem kissat_fid_x64_unsat_nonvacuous_of_compile
         ⟨s, Labels.label "kissat_solve_bytes"⟩ := by
   obtain ⟨cp, wp, fu, cb, wl, s, ra, R, hcf, hwf,
     ⟨h0, h1, h2, h3, h4⟩, hsp, hdm, hev⟩ :=
-    unsat_nonvacuous_of_compile_maxB x64KissatAbi fidPkg rfl rfl
+    unsat_nonvacuous_of_compile_maxB x64KissatAbi kissatUnsatPkg rfl rfl
       hints code bounds hcm hb hble (by decide) x64KissatAbi.maxStack_ge hh k₀ hc hu
   exact ⟨cp, wp, fu, cb, wl, s, ra, R, hcf, hwf, h0, h1, h2, h3, h4, hsp, hdm, hev⟩
 
@@ -196,7 +184,7 @@ theorem kissat_fid_x64_unsat_nonvacuous_of_compile
 theorem kissat_fid_x64_run_unsat_of_compile
     (hints : List x64Isa.Hints) (code : List Directive) (bounds : List (Sym × Nat))
     (hcm : compileModuleOptInlinePolicy x64Isa x64LegalTarget 8 [] [] 0
-      fidStep9Module hints fidInlPolicy = .ok (code, bounds))
+      kissatModule hints kissatInlPolicy = .ok (code, bounds))
     {b : Nat} (hb : ("kissat_solve_bytes", b) ∈ bounds) (hble : b ≤ 2048)
     (hh : Host) (k₀ : Nat) (hc : code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique) :
     Eventually (x64Target.mach.step hh)
@@ -214,22 +202,24 @@ theorem kissat_fid_x64_run_unsat_of_compile
           (nvM6CnfPtr, BitVec.ofNat 64 nvM6UnsatBytes.length,
             nvM6UnsatWorkPtr, BitVec.ofNat 64 m6NvWorkLen, 16#64, ()))
         (x64Target.mach.labelAddr hh "kissat_solve_bytes")) :=
-  run_unsat_of_compile_maxB x64KissatAbi fidPkg rfl rfl
+  run_unsat_of_compile_maxB x64KissatAbi kissatUnsatPkg rfl rfl
     hints code bounds hcm hb hble (by decide) x64KissatAbi.maxStack_ge hh k₀ hc hu
 
 /-! ## 2. `FidCertX64`-Parameterized Theorems (Exact `cert.bound` & Fixed `2048B`) -/
 
 /-- Whole-module `Defined` + `FnSpec` over `cert : FidCertX64` and `LegalSigAll`. -/
-theorem fid_module_fnspec_of_cert (cert : FidCertX64)
-    (hleg : LegalSigAll x64LegalTarget fidStep9Module.fns)
+theorem fid_module_fnspec_of_cert
+    (cert : FidCertX64)
+    (hleg : LegalSigAll x64LegalTarget kissatModule.fns)
     [hh : Host] (k₀ : Nat) (hc : cert.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
-    {f : Fn} (hf : f ∈ fidStep9Module.fns) :
+    {f : Fn} (hf : f ∈ kissatModule.fns) :
     x64Target.Defined hh f.name ∧
-      x64Target.FnSpec hh f.name (fidStep9Env f.name f.as f.rs) (cert.bound f.name) 0 :=
-  module_fnspec_of_abi x64KissatAbi fidPkg cert hleg hh k₀ hc hu hf
+      x64Target.FnSpec hh f.name (fullEnv f.name f.as f.rs) (cert.bound f.name) 0 :=
+  module_fnspec_of_abi x64KissatAbi kissatUnsatPkg cert hleg hh k₀ hc hu hf
 
 /-- `FidCertX64`-parameterized SysV x64 UNSAT soundness + framing (exact `cert.bound`). -/
-theorem fid_solve_bytes_unsat_x64_of_cert (cert : FidCertX64)
+theorem fid_solve_bytes_unsat_x64_of_cert
+    (cert : FidCertX64)
     [hh : Host] (k₀ : Nat) (hc : cert.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
     (cnf_ptr work_ptr fuel : BitVec 64) (cnfBytes : List UInt8) (wlen : Nat)
     (hcfit : cnf_ptr.toNat + cnfBytes.length < 2 ^ 64)
@@ -261,12 +251,13 @@ theorem fid_solve_bytes_unsat_x64_of_cert (cert : FidCertX64)
       ⟨s, Labels.label "kissat_solve_bytes"⟩ := by
   refine eventually_weaken _ _ _ _
     (fun _ ⟨hpc, hdom, hu', ⟨hcal, hrsp⟩, hst⟩ => ⟨hpc, hdom, hu', hcal, hrsp, hst⟩)
-    (solve_bytes_unsat_entry_of_abi x64KissatAbi fidPkg cert rfl rfl hh k₀ hc hu
-      cnf_ptr work_ptr fuel cnfBytes wlen hcfit hwfit s ra R
+    (solve_bytes_unsat_entry_of_abi x64KissatAbi kissatUnsatPkg cert
+      rfl rfl hh k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen hcfit hwfit s ra R
       ⟨hrdi, hrsi, hrdx, hrcx, hr8⟩ hsp hmem)
 
 /-- `FidCertX64`-parameterized SysV x64 UNSAT soundness + framing (fixed `2048B` stack). -/
-theorem fid_solve_bytes_unsat_x64_maxB_of_cert (cert : FidCertX64)
+theorem fid_solve_bytes_unsat_x64_maxB_of_cert
+    (cert : FidCertX64)
     [hh : Host] (k₀ : Nat) (hc : cert.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
     (cnf_ptr work_ptr fuel : BitVec 64) (cnfBytes : List UInt8) (wlen : Nat)
     (hcfit : cnf_ptr.toNat + cnfBytes.length < 2 ^ 64)
@@ -296,12 +287,13 @@ theorem fid_solve_bytes_unsat_x64_maxB_of_cert (cert : FidCertX64)
       ⟨s, Labels.label "kissat_solve_bytes"⟩ := by
   refine eventually_weaken _ _ _ _
     (fun _ ⟨hpc, hdom, hu', ⟨hcal, hrsp⟩, hst⟩ => ⟨hpc, hdom, hu', hcal, hrsp, hst⟩)
-    (solve_bytes_unsat_maxB_of_abi x64KissatAbi fidPkg cert rfl rfl (by decide)
-      hh k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen hcfit hwfit s ra R
+    (solve_bytes_unsat_maxB_of_abi x64KissatAbi kissatUnsatPkg cert
+      rfl rfl (by decide) hh k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen hcfit hwfit s ra R
       ⟨hrdi, hrsi, hrdx, hrcx, hr8⟩ hsp hmem)
 
 /-- Answer-only `FidCertX64`-parameterized SysV x64 UNSAT soundness (exact `cert.bound`). -/
-theorem kissat_fid_x64_unsat_correct_of_cert (cert : FidCertX64)
+theorem kissat_fid_x64_unsat_correct_of_cert
+    (cert : FidCertX64)
     [hh : Host] (k₀ : Nat) (hc : cert.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
     (cnf_ptr work_ptr fuel : BitVec 64) (cnfBytes : List UInt8) (wlen : Nat)
     (hcfit : cnf_ptr.toNat + cnfBytes.length < 2 ^ 64)
@@ -330,7 +322,8 @@ theorem kissat_fid_x64_unsat_correct_of_cert (cert : FidCertX64)
       hcfit hwfit s ra R hrdi hrsi hrdx hrcx hr8 hsp hmem)
 
 /-- Answer-only `FidCertX64`-parameterized SysV x64 UNSAT soundness (fixed `2048B` stack). -/
-theorem kissat_fid_x64_unsat_correct_maxB_of_cert (cert : FidCertX64)
+theorem kissat_fid_x64_unsat_correct_maxB_of_cert
+    (cert : FidCertX64)
     [hh : Host] (k₀ : Nat) (hc : cert.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
     (cnf_ptr work_ptr fuel : BitVec 64) (cnfBytes : List UInt8) (wlen : Nat)
     (hcfit : cnf_ptr.toNat + cnfBytes.length < 2 ^ 64)
@@ -354,11 +347,12 @@ theorem kissat_fid_x64_unsat_correct_maxB_of_cert (cert : FidCertX64)
           ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat))
       ⟨s, Labels.label "kissat_solve_bytes"⟩ :=
   eventually_weaken _ _ _ _ (fun _ h => ⟨h.1, h.2.1, h.2.2.1⟩)
-    (fid_solve_bytes_unsat_x64_maxB_of_cert cert k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen
-      hcfit hwfit s ra R hrdi hrsi hrdx hrcx hr8 hsp hmem)
+    (fid_solve_bytes_unsat_x64_maxB_of_cert cert k₀ hc hu cnf_ptr work_ptr fuel cnfBytes
+      wlen hcfit hwfit s ra R hrdi hrsi hrdx hrcx hr8 hsp hmem)
 
 /-- `FidCertX64`-parameterized SysV x64 UNSAT non-vacuity (exact `cert.bound`). -/
-theorem kissat_fid_x64_unsat_nonvacuous_of_cert (cert : FidCertX64)
+theorem kissat_fid_x64_unsat_nonvacuous_of_cert
+    (cert : FidCertX64)
     [hh : Host] (k₀ : Nat) (hc : cert.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique) :
     ∃ (cnf_ptr work_ptr fuel : BitVec 64) (cnfBytes : List UInt8) (wlen : Nat)
       (s : MachineData) (ra : Int64) (R : Mem 64 → Prop),
@@ -380,11 +374,13 @@ theorem kissat_fid_x64_unsat_nonvacuous_of_cert (cert : FidCertX64)
         ⟨s, Labels.label "kissat_solve_bytes"⟩ := by
   obtain ⟨cp, wp, fu, cb, wl, s, ra, R, hcf, hwf,
     ⟨h0, h1, h2, h3, h4⟩, hsp, hdm, hev⟩ :=
-    unsat_nonvacuous_entry_of_abi x64KissatAbi fidPkg cert rfl rfl hh k₀ hc hu
+    unsat_nonvacuous_entry_of_abi x64KissatAbi kissatUnsatPkg cert
+      rfl rfl hh k₀ hc hu
   exact ⟨cp, wp, fu, cb, wl, s, ra, R, hcf, hwf, h0, h1, h2, h3, h4, hsp, hdm, hev⟩
 
 /-- `FidCertX64`-parameterized SysV x64 UNSAT non-vacuity (fixed `2048B` stack). -/
-theorem kissat_fid_x64_unsat_nonvacuous_maxB_of_cert (cert : FidCertX64)
+theorem kissat_fid_x64_unsat_nonvacuous_maxB_of_cert
+    (cert : FidCertX64)
     [hh : Host] (k₀ : Nat) (hc : cert.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique) :
     ∃ (cnf_ptr work_ptr fuel : BitVec 64) (cnfBytes : List UInt8) (wlen : Nat)
       (s : MachineData) (ra : Int64) (R : Mem 64 → Prop),
@@ -405,12 +401,13 @@ theorem kissat_fid_x64_unsat_nonvacuous_maxB_of_cert (cert : FidCertX64)
         ⟨s, Labels.label "kissat_solve_bytes"⟩ := by
   obtain ⟨cp, wp, fu, cb, wl, s, ra, R, hcf, hwf,
     ⟨h0, h1, h2, h3, h4⟩, hsp, hdm, hev⟩ :=
-    unsat_nonvacuous_maxB_of_abi x64KissatAbi fidPkg cert rfl rfl
-      (by decide) hh k₀ hc hu
+    unsat_nonvacuous_maxB_of_abi x64KissatAbi kissatUnsatPkg cert
+      rfl rfl (by decide) hh k₀ hc hu
   exact ⟨cp, wp, fu, cb, wl, s, ra, R, hcf, hwf, h0, h1, h2, h3, h4, hsp, hdm, hev⟩
 
 /-- Closed concrete-host SysV x64 UNSAT execution witness on `cert.host` (exact `cert.bound`). -/
-theorem kissat_fid_x64_run_unsat_of_cert (cert : FidCertX64) :
+theorem kissat_fid_x64_run_unsat_of_cert
+    (cert : FidCertX64) :
     Eventually (x64Target.mach.step cert.host)
       (fun st =>
         x64Target.mach.pc st = x64Init.ra0 ∧
@@ -427,10 +424,11 @@ theorem kissat_fid_x64_run_unsat_of_cert (cert : FidCertX64) :
           (nvM6CnfPtr, BitVec.ofNat 64 nvM6UnsatBytes.length,
             nvM6UnsatWorkPtr, BitVec.ofNat 64 m6NvWorkLen, 16#64, ()))
         (x64Target.mach.labelAddr cert.host "kissat_solve_bytes")) :=
-  run_unsat_entry_of_abi x64KissatAbi fidPkg cert rfl rfl
+  run_unsat_entry_of_abi x64KissatAbi kissatUnsatPkg cert rfl rfl
 
 /-- Closed concrete-host SysV x64 UNSAT execution witness on `cert.host` (fixed `2048B`). -/
-theorem kissat_fid_x64_run_unsat_maxB_of_cert (cert : FidCertX64) :
+theorem kissat_fid_x64_run_unsat_maxB_of_cert
+    (cert : FidCertX64) :
     Eventually (x64Target.mach.step cert.host)
       (fun st =>
         x64Target.mach.pc st = x64Init.ra0 ∧
@@ -446,6 +444,6 @@ theorem kissat_fid_x64_run_unsat_maxB_of_cert (cert : FidCertX64) :
           (nvM6CnfPtr, BitVec.ofNat 64 nvM6UnsatBytes.length,
             nvM6UnsatWorkPtr, BitVec.ofNat 64 m6NvWorkLen, 16#64, ()))
         (x64Target.mach.labelAddr cert.host "kissat_solve_bytes")) :=
-  run_unsat_maxB_of_abi x64KissatAbi fidPkg cert rfl rfl (by decide)
+  run_unsat_maxB_of_abi x64KissatAbi kissatUnsatPkg cert rfl rfl (by decide)
 
 end LeanQbe.T.Amd64.KissatFidelityParam
