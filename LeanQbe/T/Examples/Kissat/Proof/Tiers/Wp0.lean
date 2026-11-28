@@ -92,10 +92,9 @@ theorem m6_ext_ensure_init_wp (Γ : Env)
 
 theorem m6_hdr_add_ticks_wp (Γ : Env)
     (hEnsure : Γ.Has "m6_ext_ensure_init" m6ExtEnsureInitSpec) :
-    ∀ a m Q X, m6HdrW2aSpec [i64] [] a m Q X →
+    ∀ a m Q X, m6HdrAddTicksSpec a m Q X →
       Func.wp Γ m6_hdr_add_ticks_body a m Q X := by
-  rintro ⟨h, ticks, ⟨⟩⟩ m Q X hs
-  obtain ⟨c, ext, s, R, rfl, hcfg, hext, hlen, hm, hQ⟩ := m6HdrW2aSpec_elim hs
+  rintro ⟨h, ticks, ⟨⟩⟩ m Q X ⟨c, ext, s, R, rfl, hcfg, hext, hlen, hm, hQ⟩
   unfold Func.wp m6_hdr_add_ticks_body
   c0_hsteps_nogrp
   m6h_call hEnsure
@@ -106,7 +105,7 @@ theorem m6_hdr_add_ticks_wp (Γ : Env)
   · have h29 : ((24 : BitVec 64) + 5).toNat = 29 := rfl
     have h29_lt : ((24 : BitVec 64) + 5).toNat < ext1.length := by rw [hl1, h29]; omega
     c0_hsteps
-    refine hQ () _ s _ rfl hlen (M6HdrScratchPres.refl s) ?_ ?_
+    refine hQ _ s _ rfl hlen (M6HdrScratchPres.refl s) rfl rfl ?_ ?_
       ((fullM6HdrMem_iff ..).mpr (by assumption))
     · exact (hinit1.set_pos _ (by rw [h29]; omega)).toOk
     · exact w2a_pres_of_init hpres1 (hinit1.set_pos _ (by rw [h29]; omega))
@@ -130,7 +129,7 @@ theorem m6_hdr_add_ticks_wp (Γ : Env)
     have hwk_le : wk.toNat ≤ 7 := by rcases hwk with rfl | rfl <;> decide
     have hwk_lt : ((24 : BitVec 64) + wk).toNat < ext1.length := by rw [hl1, hwk_eq]; omega
     c0_hsteps
-    refine hQ () _ s1 _ rfl hlen1 (M6HdrScratchPres.of_ticks _) ?_ ?_
+    refine hQ _ s1 _ rfl hlen1 (M6HdrScratchPres.of_ticks _) rfl rfl ?_ ?_
       ((fullM6HdrMem_iff ..).mpr (by assumption))
     · exact (hinit1.set_pos _ (by rw [hwk_eq]; omega)).toOk
     · exact w2a_pres_of_init hpres1 (hinit1.set_pos _ (by rw [hwk_eq]; omega))

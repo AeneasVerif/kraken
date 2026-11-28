@@ -27,11 +27,25 @@ open LeanQbe.T.Examples.Kissat.Src.Tiers
 
 @[expose] public section
 
+/-- `FullM6Hdr` tick-accounting spec for `m6_hdr_add_ticks`: strengthens `m6HdrW2aSpec [i64] []`
+with `red_refs` and `delayed_len` scratch framing for probing/vivification BCP. -/
+def m6HdrAddTicksSpec : Spec [i64, i64] [] :=
+  fun (h, _ticks, ()) m Q _ =>
+    ∃ (c : FullCfg) (ext : List (BitVec 64)) (s : FullState) (R : Mem 64 → Prop),
+      h = c.hdr ∧ FullM6HdrCfgOk c ∧ M6HdrExtOk ext ∧ s.LengthsOk c ∧
+      (FullM6HdrMem c ext s ⋆ R) m ∧
+      ∀ (ext' : List (BitVec 64)) (s' : FullState) (m' : Mem 64),
+        s'.core = s.core → s'.LengthsOk c → M6HdrScratchPres s s' →
+        s'.scratch.red_refs = s.scratch.red_refs →
+        s'.scratch.delayed_len = s.scratch.delayed_len →
+        M6HdrExtOk ext' → (M6HdrExtInitOk ext → M6HdrExtInitOk ext' ∧ M6ExtW2bPres ext ext') →
+        (FullM6HdrMem c ext' s' ⋆ R) m' → Q () m'
+
 /-- Canonical `18`-row specification table aligned 1:1 with `Src.Tiers.fns`. -/
 def specs : List SpecEntry :=
   [ ⟨"m6_hdr_init",                 [i64],           [],      m6HdrInitSpec,             true⟩
   , ⟨"m6_ext_ensure_init",          [i64],           [],      m6ExtEnsureInitSpec,       true⟩
-  , ⟨"m6_hdr_add_ticks",            [i64, i64],      [],      m6HdrW2aSpec [i64] [],     true⟩
+  , ⟨"m6_hdr_add_ticks",            [i64, i64],      [],      m6HdrAddTicksSpec,         true⟩
   , ⟨"m6_hdr_sync_legacy_tiers",    [i64],           [],      m6HdrW2aSpec [] [],        true⟩
   , ⟨"m6_hdr_recompute_tiers_mode", [i64, i64],      [],      m6HdrW2aSpec [i64] [],     true⟩
   , ⟨"m6_hdr_recompute_tiers",      [i64],           [],      m6HdrW2aSpec [] [],        true⟩
@@ -59,6 +73,19 @@ theorem m6HdrInitSpec_xfree : Spec.XFree m6HdrInitSpec := by xfree
 
 theorem m6ExtEnsureInitSpec_xfree : Spec.XFree m6ExtEnsureInitSpec := by xfree
 
+theorem m6HdrAddTicksSpec_monoX {xs : Tup Val [i64, i64]} {m : Mem 64} {Q : Post []}
+    {X X' : XPost} (h : m6HdrAddTicksSpec xs m Q X) : m6HdrAddTicksSpec xs m Q X' := by
+  rcases xs with ⟨_, _, ⟨⟩⟩; exact h
+
+theorem m6HdrAddTicksSpec_xfree : Spec.XFree m6HdrAddTicksSpec :=
+  fun _ _ _ _ _ h => m6HdrAddTicksSpec_monoX h
+
+theorem m6HdrW2a_le_addTicks : (m6HdrW2aSpec [i64] []).Le m6HdrAddTicksSpec := by
+  rintro ⟨h, t, ⟨⟩⟩ m Q X hW
+  obtain ⟨c, ext, s, R, hc, hcfg, hext, hlen, hm, hQ⟩ := m6HdrW2aSpec_elim hW
+  exact ⟨c, ext, s, R, hc, hcfg, hext, hlen, hm,
+    fun ext' s' m' hco hl hm6 _ _ => hQ () ext' s' m' hco hl hm6⟩
+
 theorem m6HdrW2aSpec_xfree (ea rs : List Ty) : Spec.XFree (m6HdrW2aSpec ea rs) :=
   fun _ _ _ _ _ h => m6HdrW2aSpec_monoX h
 
@@ -75,7 +102,7 @@ theorem specs_xfree : ∀ e ∈ specs, Spec.XFree e.spec := by
     rfl | rfl | rfl | rfl | rfl
   · exact m6HdrInitSpec_xfree
   · exact m6ExtEnsureInitSpec_xfree
-  · exact m6HdrW2aSpec_xfree _ _
+  · exact m6HdrAddTicksSpec_xfree
   · exact m6HdrW2aSpec_xfree _ _
   · exact m6HdrW2aSpec_xfree _ _
   · exact m6HdrW2aSpec_xfree _ _
@@ -112,8 +139,8 @@ theorem has_m6_ext_ensure_init {Γ : Env} (h : Γ.Sat specs) :
   mem_has h (by simp [specs]) m6ExtEnsureInitSpec_xfree
 
 theorem has_m6_hdr_add_ticks {Γ : Env} (h : Γ.Sat specs) :
-    Γ.Has "m6_hdr_add_ticks" (m6HdrW2aSpec [i64] []) :=
-  mem_has h (by simp [specs]) (m6HdrW2aSpec_xfree _ _)
+    Γ.Has "m6_hdr_add_ticks" m6HdrAddTicksSpec :=
+  mem_has h (by simp [specs]) m6HdrAddTicksSpec_xfree
 
 theorem has_m6_hdr_sync_legacy_tiers {Γ : Env} (h : Γ.Sat specs) :
     Γ.Has "m6_hdr_sync_legacy_tiers" (m6HdrW2aSpec [] []) :=
