@@ -23,9 +23,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from lean_imports import (
     ALL_HUBS,
+    ARM_PFX,
     IMPORT_LINE_RE,
+    KISSAT_ARM_PFX,
+    KISSAT_X64_PFX,
     ROOT_LIBS,
     SUBSYSTEM_HUBS,
+    X64_PFX,
     ImportStmt,
     compute_import_closure,
     mod_to_rel_path,
@@ -231,9 +235,9 @@ def classify_module(mod: str) -> str | None:
     """Assign a tracked `LeanQbe.*` module to its exact hub/barrel partition."""
     if mod in SUBSYSTEM_HUBS:
         return None
-    if mod.startswith("LeanQbe.T.Amd64."):
+    if mod.startswith(("LeanQbe.T.Amd64.", *KISSAT_X64_PFX)):
         return "LeanQbeAmd64"
-    if mod.startswith("LeanQbe.T.Arm64."):
+    if mod.startswith(("LeanQbe.T.Arm64.", *KISSAT_ARM_PFX)):
         return "LeanQbeArm64"
     if mod in NONCORE_LOGIC_MODULES:
         return "LeanQbe.T.Logic.ExtraHub"
@@ -281,9 +285,9 @@ def compute_closure(
 
 
 ARCH_FORBIDDEN: dict[str, tuple[str, tuple[str, ...]]] = {
-    "LeanQbeAmd64": ("x64", ("Kraken.AArch64", "LeanQbe.T.Arm64.")),
-    "LeanQbeBootstrap0": ("x64", ("Kraken.AArch64", "LeanQbe.T.Arm64.")),
-    "LeanQbeArm64": ("Arm64", ("Kraken.X64", "LeanQbe.T.Amd64.")),
+    "LeanQbeAmd64": ("x64", ARM_PFX),
+    "LeanQbeBootstrap0": ("x64", ARM_PFX),
+    "LeanQbeArm64": ("Arm64", X64_PFX),
 }
 
 
@@ -291,18 +295,7 @@ def check_isolation(hub: str, closure: set[str]) -> list[str]:
     """Enforce arch isolation invariants on `closure`."""
     errors: list[str] = []
     if hub in ("LeanQbe", *SUBSYSTEM_HUBS):
-        bad = sorted(
-            m
-            for m in closure
-            if m.startswith(
-                (
-                    "Kraken.X64",
-                    "Kraken.AArch64",
-                    "LeanQbe.T.Amd64.",
-                    "LeanQbe.T.Arm64.",
-                )
-            )
-        )
+        bad = sorted(m for m in closure if m.startswith((*X64_PFX, *ARM_PFX)))
         if bad:
             errors.append(
                 f"{hub}: generic closure leaks arch module(s): "

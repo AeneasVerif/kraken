@@ -43,11 +43,13 @@ from _common import (  # noqa: E402
     systemd_scope_available,
 )
 from lean_imports import (  # noqa: E402
+    ARM_PFX,
     BARRELS,
     DEFAULT_MAX_COL,
     DEFAULT_MAX_LOC,
     DEFAULT_MAX_PROOF_THM_LOC,
     EXE_ROOT_TO_TARGET,
+    X64_PFX,
     audit_lean_source,
     classify_module_arch,
     collect_active_headlines,
@@ -92,9 +94,6 @@ CORE_TRIGGER_RE = re.compile(
     r"|LeanQbe/T/Logic/.*\.lean"
     r"|LeanQbe/T/(?:Amd64|Arm64)/Targ(?:Lemmas)?\.lean)$"
 )
-
-X64_PFX = ("Kraken.X64", "LeanQbe.T.Amd64.")
-ARM_PFX = ("Kraken.AArch64", "LeanQbe.T.Arm64.")
 
 
 def wrap_build_cmd(

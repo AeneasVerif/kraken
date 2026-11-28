@@ -1,0 +1,386 @@
+module
+
+public import LeanQbe.T.Main
+public import LeanQbe.T.Amd64.Isa
+
+set_option autoImplicit false
+
+public section
+
+namespace LeanQbe.T.Examples.Kissat.Build.Oracle.Amd64.Forward
+
+open LeanQbe.T LeanQbe.T.Amd64
+
+@[expose] def _regs : Array x64Isa.Reg := #[
+  Reg64.r14, Reg64.rdi, Reg64.rsi, Reg64.rbx, Reg64.rbp, Reg64.r12, Reg64.r13, Reg64.r15,
+  Reg64.rax, Reg64.rdx, Reg64.r8, Reg64.r9, Reg64.rcx]
+@[expose] def _vregs : Array x64Isa.VReg := #[]
+@[expose] def _conds : Array x64Isa.Cond := #[]
+@[expose] def _locs : Array (Loc x64Isa.Reg x64Isa.VReg x64Isa.Cond) := #[
+  (.gpr Reg64.r12), (.gpr Reg64.rsi), (.gpr Reg64.rbx), (.gpr Reg64.rbp), (.flag CondCode.nz),
+  (.gpr Reg64.r15), (.gpr Reg64.r8), (.flag CondCode.z), (.flag CondCode.c), (.gpr Reg64.rax),
+  (.gpr Reg64.rdx), (.gpr Reg64.r9), (.gpr Reg64.rcx), (.flag CondCode.nc), (.gpr Reg64.r13),
+  (.slot 0 .w64), (.gpr Reg64.r14), (.gpr Reg64.rdi), (.flag CondCode.le), (.slot 3 .w64),
+  (.slot 5 .w64), (.slot 1 .w64), (.slot 4 .w64), (.slot 2 .w64), (.flag CondCode.g),
+  (.flag CondCode.ge), (.flag CondCode.l), (.slot 11 .w64), (.slot 10 .w64), (.slot 8 .w64),
+  (.slot 12 .w64), (.slot 6 .w64), (.slot 9 .w64), (.slot 7 .w64)]
+
+@[expose] def _d64 (c : Char) : Nat :=
+  let n := c.toNat
+  if n >= 97 then n - 61
+  else if n >= 65 then n - 55
+  else if n >= 48 then n - 48
+  else if n == 43 then 62 else 63
+
+@[expose] def _rNatAux (acc : Nat) : List Char → Nat × List Char
+  | [] => (acc, [])
+  | c :: cs =>
+    let v := _d64 c; let acc' := acc * 32 + v % 32
+    if v >= 32 then _rNatAux acc' cs else (acc', cs)
+
+@[expose] def _rNat (cs : List Char) : Nat × List Char := _rNatAux 0 cs
+
+@[expose] def _rList {α : Type} (f : List Char → α × List Char) :
+    Nat → List Char → List α × List Char
+  | 0, cs => ([], cs)
+  | n + 1, cs =>
+    let (x, cs1) := f cs; let (xs, cs2) := _rList f n cs1; (x :: xs, cs2)
+
+@[expose] def _rDeltas {α : Type} (f : List Char → α × List Char) :
+    Nat → Bool → Nat → List Char → List (Nat × α) × List Char
+  | 0, _, _, cs => ([], cs)
+  | n + 1, isF, prev, cs =>
+    let (d, cs1) := _rNat cs
+    let k := if isF then d else prev + 1 + d
+    let (v, cs2) := f cs1
+    let (rest, cs3) := _rDeltas f n false k cs2
+    ((k, v) :: rest, cs3)
+
+@[expose] def _rTrie {α : Type} (f : List Char → α × List Char)
+    (cs : List Char) : Trie α × List Char :=
+  let (n, cs1) := _rNat cs
+  let (ps, cs2) := _rDeltas f n true 0 cs1
+  (ps.foldl (fun t (k, v) => t.insert k v) .empty, cs2)
+
+@[expose] def _rTrieOpt {α : Type} (f : List Char → Option α × List Char)
+    (cs : List Char) : Trie α × List Char :=
+  let (n, cs1) := _rNat cs
+  let (ps, cs2) := _rDeltas f n true 0 cs1
+  (ps.foldl (fun t (k, vo) => match vo with | some v => t.insert k v | none => t) .empty,
+    cs2)
+
+@[expose] def _mkBTGo (i t f : Nat) (acc : Trie Bool) : Trie Bool :=
+  if h : t = 0 ∧ f = 0 then acc
+  else
+    let acc' := if t % 2 == 1 then acc.insert i true
+      else if f % 2 == 1 then acc.insert i false else acc
+    _mkBTGo (i + 1) (t / 2) (f / 2) acc'
+termination_by t + f
+
+@[expose] def _rBTrie (cs : List Char) : Trie Bool × List Char :=
+  let (tm, cs1) := _rNat cs; let (fm, cs2) := _rNat cs1
+  (_mkBTGo 0 tm fm .empty, cs2)
+
+@[expose] def _rBoolsAux : Nat → Nat → List Bool
+  | 0, _ => []
+  | n + 1, m => (m % 2 == 1) :: _rBoolsAux n (m / 2)
+
+@[expose] def _rBools (cs : List Char) : List Bool × List Char :=
+  let (n, cs1) := _rNat cs; let (m, cs2) := _rNat cs1
+  (_rBoolsAux n m, cs2)
+
+@[expose] def _sw : Nat → SlotWidth
+  | 0 => .w64 | 1 => .w128 | 2 => .w256 | _ => .w512
+
+@[expose] def _rSymArg (cs : List Char) : SymArg × List Char :=
+  let (t, cs1) := _rNat cs
+  match t with
+  | 0 => (.immBool false, cs1)
+  | 1 => (.immBool true, cs1)
+  | 2 => let (w, c2) := _rNat cs1; let (c, c3) := _rNat c2
+    (.immBits w (BitVec.ofNat 64 c), c3)
+  | 3 => let (w, c2) := _rNat cs1; let (c, c3) := _rNat c2
+    (.immVec (_sw w) (BitVec.ofNat 512 c), c3)
+  | k + 4 => (.var k, cs1)
+
+@[expose] def _rLoc (cs : List Char) : Option (Loc x64Isa.Reg x64Isa.VReg
+    x64Isa.Cond) × List Char :=
+  let (i, cs1) := _rNat cs; (_locs[i]?, cs1)
+
+@[expose] def _rMove (cs : List Char) : Option (Move x64Isa.Reg x64Isa.VReg
+    x64Isa.Cond) × List Char :=
+  let (t, cs1) := _rNat cs
+  match t with
+  | 0 => let (d, c2) := _rNat cs1; let (s, c3) := _rNat c2
+    ((_regs[d]?.bind fun dr => _regs[s]?.map (.mov dr ·)), c3)
+  | 1 => let (d, c2) := _rNat cs1; let (c, c3) := _rNat c2
+    (_regs[d]?.map (.movi · (BitVec.ofNat 64 c)), c3)
+  | 2 => let (d, c2) := _rNat cs1; let (i, c3) := _rNat c2
+    (_regs[d]?.map (.ld · i), c3)
+  | 3 => let (i, c2) := _rNat cs1; let (s, c3) := _rNat c2
+    (_regs[s]?.map (.st i ·), c3)
+  | 4 => let (d, c2) := _rNat cs1; let (c, c3) := _rNat c2
+    ((_regs[d]?.bind fun dr => _conds[c]?.map (.setcc dr ·)), c3)
+  | 5 => let (w, c2) := _rNat cs1; let (d, c3) := _rNat c2; let (s, c4) := _rNat c3
+    ((_vregs[d]?.bind fun dv => _vregs[s]?.map (.vmov (_sw w) dv ·)), c4)
+  | 6 => let (w, c2) := _rNat cs1; let (d, c3) := _rNat c2; let (c, c4) := _rNat c3
+    (_vregs[d]?.map (.vmovi (_sw w) · (BitVec.ofNat 512 c)), c4)
+  | 7 => let (w, c2) := _rNat cs1; let (d, c3) := _rNat c2; let (i, c4) := _rNat c3
+    (_vregs[d]?.map (.vld (_sw w) · i), c4)
+  | _ => let (w, c2) := _rNat cs1; let (i, c3) := _rNat c2; let (s, c4) := _rNat c3
+    (_vregs[s]?.map (.vst (_sw w) i ·), c4)
+
+@[expose] def _rEntry (cs : List Char) : Entry x64Isa.Reg x64Isa.VReg
+    x64Isa.Cond × List Char :=
+  let (nl, c1) := _rNat cs
+  let (lv, c2) := _rList (fun s => let (sa, s1) := _rSymArg s
+    let (lo, s2) := _rLoc s1; (lo.map (sa, ·), s2)) nl c1
+  let (np, c3) := _rNat c2
+  let (pl, c4) := _rList _rLoc np c3
+  let (lz, c5) := _rBools c4; let (pz, c6) := _rBools c5
+  ({ live := lv.filterMap id, ploc := pl.filterMap id, liveZ := lz, plocZ := pz }, c6)
+
+@[expose] def _rPre (cs : List Char) : PreStep x64Isa.Reg x64Isa.VReg
+    x64Isa.Cond × List Char :=
+  let (pk, c1) := _rNat cs
+  let (ms, c2) := _rList _rMove (pk / 2) c1
+  ({ clearFlags := pk % 2 == 1, moves := ms.filterMap id }, c2)
+
+@[expose] def _rVar (cs : List Char) : VariantHint × List Char :=
+  let (t, c1) := _rNat cs
+  match t with
+  | 0 => (.default, c1) | 1 => (.adcx, c1) | 2 => (.adox, c1)
+  | 3 => (.mulxFast, c1) | 4 => (.decInc, c1)
+  | _ => let (o, c2) := _rNat c1; (.disp (Int64.ofBitVec (BitVec.ofNat 64 o)), c2)
+
+@[expose] def _decH (chunks : Array String) : x64Isa.Hints :=
+  let cs := (chunks.foldl (· ++ ·) "").toList
+  let (dt, c1) := _rTrieOpt _rLoc cs
+  let (et, c2) := _rTrie _rEntry c1
+  let (pt, c3) := _rTrie _rPre c2
+  let (vt, c4) := _rTrie _rVar c3
+  let (el, c5) := _rBTrie c4; let (ij, c6) := _rBTrie c5
+  let (dj, c7) := _rBTrie c6; let (dl, c8) := _rBTrie c7
+  let (df, c9) := _rBTrie c8; let (mh, c10) := _rBTrie c9
+  let (ns, c11) := _rNat c10; let (sn, c12) := _rNat c11
+  let (sv, _) := _rList (fun s => let (i, s1) := _rNat s; (_regs[i]?, s1)) sn c12
+  { dest := dt, entry := et, pre := pt, variant := vt, elide := el, invertJnz := ij
+    deferJnz := dj, deferLea := dl, deadFlags := df, mulHiIps := mh
+    nslots := ns, saved := sv.filterMap id }
+
+@[expose] def hint_full_fwd_dedup_bins : x64Isa.Hints := _decH #[
+  "YK20001112132445053606070608590A1701010824080904090B080B0B2411083C2808790C0B2828090D3A",
+  "140A0A4A140A0A4A140A0A4A140A0A1C0A0D18391409091C0808090DA90A0D183908090916191E080E08N0",
+  "01900100670919FB24GD31E601029M5D3B2T64GHE919F702BH902008B2T64GHED370M59F3BCH803029X5AB",
+  "2T64GHED370M59F2CH90200DX5AB2T64GHED370M59FX0CX49X81X1H0DXW0004CX5AB2T64GHED370M59FX0C",
+  "X49X811HCXW0102CXPHX5AB2T64GHED370M59FX0CX490CYW00029X1HB2T64GHED370M59F2BC90202BYHB4G",
+  "HEYIHT6919FM5B270D30B0000BD3B2YHBT64GHEYIH919FM5701CB0100BD3B2YHBT64GHEYIH919FM5701CB0",
+  "100BD3B2YHBT64GHEYIH919FM5701CB0102CD3B2YHBT64GHEYIH919FM570YMC0C0001CD3B2YHBT64GHEYIH",
+  "919FM570YMC0C0001CD3B2YHBT64GHEYIH919FM570YMC0C0001CD3B2YHBT64GHEYIH919FM570YMC0C0003C",
+  "D3B2YHBT64GHEYIH919FM570ZVC0C0002B70919FB24GD3HEYIHT6YHBM50B0000B4GHEYIHT6YHB919FM5B27",
+  "0D319B0100B4GHEYIHT6YHB919FM5B270D319B0100B4GHEYIHT6YHB919FM5B270D319B0105770919FB24GD",
+  "3HE0700050200142302YF2220J2220aF22200YmWuWYrgsWWXWsWWebvWtaYymhWWWdxWWvWZWWWXmYiWddXr9",
+  "0aaaeWeXYWWWWWnWYWemWmWYWWeWXWWemWWemWeWYWnaaWWWWWWW00YYWWWaWnWWWWaemXWaeWeWXWWaWWmYae",
+  "WWaeWaaXWeoYaWfWWYW00XYWeWmWWYYWWmYWaaWmmYYWeeXXWWYvWWeWWmmWWWWaWZYWW00Xvv///p+y////pk",
+  "lz/td/l/z//t/+/vtl//tl/ttz/kxxt/j//x/VccWWWiXZWWWWinmYWeuWmWYWWeWXWcemWWemWeeYWnaaeWoW",
+  "WaW00016345607"]
+@[expose] def ext_full_fwd_dedup_bins : List (SigEntry × Nat) :=
+  [(("full_add_unit", [i64, i32], [.bool]), 232)]
+
+@[expose] def hint_full_fwd_flush_large_m7 : x64Isa.Hints := _decH #[
+  "X52E0E131C1442023101040108460B140809092A2818090DA9060D1839080909111H08090928B000000001",
+  "400100004BC93407E1H401015BC93407EEH050001793407EEHQ1J2BC1A701007BCQ193407EEHJ229A70201",
+  "7BCQ193407EEHJ229A702028BC93407EEHQ1XDAJ2080000893407EEHQ1XDAJ2BC1980100893407EEHQ1XDA",
+  "J2BC1980100893407EEHQ1XDAJ2BC1980101020511X652uWgWZWWgrguWWcWpWWyyb90YWeWXWaeWWWWYaWWW",
+  "WeWWW00XWaWWmYaWWWWnYWXWYaWWe00aeXWYWWWeeWYeXWWieW00Xz/p/+lxp///+jx/b/xt//lVYWiWXmaiWW",
+  "WXoaWwWaeWWm000043456"]
+@[expose] def ext_full_fwd_flush_large_m7 : List (SigEntry × Nat) :=
+  [(("full_wstack_defrag_m6", [i64], []), 136)]
+
+@[expose] def hint_full_dense_bin_roundtrip_fid : x64Isa.Hints := _decH #[
+  "aI21010727271C1E191A1G1909383B0B3H0H040A160H0308430014080909030308270I2I08086628280A3B",
+  "03140809090B0B08280A0DS90A0D1879082443300A0A0309090D090H04180C01080C0C01082C0121013606",
+  "01040H042A090B0D3706090409070H0426011A0A0009090D090H04180C01080C0C01082C03210136060104",
+  "0H042A090B0D3706090409070H0426011E08N0000000384271OGKJGCRKMLIE359A80300742S5IE71GCOGT9",
+  "070003BX4BML71XEHIE42OGKJGCRKUA250B0200DOGXFMX4BKJGC71UAXEHRKXDNMLIE42269Dm0201DOGXFMX",
+  "4BKJGC71UAXEHRKXDNMLIE42269Dm0208DM6ML71XEHIEYI5YJ0KJGCUA42OGRK19D0101DM6ML71XEHIEYI5Y",
+  "J0KJGCUA42OGRK19D0104442OGS5IE0400006S542IE71GCOG19601006S542IE71GCOG19601006S542IE71G",
+  "COG1960104342OGS51E30101642OGS5aLEaT0aP306XG001742OGS5aLEaT0aP3aVA07XG001A42OGS5aLEaT0",
+  "aP3b03aVAb5Hb490AXG000A42OGS5aLEaT0aP3b03aVAb5Hb490AXG005F42OGS5aLEaT0aP3bT1bICb03bR6a",
+  "VAbJBbJFb5Hb490FnG005442OGS5aLE040001642OGS5aLEaT0cOA06G001942OGS5aLEcP0cOAcT9aT0cUH09",
+  "a0000942OGS5aLEcP0cOAcT9aT0cUH09a0005D42OGS5aLEdM1dBCcP0dK6cOAdC3aT0cUHcT90DXa000D0203",
+  "142302J233816358319220J22835434432AI22813227242283B2284aS2302F2220D22B02XU52XM52cWWWXu",
+  "WZWXvoWWWWWWWZWWWWyWXmWyvWWWWWWkyXeXxmWdlk+zzxmWXWWfmWZtWXmZWWfmYWyyWrgpc10mWWnWmaYWWe",
+  "WWWWWXWWWWWemeYXWWaWWWWWWmWWWWWWmWYaWWWWWWWWWWeWWWYWWfaaeeWWWWWWWmWWWW00eWWemeYXWWamWW",
+  "YWmnYWWWaeaXWmWYeWWXWeenWWWeWeWXYWWWWWWWXWeaWmWnWWaoYaaWmXWaWWeWWae80YaWWWemXYaumWWWWX",
+  "WWXYWWWaeWnYieWWWWWmceWWWvWXZbcgiqvWWWWaWmWXoWWWWWaWmWWieWWWWW00d/d//c/lxy//ol//x++zx/",
+  "//pltz+l/vd//z/lkz///l/d/zv///////z/lno/+z//sxxtno/z/t//l//tlFuWWvWmaZWWjmWWaXXYaWWWim",
+  "eYXmWcuWWYWmnYWWWmWuWYcWWWWWWWYWmkjWXYWWfaaekjWYWeWWmWWemG0066345607"]
+@[expose] def ext_full_dense_bin_roundtrip_fid : List (SigEntry × Nat) :=
+  [(("full_fwd_flush_large_m7", [i64], []), 184),
+   (("full_watch_push_slow_m6", [i64, i32, i32, i32, i32], [.bool]), 216),
+   (("full_sweep_bins_m6cf", [i64], []), 264)]
+
+@[expose] def hint_full_fwd_reconnect_irred_m7 : x64Isa.Hints := _decH #[
+  "Z1291C9C043705050H300E010609086B0B09081409183409080C0C0C0C0C1C170D39092O1C3C0C2O09080H",
+  "090900090G19310109090D090C04180A0H080A0A0H08260B2H0H3A0A0H040C0D5C0903080A0D374709090D",
+  "09070C0D590H030813080C08G0000000048L696J422CA4020288L6J42U0P5QHVELA1C8X8103AX01KC8L6JL",
+  "AU0QH42P5VE19AZ0100A8L6J42U0P5QHVELAXH9KC0AX80024XVC8L6J420400027XVN8L6J42U0P5QH07YG00",
+  "07XVN8L6J42VEP5U007Y00009XVN8A8L6J42U0P5QHVE199b01038XVN8L6J42YSGVEP5U0138a01009XVN8L6",
+  "J42YSGVEP5U0YT309a00004XVN8L6J42040001AXVN8L6J42YSGVEP5U0YT3Z210Aq0002DXVN8L6J42YSGVEP",
+  "5U0YT3Z31Z21Z8CZ790DXa0000DXVN8L6J42YSGVEP5U0YT3Z31Z21Z8CZ790DXa0007HXVN8L6J42YSGVEP5U",
+  "0YT3a0HZL6Z31ZUFZMBZ21Z8CZ790Hqa000802031D231C12338XR232C7228332291YD2309YO232C1Y151Zs",
+  "WWWW+dWWWzmWyvWWWWWWZmWWWvuckWmWWkWaZ+WkWml/A0aXWWmWWnWmYWmeeWWaWWWWWWaYWWWWWmWWWWoWWX",
+  "WmWWWWWYWWW00YWmWeWWemeXWeaaWWYeWWWeYYXYWWWWfWWeWfWWWmefWWmWXXWW00XoaWWWcXYWWinYieWWWW",
+  "WXXuaWWayXaWWXWYWWfoWceWWW00Xx+l/d//c/lz/lpp//vd///lxxzx////b//l/j/y+/liZ+l/zz//VaXmWu",
+  "WWvWmYWmiiWWcuWWWmaaYaWWWWwWWmWoWZXWmpyXmWYYWW00046345607"]
+@[expose] def ext_full_fwd_reconnect_irred_m7 : List (SigEntry × Nat) :=
+  [(("full_fwd_flush_large_m7", [i64], []), 184),
+   (("full_watch_push_slow_m6", [i64, i32, i32, i32, i32], [.bool]), 216)]
+
+@[expose] def hint_full_fwd_scan_lit_m7 : x64Isa.Hints := _decH #[
+  "Y46G1B11161E0C3909320207080008440H060H2844030H0H060D1D0208330H140D2H0C070H000024330804",
+  "2H3H0H272P0H0H24080708190827080703030324030403240818A001300101AO9CB7L856NAG5FIEE1T216A",
+  "YK101BO9CB7L856NAG5FIEE1T2X002H6BYK20400000009CB7L856NAG5FIEXP2E11C9XA1009CB7L856NAG5F",
+  "IEXP2E11C9XA106AY6CCB7L856NAG5FIEXP2E129AAYK200CY6CCB7L856NAG5FIEXP2E1YA0YH32A9CYYK201",
+  "DY6CCB7L856NAG5FIEXP2E1YA0YH3YL91ADYYK109AXVHCB7L856NAG5FIEXP2E10AYK0040207A423024231C",
+  "B23294X251052A51052uXmWWWWWWiZZdWZpWcYiWWW+WdmWkkgL0XYWXWXWXWmeaWeeWWWWWWWWWWWWmWaWWWW",
+  "00nXWoWWWqebYmaaWXeaXWqWfXWWeWYgWWW00aWeWWWWWWYWWZmXmeYWaWWaYXWmWcbW00Z+zz+h//ktdrw/tt",
+  "/zltz+t/jyn/ilxh///VXYYXqWWneugbWeeWYmeYXeWoZkWpmaqWWW00036345607"]
+@[expose] def ext_full_fwd_scan_lit_m7 : List (SigEntry × Nat) := []
+
+@[expose] def hint_full_fwd_check_cl_m7 : x64Isa.Hints := _decH #[
+  "f639121C1E13010G0G093C1408A409092O0Q090D2131012O07060Q090C080919090C091703034C04363606",
+  "5B08030C090814170C3914070C150B0A0C0E063909310107080H08440C060C2844020C0C060D1D01083C06",
+  "140D2C09070C000024330804263606272P0606240807081C082708070C0C0C240C040C2408181704060A0B",
+  "0E0C05063909310107080308440C060C2844020C0C060D1D01183C140D2C00070C0303243208042C3C0C27",
+  "2P0C0C2407190827070117040C08240D16360616063606160636061606360619060D181C3C0C1908091909",
+  "0C0947242C3C040B2619081D0707070D1C410C0C410C0C410C0C41090C0D181C4109081709093909021317",
+  "070949090C091319481721021C0D09170919090C09012319481721021C0D09170919090C09XB001900102F",
+  "4H4KIGDEDR7A7SGCGNBT929L5NF3FM2U6FaW020054H4KX4BIGX3U050000GX4BX4FDEDR929LIG4H4KX3U5N7",
+  "SGNF3FMBT19GXW0100H4H4KX4BX4FIGX3UDEDR7SGNBABT929L5NF3FM29CHmW020564H4KX4CX4FIGX3U0600",
+  "00EFMIG4H4KX4FX3U7SGNBTDEDR929L5N10EeW0101GY5VX4AX4F4H4KIGX3U5N7SGN929LFMBTDEDR1X0Ga01",
+  "00GY5VX4AX4FDEDR929LIG4H4KX3U5N7SGNFMBT393CGYW0302B4KX4FIGX3U5N9LFM7SGNBTDR21BBG200EZ3",
+  "X0Y5V4H4KX4FIGX3U5N9LFM7SGNBTDR1CEa0101GY5V4H4KX4FIGX3U5N9LFM7SGNBTDRZ3X0Z5CZ5X119GY01",
+  "01FY5V4H4KX4FIGX3U5N9LFM7SGNBTDRZ3X0Z5X11CFY0102FY5V4KX4FIGX3U5N9LFM7SGNBTDRZ3X0Z5X1ZG",
+  "J1CFX0101LY5V4KX4FIGX3U5N9LFM7SGNBTDRZ3X0Z5X1ZGJZR9ZIBZH5ZLEZJAa0116LX0101MY5V4KX4FIGX",
+  "3U5N9LFM7SGNBTDRZ3X0Z5X1ZGJZR9ZIBZH5ZLEZJAa01a3H2C6MX0204KY5V4KX4FIGX3U5N9LFM7SGNBTDRZ",
+  "3X0Z5X1ZGJZIBZH5ZLEaS1ZJA19KX0100KY5V4KX4FIGX3U5N9LFM7SGNBTDRZ3X0Z5X1ZGJZIBZH5ZLEaS1ZJ",
+  "A19KX0106LY5V4KX4FIGX3U5N9LFM7SGNBTDRZ3X0Z5X1ZGJb99ZIBZH5ZLEaS1ZJA2C2LX0200Nb99Y5VX4F4",
+  "KIGX3U5NZGJZIBZH5ZLEaS1ZJAbD0bK39LFM7SGNZ3X0Z5X1BTDR22CNmY0201Ob99Y5VX4F4KIGX3U5NZGJZI",
+  "BZH5ZLEaS1ZJAbD0bK39LFM7SGNZ3X0Z5X1BTDRbOC12OmY0109Lb26Y5V4KX4FIGX3U5N9LFM7SGNBTDRZ3X0",
+  "Z5X1ZGJZIBZH5ZLEaS1ZJA0LY0007FY5V4H4KX4FIGX3U5N9LFM7SGNBTDRZ3X0Z5X111FY0101MY5V4H4KX4F",
+  "IGX3U5N9LFM7SGNBTDRZ3X0Z5X1dI9d8Ad8JdC5d9BdAEdN116MY0101NY5V4H4KX4FIGX3U5N9LFM7SGNBTDR",
+  "Z3X0Z5X1dI9d8Ad8JdC5d9BdAEdN1dQ32C6NY0204KY5VX4F4H4KIGX3U5NZ3X0Z5X1d8JdC5eJ19LFM7SGNd9",
+  "BdAEBTDR19KY0106LY5V4H4KX4FIGX3U5N9LFM7SGNBTDRZ3X0Z5X1f00d8JdC5eJ1d9BdAE296LY0200Nf00Y",
+  "5VX4F4H4KIGX3U5NZ3X0Z5X1d8JdC5eJ1d9BdAEf43fB29LFM7SGNBTDR269NYWa0201Of00Y5VX4F4H4KIGX3",
+  "U5NZ3X0Z5X1d8JdC5eJ1d9BdAEf43fB29LFM7SGNBTDRfF916OYWa0109H4H4KX4CX4FIGX3UgF15NgGB929LF",
+  "M7SGNBTDEDR19Ha0100H4H4KX4CX4FIGX3UgF15NgGB929LFM7SGNBTDEDR19Ha0100H4H4KX4CX4FIGX3UgF1",
+  "5NgGB929LFM7SGNBTDEDR19Ha0109G4H4KX4AX4FIGX3UF3FM7SGNBTDEDR929L5N16GXWW0100GF3FMiB0IG4",
+  "H4KX4FX3U7SGNBTDEDR929L5N296GXWW0201IF3FMiB0IG4H4KX4AX4FX3U7SGNBTDEDR929L5NiG916IYWW01",
+  "06GiV64H4KIGDEDR7SGNBT929L5NF3FMX3UX4F0GYW0000GiV6BT7SGNIGX3UX4FF3FM4H4KDEDR929L5N19GX",
+  "WW0100GiV6BT7SGNIGX3UX4FF3FM4H4KDEDR929L5N19GXWW0100GiV6BT7SGNIGX3UX4FF3FM4H4KDEDR929L",
+  "5N19GXWW010734H4Kl83193010034H4KlD903000434H4Km53193010034H4KmA903000X60235132313323B6",
+  "12344223A83438C29A22322A23C81230A52228X62368142CA29282394K23946237CD428A2924233C12283b",
+  "7221502339Y82293YB621526B231022152621523126B0621523126BYJ421524404244215YK428A2C22229C",
+  "323C802220823C8A428A2C252215122C0O2215M2215K22158b251052A51052aV51052A51052aYYWXnYwmWm",
+  "aWZYbrWtWXWdWeWlWWZulXydmWWWcXuXmyYWXdWWXdYkayfuWWWWWWWWWucckWdcWibuWWXyWlWWyyWWWWXmZW",
+  "WWWWWZWuvuWyuXmpWWWdmXyWZpmWWZmWWdqyXyWXWWXpmWiX/uhmgL0maeWaWWWXWemWWWWWWWWWeWYaWWWWWW",
+  "WWWeWeWWWWWWmWWnWWWWWWWWWWYWWWWmYWmmWWWWWWWYWWWXWWeWWWWWYaWYWWWeaYXWYYWWWWWWWWWWWWaWXW",
+  "WWWWoWWWmWWWWWeWWmWWWWWeWWWWW00YaWWWWWWWaeWWWXeWWWmaWXYWWWWWWWrgaWaWeaWWWeWWemWWWWWWWe",
+  "eXbWWaefWeeWYmeYXeXYYWWmWaqWWWgXYYXaWWbYXeqXXWWgXWebWYeeWYWWomWWWfWYaeWWWaWaWWeYWWemaW",
+  "YmWW00mWWWmWWWaWWWXWWWaZWWWZmWWYmXWsYuhXeWWWZWyWWWmWWpmWepvdolayWWWWWWWWWaWWdWZWmaWeWW",
+  "eaYXWWigWWWWWeWmWWWWWWmWWyWiYWmXWWXWmeaWXneWWXuWWZmkW+WeWWWfuWYWhWXoW00///tl/xt////k//",
+  "tl///yl//+/p/zv//////+mZp/t/lt///d//kl///////dlyn/ztdj/ll/w/lxzlzxvZ+u/st///Zzxxyt/xrv",
+  "zktzz//hz/lr/xlalxZ+w////j/xta///t/t//bh//e/t/w///VemWaeWWWWnWWemWWWZmWWXWiWYcWWWWWWXl",
+  "yiWeWmeWWWuWWnmWWWWWWWumZkWYeuoWmmWbWmaYmYacyXdWfeWWWyYaaZeWagcYneYYWWqYWmgWamxmayXbWW",
+  "WWoWaexWWWeWeWWwqWWtWeWbWWW000D6345607"]
+@[expose] def ext_full_fwd_check_cl_m7 : List (SigEntry × Nat) :=
+  [(("full_unwatch_large", [i64, i32, i32], []), 24),
+   (("full_add_bin_m6", [i64, i32, i32], [i64]), 296),
+   (("full_dense_prop_unit_m7", [i64, i32], [.bool]), 312),
+   (("full_add_unit", [i64, i32], [.bool]), 232)]
+
+@[expose] def hint_full_fwd_connect_subsumer_m7 : x64Isa.Hints := _decH #[
+  "a73925010G0G4014083E4931090944060139093A0A080C0A084406090928440B0909060D16080103220827",
+  "0A0639093B0B08020B08440C090928440A0909060D163933060339093A0A080C0A084406090928440B0909",
+  "060D16080E0201082800091C0C0D1C1204180A06081A0A06082B062A0A33030A04020D5A0C0G0D37470319",
+  "0D0907020D530AI0000000244HDG5LI02134C20054HA5DGI05L3E325O30064HA5DGI05LT22136O20194HA5",
+  "DGI05LT2S3X21RE169aO101B4HA5DGI05LT2S3X21REXNCXOA296BaO20434H5LI02E2362015YO14HDG5LI01",
+  "65O1017YO14HDG5LI0Z82Z9B2967O20344HDG5LI03E214C30084HDG5LI0a41a32a93a2E168YC101A4HDG5L",
+  "I0a41a32a93a2EaNCaOA296AYC204000000114F01000144HbMEbP05L04800274HbQ95LbP0c0CbMEc220740",
+  "0074HbQ95LbP0c0CbMEc22074006B4HcRAcGBbQ9cP35LcH6bP0bMEc22c0C0BXG00852312cK2301I2301T22",
+  "21O2221N22215230172210CXU51052A51052XC51052A51052X651052A51052oWXxWWXWdnuWZsWZpaWYWWWq",
+  "aWWWWdmXyWddZmWXyWlWXvuWWWWdmXyWddW+dbuhuD0YWemWWWaWXWWWWWWWXWWeWWWnWWWWaWXWWWYWWWWWW0",
+  "0aeaWeYXWWWfWWWXWaaYXWaeWeWYWWnWWWWYWWmWaeWWemWeWYWWnWWXWWWYmW00vYWWWXmemXoafnWWWWWWWm",
+  "WWWXWmeaWZYnuWeaYXWWuqWWWXWmeaWZYmZZmuXo00X/////plt/lxy///a///z/ttxz/ta/alxZ+z////vZ+u",
+  "/tl//ki/alxZ+z//z///w//VimeWmaZWWWxWWWYWeeaYWexWxmayXYWWWWcyXdWemWWnpWxmayXYWWYWWWbWW0",
+  "0026345607"]
+@[expose] def ext_full_fwd_connect_subsumer_m7 : List (SigEntry × Nat) :=
+  [(("full_watch_push_slow_m6", [i64, i32, i32, i32, i32], [.bool]), 216)]
+
+@[expose] def hint_full_fwd_collect_sort_m7 : x64Isa.Hints := _decH #[
+  "a3261B101119092C0432020A3309050H09086H0H09081409183409080C09090C0C15170D140A3C3C0C2O07",
+  "0C0C440C0A19080909090309180D082G1C081D2D1CAA0H0D183A080H0H0D3B1B3B080B7B1B3B080B7B1B3B",
+  "080B7B1B3B080B4A0B0D183B1B3B080B4A084B0A02083B0B3A08032A0A082A0A02080D4A4A4A4A0C0A0D18",
+  "4A0C08X104C1FN664E194010064E66A08BC1FN3CG960301BLG4E66C1FNT3O2A08BULPA19BXX0103DV5KCO2",
+  "PALGT34E66A08BC1FNUL19DX8100DLG4E66C1FNT3O2A08BULPAXG9KC0DXX00027XU54E66A08BC1FN1G7010",
+  "2BLGXU54E66C1FNT3O2A08BUL1FBY0101BLGXU54E66A08BC1FNT3O2Y5F0Be0000AXU54E66A08BC1FNLGULT",
+  "31AAm0100CLGXU54E66C1FNT3O2Y5FA08BUL2A9CY0201DLGXU54E66T3O2Y5FA08BULC1FNY791ADG1061ZD9",
+  "0100025ZJC66C1ZD9FN0500005ZD9C1FNZJC661A501005ZD9C1FNZJC661A501005ZD9C1FNZJC661A501035",
+  "ZJCa9HZD966C10500005ZJC66a9HC1ZD91A501005ZJC66a9HC1ZD91A501005ZJC66a9HC1ZD91A501016ZJC",
+  "66a9HC1ZD9aBA0600016ZJC66a9HC1ZD9aBA0600016ZJC66a9HC1ZD9aBA0600016ZJC66a9HC1ZD9aBA0600",
+  "036ZJC66a9HC1ZD9cGA0600025ZJCa9HZD966C10500005ZJCa9HZD966C122A502013ZD9C1a9H0300005ZJC",
+  "a9HZD966C112501006ZJCa9HZD966C1dA20600033ZD9C1a9H1C301003ZD9C1a9H1C301003ZD9C1a9H1C301",
+  "0902061E2328C23188230152210X3230922309XH2281XL22122XS51XB51dWWdpvyyWWcXmkiWcWdmkhWWdmk",
+  "hpudbvyZoy+XviWWuWYrgseuWZWWWWWdmZdWYWmWWkWaZ+WkWcgL0aWaeWWWWWXWWmYWWeWaWYWWaeWYWWWXWW",
+  "WWmWWWeWWWeXYWWWWYYaWfaWWmWXWWWeoWWXWmWWWWWWWW00YWYaWWWWWemWeXWWaWYWXWWYaWXWWWWmWWWeWW",
+  "WaWWeaWnWWWWXXYWaoWWeWWqWWafWWWmefWWmWWmW00YXmuiWWWoWudaWYWWudWWYWudXmiZmucXuiZWyWYWeW",
+  "mWWYWWWXWWaWWmuWpmWWWXWYWWfoWceWW00Xv/xp/////kl/lz//p/v/z//xp/z///+////l///t//lp+y////",
+  "zzx/sx//cl+t//tj/y+/liZ+l/+//VcWaiWWWWWnmWmYWWiWcWYWWaiWYWWWXWWWWmWWWeWWmiXZWWWWYYaWfa",
+  "WWvmXeWWeoWZXWmpyXmWXWW00036345607"]
+@[expose] def ext_full_fwd_collect_sort_m7 : List (SigEntry × Nat) := []
+
+@[expose] def hint_full_forward_sub_m7 : x64Isa.Hints := _decH #[
+  "a8272019481721031C0D09171917191G480417172E05270317030E4703030717171C1A040DK9010D185908",
+  "1H042101003B050E050908660609081409183409080H0H0H0H0H1E1409170D3909310109084108440D1636",
+  "06060846063606060846063606060846063606060849060D181H3606060849080H0814182D100938172103",
+  "1C0D091714092409T0019001022425E020000342905E19301003425EE9030005642X4GX29X2LV0UF231602",
+  "005UF42X4GV0X730500082UF420200035Y8CYAAX4G42UF0500005UF42YAAY8CX4G19501005UF42YAAY8CX4",
+  "G19501005UF42YAAY8CX4G19501055Y8CYAA42X4GUF2H3502019Y8CYAAZJ142X4GUFZOBZH3ZK01H9g0103B",
+  "ZQEZGHZOBY8CYAAX4GZH3ZK0ZJ142UF19Ba4100BY8CYAAZJ142X4GUFZOBZH3ZK0aB9ZGH0Bg00026aPEY8CY",
+  "AAX4G42UF0600037aPE42X4GUFY8CYAAb910700028Y8CYAAZJ1aPE42X4GUFZOB198a01008Y8CYAAZJ1aPE4",
+  "2X4GUFZOB198a01008Y8CYAAZJ1aPE42X4GUFZOB198a01029Y8CYAAZJ1aPE42X4GUFZOBbO909a00019Y8CY",
+  "AAZJ1aPE42X4GUFZOBbO909a00019Y8CYAAZJ1aPE42X4GUFZOBbO909a00019Y8CYAAZJ1aPE42X4GUFZOBbO",
+  "909a00039Y8CYAAZJ1aPE42X4GUFZOBdH909a0004142010002142010000242eA01920100242eD902000504",
+  "062031X623080205882318g222801cE51uaaWZYbaZYaWW+WyWWlWkZuZm+WydmdWW+W+WyyYXWWWyWedyWyWe",
+  "ZuWZz+/lWYnYWXyYYXnYWjeaaWZYbr00XWemWeeWmmWmWemWeWWYWWWmWWaWWeWmWmWXWaWWYXWWWWWWWXWXYW",
+  "WWWWWmaemWWWWmaeoWWWWXWemW80eWWaeWaaeeeWeWaeWaWWXWWWeWWYWXaWeWeWWqYWWXWmoWXWWXWmWnWWWW",
+  "WYeYaeYWaaWYafWXWeWWaeW10XWWWWWWWWYWkWaXWdmeXyYWlWmZmWYWYWiiWWWYWaWWpaWimWWeWmicZXWWWW",
+  "WWcWWWmWWWWWWWXWWW00Xz/lk//tl/ptlld/l/td/t//z///l//x/yt/l/l/+tx/vz++udy//z+l+y/////vlx",
+  "tlx/tt/xtj/z/k//tl/TYWmnWWemWiemmuWmWeuWeWWYWWWmWWaWZeWmWmWXeaWcYXXduZWWYXmXZWWWWWcmae",
+  "maWeeWaeoWYWnWWemW20026345607"]
+@[expose] def ext_full_forward_sub_m7 : List (SigEntry × Nat) :=
+  [(("full_fwd_dedup_bins", [i64], [.bool]), 296),
+   (("full_dense_prop_unit_m7", [i64, i32], [.bool]), 312),
+   (("full_fwd_collect_sort_m7", [i64], [i64]), 72),
+   (("full_fwd_flush_large_m7", [i64], []), 184),
+   (("full_fwd_check_cl_m7", [i64, i32], [.bool]), 472),
+   (("full_fwd_connect_subsumer_m7", [i64, i32], []), 296),
+   (("full_fwd_reconnect_irred_m7", [i64], []), 312)]
+
+@[expose] def hints : List x64Isa.Hints := [hint_full_fwd_dedup_bins,
+    hint_full_fwd_flush_large_m7, hint_full_dense_bin_roundtrip_fid,
+    hint_full_fwd_reconnect_irred_m7, hint_full_fwd_scan_lit_m7, hint_full_fwd_check_cl_m7,
+    hint_full_fwd_connect_subsumer_m7, hint_full_fwd_collect_sort_m7, hint_full_forward_sub_m7]
+
+@[expose] def ext : List (SigEntry × Nat) :=
+  [(("full_add_unit", [i64, i32], [.bool]), 232),
+   (("full_wstack_defrag_m6", [i64], []), 136),
+   (("full_watch_push_slow_m6", [i64, i32, i32, i32, i32], [.bool]), 216),
+   (("full_sweep_bins_m6cf", [i64], []), 264),
+   (("full_unwatch_large", [i64, i32, i32], []), 24),
+   (("full_add_bin_m6", [i64, i32, i32], [i64]), 296),
+   (("full_dense_prop_unit_m7", [i64, i32], [.bool]), 312)]
+
+end LeanQbe.T.Examples.Kissat.Build.Oracle.Amd64.Forward

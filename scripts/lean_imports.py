@@ -687,8 +687,16 @@ KRAKEN_ROOT_FILES: frozenset[str] = frozenset({
     "Kraken.lean", "KrakenAArch64.lean", "KrakenBedrock2.lean",
     "KrakenRunnerX64.lean", "KrakenRunnerAArch64.lean", "Att2Intel.lean", "Bedrock2C.lean",
 })
-X64_PFX: tuple[str, ...] = ("Kraken.X64", "LeanQbe.T.Amd64.")
-ARM_PFX: tuple[str, ...] = ("Kraken.AArch64", "LeanQbe.T.Arm64.")
+KISSAT_X64_PFX: tuple[str, ...] = (
+    "LeanQbe.T.Examples.Kissat.Build.Amd64.",
+    "LeanQbe.T.Examples.Kissat.Build.Oracle.Amd64.",
+)
+KISSAT_ARM_PFX: tuple[str, ...] = (
+    "LeanQbe.T.Examples.Kissat.Build.Arm64.",
+    "LeanQbe.T.Examples.Kissat.Build.Oracle.Arm64.",
+)
+X64_PFX: tuple[str, ...] = ("Kraken.X64", "LeanQbe.T.Amd64.", *KISSAT_X64_PFX)
+ARM_PFX: tuple[str, ...] = ("Kraken.AArch64", "LeanQbe.T.Arm64.", *KISSAT_ARM_PFX)
 EXE_ROOT_TO_TARGET: dict[str, str] = {"Main": "leanqbe", "MainArm64": "leanqbe-arm64"}
 
 FORBIDDEN_TOKENS_PRE_RE = re.compile(
@@ -705,8 +713,14 @@ CLASS0_RE = re.compile(
     r"|scripts/(?:gen_cert_slices|test_gen_cert_slices|test_infra_speedup"
     r"|merge_lean_imports|select_tests)\.py)$"
 )
-X64_LEAN_RE = re.compile(r"^(?:LeanQbe/T/Amd64/.*|LeanQbeTest/T/[^/]*(?:X64|Amd64)[^/]*)\.lean$")
-ARM64_LEAN_RE = re.compile(r"^(?:LeanQbe/T/Arm64/.*|LeanQbeTest/T/[^/]*Arm64[^/]*)\.lean$")
+X64_LEAN_RE = re.compile(
+    r"^(?:LeanQbe/T/Amd64/.*|LeanQbe/T/Examples/Kissat/Build/(?:Oracle/)?Amd64/.*"
+    r"|LeanQbeTest/T/[^/]*(?:X64|Amd64)[^/]*)\.lean$"
+)
+ARM64_LEAN_RE = re.compile(
+    r"^(?:LeanQbe/T/Arm64/.*|LeanQbe/T/Examples/Kissat/Build/(?:Oracle/)?Arm64/.*"
+    r"|LeanQbeTest/T/[^/]*Arm64[^/]*)\.lean$"
+)
 _ARCH_NONLEAN_TAIL = r"(?:LeanQbe-)?README\.md|NOTES\.md|DEVELOPER\.md|CONTRIBUTING\.md|docs/.*"
 X64_NONLEAN_RE = re.compile(rf"^(?:{_ARCH_NONLEAN_TAIL}|scripts/headlines\.d/amd64\.txt)$")
 ARM64_NONLEAN_RE = re.compile(rf"^(?:{_ARCH_NONLEAN_TAIL}|scripts/headlines\.d/arm64\.txt)$")

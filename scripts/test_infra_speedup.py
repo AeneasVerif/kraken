@@ -357,6 +357,12 @@ class TestP1DecouplingAndHubs(unittest.TestCase):
             f"{pfx}FullM4": f"{pfx}M4Hub",
             f"{pfx}FullM3": f"{pfx}M3Hub",
             f"{pfx}Core": f"{pfx}BaseHub",
+            f"{pfx}Build.Inl.Full": f"{pfx}BaseHub",
+            f"{pfx}Build.Oracle.Float64": f"{pfx}BaseHub",
+            f"{pfx}Build.Oracle.Amd64.Float64": "LeanQbeAmd64",
+            f"{pfx}Build.Oracle.Arm64.Float64": "LeanQbeArm64",
+            f"{pfx}Build.Amd64.Float64": "LeanQbeAmd64",
+            f"{pfx}Build.Arm64.Float64": "LeanQbeArm64",
         }
         for mod, want in cases.items():
             self.assertEqual(sh.classify_module(mod), want, mod)
@@ -718,6 +724,14 @@ class TestPreflightAndGateParity(unittest.TestCase):
         self.assertEqual(li.classify_scope_paths(["scripts/_common.py"]), "full")
         self.assertEqual(
             li.classify_scope_paths(["LeanQbe/T/Amd64/Foo.lean"]), "x64"
+        )
+        self.assertEqual(
+            li.classify_scope_paths(["LeanQbe/T/Examples/Kissat/Build/Oracle/Amd64/Float64.lean"]),
+            "x64",
+        )
+        self.assertEqual(
+            li.classify_scope_paths(["LeanQbe/T/Examples/Kissat/Build/Oracle/Arm64/Float64.lean"]),
+            "arm64",
         )
 
     def test_audit_batches_rdeps_filter_cli(self) -> None:

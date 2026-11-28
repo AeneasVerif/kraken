@@ -79,9 +79,19 @@ CERT_ELAB_MODS = frozenset(
         "LeanQbe.T.MainLinkSplice",
     }
 )
-ARCH_PREFIXES = ("LeanQbe.T.Amd64.", "LeanQbe.T.Arm64.", "Kraken.X64", "Kraken.AArch64")
-ARM64_PREFIXES = ("LeanQbe.T.Arm64.", "Kraken.AArch64")
-AMD64_PREFIXES = ("LeanQbe.T.Amd64.", "Kraken.X64")
+AMD64_PREFIXES = (
+    "LeanQbe.T.Amd64.",
+    "LeanQbe.T.Examples.Kissat.Build.Amd64.",
+    "LeanQbe.T.Examples.Kissat.Build.Oracle.Amd64.",
+    "Kraken.X64",
+)
+ARM64_PREFIXES = (
+    "LeanQbe.T.Arm64.",
+    "LeanQbe.T.Examples.Kissat.Build.Arm64.",
+    "LeanQbe.T.Examples.Kissat.Build.Oracle.Arm64.",
+    "Kraken.AArch64",
+)
+ARCH_PREFIXES = (*AMD64_PREFIXES, *ARM64_PREFIXES)
 
 
 @dataclass

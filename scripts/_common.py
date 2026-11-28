@@ -18,9 +18,13 @@ if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 from lean_imports import (  # noqa: E402
+    ARM_PFX,
     END_SCOPE_RE,
+    KISSAT_ARM_PFX,
+    KISSAT_X64_PFX,
     NS_OPEN_RE,
     SEC_OPEN_RE,
+    X64_PFX,
     classify_module_arch,
     collect_active_headlines,
     compute_import_closure,
@@ -375,14 +379,12 @@ def check_import_closures(root: Path, tmp_dir: Path, raw_scope: str) -> list[str
 
     errors: list[str] = []
     if "LeanQbe" in closures:
-        bad = sorted(
-            m for m in closures["LeanQbe"] if m.startswith(("Kraken.X64", "Kraken.AArch64"))
-        )
+        bad = sorted(m for m in closures["LeanQbe"] if m.startswith((*X64_PFX, *ARM_PFX)))
         if bad:
             errors.append(f"the generic LeanQbe imports an architecture ({', '.join(bad)})")
     for r, bad_pfx, msg in (
-        ("LeanQbeAmd64", "Kraken.AArch64", "LeanQbeAmd64 imports Kraken.AArch64"),
-        ("LeanQbeArm64", "Kraken.X64", "LeanQbeArm64 imports Kraken.X64"),
+        ("LeanQbeAmd64", ARM_PFX, "LeanQbeAmd64 imports AArch64/Arm64"),
+        ("LeanQbeArm64", X64_PFX, "LeanQbeArm64 imports X64/Amd64"),
     ):
         if r in closures:
             bad = sorted(m for m in closures[r] if m.startswith(bad_pfx))
@@ -409,7 +411,7 @@ def check_import_closures(root: Path, tmp_dir: Path, raw_scope: str) -> list[str
             ("bootstrap0", "LeanQbeBootstrap0"),
             ("bootstrap0_test", "LeanQbeBootstrap0Test"),
         ):
-            if any(m.startswith(("Kraken.AArch64", "LeanQbe.T.Arm64.")) for m in closures[key]):
+            if any(m.startswith(ARM_PFX) for m in closures[key]):
                 errors.append(f"{label} imports AArch64/Arm64 modules")
 
     c_x64_full = closures.get("LeanQbeAmd64", set())
@@ -417,13 +419,13 @@ def check_import_closures(root: Path, tmp_dir: Path, raw_scope: str) -> list[str
     for rel in list_lean_files(root, "LeanQbe/T", include_untracked=False):
         f = rel.as_posix()
         m = f[:-5].replace("/", ".")
-        if m.startswith("LeanQbe.T.Amd64."):
+        if m.startswith(("LeanQbe.T.Amd64.", *KISSAT_X64_PFX)):
             if scope != "arm64" and m not in c_x64_full:
                 errors.append(f"{f} is not imported by LeanQbeAmd64.lean")
         elif m.startswith("LeanQbe.T.Bootstrap0."):
             if scope != "arm64" and m not in closures.get("bootstrap0", set()):
                 errors.append(f"{f} is not imported by LeanQbeBootstrap0.lean")
-        elif m.startswith("LeanQbe.T.Arm64."):
+        elif m.startswith(("LeanQbe.T.Arm64.", *KISSAT_ARM_PFX)):
             if scope != "x64" and m not in c_arm_full:
                 errors.append(f"{f} is not imported by LeanQbeArm64.lean")
         elif m not in closures.get("LeanQbe", set()):
