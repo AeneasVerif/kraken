@@ -47,9 +47,9 @@ work in progress. Every verified track has self-contained audit files under
 | **Verified Dual-Arch Kissat 4.0.4 (`418` C0 fns)** | **Verified (dual-arch, UNSAT)** | Clean 4-pillar pure-C0 port of Kissat 4.0.4 (`41` C0 modules, `418` functions, `0` externs, `0` exits) with full CDCL + inprocessing: `ModuleOk` & UNSAT soundness (`XPost := False`, `r = 20#64 → cnf.Unsat`) + concrete `Mem 64` UNSAT non-vacuity (`Proof/Full.lean`, `Proof/FullNv.lean`), permanent segmented dual-arch materialized compiler certificates (`Build/{Amd64,Arm64}/Full.lean`, `≤ 2,048 B` stack), and dual-arch machine-code UNSAT soundness & closed-host non-vacuity (`T/{Amd64,Arm64}/KissatFidelityParam.lean`). Zero SAT model proofs inside Lean (SAT answers checked externally in CLI). |
 | **Kissat Minimal CDCL (`KissatPlain`)** | **Verified (dual-arch, SAT + UNSAT)** | Pure CDCL solver (`plainModule`, entry point `kissat_solve_bytes`) with **dual SAT + UNSAT** soundness, materialized x86-64 & AArch64 `LinkedCert`s (`plainCert`), and concrete machine SAT/UNSAT non-vacuity (`2,048 B` workspace). |
 | **Simplified-CNF Exporter (`ExportCnf`)** | **Source/IR verified** | Pure-C0 simplifier and DIMACS serializer (`exportCnfEntryMod`, entry point `kissat_simplify_export_bytes`): grammar round-trip (`parseDimacs outBytes = some cnfOut`), UNSAT soundness (`cnfOut.Unsat → F0.Unsat`), and concrete `Mem 64` non-vacuity. |
-| **ARiSCA Multiplier Checker (`44` C0 fns)** | **Verified (dual-arch)** | Kernel-executable ART v1 / AIGER multiplier checker (`checkArt_sound`, `checkArtB_sound`) plus a `44`-function pure-C0 port (`arisca_check_bytes`, `0` externs, `0` exits) with full WP soundness (`XPost := False`), materialized x86-64 (`656 B` stack) and AArch64 (`624 B` stack) `LinkedCert`s, machine-code soundness (`AR_ACCEPT = 20#64` implies modular multiplier equivalence), and concrete `Mem 64` non-vacuity ([Amd64/Arisca.lean](LeanQbe/T/Amd64/Arisca.lean), [Arm64/Arisca.lean](LeanQbe/T/Arm64/Arisca.lean), [Arisca/Proof/CertBridge.lean](LeanQbe/T/Examples/Arisca/Proof/CertBridge.lean)). |
-| **Bitblaster (`bv_solve_bytes`)** | **Verified (dual-arch)** | C0 And-Inverter Graph builder, Tseitin encoder, and driver (`bitblastModule`) covering all `32` `BVP1` opcodes, proved against Lean's `BVLogicalExpr.Unsat` (`bitblast_moduleOk`, `bv_solve_bytes_unsat_wp`); linked with `KissatPlain` into closed dual-arch `LinkedCert`s and parameterized over any `KissatUnsatPkg` (including full-fidelity Kissat) in `BitblastFidelityParam`. |
-| **`bv_decide_qbe` Tactic** | **Experimental (trusts a native run)** | Not a kernel proof: runs `bv_solve_bytes` + full-fidelity Kissat in-process (`upstream` or `enhanced` preset) via an encapsulated FFI boundary and records each UNSAT answer as one per-goal axiom (`_leanqbe.bv_solve.ax`). Passes `59/59` applicable upstream `bv_decide` compare files (`.upstream`: `0.952× W-AM`, `.enhanced`: `0.987× W-AM`). Trusts the thin C FFI shim, word packing, axiom construction, and native execution. |
+| **ARiSCA Multiplier & Miter Checker (`45` C0 fns)** | **Verified (dual-arch)** | Kernel-executable ART v1 / v1.5 AIGER checker (`checkArt_sound`, `checkArtB_sound`, `checkArtMiter_sound`, `checkArtBMiter_sound`) plus a `45`-function pure-C0 port (`ar_parse_aig`, `arisca_check_aig`, `arisca_check_bytes`; `0` externs, `0` exits) with full WP soundness (`XPost := False`), materialized x86-64 (`688 B` stack) and AArch64 (`656 B` stack) `LinkedCert`s, machine-code soundness (`AR_ACCEPT = 20#64` implies modular multiplier or `SPEC_MITER` equivalence), and concrete `Mem 64` non-vacuity ([Amd64/Arisca.lean](LeanQbe/T/Amd64/Arisca.lean), [Arm64/Arisca.lean](LeanQbe/T/Arm64/Arisca.lean), [Arisca/Proof/CertBridge.lean](LeanQbe/T/Examples/Arisca/Proof/CertBridge.lean)). |
+| **Bitblaster (`bv_solve_bytes`, `64` C0 fns)** | **Verified (dual-arch)** | C0 And-Inverter Graph builder, Tseitin encoder, and driver (`bitblastModule`, `64` functions covering all `32` `BVP1` opcodes), proved against Lean's `BVLogicalExpr.Unsat` (`bitblast_moduleOk`, `bv_solve_bytes_unsat_wp`); linked with `KissatPlain` into closed dual-arch `LinkedCert`s, parameterized over any `KissatUnsatPkg` in `BitblastFidelityParam`, and connected to `Src.Full.kissatModule` in [BvDecideBridge.lean](LeanQbe/T/Examples/BvDecideBridge.lean). |
+| **`bv_decide_qbe` Tactic** | **Experimental (trusts a native run)** | Not a kernel proof: precompiled plugin ([BvDecideQbePlugin.lean](bv_decide_qbe/BvDecideQbePlugin.lean)) running `bv_solve_bytes` + full-fidelity Kissat in-process (`upstream` or `enhanced` preset, with nested `*` AC normalization and batched UF + McCarthy array ROW CEGAR in `enhanced`) via an encapsulated FFI boundary and recording each UNSAT answer as one per-goal axiom (`_leanqbe.bv_solve.ax`). Passes `59/59` applicable upstream `bv_decide` comparison checks (`.upstream`: `0.881× W-GM / 0.914× W-AM`, `.enhanced`: `0.894× W-GM / 0.882× W-AM`). Byte packing (`packWordsArrayU32LE`) is proved in Lean (`≤ std3`); trusts the thin C FFI shim, meta-level word-list/axiom `Expr` construction, native execution, and upstream reflection. |
 | **Stage-0 Bootstrap (`LeanQbeBootstrap0`)** | **Work in progress** | Syntactic x86-64 `LinkedCert` (`leanqbe0Cert`, `≤ 1,136 B ≤ 2,048 B` stack) compiling `leanqbe0Mod0` (extracted from `leanqbe0Compile`) and linking it with `rtC0CoreCert` into `leanqbe0LinkedCert` (`nX = 64` for `lcnf_panic`), plus separate scalar soundness, codec, and printer checks. Extraction is outside the kernel and no self-hosted semantic fixpoint is proved. |
 
 ---
@@ -242,32 +242,38 @@ Alongside smaller verified systems kernels—RFC 8439 **ChaCha20**
 dual-architecture applications: an end-to-end verified **ARiSCA** multiplier checker and a
 pure-C0 port of the **Kissat 4.0.4** CDCL SAT solver (`0` external calls, `0` exit symbols).
 
-### End-to-End Verified Dual-Arch ARiSCA (`44` C0 Functions)
+### End-to-End Verified Dual-Arch ARiSCA (`45` C0 Functions)
 
-[ArtCore.lean](LeanQbe/T/Examples/Arisca/ArtCore.lean) defines a checker for ART v1 algebraic
-rewriting traces certifying that a binary AIGER circuit computes a signed or unsigned
-multiplication, with kernel-executable soundness (`checkArt_sound` in
-[ArtSound.lean](LeanQbe/T/Examples/Arisca/ArtSound.lean) and `checkArtB_sound` in
-[ArtSoundB.lean](LeanQbe/T/Examples/Arisca/ArtSoundB.lean); exercised in
-[AriscaTest.lean](LeanQbeTest/T/AriscaTest.lean) on a 4-bit unsigned array multiplier, an 8-bit
+[ArtCore.lean](LeanQbe/T/Examples/Arisca/ArtCore.lean) defines a checker for ART v1 / v1.5 algebraic
+rewriting traces certifying either that a binary AIGER circuit computes an unsigned or signed
+multiplication (`spec = 0 / 1`) or that two `w`-bit output slices of an AIGER miter agree modulo
+`2^w` (`SPEC_MITER`, `spec = 2`, `1 ≤ w ≤ 128`, `W(outA) ≡ W(outB) (mod 2^w)`), with
+kernel-executable soundness (`checkArt_sound`, `checkArtMiter_sound` in
+[ArtSound.lean](LeanQbe/T/Examples/Arisca/ArtSound.lean) and `checkArtB_sound`,
+`checkArtBMiter_sound` in [ArtSoundB.lean](LeanQbe/T/Examples/Arisca/ArtSoundB.lean); exercised
+in [AriscaTest.lean](LeanQbeTest/T/AriscaTest.lean) on a 4-bit unsigned array multiplier, an 8-bit
 signed Booth multiplier, and a truncated-trace rejection test).
 
 Building on that specification, [Arisca/Src/Module.lean](LeanQbe/T/Examples/Arisca/Src/Module.lean)
-implements `ariscaModule` (`44` pure-C0 functions, `0` externs, `0` exits, entry point
-`arisca_check_bytes`), verified end-to-end on both architectures (`≤ std3`):
+implements `ariscaModule` (`45` pure-C0 functions, `0` externs, `0` exits), splitting binary AIGER
+ingestion (`ar_parse_aig`) from the shared checker entry point `arisca_check_aig` (also wrapped by
+`ar_check_main` and the raw-byte entry point `arisca_check_bytes`), verified end-to-end on both
+architectures (`≤ std3`):
 - **Source/IR WP & arch-free bridge:** [Arisca/Proof/Full.lean](LeanQbe/T/Examples/Arisca/Proof/Full.lean)
-  proves `ariscaModule_ok` and `arisca_check_bytes_sound` (`XPost := False`, matching
-  `ArtSound.checkArt_sound`) plus concrete `Mem 64` non-vacuity;
+  proves `ariscaModule_ok`, `arisca_check_aig_sound` (over pre-parsed `ArCtx` state), and
+  `arisca_check_bytes_sound` (`XPost := False`, concluding `ariscaCircuitProp` from
+  [Arisca/Proof/Sem.lean](LeanQbe/T/Examples/Arisca/Proof/Sem.lean) across multiplier and
+  `SPEC_MITER` modes) plus concrete `Mem 64` non-vacuity (`arisca_check_bytes_nv`);
   [Arisca/Proof/CertBridge.lean](LeanQbe/T/Examples/Arisca/Proof/CertBridge.lean) lifts those
   guarantees parametrically over any `BenchAbi` `LinkedCert`.
 - **Materialized dual-arch machine-code soundness:**
-  [Amd64/Arisca.lean](LeanQbe/T/Amd64/Arisca.lean) (`ariscaX64Cert`, `656 B` entry stack bound,
+  [Amd64/Arisca.lean](LeanQbe/T/Amd64/Arisca.lean) (`ariscaX64Cert`, `688 B` entry stack bound,
   `check_bytes_x64_correct`, `check_bytes_x64_sound`, `x64_nonvacuous`) and
-  [Arm64/Arisca.lean](LeanQbe/T/Arm64/Arisca.lean) (`ariscaArm64Cert`, `624 B` entry stack bound,
+  [Arm64/Arisca.lean](LeanQbe/T/Arm64/Arisca.lean) (`ariscaArm64Cert`, `656 B` entry stack bound,
   `check_bytes_arm64_correct`, `check_bytes_arm64_sound`, `arm64_nonvacuous`) prove that returning
-  `AR_ACCEPT = 20#64` (`rax = 20#64` / `X0 = 20#64`) implies `parseAig` succeeds and the circuit's
-  output equals the product of its inputs modulo `2^|O|`, with callee-saved register, stack-pointer,
-  and `Mem 64` framing preserved (audited in
+  `AR_ACCEPT = 20#64` (`rax = 20#64` / `X0 = 20#64`) implies `parseAig` succeeds and
+  `ariscaCircuitProp` holds (modular multiplier or `SPEC_MITER` equivalence), with callee-saved
+  register, stack-pointer, and `Mem 64` framing preserved (audited in
   [AriscaCertX64Test.lean](LeanQbeTest/T/AriscaCertX64Test.lean) and
   [AriscaCertArm64Test.lean](LeanQbeTest/T/AriscaCertArm64Test.lean)).
 
@@ -276,22 +282,25 @@ implements `ariscaModule` (`44` pure-C0 functions, `0` externs, `0` exits, entry
 The full-fidelity Kissat 4.0.4 port under [LeanQbe/T/Examples/Kissat/](LeanQbe/T/Examples/Kissat/)
 is organized into four clean, decoupled pillars (`≤ std3`, `0` externs, `0` exits):
 
-1. **Reference Specifications (`Kissat/Ref/`):** `19` modules of pure functional definitions for
-   CDCL, chronological backtracking, clause reduction, minimization/shrinking, congruence,
-   sweeping, BVE, and factoring, with **0 proofs** (`0` `theorem`/`lemma` declarations) so specs
-   stay readable and lightweight to import.
-2. **Pure-C0 Solver Source (`Kissat/Src/`):** `41` upstream-mirrored C0 modules assembled flat in
-   [Src/Full.lean](LeanQbe/T/Examples/Kissat/Src/Full.lean) (`kissatModule`, `418` live functions,
-   `0` dead slots, kernel-verified `kissatModule_wf` and acyclicity), plus the inlining policy in
-   [Src/InlPolicy.lean](LeanQbe/T/Examples/Kissat/Src/InlPolicy.lean).
-3. **Weakest-Precondition Proofs (`Kissat/Proof/`):** Per-subsystem WP proofs across all `41`
-   modules assembled over a flat canonical environment in
-   [Proof/Full.lean](LeanQbe/T/Examples/Kissat/Proof/Full.lean) (`full_moduleOk`, `kissatUnsatPkg`,
-   `full_solve_bytes_sound` with `XPost := False` and `r = 20#64 → ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat`)
-   and concrete `Mem 64` UNSAT non-vacuity in
-   [Proof/FullNv.lean](LeanQbe/T/Examples/Kissat/Proof/FullNv.lean) (`full_unsat_nv` on an `8,192 B`
-   workspace). Zero SAT model proofs are proved inside
-   Lean; SAT answers are verified at runtime in the CLI.
+1. **Reference Specifications (`Kissat/Ref/`):** `20` modules (`Base.lean` plus `19` domain modules
+   of pure functional definitions for CDCL, chronological backtracking, clause reduction,
+   minimization/shrinking, congruence, sweeping, BVE, and factoring), with **0 proofs** (`0`
+   `theorem`/`lemma` declarations) so specs stay readable and lightweight to import.
+2. **Pure-C0 Solver Source (`Kissat/Src/`):** `45` files total, assembling `41` upstream-mirrored
+   C0 solver modules flat in [Src/Full.lean](LeanQbe/T/Examples/Kissat/Src/Full.lean)
+   (`kissatModule`, `418` live functions, `0` dead slots, kernel-verified `kissatModule_wf` and
+   acyclicity), alongside the shared header ([Src/Header.lean](LeanQbe/T/Examples/Kissat/Src/Header.lean)),
+   configuration presets ([Src/Config.lean](LeanQbe/T/Examples/Kissat/Src/Config.lean)), and
+   inlining policy ([Src/InlPolicy.lean](LeanQbe/T/Examples/Kissat/Src/InlPolicy.lean)).
+3. **Weakest-Precondition Proofs (`Kissat/Proof/`):** Pure UNSAT-only solver contract in
+   [Proof/Spec/Solver.lean](LeanQbe/T/Examples/Kissat/Proof/Spec/Solver.lean) (`solveBytesSpec`,
+   `0` SAT model machinery), per-subsystem WP proofs across all `41` modules assembled over a flat
+   canonical environment in [Proof/Full.lean](LeanQbe/T/Examples/Kissat/Proof/Full.lean)
+   (`full_moduleOk`, `kissatUnsatPkg`, `full_solve_bytes_sound` with `XPost := False` and
+   `r = 20#64 → ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat`), and concrete `Mem 64` UNSAT
+   non-vacuity in [Proof/FullNv.lean](LeanQbe/T/Examples/Kissat/Proof/FullNv.lean)
+   (`full_unsat_nv` on an `8,192 B` workspace). Zero SAT model proofs are proved inside Lean; SAT
+   answers are verified at runtime in the CLI.
 4. **Segmented Dual-Arch Certificates & Machine-Code Soundness (`Kissat/Build/` + `T/{Amd64,Arm64}/`):**
    Permanent subsystem-segmented compiler certificates materialized on both ISAs in
    [Build/Amd64/Full.lean](LeanQbe/T/Examples/Kissat/Build/Amd64/Full.lean) and
@@ -306,12 +315,17 @@ is organized into four clean, decoupled pillars (`≤ std3`, `0` externs, `0` ex
    [KissatFidelityCompileGuardX64.lean](LeanQbeTest/T/KissatFidelityCompileGuardX64.lean), and
    [KissatFidelityCompileGuardArm64.lean](LeanQbeTest/T/KissatFidelityCompileGuardArm64.lean)).
 
+Separately, [LeanQbe/T/Examples/Vibesat/](LeanQbe/T/Examples/Vibesat/) houses a pure-Lean GF(2) /
+XOR and packed `u64`-row Gauss-Jordan soundness library
+([Vibesat/Ref/XorF2.lean](LeanQbe/T/Examples/Vibesat/Ref/XorF2.lean),
+[Vibesat/Proof/XorF2.lean](LeanQbe/T/Examples/Vibesat/Proof/XorF2.lean)).
+
 ### Solver Tracks & Simplified-CNF Exporter
 
 | Track | Module & Entry Point | Soundness Scope | Architecture Verification | Primary Audits |
 | :--- | :--- | :--- | :--- | :--- |
-| **Full-Fidelity Kissat 4.0.4** | `Src.Full.kissatModule` (`418` fns, `kissat_solve_bytes`) | UNSAT soundness (`XPost := False`, `r = 20#64 → cnf.Unsat`; zero SAT model proofs) + caller memory framing + concrete `Mem 64` UNSAT non-vacuity | `41`-module WP `ModuleOk` ([Proof/Full.lean](LeanQbe/T/Examples/Kissat/Proof/Full.lean), [Proof/FullNv.lean](LeanQbe/T/Examples/Kissat/Proof/FullNv.lean)); materialized segmented dual-arch `LinkedCert`s ([Build/Amd64/Full.lean](LeanQbe/T/Examples/Kissat/Build/Amd64/Full.lean), [Build/Arm64/Full.lean](LeanQbe/T/Examples/Kissat/Build/Arm64/Full.lean), `≤ 2,048 B` stack); dual-arch machine-code UNSAT theorems ([Amd64/KissatFidelityParam.lean](LeanQbe/T/Amd64/KissatFidelityParam.lean), [Arm64/KissatFidelityParam.lean](LeanQbe/T/Arm64/KissatFidelityParam.lean)) | [KissatSrcPostludeTest.lean](LeanQbeTest/T/KissatSrcPostludeTest.lean), [KissatLayerAFullTest.lean](LeanQbeTest/T/KissatLayerAFullTest.lean), [KissatFidelityParamAuditX64.lean](LeanQbeTest/T/KissatFidelityParamAuditX64.lean), [KissatFidelityParamAuditArm64.lean](LeanQbeTest/T/KissatFidelityParamAuditArm64.lean), [KissatFidelityCompileGuardX64.lean](LeanQbeTest/T/KissatFidelityCompileGuardX64.lean), [KissatFidelityCompileGuardArm64.lean](LeanQbeTest/T/KissatFidelityCompileGuardArm64.lean) |
-| **Minimal CDCL (`KissatPlain`)** | `plainModule` (`kissat_solve_bytes`) | **Dual SAT + UNSAT** soundness + framing + concrete SAT & UNSAT non-vacuity (`2,048 B`) | Materialized x86-64 & AArch64 `LinkedCert`s (`plainCert`) with closed concrete machine execution witnesses (pure CDCL, no inprocessing) | [KissatPlainAuditX64.lean](LeanQbeTest/T/KissatPlainAuditX64.lean), [KissatPlainAuditArm64.lean](LeanQbeTest/T/KissatPlainAuditArm64.lean) |
+| **Full-Fidelity Kissat 4.0.4** | `Src.Full.kissatModule` (`418` fns, `kissat_solve_bytes`) | UNSAT soundness (`XPost := False`, `r = 20#64 → cnf.Unsat`; zero SAT model proofs; [Proof/Spec/Solver.lean](LeanQbe/T/Examples/Kissat/Proof/Spec/Solver.lean)) + caller memory framing + concrete `Mem 64` UNSAT non-vacuity | `41`-module WP `ModuleOk` ([Proof/Full.lean](LeanQbe/T/Examples/Kissat/Proof/Full.lean), [Proof/FullNv.lean](LeanQbe/T/Examples/Kissat/Proof/FullNv.lean)); materialized segmented dual-arch `LinkedCert`s ([Build/Amd64/Full.lean](LeanQbe/T/Examples/Kissat/Build/Amd64/Full.lean), [Build/Arm64/Full.lean](LeanQbe/T/Examples/Kissat/Build/Arm64/Full.lean), `≤ 2,048 B` stack); dual-arch machine-code UNSAT theorems ([Amd64/KissatFidelityParam.lean](LeanQbe/T/Amd64/KissatFidelityParam.lean), [Arm64/KissatFidelityParam.lean](LeanQbe/T/Arm64/KissatFidelityParam.lean)) | [KissatSrcPostludeTest.lean](LeanQbeTest/T/KissatSrcPostludeTest.lean), [KissatLayerAFullTest.lean](LeanQbeTest/T/KissatLayerAFullTest.lean), [KissatFidelityParamAuditX64.lean](LeanQbeTest/T/KissatFidelityParamAuditX64.lean), [KissatFidelityParamAuditArm64.lean](LeanQbeTest/T/KissatFidelityParamAuditArm64.lean), [KissatFidelityCompileGuardX64.lean](LeanQbeTest/T/KissatFidelityCompileGuardX64.lean), [KissatFidelityCompileGuardArm64.lean](LeanQbeTest/T/KissatFidelityCompileGuardArm64.lean) |
+| **Minimal CDCL (`KissatPlain`)** | `plainModule` (`kissat_solve_bytes`) | **Dual SAT + UNSAT** soundness + framing + concrete SAT & UNSAT non-vacuity (`2,048 B`); retained alongside full Kissat (which now backs [BvDecideBridge.lean](LeanQbe/T/Examples/BvDecideBridge.lean)) | Materialized x86-64 & AArch64 `LinkedCert`s (`plainCert`) with closed concrete machine execution witnesses (pure CDCL, no inprocessing) | [KissatPlainAuditX64.lean](LeanQbeTest/T/KissatPlainAuditX64.lean), [KissatPlainAuditArm64.lean](LeanQbeTest/T/KissatPlainAuditArm64.lean) |
 | **Simplified-CNF Exporter (`ExportCnf`)** | `exportCnfEntryMod` (`kissat_simplify_export_bytes`) | DIMACS parse round-trip (`parseDimacs outBytes = some cnfOut`) + UNSAT preservation (`cnfOut.Unsat → F0.Unsat`) + concrete `Mem 64` non-vacuity | Source/IR `ModuleOk` + WP proofs, legal across x86-64 & AArch64 | [ExportCnfEntryTest.lean](LeanQbeTest/T/ExportCnfEntryTest.lean) |
 
 ### Building and Running the Native Solver
@@ -359,7 +373,7 @@ python3 bench/kissat/extract_c0_direct.py --target fidelity --out /tmp/kissat_c0
   - **`Mem 64` flat memory vs. OS process memory & stack:** WP proofs assume a flat, total 64-bit
     byte memory where precondition regions are mapped and unaliased; page faults, signals,
     concurrent threads, and `RLIMIT_STACK` are not modeled. Proved stack bounds (`≤ 2,048 B` for
-    Kissat, `656 B` / `624 B` for ARiSCA, `≤ 272 B` for the `LCNF` runtime) hold on real hardware
+    Kissat, `688 B` / `656 B` for ARiSCA, `≤ 272 B` for the `LCNF` runtime) hold on real hardware
     only if the host provides at least that much mapped stack.
   - **Thin C CLI/FFI shims & uncertified CLI emission flags:** The native CLI wrapper
     ([kissat_cli.c](bench/kissat/kissat_cli.c)) enforces `RLIMIT_STACK >= 65536` and brackets
@@ -374,22 +388,28 @@ python3 bench/kissat/extract_c0_direct.py --target fidelity --out /tmp/kissat_c0
     missing headers, out-of-range variables, truncated clauses, trailing non-whitespace tokens, and
     `%` trailers; skips `'c'` comment lines from any whitespace-delimited position; and treats
     empty clauses as UNSAT and `p cnf 0 0` as empty CNF. Likewise, ARiSCA soundness is stated with
-    respect to `parseAig` and `outWord`/`inWord` in
-    [ArtCore.lean](LeanQbe/T/Examples/Arisca/ArtCore.lean). For full-fidelity Kissat, **SAT model
-    validity is not proved inside Lean** and is checked at runtime by `kissat_verify_dimacs_model`
-    in [kissat_verify.h](test/kissat/kissat_verify.h); `KissatPlain` proves both SAT and UNSAT
-    soundness inside Lean.
+    respect to `parseAig` and `ariscaCircuitProp` (wrapping `outWord`/`inWord` in
+    [ArtSound.lean](LeanQbe/T/Examples/Arisca/ArtSound.lean) and `outSlice` in
+    [ArtCore.lean](LeanQbe/T/Examples/Arisca/ArtCore.lean) /
+    [Arisca/Proof/Sem.lean](LeanQbe/T/Examples/Arisca/Proof/Sem.lean)). For full-fidelity Kissat,
+    **SAT model validity is not proved inside Lean** and is checked at runtime by
+    `kissat_verify_dimacs_model` in [kissat_verify.h](test/kissat/kissat_verify.h); `KissatPlain`
+    proves both SAT and UNSAT soundness inside Lean.
 
 ### Verified Bitblaster & Experimental `bv_decide_qbe`
 
-- **Verified bitblaster (`32` C0 bitblasting ops):**
+- **Verified bitblaster (`64` C0 functions, `32` `BVP1` opcodes):**
   [Bitblast/Src/Full.lean](LeanQbe/T/Examples/Bitblast/Src/Full.lean) and
-  [Bitblast/Proof/Full.lean](LeanQbe/T/Examples/Bitblast/Proof/Full.lean) implement and verify a C0
-  And-Inverter Graph (AIG) builder, Tseitin CNF encoder, and driver (`bitblastModule`, entry point
-  `bv_solve_bytes`) covering all `32` `BVP1` opcodes (variables, constants, Boolean gates, `ite`,
-  equality, bitwise ops, addition, multiplication, shifts, rotates, unsigned division/remainder,
-  `clz`, and `cpop`) directly against Lean's upstream `Std.Tactic.BVDecide.BVLogicalExpr.Unsat`
-  (`bitblast_moduleOk`, `bv_solve_bytes_unsat_wp`, `≤ std3`).
+  [Bitblast/Proof/Full.lean](LeanQbe/T/Examples/Bitblast/Proof/Full.lean) implement and verify a
+  `64`-function C0 And-Inverter Graph (AIG) builder, Tseitin CNF encoder, and driver
+  (`bitblastModule`, entry point `bv_solve_bytes`) covering all `32` `BVP1` opcodes (variables,
+  constants, Boolean gates, `ite`, equality, bitwise ops, addition, multiplication, shifts,
+  rotates, unsigned division/remainder, `clz`, and `cpop`) directly against Lean's upstream
+  `Std.Tactic.BVDecide.BVLogicalExpr.Unsat` (`bitblast_moduleOk`, `bv_solve_bytes_unsat_wp`,
+  `≤ std3`). [BvDecideBridge.lean](LeanQbe/T/Examples/BvDecideBridge.lean) additionally provides a
+  zero-axiom in-Lean interpreter bridge (`solveFullInterp`, `unsat_of_verifyBVExprFullInterp`,
+  `≤ std3`) running `Src.Full.kissatModule` directly against `Proof.Full` and
+  `Proof.Spec.Solver.solveBytesSpec`.
 - **Machine code (to Kraken AST):** [BitblastCertX64.lean](LeanQbeTest/T/BitblastCertX64.lean) and
   [BitblastCertArm64.lean](LeanQbeTest/T/BitblastCertArm64.lean) link the bitblaster with
   `KissatPlain` (zero externs) and prove machine-code UNSAT soundness
@@ -399,34 +419,60 @@ python3 bench/kissat/extract_c0_direct.py --target fidelity --out /tmp/kissat_c0
   guarantee parametrically over any `KissatUnsatPkg` (including full-fidelity Kissat), audited in
   [BitblastFidelityParamAuditX64.lean](LeanQbeTest/T/BitblastFidelityParamAuditX64.lean) and
   [BitblastFidelityParamAuditArm64.lean](LeanQbeTest/T/BitblastFidelityParamAuditArm64.lean).
-- **`bv_decide_qbe` tactic (experimental, axiom-checked FFI):** `bv_decide_qbe/`
-  ([Tactic.lean](bv_decide_qbe/BvDecideQbe/Tactic.lean)) is a separate Lake package providing a
-  `bv_decide` alternative (also usable inside `sym =>` / `grind =>`, honoring `cfg.timeout`). It
-  supports two execution presets—`enhanced` (default, adding conservative preprocessing such as
-  automatic AC normalization for multiplications and fast simulation counterexample pre-checks) and
-  `upstream` (`bv_decide_qbe_upstream`, `(mode := .upstream)`, or
+- **`bv_decide_qbe` tactic (experimental, axiom-checked FFI):** `bv_decide_qbe/` is a separate
+  Lake package providing a `bv_decide` alternative (also usable inside `sym =>` / `grind =>`,
+  honoring `cfg.timeout`) alongside the zero-new-trust cutpoint tactic `bv_cut_qbe`. Lightweight
+  user-facing modules ([Tactic.lean](bv_decide_qbe/BvDecideQbe/Tactic.lean),
+  [Config.lean](bv_decide_qbe/BvDecideQbe/Config.lean),
+  [Syntax.lean](bv_decide_qbe/BvDecideQbe/Syntax.lean),
+  [NormalizeTheorems.lean](bv_decide_qbe/BvDecideQbe/NormalizeTheorems.lean)) stay free of `Lean.*`
+  `.olean` imports, while precompiled native tactic elaborators in `BvDecideQbeNative`
+  ([TacticImpl.lean](bv_decide_qbe/BvDecideQbe/TacticImpl.lean),
+  [Prover.lean](bv_decide_qbe/BvDecideQbe/Prover.lean),
+  [Cegar.lean](bv_decide_qbe/BvDecideQbe/Cegar.lean),
+  [Normalize/AC.lean](bv_decide_qbe/BvDecideQbe/Normalize/AC.lean)) are loaded through the
+  single-root plugin [BvDecideQbePlugin.lean](bv_decide_qbe/BvDecideQbePlugin.lean)
+  ([tactic_plugin_init.c](bv_decide_qbe/c/tactic_plugin_init.c)). It supports two execution
+  presets—`enhanced` (default, adding automatic `acNf` and `*`-gated nested `HMul` AC
+  canonicalization via `bvMulSubtermNormalize` in
+  [Normalize/AC.lean](bv_decide_qbe/BvDecideQbe/Normalize/AC.lean), fast simulation counterexample
+  pre-checks, and, under `+uf`, batched/cascading UF congruence plus kernel-proved McCarthy array
+  read-over-write and `BitVec.toNat` read congruence in
+  [Cegar.lean](bv_decide_qbe/BvDecideQbe/Cegar.lean) across `Array`, `Vector`, `List`, and
+  `Std.HashMap`) and `upstream` (`bv_decide_qbe_upstream`, `(mode := .upstream)`, or
   `set_option bv_decide_qbe.mode "upstream"`, matching upstream `BVDecideConfig` defaults with the
   in-process solver backend)—reusing upstream normalization and reflection, encoding the goal to
   `BVP1`, and running `bv_solve_bytes` + full-fidelity Kissat in-process (growing the scratch
   workspace dynamically on demand). **Trust caveat:** the kernel does not re-run the solver. On
-  UNSAT, the tactic emits one per-goal axiom (`_leanqbe.bv_solve.ax`, stating that the encoded
-  problem is unsatisfiable) and closes the goal via the zero-axiom bridge
-  `BVProg.unsat_of_bv_solve_words`; on SAT, zero axioms are emitted (counterexamples are decoded
-  and checked with `evalEfficient`, though SAT answers from full-fidelity Kissat are unproved).
-  [FFI.lean](bv_decide_qbe/BvDecideQbe/FFI.lean) keeps the raw native call and `UnsatWitness`
-  constructor `private`, returning an **encapsulated** `UnsatWitness` from `solveBVProg` to prevent
-  accidental misuse; like `native_decide`, Lean's `private` visibility is not a security boundary
-  against adversarial meta code (which can invoke `Lean.addDecl` directly under the same axiom
-  prefix). Proofs using `bv_decide_qbe` therefore trust the thin C FFI shim
-  ([kissat_ffi.c](bv_decide_qbe/c/kissat_ffi.c)), meta-level word packing (`packWordsU32LE`) and
-  axiom-type construction (`mkBvSolveAxiomType`), the build provenance of `libbv_solve_qbe.so`,
-  the host assembler/linker, Lean's compiler/runtime and unchecked OS thread stack, and upstream
-  `Std.Tactic.BVDecide` reflection.
+  UNSAT, `mkUnsatProof` ([Prover.lean](bv_decide_qbe/BvDecideQbe/Prover.lean)) adds `_expr_def`
+  via `Lean.addDecl` without compilation, emits one per-goal axiom (`_leanqbe.bv_solve.ax`,
+  stating that `BVProg.parse (BVProg.wordsToBytesLE ws)` succeeds with an unsatisfiable
+  `BVLogicalExpr`), proves `BVProg.parseWords ws = some _expr_def` in Lean's kernel by `Eq.refl`,
+  and closes the goal via the zero-axiom bridge `BVProg.unsat_of_bv_solve_words`; on SAT and
+  intermediate CEGAR probes, zero axioms are emitted (counterexamples are decoded and checked with
+  `evalEfficient`, though SAT answers from full-fidelity Kissat are unproved). Byte packing itself
+  (`packWordsArrayU32LE` and `packWordsU32LE` in [FFI.lean](bv_decide_qbe/BvDecideQbe/FFI.lean))
+  is **kernel-proved (`≤ std3`)** in [FFIProof.lean](bv_decide_qbe/BvDecideQbe/FFIProof.lean)
+  (`packWordsArrayU32LE_toList`, `packWordsU32LE_toList`, `packWordsArrayU32LE_eq_some_iff`) to
+  match `BVProg.wordsToBytesLE`. [FFI.lean](bv_decide_qbe/BvDecideQbe/FFI.lean) keeps the raw
+  native call (`solveBVBytesRaw`), `emitBvSolveAxiom`, and `UnsatWitness` constructor `private`,
+  returning an **encapsulated** `UnsatWitness` from `solveBVProgArrayWithStats` /
+  `solveBVProgWithStats` / `solveBVProg` to prevent accidental misuse; like `native_decide`, Lean's
+  `private` visibility is not a security boundary against adversarial meta code (which can invoke
+  `Lean.addDecl` directly under the same axiom prefix). Proofs using `bv_decide_qbe` therefore
+  trust the thin C FFI shim ([kissat_ffi.c](bv_decide_qbe/c/kissat_ffi.c)), native execution of
+  `bv_solve_bytes`, meta-level consistency between the `Array Nat` word stream packed by
+  `packWordsArrayU32LE` and the `Expr` list / axiom type built by `mkNatListExprArray` (or
+  `mkNatListExpr`) and `mkBvSolveAxiomType` in [FFI.lean](bv_decide_qbe/BvDecideQbe/FFI.lean),
+  the build provenance of the native shared libraries (`libkissat_qbe`, `BvDecideQbeNative`, and
+  `BvDecideQbePlugin` in [lakefile.lean](bv_decide_qbe/lakefile.lean)), the host assembler/linker,
+  Lean's compiler/runtime and unchecked OS thread stack, and upstream `Std.Tactic.BVDecide`
+  reflection.
 - **Upstream compatibility & wall-time comparison:** Across Lean 4's upstream `bv_decide` test
   suite (`60` files, of which `59` are applicable and `bv_import.lean` is not applicable),
   `bv_decide_qbe` passes **`59/59`** upstream comparison checks in both presets (`.upstream`:
-  **`0.952× W-AM`**, `.enhanced`: **`0.987× W-AM`** relative to upstream `bv_decide`). The
-  compatibility and head-to-head harness is checked in at
+  **`0.881× W-GM / 0.914× W-AM`**, `.enhanced`: **`0.894× W-GM / 0.882× W-AM`** relative to
+  upstream `bv_decide`). The compatibility and head-to-head harness is checked in at
   [run_upstream_suite.py](bv_decide_qbe/scripts/run_upstream_suite.py) and supports
   `--qbe-mode upstream|enhanced|both`
   (`timeout 600 python3 bv_decide_qbe/scripts/run_upstream_suite.py --lean4-tests-dir <path> --qbe-mode both`);
@@ -589,12 +635,12 @@ Every major workstream provides standalone audit files under [LeanQbeTest/T/](Le
 | **ChaCha20, Curve25519, Union-Find** | [ChaCha.lean](LeanQbe/T/Examples/ChaCha.lean), [Bignum.lean](LeanQbe/T/Examples/Bignum.lean), [UnionFind.lean](LeanQbe/T/Examples/UnionFind.lean) | [WorkloadsAuditSpec.lean](LeanQbeTest/T/WorkloadsAuditSpec.lean) / [WorkloadsAuditX64.lean](LeanQbeTest/T/WorkloadsAuditX64.lean) / [WorkloadsAuditArm64.lean](LeanQbeTest/T/WorkloadsAuditArm64.lean) |
 | **LRAT Proof Checker (`lrat_check_bytes`)** | [LratBytes.lean](LeanQbe/T/Examples/LratBytes.lean), [LratBytesSpec.lean](LeanQbe/T/Examples/LratBytesSpec.lean) | [LratAuditSpec.lean](LeanQbeTest/T/LratAuditSpec.lean) / [LratAuditX64.lean](LeanQbeTest/T/LratAuditX64.lean) / [LratAuditArm64.lean](LeanQbeTest/T/LratAuditArm64.lean) |
 | **WebAssembly Sandbox** | [Wasm/Safety.lean](LeanQbe/T/Wasm/Safety.lean), [Wasm/BulkSafety.lean](LeanQbe/T/Wasm/BulkSafety.lean) | [WasmAuditSpec.lean](LeanQbeTest/T/WasmAuditSpec.lean) / [WasmAuditX64.lean](LeanQbeTest/T/WasmAuditX64.lean) / [WasmAuditArm64.lean](LeanQbeTest/T/WasmAuditArm64.lean) |
-| **ARiSCA Multiplier Checker (`arisca_check_bytes`)** | [ArtCore.lean](LeanQbe/T/Examples/Arisca/ArtCore.lean), [ArtSound.lean](LeanQbe/T/Examples/Arisca/ArtSound.lean), [Arisca/Src/Module.lean](LeanQbe/T/Examples/Arisca/Src/Module.lean), [Arisca/Proof/Full.lean](LeanQbe/T/Examples/Arisca/Proof/Full.lean), [Arisca/Proof/CertBridge.lean](LeanQbe/T/Examples/Arisca/Proof/CertBridge.lean), [Amd64/Arisca.lean](LeanQbe/T/Amd64/Arisca.lean), [Arm64/Arisca.lean](LeanQbe/T/Arm64/Arisca.lean) | [AriscaTest.lean](LeanQbeTest/T/AriscaTest.lean), [AriscaSrcTest.lean](LeanQbeTest/T/AriscaSrcTest.lean) / [AriscaCertX64Test.lean](LeanQbeTest/T/AriscaCertX64Test.lean) / [AriscaCertArm64Test.lean](LeanQbeTest/T/AriscaCertArm64Test.lean) |
-| **Kissat 4.0.4 Full-Fidelity (`kissat_solve_bytes`)** | [Src/Full.lean](LeanQbe/T/Examples/Kissat/Src/Full.lean), [Proof/Full.lean](LeanQbe/T/Examples/Kissat/Proof/Full.lean), [Proof/FullNv.lean](LeanQbe/T/Examples/Kissat/Proof/FullNv.lean), [Build/Amd64/Full.lean](LeanQbe/T/Examples/Kissat/Build/Amd64/Full.lean), [Build/Arm64/Full.lean](LeanQbe/T/Examples/Kissat/Build/Arm64/Full.lean), [Amd64/KissatFidelityParam.lean](LeanQbe/T/Amd64/KissatFidelityParam.lean), [Arm64/KissatFidelityParam.lean](LeanQbe/T/Arm64/KissatFidelityParam.lean) | [KissatSrcPostludeTest.lean](LeanQbeTest/T/KissatSrcPostludeTest.lean), [KissatLayerAFullTest.lean](LeanQbeTest/T/KissatLayerAFullTest.lean) / [KissatFidelityParamAuditX64.lean](LeanQbeTest/T/KissatFidelityParamAuditX64.lean), [KissatFidelityCompileGuardX64.lean](LeanQbeTest/T/KissatFidelityCompileGuardX64.lean) / [KissatFidelityParamAuditArm64.lean](LeanQbeTest/T/KissatFidelityParamAuditArm64.lean), [KissatFidelityCompileGuardArm64.lean](LeanQbeTest/T/KissatFidelityCompileGuardArm64.lean) |
+| **ARiSCA Multiplier & Miter Checker (`arisca_check_aig` / `arisca_check_bytes`, `45` fns)** | [ArtCore.lean](LeanQbe/T/Examples/Arisca/ArtCore.lean), [ArtSound.lean](LeanQbe/T/Examples/Arisca/ArtSound.lean), [ArtSoundB.lean](LeanQbe/T/Examples/Arisca/ArtSoundB.lean), [Arisca/Src/Module.lean](LeanQbe/T/Examples/Arisca/Src/Module.lean), [Arisca/Proof/Sem.lean](LeanQbe/T/Examples/Arisca/Proof/Sem.lean), [Arisca/Proof/Full.lean](LeanQbe/T/Examples/Arisca/Proof/Full.lean), [Arisca/Proof/CertBridge.lean](LeanQbe/T/Examples/Arisca/Proof/CertBridge.lean), [Amd64/Arisca.lean](LeanQbe/T/Amd64/Arisca.lean), [Arm64/Arisca.lean](LeanQbe/T/Arm64/Arisca.lean) | [AriscaTest.lean](LeanQbeTest/T/AriscaTest.lean), [AriscaSrcTest.lean](LeanQbeTest/T/AriscaSrcTest.lean) / [AriscaCertX64Test.lean](LeanQbeTest/T/AriscaCertX64Test.lean) / [AriscaCertArm64Test.lean](LeanQbeTest/T/AriscaCertArm64Test.lean) |
+| **Kissat 4.0.4 Full-Fidelity (`kissat_solve_bytes`)** | [Src/Full.lean](LeanQbe/T/Examples/Kissat/Src/Full.lean), [Proof/Spec/Solver.lean](LeanQbe/T/Examples/Kissat/Proof/Spec/Solver.lean), [Proof/Full.lean](LeanQbe/T/Examples/Kissat/Proof/Full.lean), [Proof/FullNv.lean](LeanQbe/T/Examples/Kissat/Proof/FullNv.lean), [Build/Amd64/Full.lean](LeanQbe/T/Examples/Kissat/Build/Amd64/Full.lean), [Build/Arm64/Full.lean](LeanQbe/T/Examples/Kissat/Build/Arm64/Full.lean), [Amd64/KissatFidelityParam.lean](LeanQbe/T/Amd64/KissatFidelityParam.lean), [Arm64/KissatFidelityParam.lean](LeanQbe/T/Arm64/KissatFidelityParam.lean) | [KissatSrcPostludeTest.lean](LeanQbeTest/T/KissatSrcPostludeTest.lean), [KissatLayerAFullTest.lean](LeanQbeTest/T/KissatLayerAFullTest.lean) / [KissatFidelityParamAuditX64.lean](LeanQbeTest/T/KissatFidelityParamAuditX64.lean), [KissatFidelityCompileGuardX64.lean](LeanQbeTest/T/KissatFidelityCompileGuardX64.lean) / [KissatFidelityParamAuditArm64.lean](LeanQbeTest/T/KissatFidelityParamAuditArm64.lean), [KissatFidelityCompileGuardArm64.lean](LeanQbeTest/T/KissatFidelityCompileGuardArm64.lean) |
 | **Kissat Minimal CDCL (`KissatPlain`)** | [Plain.lean](LeanQbe/T/Examples/Kissat/Plain.lean) | [KissatPlainAuditX64.lean](LeanQbeTest/T/KissatPlainAuditX64.lean) / [KissatPlainAuditArm64.lean](LeanQbeTest/T/KissatPlainAuditArm64.lean) |
 | **Simplified-CNF Exporter (`kissat_simplify_export_bytes`)** | [ExportCnfEntry.lean](LeanQbe/T/Examples/Kissat/ExportCnfEntry.lean), [ExportCnfEntryProof.lean](LeanQbe/T/Examples/Kissat/ExportCnfEntryProof.lean) | [ExportCnfEntryTest.lean](LeanQbeTest/T/ExportCnfEntryTest.lean) |
-| **Bitblaster (`bv_solve_bytes`)** | [Bitblast/Src/Full.lean](LeanQbe/T/Examples/Bitblast/Src/Full.lean), [Bitblast/Proof/Full.lean](LeanQbe/T/Examples/Bitblast/Proof/Full.lean) | [BitblastProofTest.lean](LeanQbeTest/T/BitblastProofTest.lean) / [BitblastCertX64.lean](LeanQbeTest/T/BitblastCertX64.lean), [BitblastFidelityParamAuditX64.lean](LeanQbeTest/T/BitblastFidelityParamAuditX64.lean) / [BitblastCertArm64.lean](LeanQbeTest/T/BitblastCertArm64.lean), [BitblastFidelityParamAuditArm64.lean](LeanQbeTest/T/BitblastFidelityParamAuditArm64.lean) |
-| **`bv_decide_qbe` (experimental)** | [Tactic.lean](bv_decide_qbe/BvDecideQbe/Tactic.lean), [Prover.lean](bv_decide_qbe/BvDecideQbe/Prover.lean), [FFI.lean](bv_decide_qbe/BvDecideQbe/FFI.lean) | [UnitTest.lean](bv_decide_qbe/BvDecideQbeTest/UnitTest.lean), [FfiTest.lean](bv_decide_qbe/BvDecideQbeTest/FfiTest.lean), [check.sh](bv_decide_qbe/scripts/check.sh), [run_upstream_suite.py](bv_decide_qbe/scripts/run_upstream_suite.py) |
+| **Bitblaster & Bridge (`bv_solve_bytes`, `BvDecideBridge`)** | [Bitblast/Src/Full.lean](LeanQbe/T/Examples/Bitblast/Src/Full.lean), [Bitblast/Proof/Full.lean](LeanQbe/T/Examples/Bitblast/Proof/Full.lean), [BvDecideBridge.lean](LeanQbe/T/Examples/BvDecideBridge.lean) | [BitblastProofTest.lean](LeanQbeTest/T/BitblastProofTest.lean), [BvDecideBridgeTest.lean](LeanQbeTest/T/BvDecideBridgeTest.lean) / [BitblastCertX64.lean](LeanQbeTest/T/BitblastCertX64.lean), [BitblastFidelityParamAuditX64.lean](LeanQbeTest/T/BitblastFidelityParamAuditX64.lean) / [BitblastCertArm64.lean](LeanQbeTest/T/BitblastCertArm64.lean), [BitblastFidelityParamAuditArm64.lean](LeanQbeTest/T/BitblastFidelityParamAuditArm64.lean) |
+| **`bv_decide_qbe` (experimental)** | [BvDecideQbePlugin.lean](bv_decide_qbe/BvDecideQbePlugin.lean), [Tactic.lean](bv_decide_qbe/BvDecideQbe/Tactic.lean), [TacticImpl.lean](bv_decide_qbe/BvDecideQbe/TacticImpl.lean), [Prover.lean](bv_decide_qbe/BvDecideQbe/Prover.lean), [FFI.lean](bv_decide_qbe/BvDecideQbe/FFI.lean), [FFIProof.lean](bv_decide_qbe/BvDecideQbe/FFIProof.lean), [AC.lean](bv_decide_qbe/BvDecideQbe/Normalize/AC.lean), [Cegar.lean](bv_decide_qbe/BvDecideQbe/Cegar.lean) | [UnitTest.lean](bv_decide_qbe/BvDecideQbeTest/UnitTest.lean), [FfiTest.lean](bv_decide_qbe/BvDecideQbeTest/FfiTest.lean), [AcMulTest.lean](bv_decide_qbe/BvDecideQbeTest/AcMulTest.lean), [CegarEnhanceTest.lean](bv_decide_qbe/BvDecideQbeTest/CegarEnhanceTest.lean), [CutTest.lean](bv_decide_qbe/BvDecideQbeTest/CutTest.lean), [EncodeCexTest.lean](bv_decide_qbe/BvDecideQbeTest/EncodeCexTest.lean), [check.sh](bv_decide_qbe/scripts/check.sh), [run_upstream_suite.py](bv_decide_qbe/scripts/run_upstream_suite.py) |
 | **Stage-0 Bootstrap (`leanqbe0Compile`, WIP)** | [Mod0.lean](LeanQbe/T/Bootstrap0/Mod0.lean), [Cert.lean](LeanQbe/T/Bootstrap0/Cert.lean), [Sound0.lean](LeanQbe/T/Bootstrap0/Sound0.lean) | [Bootstrap0Audit.lean](LeanQbeBootstrap0Test/Bootstrap0Audit.lean), [Sound0Test.lean](LeanQbeBootstrap0Test/Sound0Test.lean), [Codec0Test.lean](LeanQbeBootstrap0Test/Codec0Test.lean), [PrintDir0Test.lean](LeanQbeBootstrap0Test/PrintDir0Test.lean), [StageCTest.lean](LeanQbeBootstrap0Test/StageCTest.lean) |
 
 ### Building Individual Audit Targets
@@ -616,7 +662,7 @@ scripts/build_bounded.sh -j 2 -m 18G -t 1200 -- \
   LeanQbeTest.T.KissatFidelityParamAuditX64 LeanQbeTest.T.KissatFidelityParamAuditArm64 \
   LeanQbeTest.T.KissatFidelityCompileGuardX64 LeanQbeTest.T.KissatFidelityCompileGuardArm64 \
   LeanQbeTest.T.KissatPlainAuditX64 LeanQbeTest.T.KissatPlainAuditArm64 \
-  LeanQbeTest.T.ExportCnfEntryTest LeanQbeTest.T.BitblastProofTest \
+  LeanQbeTest.T.ExportCnfEntryTest LeanQbeTest.T.BitblastProofTest LeanQbeTest.T.BvDecideBridgeTest \
   LeanQbeTest.T.BitblastCertX64 LeanQbeTest.T.BitblastCertArm64 \
   LeanQbeTest.T.BitblastFidelityParamAuditX64 LeanQbeTest.T.BitblastFidelityParamAuditArm64 \
   LeanQbeTest.T.AriscaTest LeanQbeTest.T.AriscaCertX64Test LeanQbeTest.T.AriscaCertArm64Test
@@ -655,7 +701,7 @@ timeout 3600 bash bv_decide_qbe/scripts/check.sh
 | `LeanQbe/T/Frontend/C0/`, `LeanLCNF/`, `Wasm/`, `Bedrock2/`, `BedrockWord/` | Source language frontends (including C0 `Template/`), SFI Wasm compiler, `LCNF` semantics and end-to-end theorems (`Sem/`), pure-C0 runtime (`LcnfC0Full`), and zero-axiom C0 FFI (`LcnfC0Ffi`) |
 | `LeanQbe/T/Unified/` & `LeanQbe/T/Xcap/` | Bedrock2 CFG recovery & contification (`CfgRecovery`, `CfgContify`) and bidirectional `FnSpec` ↔ `Xcap.cptr` assembly interop |
 | `LeanQbe/T/Logic/` | Separation-logic slab/tree automation (`SlabLayoutElab`, `BytesUnaligned`), symbolic C0 stepper (`C0Step`, `C0HeadStep`), and legality combinators |
-| `LeanQbe/T/Examples/` | Verified `ChaCha20`, `Curve25519` bignum, `UnionFind`, `LratBytes`, `Arisca` (`44` C0 fns), `Kissat` (4-pillar `Ref/`/`Src/`/`Proof/`/`Build/`, `418` C0 fns, plus `Plain` and `ExportCnf`), and `Bitblast` (`32` `BVP1` ops) |
+| `LeanQbe/T/Examples/` | Verified `ChaCha20`, `Curve25519` bignum, `UnionFind`, `LratBytes`, `Arisca` (`45` C0 fns), `Kissat` (4-pillar `20`-file `Ref/` / `45`-file `Src/` / `Proof/` / `Build/`, `418` C0 fns, plus `Plain` and `ExportCnf`), `Bitblast` (`64` C0 fns, `32` `BVP1` ops), `BvDecideBridge`, and `Vibesat` (`XorF2` GF(2) theory) |
 | `LeanQbe/T/Bootstrap0/` & `bv_decide_qbe/` | Stage-0 bootstrapping workstream (`leanqbe0Compile`) and the experimental `bv_decide_qbe` tactic package |
 | `Kraken/` | Formalized x86-64 and AArch64 ISA semantics and separation-logic framework ([README.md](README.md)) |
 | `LeanQbeTest/T/`, `LeanQbeBootstrap0Test/` | Self-contained audit specifications, parity/unit tests, and dual-arch compile guards |
