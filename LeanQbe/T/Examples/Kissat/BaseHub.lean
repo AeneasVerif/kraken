@@ -589,6 +589,14 @@ public import LeanQbe.T.Examples.Kissat.Proof.Vivify.WpSimplify
 public import LeanQbe.T.Examples.Kissat.Proof.Vivify.WpSimplify0
 public import LeanQbe.T.Examples.Kissat.Proof.Vivify.WpSortFid
 public import LeanQbe.T.Examples.Kissat.Proof.Vivify.WpTop
+public import LeanQbe.T.Examples.Kissat.Proof.Walk.Cert
+public import LeanQbe.T.Examples.Kissat.Proof.Walk.Helpers
+public import LeanQbe.T.Examples.Kissat.Proof.Walk.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Walk.Wp0
+public import LeanQbe.T.Examples.Kissat.Proof.Walk.Wp1
+public import LeanQbe.T.Examples.Kissat.Proof.Walk.Wp2a
+public import LeanQbe.T.Examples.Kissat.Proof.Walk.Wp2b
+public import LeanQbe.T.Examples.Kissat.Proof.Walk.Wp3
 public import LeanQbe.T.Examples.Kissat.Proof.Watch.Cert
 public import LeanQbe.T.Examples.Kissat.Proof.Watch.Helpers
 public import LeanQbe.T.Examples.Kissat.Proof.Watch.Spec
