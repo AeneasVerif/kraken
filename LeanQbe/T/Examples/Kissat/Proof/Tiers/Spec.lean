@@ -41,6 +41,19 @@ def m6HdrAddTicksSpec : Spec [i64, i64] [] :=
         M6HdrExtOk ext' → (M6HdrExtInitOk ext → M6HdrExtInitOk ext' ∧ M6ExtW2bPres ext ext') →
         (FullM6HdrMem c ext' s' ⋆ R) m' → Q () m'
 
+/-- Read-only `FullM6Hdr` watermark lookup spec for `m6_hdr_get_watermark`: strengthens
+`m6HdrW2aSpec [i64] [i64]` with `s'.scratch.red_refs = s.scratch.red_refs`. -/
+def m6HdrGetWatermarkSpec : Spec [i64, i64] [i64] :=
+  fun (h, _kind, ()) m Q _ =>
+    ∃ (c : FullCfg) (ext : List (BitVec 64)) (s : FullState) (R : Mem 64 → Prop),
+      h = c.hdr ∧ FullM6HdrCfgOk c ∧ M6HdrExtOk ext ∧ s.LengthsOk c ∧
+      (FullM6HdrMem c ext s ⋆ R) m ∧
+      ∀ (r : BitVec 64) (ext' : List (BitVec 64)) (s' : FullState) (m' : Mem 64),
+        s'.core = s.core → s'.LengthsOk c → M6HdrScratchPres s s' →
+        s'.scratch.red_refs = s.scratch.red_refs →
+        M6HdrExtOk ext' → (M6HdrExtInitOk ext → M6HdrExtInitOk ext' ∧ M6ExtW2bPres ext ext') →
+        (FullM6HdrMem c ext' s' ⋆ R) m' → Q (r, ()) m'
+
 /-- Canonical `18`-row specification table aligned 1:1 with `Src.Tiers.fns`. -/
 def specs : List SpecEntry :=
   [ ⟨"m6_hdr_init",                 [i64],           [],      m6HdrInitSpec,             true⟩
@@ -56,7 +69,7 @@ def specs : List SpecEntry :=
   , ⟨"m6_hdr_delaying",             [i64, i64],      [.bool], m6HdrW2aSpec [i64] [.bool], true⟩
   , ⟨"m6_hdr_bump_delay",           [i64, i64],      [],      m6HdrW2aSpec [i64] [],     true⟩
   , ⟨"m6_hdr_reduce_delay",         [i64, i64],      [],      m6HdrW2aSpec [i64] [],     true⟩
-  , ⟨"m6_hdr_get_watermark",        [i64, i64],      [i64],   m6HdrW2aSpec [i64] [i64],  true⟩
+  , ⟨"m6_hdr_get_watermark",        [i64, i64],      [i64],   m6HdrGetWatermarkSpec,     true⟩
   , ⟨"m6_hdr_set_watermark",        [i64, i64, i64], [],      m6HdrW2aSpec [i64, i64] [], true⟩
   , ⟨"m6_hdr_dr_init",              [i64],           [],      m6HdrDrMutSpec,            true⟩
   , ⟨"m6_hdr_dr_update",            [i64],           [],      m6HdrDrMutSpec,            true⟩
@@ -86,6 +99,21 @@ theorem m6HdrW2a_le_addTicks : (m6HdrW2aSpec [i64] []).Le m6HdrAddTicksSpec := b
   exact ⟨c, ext, s, R, hc, hcfg, hext, hlen, hm,
     fun ext' s' m' hco hl hm6 _ _ => hQ () ext' s' m' hco hl hm6⟩
 
+theorem m6HdrGetWatermarkSpec_monoX {xs : Tup Val [i64, i64]} {m : Mem 64} {Q : Post [i64]}
+    {X X' : XPost} (h : m6HdrGetWatermarkSpec xs m Q X) :
+    m6HdrGetWatermarkSpec xs m Q X' := by
+  rcases xs with ⟨_, _, ⟨⟩⟩; exact h
+
+theorem m6HdrGetWatermarkSpec_xfree : Spec.XFree m6HdrGetWatermarkSpec :=
+  fun _ _ _ _ _ h => m6HdrGetWatermarkSpec_monoX h
+
+theorem m6HdrW2a_le_getWatermark :
+    (m6HdrW2aSpec [i64] [i64]).Le m6HdrGetWatermarkSpec := by
+  rintro ⟨h, k, ⟨⟩⟩ m Q X hW
+  obtain ⟨c, ext, s, R, hc, hcfg, hext, hlen, hm, hQ⟩ := m6HdrW2aSpec_elim hW
+  exact ⟨c, ext, s, R, hc, hcfg, hext, hlen, hm,
+    fun r ext' s' m' hco hl hm6 _ => hQ (r, ()) ext' s' m' hco hl hm6⟩
+
 theorem m6HdrW2aSpec_xfree (ea rs : List Ty) : Spec.XFree (m6HdrW2aSpec ea rs) :=
   fun _ _ _ _ _ h => m6HdrW2aSpec_monoX h
 
@@ -113,7 +141,7 @@ theorem specs_xfree : ∀ e ∈ specs, Spec.XFree e.spec := by
   · exact m6HdrW2aSpec_xfree _ _
   · exact m6HdrW2aSpec_xfree _ _
   · exact m6HdrW2aSpec_xfree _ _
-  · exact m6HdrW2aSpec_xfree _ _
+  · exact m6HdrGetWatermarkSpec_xfree
   · exact m6HdrW2aSpec_xfree _ _
   · exact m6HdrDrMutSpec_xfree
   · exact m6HdrDrMutSpec_xfree
@@ -182,9 +210,13 @@ theorem has_m6_hdr_reduce_delay {Γ : Env} (h : Γ.Sat specs) :
     Γ.Has "m6_hdr_reduce_delay" (m6HdrW2aSpec [i64] []) :=
   mem_has h (by simp [specs]) (m6HdrW2aSpec_xfree _ _)
 
+theorem has_m6_hdr_get_watermark_ro {Γ : Env} (h : Γ.Sat specs) :
+    Γ.Has "m6_hdr_get_watermark" m6HdrGetWatermarkSpec :=
+  mem_has h (by simp [specs]) m6HdrGetWatermarkSpec_xfree
+
 theorem has_m6_hdr_get_watermark {Γ : Env} (h : Γ.Sat specs) :
     Γ.Has "m6_hdr_get_watermark" (m6HdrW2aSpec [i64] [i64]) :=
-  mem_has h (by simp [specs]) (m6HdrW2aSpec_xfree _ _)
+  Env.Has.of_le (has_m6_hdr_get_watermark_ro h) m6HdrW2a_le_getWatermark
 
 theorem has_m6_hdr_set_watermark {Γ : Env} (h : Γ.Sat specs) :
     Γ.Has "m6_hdr_set_watermark" (m6HdrW2aSpec [i64, i64] []) :=

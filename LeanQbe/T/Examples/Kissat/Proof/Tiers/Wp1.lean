@@ -208,13 +208,12 @@ theorem m6_hdr_reduce_delay_wp (Γ : Env)
 
 theorem m6_hdr_get_watermark_wp (Γ : Env)
     (hEnsure : Γ.Has "m6_ext_ensure_init" m6ExtEnsureInitSpec) :
-    ∀ a m Q X, m6HdrW2aSpec [i64] [i64] a m Q X →
+    ∀ a m Q X, m6HdrGetWatermarkSpec a m Q X →
       Func.wp Γ m6_hdr_get_watermark_body a m Q X := by
-  rintro ⟨h, kind, ⟨⟩⟩ m Q X hs
-  obtain ⟨c, ext, s, R, rfl, hcfg, hext, hlen, hm, hQ⟩ := m6HdrW2aSpec_elim hs
+  rintro ⟨h, kind, ⟨⟩⟩ m Q X ⟨c, ext, s, R, rfl, hcfg, hext, hlen, hm, hQ⟩
   unfold Func.wp m6_hdr_get_watermark_body
   c0_hsteps_nogrp
-  · exact hQ (0#64, ()) ext s m rfl hlen (M6HdrScratchPres.refl s) hext
+  · exact hQ 0#64 ext s m rfl hlen (M6HdrScratchPres.refl s) rfl hext
       (fun hi => ⟨hi, M6ExtW2bPres.refl ext⟩) hm
   · have hk8 : kind.toNat < 8 := by
       have h8 : (8 : BitVec 64).toNat = 8 := rfl; omega
@@ -225,7 +224,7 @@ theorem m6_hdr_get_watermark_wp (Γ : Env)
       rw [hl1, bv64_add_small (n := 24) rfl (by omega)]; omega
     rw [fullM6HdrMem_iff] at hm1
     c0_hsteps
-    exact hQ (_, ()) ext1 s m1 rfl hlen (M6HdrScratchPres.refl s) hinit1.toOk
+    exact hQ _ ext1 s m1 rfl hlen (M6HdrScratchPres.refl s) rfl hinit1.toOk
       (w2a_pres_of_init hpres1 hinit1 (M6ExtW2bPres.refl ext1))
       ((fullM6HdrMem_iff ..).mpr hm1)
 
