@@ -13,6 +13,7 @@ public import LeanQbe.T.LeanLCNF.LcnfC0BigNumMath
 public import LeanQbe.T.LeanLCNF.LcnfC0BigNumProof
 public import LeanQbe.T.LeanLCNF.LcnfC0BigNumProof1
 public import LeanQbe.T.LeanLCNF.LcnfC0BigNumProof2
+public import LeanQbe.T.LeanLCNF.LcnfC0BigNumProof2a
 public import LeanQbe.T.LeanLCNF.LcnfC0BigNumProof3
 public import LeanQbe.T.LeanLCNF.LcnfC0BigNumProof4
 public import LeanQbe.T.LeanLCNF.LcnfC0BigNumProof5

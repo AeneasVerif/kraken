@@ -81,7 +81,7 @@ theorem natRep_and_one_eq_zero_iff {a : BitVec 64} {n : Nat} {objs : List LcnfOb
       rw [BitVec.toNat_and, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]
       simp [Nat.and_two_pow_sub_one_eq_mod (2 * n + 1) 1]
     constructor <;> intro h0
-    · rw [heq] at h0; exact absurd h0 (by decide)
+    · rw [heq] at h0; exact absurd h0 (by simp)
     · omega
   · simp only [hn, ↓reduceIte] at h
     exact ⟨fun _ => by omega, fun _ => h.1⟩
@@ -111,7 +111,7 @@ theorem bv64_encodeNat {n : Nat} (hn : n < 2 ^ 63) :
     simp [BitVec.toNat_shiftLeft, Nat.mod_eq_of_lt (by omega : n < 2 ^ 64),
       Nat.shiftLeft_eq, Nat.mod_eq_of_lt (by omega : n * 2 < 2 ^ 64)]
     omega
-  rw [hshl, Nat.mod_eq_of_lt (by decide : 1 < 2 ^ 64), Nat.mod_eq_of_lt
+  rw [hshl, Nat.mod_eq_of_lt (Nat.one_lt_two_pow (by omega) : 1 < 2 ^ 64), Nat.mod_eq_of_lt
     (by omega : 2 * n + 1 < 2 ^ 64)]
   apply Nat.eq_of_testBit_eq
   intro i
@@ -155,6 +155,268 @@ theorem bv64_mul8_of_lt (k : Nat) (hk : 8 * k < 2 ^ 64) :
   apply BitVec.eq_of_toNat_eq
   simp [BitVec.toNat_mul, Nat.mod_eq_of_lt (by omega : k < 2 ^ 64), Nat.mod_eq_of_lt hk]
 
+private theorem bv64_ne0_of_pos_lt {n : Nat} (hpos : 0 < n) (hn : n < 2 ^ 64) :
+    (BitVec.ofNat 64 n == 0#64) = false := by
+  apply Bool.eq_false_iff.mpr
+  intro ht
+  have := BitVec.toNat_eq.mp (beq_iff_eq.mp ht)
+  rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hn,
+    show (0#64 : BitVec 64).toNat = 0 from rfl] at this
+  omega
+
+private theorem bv64_ult_max_false {n : Nat} (hn : n ≤ mpzMaxLimbs) :
+    (33554429#64 : BitVec 64).ult (BitVec.ofNat 64 n) = false := by
+  apply Bool.eq_false_iff.mpr
+  intro ht
+  have hlt : (33554429#64 : BitVec 64).toNat < (BitVec.ofNat 64 n).toNat := of_decide_eq_true ht
+  rw [show (33554429#64 : BitVec 64).toNat = 33554429 from rfl,
+    BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by unfold mpzMaxLimbs at hn; omega)] at hlt
+  unfold mpzMaxLimbs at hn
+  omega
+
+private theorem nat_op123_toNat_ne17 {op : Nat} (hop : op ∈ [1, 2, 3, 4, 5]) : op ≠ 17 := by
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hop
+  omega
+
+private theorem nat_op123_toNat_ne6 {op : Nat} (hop : op ∈ [1, 2, 3, 4, 5]) : op ≠ 6 := by
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hop
+  omega
+
+private theorem nat_op123_toNat_ne7 {op : Nat} (hop : op ∈ [1, 2, 3, 4, 5]) : op ≠ 7 := by
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hop
+  omega
+
+private theorem nat_op123_toNat_ne8 {op : Nat} (hop : op ∈ [1, 2, 3, 4, 5]) : op ≠ 8 := by
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hop
+  omega
+
+/-! ### Reusable Lowered PHOAS Sub-Expressions -/
+
+private def natArithPredExpr (rt a : BitVec 64) : Expr Val Cont [i64] :=
+  Expr.let_
+    { sig := [i64, i64], code := OpCode.and i64, args := (Arg.var a, Arg.imm 1, ()) } fun p_2 =>
+  Expr.let_
+    { sig := [i64, i64], code := OpCode.cmp CmpOp.ne i64 Ty.bool,
+      args := (Arg.var p_2.fst, Arg.imm 0, ()) } fun p_3 =>
+  Expr.jnz (Arg.var p_3.fst)
+    (Expr.let_ { sig := [i32], code := OpCode.sext 32 64, args := (Arg.imm 1, ()) } fun p_4 =>
+     Expr.let_ { sig := [i64, i64], code := OpCode.lshr i64,
+                 args := (Arg.var a, Arg.var p_4.fst, ()) } fun p =>
+     Expr.let_ { sig := [i64, i64], code := OpCode.cmp CmpOp.eq i64 Ty.bool,
+                 args := (Arg.var p.fst, Arg.imm 0, ()) } fun p_5 =>
+     Expr.jnz (Arg.var p_5.fst) (Expr.ret (Arg.imm 1, ()))
+       (Expr.let_ { sig := [i64, i64], code := OpCode.sub i64,
+                    args := (Arg.var p.fst, Arg.imm 1, ()) } fun p =>
+        Expr.let_ { sig := [i32], code := OpCode.sext 32 64,
+                    args := (Arg.imm 1, ()) } fun p_6 =>
+        Expr.let_ { sig := [i64, i64], code := OpCode.shl i64,
+                    args := (Arg.var p.fst, Arg.var p_6.fst, ()) } fun p =>
+        Expr.let_ { sig := [i64, i64], code := OpCode.or i64,
+                    args := (Arg.var p.fst, Arg.imm 1, ()) } fun p =>
+        Expr.ret (Arg.var p.fst, ())))
+    (Expr.call (as := [i64]) (bs := [i64]) "bn_nat_len" (Arg.var a, ()) fun p_4 =>
+     Expr.group (sig := [[]])
+       (fun _Js =>
+         Blocks.cons
+           (fun _p_5 =>
+             Expr.let_ { sig := [i64, i64], code := OpCode.cmp CmpOp.eq i64 Ty.bool,
+                         args := (Arg.var p_4.fst, Arg.imm 0, ()) } fun p_6 =>
+             Expr.jnz (Arg.var p_6.fst) (Expr.ret (Arg.imm 1, ()))
+               (Expr.exit (as := [i64, i64]) "lcnf_panic" (Arg.var rt, Arg.imm 2, ())))
+           Blocks.nil)
+       fun Js =>
+       Expr.let_ { sig := [i64, i64], code := OpCode.cmp CmpOp.eq i64 Ty.bool,
+                   args := (Arg.var p_4.fst, Arg.imm 0, ()) } fun p_5 =>
+       Expr.jnz (Arg.var p_5.fst) (Expr.jump Js.fst ())
+         (Expr.let_ { sig := [i64, i64], code := OpCode.cmp CmpOp.ugt i64 Ty.bool,
+                      args := (Arg.var p_4.fst, Arg.imm 33554429, ()) } fun p_6 =>
+          Expr.jnz (Arg.var p_6.fst) (Expr.jump Js.fst ())
+            (Expr.let_ { sig := [i64, i64], code := OpCode.mul i64,
+                         args := (Arg.imm 2, Arg.var p_4.fst, ()) } fun p_7 =>
+             Expr.call (as := [i64, i64]) (bs := [i64]) "bn_require_scratch"
+               (Arg.var rt, Arg.var p_7.fst, ()) fun p_8 =>
+             Expr.call (as := [i64, i64]) (bs := [i64]) "bn_load_nat"
+               (Arg.var a, Arg.var p_8.fst, ()) fun p_9 =>
+             Expr.let_ { sig := [i64, i64], code := OpCode.mul i64,
+                         args := (Arg.imm 8, Arg.var p_9.fst, ()) } fun p_10 =>
+             Expr.let_ { sig := [i64, i64], code := OpCode.add i64,
+                         args := (Arg.var p_8.fst, Arg.var p_10.fst, ()) } fun p_11 =>
+             Expr.call (as := [i64, i64, i64]) (bs := [i64]) "bn_sub_one"
+               (Arg.var p_8.fst, Arg.var p_9.fst, Arg.var p_11.fst, ()) fun p_12 =>
+             Expr.let_ { sig := [i64, i64], code := OpCode.mul i64,
+                         args := (Arg.imm 8, Arg.var p_9.fst, ()) } fun p_13 =>
+             Expr.let_ { sig := [i64, i64], code := OpCode.add i64,
+                         args := (Arg.var p_8.fst, Arg.var p_13.fst, ()) } fun p_14 =>
+             Expr.call (as := [i64, i64, i64]) (bs := [i64]) "bn_nat_from_limbs"
+               (Arg.var rt, Arg.var p_14.fst, Arg.var p_12.fst, ()) fun p =>
+             Expr.ret (Arg.var p.fst, ()))))
+
+private def natArithOp1Expr (rt scr : BitVec 64) (aVal bVal : Nat) : Expr Val Cont [i64] :=
+  Expr.call (as := [i64, i64, i64, i64, i64]) (bs := [i64]) "bn_add"
+    (Arg.var scr, Arg.var (BitVec.ofNat 64 (limbLenNat aVal)),
+     Arg.var (scr + BitVec.ofNat 64 (8 * limbLenNat aVal)),
+     Arg.var (BitVec.ofNat 64 (limbLenNat bVal)),
+     Arg.var (scr + BitVec.ofNat 64 (8 * (limbLenNat aVal + limbLenNat bVal))), ()) fun p_19 =>
+  Expr.call (as := [i64, i64, i64]) (bs := [i64]) "bn_nat_from_limbs"
+    (Arg.var rt,
+     Arg.var (scr + BitVec.ofNat 64 (8 * (limbLenNat aVal + limbLenNat bVal))),
+     Arg.var p_19.fst, ()) fun p =>
+  Expr.ret (Arg.var p.fst, ())
+
+private def natArithOp2Expr (rt scr : BitVec 64) (aVal bVal : Nat) : Expr Val Cont [i64] :=
+  Expr.call (as := [i64, i64, i64, i64]) (bs := [i64]) "bn_cmp"
+    (Arg.var scr, Arg.var (BitVec.ofNat 64 (limbLenNat aVal)),
+     Arg.var (scr + BitVec.ofNat 64 (8 * limbLenNat aVal)),
+     Arg.var (BitVec.ofNat 64 (limbLenNat bVal)), ()) fun p_20 =>
+  Expr.let_ { sig := [i32], code := OpCode.sext 32 64, args := (Arg.imm 0, ()) } fun p_21 =>
+  Expr.let_ { sig := [i64, i64], code := OpCode.cmp CmpOp.sle i64 Ty.bool,
+              args := (Arg.var p_20.fst, Arg.var p_21.fst, ()) } fun p_22 =>
+  Expr.jnz (Arg.var p_22.fst) (Expr.ret (Arg.imm 1, ()))
+    (Expr.call (as := [i64, i64, i64, i64, i64]) (bs := [i64]) "bn_sub"
+      (Arg.var scr, Arg.var (BitVec.ofNat 64 (limbLenNat aVal)),
+       Arg.var (scr + BitVec.ofNat 64 (8 * limbLenNat aVal)),
+       Arg.var (BitVec.ofNat 64 (limbLenNat bVal)),
+       Arg.var (scr + BitVec.ofNat 64 (8 * (limbLenNat aVal + limbLenNat bVal))), ()) fun p_23 =>
+     Expr.call (as := [i64, i64, i64]) (bs := [i64]) "bn_nat_from_limbs"
+       (Arg.var rt,
+        Arg.var (scr + BitVec.ofNat 64 (8 * (limbLenNat aVal + limbLenNat bVal))),
+        Arg.var p_23.fst, ()) fun p =>
+     Expr.ret (Arg.var p.fst, ()))
+
+private def natArithOp3Expr (rt scr : BitVec 64) (aVal bVal : Nat) : Expr Val Cont [i64] :=
+  Expr.let_ { sig := [i64, i64], code := OpCode.cmp CmpOp.eq i64 Ty.bool,
+              args := (Arg.var (BitVec.ofNat 64 (limbLenNat aVal)), Arg.imm 0, ()) } fun p_21 =>
+  Expr.jnz (Arg.var p_21.fst) (Expr.ret (Arg.imm 1, ()))
+    (Expr.let_ { sig := [i64, i64], code := OpCode.cmp CmpOp.eq i64 Ty.bool,
+                 args := (Arg.var (BitVec.ofNat 64 (limbLenNat bVal)), Arg.imm 0, ()) } fun p_22 =>
+     Expr.jnz (Arg.var p_22.fst) (Expr.ret (Arg.imm 1, ()))
+       (Expr.call (as := [i64, i64, i64, i64, i64]) (bs := [i64]) "bn_mul"
+         (Arg.var scr, Arg.var (BitVec.ofNat 64 (limbLenNat aVal)),
+          Arg.var (scr + BitVec.ofNat 64 (8 * limbLenNat aVal)),
+          Arg.var (BitVec.ofNat 64 (limbLenNat bVal)),
+          Arg.var (scr + BitVec.ofNat 64 (8 * (limbLenNat aVal + limbLenNat bVal))),
+          ()) fun p_23 =>
+        Expr.call (as := [i64, i64, i64]) (bs := [i64]) "bn_nat_from_limbs"
+          (Arg.var rt,
+           Arg.var (scr + BitVec.ofNat 64 (8 * (limbLenNat aVal + limbLenNat bVal))),
+           Arg.var p_23.fst, ()) fun p =>
+        Expr.ret (Arg.var p.fst, ())))
+
+private def natArithOp4Expr (rt scr : BitVec 64) (aVal bVal : Nat) : Expr Val Cont [i64] :=
+  Expr.let_ { sig := [i64, i64], code := OpCode.cmp CmpOp.eq i64 Ty.bool,
+              args := (Arg.var (BitVec.ofNat 64 (limbLenNat bVal)), Arg.imm 0, ()) } fun p_22 =>
+  Expr.jnz (Arg.var p_22.fst) (Expr.ret (Arg.imm 1, ()))
+    (Expr.call (as := [i64, i64, i64, i64]) (bs := [i64]) "bn_cmp"
+      (Arg.var scr, Arg.var (BitVec.ofNat 64 (limbLenNat aVal)),
+       Arg.var (scr + BitVec.ofNat 64 (8 * limbLenNat aVal)),
+       Arg.var (BitVec.ofNat 64 (limbLenNat bVal)), ()) fun p_23 =>
+     Expr.let_ { sig := [i32], code := OpCode.sext 32 64, args := (Arg.imm 0, ()) } fun p_24 =>
+     Expr.let_ { sig := [i64, i64], code := OpCode.cmp CmpOp.slt i64 Ty.bool,
+                 args := (Arg.var p_23.fst, Arg.var p_24.fst, ()) } fun p_25 =>
+     Expr.jnz (Arg.var p_25.fst) (Expr.ret (Arg.imm 1, ()))
+       (Expr.let_ { sig := [i64, i64], code := OpCode.mul i64,
+                    args := (Arg.imm 8, Arg.var (BitVec.ofNat 64 (limbLenNat aVal)),
+                      ()) } fun p_26 =>
+        Expr.let_ { sig := [i64, i64], code := OpCode.add i64,
+                    args := (Arg.var (scr +
+                      BitVec.ofNat 64 (8 * (limbLenNat aVal + limbLenNat bVal))),
+                             Arg.var p_26.fst, ()) } fun p_27 =>
+        Expr.call (as := [i64, i64, i64, i64, i64, i64]) (bs := []) "bn_divmod"
+          (Arg.var scr, Arg.var (BitVec.ofNat 64 (limbLenNat aVal)),
+           Arg.var (scr + BitVec.ofNat 64 (8 * limbLenNat aVal)),
+           Arg.var (BitVec.ofNat 64 (limbLenNat bVal)),
+           Arg.var (scr + BitVec.ofNat 64 (8 * (limbLenNat aVal + limbLenNat bVal))),
+           Arg.var p_27.fst, ()) fun _ =>
+        Expr.call (as := [i64, i64, i64]) (bs := [i64]) "bn_nat_from_limbs"
+          (Arg.var rt,
+           Arg.var (scr + BitVec.ofNat 64 (8 * (limbLenNat aVal + limbLenNat bVal))),
+           Arg.var (BitVec.ofNat 64 (limbLenNat aVal)), ()) fun p =>
+        Expr.ret (Arg.var p.fst, ())))
+
+private def natArithOp5Expr (rt scr : BitVec 64) (aVal bVal : Nat) : Expr Val Cont [i64] :=
+  Expr.group (sig := [[]])
+    (fun _Js =>
+      Blocks.cons
+        (fun _ =>
+          Expr.call (as := [i64, i64, i64]) (bs := [i64]) "bn_nat_from_limbs"
+            (Arg.var rt, Arg.var scr, Arg.var (BitVec.ofNat 64 (limbLenNat aVal)), ()) fun p =>
+          Expr.ret (Arg.var p.fst, ()))
+        Blocks.nil)
+    fun Js =>
+    Expr.let_ { sig := [i64, i64], code := OpCode.cmp CmpOp.eq i64 Ty.bool,
+                args := (Arg.var (BitVec.ofNat 64 (limbLenNat bVal)), Arg.imm 0, ()) } fun p_23 =>
+    Expr.jnz (Arg.var p_23.fst) (Expr.jump Js.fst ())
+      (Expr.call (as := [i64, i64, i64, i64]) (bs := [i64]) "bn_cmp"
+        (Arg.var scr, Arg.var (BitVec.ofNat 64 (limbLenNat aVal)),
+         Arg.var (scr + BitVec.ofNat 64 (8 * limbLenNat aVal)),
+         Arg.var (BitVec.ofNat 64 (limbLenNat bVal)), ()) fun p_24 =>
+       Expr.let_ { sig := [i32], code := OpCode.sext 32 64, args := (Arg.imm 0, ()) } fun p_25 =>
+       Expr.let_ { sig := [i64, i64], code := OpCode.cmp CmpOp.slt i64 Ty.bool,
+                   args := (Arg.var p_24.fst, Arg.var p_25.fst, ()) } fun p_26 =>
+       Expr.jnz (Arg.var p_26.fst) (Expr.jump Js.fst ())
+         (Expr.let_ { sig := [i64, i64], code := OpCode.mul i64,
+                      args := (Arg.imm 8, Arg.var (BitVec.ofNat 64 (limbLenNat aVal)),
+                        ()) } fun p_27 =>
+          Expr.let_ { sig := [i64, i64], code := OpCode.add i64,
+                      args := (Arg.var (scr +
+                        BitVec.ofNat 64 (8 * (limbLenNat aVal + limbLenNat bVal))),
+                               Arg.var p_27.fst, ()) } fun p_28 =>
+          Expr.call (as := [i64, i64, i64, i64, i64, i64]) (bs := []) "bn_divmod"
+            (Arg.var scr, Arg.var (BitVec.ofNat 64 (limbLenNat aVal)),
+             Arg.var (scr + BitVec.ofNat 64 (8 * limbLenNat aVal)),
+             Arg.var (BitVec.ofNat 64 (limbLenNat bVal)),
+             Arg.var (scr + BitVec.ofNat 64 (8 * (limbLenNat aVal + limbLenNat bVal))),
+             Arg.var p_28.fst, ()) fun _ =>
+          Expr.call (as := [i64, i64, i64]) (bs := [i64]) "bn_nat_from_limbs"
+            (Arg.var rt, Arg.var p_28.fst, Arg.var (BitVec.ofNat 64 (limbLenNat bVal)), ()) fun p =>
+          Expr.ret (Arg.var p.fst, ())))
+
+private def natArithCmpExpr (scr : BitVec 64) (aVal bVal : Nat) (cmp : CmpOp) :
+    Expr Val Cont [i64] :=
+  Expr.group (sig := [[i64]])
+    (fun _Js => Blocks.cons (fun p => Expr.ret (Arg.var p.fst, ())) Blocks.nil) fun Js =>
+    Expr.call (as := [i64, i64, i64, i64]) (bs := [i64]) "bn_cmp"
+      (Arg.var scr, Arg.var (BitVec.ofNat 64 (limbLenNat aVal)),
+       Arg.var (scr + BitVec.ofNat 64 (8 * limbLenNat aVal)),
+       Arg.var (BitVec.ofNat 64 (limbLenNat bVal)), ()) fun p =>
+    Expr.let_ { sig := [i32], code := OpCode.sext 32 64, args := (Arg.imm 0, ()) } fun p_z =>
+    Expr.let_ { sig := [i64, i64], code := OpCode.cmp cmp i64 Ty.bool,
+                args := (Arg.var p.fst, Arg.var p_z.fst, ()) } fun p =>
+    Expr.jnz (Arg.var p.fst) (Expr.jump Js.fst (Arg.imm 1, ()))
+      (Expr.jump Js.fst (Arg.imm 0, ()))
+
+private def natArithOp678Expr (rt op scr : BitVec 64) (aVal bVal : Nat) : Expr Val Cont [i64] :=
+  Expr.let_ { sig := [i64, i64], code := OpCode.cmp CmpOp.eq i64 Ty.bool,
+              args := (Arg.var op, Arg.imm 6, ()) } fun p_23 =>
+  Expr.jnz (Arg.var p_23.fst) (natArithCmpExpr scr aVal bVal CmpOp.eq)
+    (Expr.let_ { sig := [i64, i64], code := OpCode.cmp CmpOp.eq i64 Ty.bool,
+                 args := (Arg.var op, Arg.imm 7, ()) } fun p_24 =>
+     Expr.jnz (Arg.var p_24.fst) (natArithCmpExpr scr aVal bVal CmpOp.slt)
+       (Expr.let_ { sig := [i64, i64], code := OpCode.cmp CmpOp.eq i64 Ty.bool,
+                    args := (Arg.var op, Arg.imm 8, ()) } fun p_25 =>
+        Expr.jnz (Arg.var p_25.fst) (natArithCmpExpr scr aVal bVal CmpOp.sle)
+          (Expr.exit (as := [i64, i64]) "lcnf_panic" (Arg.var rt, Arg.imm 5, ()))))
+
+private def natArithOp123Expr (rt op scr : BitVec 64) (aVal bVal : Nat) : Expr Val Cont [i64] :=
+  Expr.let_ { sig := [i64, i64], code := OpCode.cmp CmpOp.eq i64 Ty.bool,
+              args := (Arg.var op, Arg.imm 1, ()) } fun p_18 =>
+  Expr.jnz (Arg.var p_18.fst) (natArithOp1Expr rt scr aVal bVal)
+    (Expr.let_ { sig := [i64, i64], code := OpCode.cmp CmpOp.eq i64 Ty.bool,
+                 args := (Arg.var op, Arg.imm 2, ()) } fun p_19 =>
+     Expr.jnz (Arg.var p_19.fst) (natArithOp2Expr rt scr aVal bVal)
+       (Expr.let_ { sig := [i64, i64], code := OpCode.cmp CmpOp.eq i64 Ty.bool,
+                    args := (Arg.var op, Arg.imm 3, ()) } fun p_20 =>
+        Expr.jnz (Arg.var p_20.fst) (natArithOp3Expr rt scr aVal bVal)
+          (Expr.let_ { sig := [i64, i64], code := OpCode.cmp CmpOp.eq i64 Ty.bool,
+                       args := (Arg.var op, Arg.imm 4, ()) } fun p_21 =>
+           Expr.jnz (Arg.var p_21.fst) (natArithOp4Expr rt scr aVal bVal)
+             (Expr.let_ { sig := [i64, i64], code := OpCode.cmp CmpOp.eq i64 Ty.bool,
+                          args := (Arg.var op, Arg.imm 5, ()) } fun p_22 =>
+              Expr.jnz (Arg.var p_22.fst) (natArithOp5Expr rt scr aVal bVal)
+                (natArithOp678Expr rt op scr aVal bVal)))))
+
+/-! ### Phase Lemmas for `lcnf_nat_arith` -/
+
 private theorem lcnf_nat_arith_pred_wp
     (rt a : BitVec 64) (aVal bVal : Nat) (st : RtC0State) (scr : BitVec 64)
     (scrLimbs : List (BitVec 64)) (objs : List LcnfObj) (R : Mem 64 → Prop) (m : Mem 64)
@@ -166,115 +428,22 @@ private theorem lcnf_nat_arith_pred_wp
       st'.PreservesMeta st → st'.rem ≤ st.rem → BigNumRtWf rt st' scr scrLimbs' →
       natArithPost 17 aVal bVal res objs objs' →
       (bigNumRtInv rt st' scr scrLimbs' ⋆ lcnfHeap objs' ⋆ R) m' → Q (res, ()) m') :
-    wp rtR1Env Q X
-      (Expr.let_
-        { sig := [i64, i64], code := OpCode.and i64, args := (Arg.var a, Arg.imm 1, ()) } fun p_2 =>
-        Expr.let_
-          { sig := [i64, i64],
-            code := OpCode.cmp CmpOp.ne i64 Ty.bool,
-            args := (Arg.var p_2.fst, Arg.imm 0, ()) } fun p_3 =>
-          Expr.jnz (Arg.var p_3.fst)
-            (Expr.let_
-              { sig := [i32], code := OpCode.sext 32 64, args := (Arg.imm 1, ()) } fun p_4 =>
-              Expr.let_
-                { sig := [i64, i64], code := OpCode.lshr i64, args := (Arg.var a, Arg.var p_4.fst,
-                  ()) }
-                fun p =>
-                Expr.let_
-                  { sig := [i64, i64],
-                    code := OpCode.cmp CmpOp.eq i64 Ty.bool,
-                    args := (Arg.var p.fst, Arg.imm 0, ()) } fun p_5 =>
-                  Expr.jnz (Arg.var p_5.fst) (Expr.ret (Arg.imm 1, ()))
-                    (Expr.let_
-                      { sig := [i64, i64], code := OpCode.sub i64, args := (Arg.var p.fst,
-                        Arg.imm 1, ()) } fun p =>
-                      Expr.let_
-                        { sig := [i32], code := OpCode.sext 32 64, args := (Arg.imm 1,
-                          ()) } fun p_6 =>
-                        Expr.let_
-                          { sig := [i64, i64], code := OpCode.shl i64, args := (Arg.var p.fst,
-                            Arg.var p_6.fst, ()) }
-                          fun p =>
-                          Expr.let_
-                            { sig := [i64, i64], code := OpCode.or i64, args := (Arg.var p.fst,
-                              Arg.imm 1, ()) }
-                            fun p => Expr.ret (Arg.var p.fst, ())))
-            (Expr.call (as := [i64]) (bs := [i64]) "bn_nat_len" (Arg.var a, ()) fun p_4 =>
-              Expr.group (sig := [[]])
-                (fun _Js =>
-                  Blocks.cons
-                    (fun _p_5 =>
-                      Expr.let_
-                        { sig := [i64, i64],
-                          code := OpCode.cmp CmpOp.eq i64 Ty.bool,
-                          args := (Arg.var p_4.fst, Arg.imm 0, ()) } fun p_6 =>
-                        Expr.jnz (Arg.var p_6.fst) (Expr.ret (Arg.imm 1, ()))
-                          (Expr.exit (as := [i64, i64]) "lcnf_panic" (Arg.var rt, Arg.imm 2, ())))
-                    Blocks.nil)
-                fun Js =>
-                Expr.let_
-                  { sig := [i64, i64],
-                    code := OpCode.cmp CmpOp.eq i64 Ty.bool,
-                    args := (Arg.var p_4.fst, Arg.imm 0, ()) } fun p_5 =>
-                  Expr.jnz (Arg.var p_5.fst) (Expr.jump Js.fst ())
-                    (Expr.let_
-                      { sig := [i64, i64],
-                        code := OpCode.cmp CmpOp.ugt i64 Ty.bool,
-                        args := (Arg.var p_4.fst, Arg.imm 33554429, ()) } fun p_6 =>
-                      Expr.jnz (Arg.var p_6.fst) (Expr.jump Js.fst ())
-                        (Expr.let_
-                          { sig := [i64, i64], code := OpCode.mul i64, args := (Arg.imm 2,
-                            Arg.var p_4.fst, ()) }
-                          fun p_7 =>
-                          Expr.call (as := [i64, i64]) (bs := [i64]) "bn_require_scratch"
-                            (Arg.var rt, Arg.var p_7.fst, ()) fun p_8 =>
-                            Expr.call (as := [i64, i64]) (bs := [i64]) "bn_load_nat"
-                              (Arg.var a, Arg.var p_8.fst, ()) fun p_9 =>
-                              Expr.let_
-                                { sig := [i64, i64], code := OpCode.mul i64,
-                                  args := (Arg.imm 8, Arg.var p_9.fst, ()) } fun p_10 =>
-                                Expr.let_
-                                  { sig := [i64, i64], code := OpCode.add i64,
-                                    args := (Arg.var p_8.fst, Arg.var p_10.fst, ()) } fun p_11 =>
-                                  Expr.call (as := [i64, i64, i64]) (bs := [i64]) "bn_sub_one"
-                                    (Arg.var p_8.fst, Arg.var p_9.fst, Arg.var p_11.fst,
-                                      ()) fun p_12 =>
-                                    Expr.let_
-                                      { sig := [i64, i64], code := OpCode.mul i64,
-                                        args := (Arg.imm 8, Arg.var p_9.fst, ()) } fun p_13 =>
-                                      Expr.let_
-                                        { sig := [i64, i64], code := OpCode.add i64,
-                                          args := (Arg.var p_8.fst, Arg.var p_13.fst,
-                                            ()) } fun p_14 =>
-                                        Expr.call (as := [i64, i64,
-                                          i64]) (bs := [i64]) "bn_nat_from_limbs"
-                                          (Arg.var rt, Arg.var p_14.fst, Arg.var p_12.fst,
-                                            ()) fun p =>
-                                          Expr.ret (Arg.var p.fst, ()))))) m := by
+    wp rtR1Env Q X (natArithPredExpr rt a) m := by
+  dsimp only [natArithPredExpr]
   c0_let_simp
   by_cases ha_sm : aVal < 2 ^ 63
-  · have hbit0 : (a &&& 1#64) ≠ 0#64 := by
-      intro hz
-      have := (natRep_and_one_eq_zero_iff ha).mp hz
-      omega
+  · have hbit0 : (a &&& 1#64) ≠ 0#64 := fun hz => by
+      have := (natRep_and_one_eq_zero_iff ha).mp hz; omega
     apply wp_jnz_true (by simp [hbit0])
     c0_let_simp
     rw [natRep_small_shr1_nat ha ha_sm]
     by_cases ha0 : aVal = 0
     · subst ha0
-      apply wp_jnz_true (by decide)
+      apply wp_jnz_true rfl
       c0_step
       refine hQ 1#64 st scrLimbs objs m (preservesMeta_refl _) (Nat.le_refl _) hwf ?_ hm
-      dsimp only [natArithPost, natArithRes, natRep]
       exact ⟨rfl, fun o ho => ho⟩
-    · have hne0 : (BitVec.ofNat 64 aVal == 0#64) = false := by
-        apply Bool.eq_false_iff.mpr
-        intro ht
-        have := BitVec.toNat_eq.mp (beq_iff_eq.mp ht)
-        rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt
-          (by omega), show (0#64 : BitVec 64).toNat = 0 from rfl] at this
-        omega
-      apply wp_jnz_false hne0
+    · apply wp_jnz_false (bv64_ne0_of_pos_lt (Nat.pos_of_ne_zero ha0) (by omega))
       c0_let_simp
       have hsub : BitVec.ofNat 64 aVal - (1 : BitVec 64) = BitVec.ofNat 64 (aVal - 1) := by
         apply BitVec.eq_of_toNat_eq
@@ -282,16 +451,15 @@ private theorem lcnf_nat_arith_pred_wp
         · rw [BitVec.toNat_ofNat, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega),
             show (1 : BitVec 64).toNat = 1 from rfl, Nat.mod_eq_of_lt (by omega)]
         · change (1 : BitVec 64).toNat ≤ (BitVec.ofNat 64 aVal).toNat
-          rw [show (1 : BitVec 64).toNat = 1 from rfl, BitVec.toNat_ofNat, Nat.mod_eq_of_lt
-            (by omega)]
+          rw [show (1 : BitVec 64).toNat = 1 from rfl, BitVec.toNat_ofNat,
+            Nat.mod_eq_of_lt (by omega)]
           omega
       have henc : ((BitVec.ofNat 64 (aVal - 1) <<< (1 : Nat)) ||| (1 : BitVec 64)) =
           BitVec.ofNat 64 (2 * (aVal - 1) + 1) := bv64_encodeNat (by omega)
       rw [hsub, henc]
       refine hQ _ st scrLimbs objs m (preservesMeta_refl _) (Nat.le_refl _) hwf ?_ hm
-      dsimp only [natArithPost, natArithRes]
       refine ⟨?_, fun o ho => ho⟩
-      simp [natRep, show aVal - 1 < 2 ^ 63 by omega]
+      simp [natArithRes, natRep, show aVal - 1 < 2 ^ 63 by omega]
   · have hbit0 : (a &&& 1#64) = 0#64 := (natRep_and_one_eq_zero_iff ha).mpr (by omega)
     dsimp only [natArithOk] at hok
     simp only [↓reduceIte] at hok
@@ -300,6 +468,7 @@ private theorem lcnf_nat_arith_pred_wp
     apply wp_jnz_false (by simp [hbit0])
     rcases hwf with ⟨hb, hrt64, hscr0, hscra, hscrlen, hscr64⟩
     have hna_max : limbLenNat aVal ≤ mpzMaxLimbs := limbLenNat_le_max_of_natRep ha
+    have hna_lt64 : limbLenNat aVal < 2 ^ 64 := by unfold mpzMaxLimbs at hna_max; omega
     have hna_pos : 0 < limbLenNat aVal := limbLenNat_pos_iff.mpr (by omega)
     have hwf' : BigNumRtWf rt st scr scrLimbs := ⟨hb, hrt64, hscr0, hscra, hscrlen, hscr64⟩
     apply bn_nat_len_rt_call_wp ha hm
@@ -307,26 +476,11 @@ private theorem lcnf_nat_arith_pred_wp
     · intro _ _ _ hfalse; exact False.elim hfalse
     · intro Js hJs
       c0_let_simp
-      have hna0 : (BitVec.ofNat 64 (limbLenNat aVal) == 0#64) = false := by
-        apply Bool.eq_false_iff.mpr
-        intro ht
-        have := BitVec.toNat_eq.mp (beq_iff_eq.mp ht)
-        rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by unfold mpzMaxLimbs at hna_max; omega),
-          show (0#64 : BitVec 64).toNat = 0 from rfl] at this
-        omega
-      apply wp_jnz_false hna0
-      have hugt : (33554429#64 : BitVec 64).ult (BitVec.ofNat 64 (limbLenNat aVal)) = false := by
-        apply Bool.eq_false_iff.mpr
-        intro ht
-        have : (33554429#64 : BitVec 64).toNat < (BitVec.ofNat 64 (limbLenNat aVal)).toNat :=
-          of_decide_eq_true ht
-        rw [show (33554429#64 : BitVec 64).toNat = 33554429 from rfl,
-          BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by unfold mpzMaxLimbs at hna_max; omega)] at this
-        unfold mpzMaxLimbs at hna_max; omega
-      apply wp_jnz_false hugt
+      apply wp_jnz_false (bv64_ne0_of_pos_lt hna_pos hna_lt64)
+      apply wp_jnz_false (bv64_ult_max_false hna_max)
       c0_let_simp
       have hneed_nat : ((2 : BitVec 64) * BitVec.ofNat 64 (limbLenNat aVal)).toNat =
-        2 * limbLenNat aVal := by
+          2 * limbLenNat aVal := by
         rw [BitVec.toNat_mul, show (2 : BitVec 64).toNat = 2 from rfl, BitVec.toNat_ofNat]
         unfold mpzMaxLimbs at hna_max; omega
       apply bn_require_scratch_rt_call_wp hwf' (by rw [hneed_nat]; exact hscr_need) hm
@@ -340,13 +494,12 @@ private theorem lcnf_nat_arith_pred_wp
         ha (by rw [List.length_take_of_le hna_le_scr]; exact le_refl _) (by sep_use hm_split)
       intro scrA' m1 hlenA hvalA _ hm1
       c0_let_simp
-      have hna_lt64 : limbLenNat aVal < 2 ^ 64 := by unfold mpzMaxLimbs at hna_max; omega
       have hna_bv : (BitVec.ofNat 64 (limbLenNat aVal)).toNat = limbLenNat aVal := by
         rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hna_lt64]
       have hna_leA' : (BitVec.ofNat 64 (limbLenNat aVal)).toNat ≤ scrA'.length := by
         rw [hna_bv, hlenA, List.length_take_of_le hna_le_scr]; exact le_refl _
       have hna_leOut : (BitVec.ofNat 64 (limbLenNat aVal)).toNat ≤
-        (scrLimbs.drop (limbLenNat aVal)).length := by
+          (scrLimbs.drop (limbLenNat aVal)).length := by
         rw [List.length_drop, hna_bv]; omega
       have haVal_take : limbsVal (scrA'.take (BitVec.ofNat 64 (limbLenNat aVal)).toNat) = aVal := by
         rwa [hna_bv]
@@ -365,7 +518,7 @@ private theorem lcnf_nat_arith_pred_wp
       have htl_bv : (BitVec.ofNat 64 (limbLenNat (aVal - 1))).toNat = limbLenNat (aVal - 1) := by
         rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by unfold mpzMaxLimbs at htl_max; omega)]
       have hvalOut' : limbsVal (outXs'.take (BitVec.ofNat 64 (limbLenNat (aVal - 1))).toNat) =
-        aVal - 1 := by
+          aVal - 1 := by
         rwa [htl_bv]
       have htrimOut :
           trimLenLoop outXs' (BitVec.ofNat 64 (limbLenNat (aVal - 1))).toNat =
@@ -429,65 +582,7 @@ private theorem lcnf_nat_arith_op678_wp
       st'.PreservesMeta st → st'.rem ≤ st.rem → BigNumRtWf rt st' scr scrLimbs' →
       natArithPost op.toNat aVal bVal res objs objs' →
       (bigNumRtInv rt st' scr scrLimbs' ⋆ lcnfHeap objs' ⋆ R) m' → Q (res, ()) m') :
-    wp rtR1Env Q X
-      (Expr.let_
-        { sig := [i64, i64], code := OpCode.cmp CmpOp.eq i64 Ty.bool,
-          args := (Arg.var op, Arg.imm 6, ()) } fun p_23 =>
-        Expr.jnz (Arg.var p_23.fst)
-          (Expr.group (sig := [[i64]])
-            (fun _Js => Blocks.cons (fun p => Expr.ret (Arg.var p.fst, ())) Blocks.nil) fun Js =>
-            Expr.call (as := [i64, i64, i64, i64]) (bs := [i64]) "bn_cmp"
-              (Arg.var scr, Arg.var (BitVec.ofNat 64 (limbLenNat aVal)),
-               Arg.var (scr + BitVec.ofNat 64 (8 * limbLenNat aVal)),
-               Arg.var (BitVec.ofNat 64 (limbLenNat bVal)), ()) fun p =>
-              Expr.let_
-                { sig := [i32], code := OpCode.sext 32 64, args := (Arg.imm 0, ()) } fun p_24 =>
-                Expr.let_
-                  { sig := [i64, i64], code := OpCode.cmp CmpOp.eq i64 Ty.bool,
-                    args := (Arg.var p.fst, Arg.var p_24.fst, ()) } fun p =>
-                  Expr.jnz (Arg.var p.fst) (Expr.jump Js.fst (Arg.imm 1, ()))
-                    (Expr.jump Js.fst (Arg.imm 0, ())))
-          (Expr.let_
-            { sig := [i64, i64], code := OpCode.cmp CmpOp.eq i64 Ty.bool,
-              args := (Arg.var op, Arg.imm 7, ()) } fun p_24 =>
-            Expr.jnz (Arg.var p_24.fst)
-              (Expr.group (sig := [[i64]])
-                (fun _Js => Blocks.cons (fun p =>
-                  Expr.ret (Arg.var p.fst, ())) Blocks.nil) fun Js =>
-                Expr.call (as := [i64, i64, i64, i64]) (bs := [i64]) "bn_cmp"
-                  (Arg.var scr, Arg.var (BitVec.ofNat 64 (limbLenNat aVal)),
-                   Arg.var (scr + BitVec.ofNat 64 (8 * limbLenNat aVal)),
-                   Arg.var (BitVec.ofNat 64 (limbLenNat bVal)), ()) fun p =>
-                  Expr.let_
-                    { sig := [i32], code := OpCode.sext 32 64, args := (Arg.imm 0, ()) } fun p_25 =>
-                    Expr.let_
-                      { sig := [i64, i64],
-                        code := OpCode.cmp CmpOp.slt i64 Ty.bool,
-                        args := (Arg.var p.fst, Arg.var p_25.fst, ()) } fun p =>
-                      Expr.jnz (Arg.var p.fst) (Expr.jump Js.fst (Arg.imm 1, ()))
-                        (Expr.jump Js.fst (Arg.imm 0, ())))
-              (Expr.let_
-                { sig := [i64, i64],
-                  code := OpCode.cmp CmpOp.eq i64 Ty.bool,
-                  args := (Arg.var op, Arg.imm 8, ()) } fun p_25 =>
-                Expr.jnz (Arg.var p_25.fst)
-                  (Expr.group (sig := [[i64]])
-                    (fun _Js => Blocks.cons (fun p =>
-                      Expr.ret (Arg.var p.fst, ())) Blocks.nil) fun Js =>
-                    Expr.call (as := [i64, i64, i64, i64]) (bs := [i64]) "bn_cmp"
-                      (Arg.var scr, Arg.var (BitVec.ofNat 64 (limbLenNat aVal)),
-                       Arg.var (scr + BitVec.ofNat 64 (8 * limbLenNat aVal)),
-                       Arg.var (BitVec.ofNat 64 (limbLenNat bVal)), ()) fun p =>
-                      Expr.let_
-                        { sig := [i32], code := OpCode.sext 32 64, args := (Arg.imm 0,
-                          ()) } fun p_26 =>
-                        Expr.let_
-                          { sig := [i64, i64],
-                            code := OpCode.cmp CmpOp.sle i64 Ty.bool,
-                            args := (Arg.var p.fst, Arg.var p_26.fst, ()) } fun p =>
-                          Expr.jnz (Arg.var p.fst) (Expr.jump Js.fst (Arg.imm 1, ()))
-                            (Expr.jump Js.fst (Arg.imm 0, ())))
-                  (Expr.exit (as := [i64, i64]) "lcnf_panic" (Arg.var rt, Arg.imm 5, ()))))) m := by
+    wp rtR1Env Q X (natArithOp678Expr rt op scr aVal bVal) m := by
   have hm_big : (bigNumRtInv rt st scr (scrA' ++ scrB' ++ scrOut) ⋆ lcnfHeap objs ⋆ R) m := by
     dsimp only [bigNumRtInv]
     have hlenAB : (scrA' ++ scrB').length = limbLenNat aVal + limbLenNat bVal := by
@@ -520,17 +615,17 @@ private theorem lcnf_nat_arith_op678_wp
     cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆
     array64 (scr + BitVec.ofNat 64 (8 * (limbLenNat aVal + limbLenNat bVal))) scrOut ⋆
       lcnfHeap objs ⋆ R
+  dsimp only [natArithOp678Expr, natArithCmpExpr]
   c0_let_simp
   by_cases h6 : op = 6#64
   · subst h6
-    apply wp_jnz_true (by decide)
+    apply wp_jnz_true rfl
     apply wp_join_group (fun (xs : Tup Val [i64]) (m' : Mem 64) =>
       (xs.fst = if aVal = bVal then 1#64 else 0#64) ∧ m' = m)
     · intro _ xs m' ⟨hxs, hm'⟩
       simp only [Blocks.get]; rw [wp_ret]
-      exact hret_cmp (aVal = bVal) (fun _ => Iff.rfl) (fun h => by simp at h) (fun h =>
-        by simp at h) xs.fst m'
-        ⟨hxs, hm'⟩
+      exact hret_cmp (aVal = bVal) (fun _ => Iff.rfl) (fun h => by simp at h)
+        (fun h => by simp at h) xs.fst m' ⟨hxs, hm'⟩
     · intro Js hJs
       apply bn_cmp_call_wp (R := R_cmp) hna_leA hnb_leB (by dsimp only [R_cmp]; sep_use hm)
       c0_let_simp; rw [hvalA', hvalB']
@@ -541,19 +636,17 @@ private theorem lcnf_nat_arith_op678_wp
           Bool.eq_false_iff.mpr fun ht => heq ((cmpResult64_eq0_iff aVal bVal).mp ht)
         apply wp_jnz_false hf0
         rw [wp_jump]; exact hJs (0#64, ()) m ⟨by simp [heq], rfl⟩
-  · have h6f : (op == 6#64) = false := beq_false_of_ne h6
-    apply wp_jnz_false h6f
+  · apply wp_jnz_false (beq_false_of_ne h6)
     c0_let_simp
     by_cases h7 : op = 7#64
     · subst h7
-      apply wp_jnz_true (by decide)
+      apply wp_jnz_true rfl
       apply wp_join_group (fun (xs : Tup Val [i64]) (m' : Mem 64) =>
         (xs.fst = if aVal < bVal then 1#64 else 0#64) ∧ m' = m)
       · intro _ xs m' ⟨hxs, hm'⟩
         simp only [Blocks.get]; rw [wp_ret]
-        exact hret_cmp (aVal < bVal) (fun h => by simp at h) (fun _ => Iff.rfl) (fun h =>
-          by simp at h) xs.fst m'
-          ⟨hxs, hm'⟩
+        exact hret_cmp (aVal < bVal) (fun h => by simp at h) (fun _ => Iff.rfl)
+          (fun h => by simp at h) xs.fst m' ⟨hxs, hm'⟩
       · intro Js hJs
         apply bn_cmp_call_wp (R := R_cmp) hna_leA hnb_leB (by dsimp only [R_cmp]; sep_use hm)
         c0_let_simp; rw [hvalA', hvalB']
@@ -564,8 +657,7 @@ private theorem lcnf_nat_arith_op678_wp
             Bool.eq_false_iff.mpr fun ht => hlt ((cmpResult64_slt0_iff aVal bVal).mp ht)
           apply wp_jnz_false hf0
           rw [wp_jump]; exact hJs (0#64, ()) m ⟨by simp [hlt], rfl⟩
-    · have h7f : (op == 7#64) = false := beq_false_of_ne h7
-      apply wp_jnz_false h7f
+    · apply wp_jnz_false (beq_false_of_ne h7)
       c0_let_simp
       have h8 : op = 8#64 := by
         rcases (by simpa using hop : op.toNat = 6 ∨ op.toNat = 7 ∨ op.toNat = 8) with h | h | h
@@ -573,14 +665,13 @@ private theorem lcnf_nat_arith_op678_wp
         · exact absurd (BitVec.eq_of_toNat_eq (by simpa using h)) h7
         · exact BitVec.eq_of_toNat_eq (by simpa using h)
       subst h8
-      apply wp_jnz_true (by decide)
+      apply wp_jnz_true rfl
       apply wp_join_group (fun (xs : Tup Val [i64]) (m' : Mem 64) =>
         (xs.fst = if aVal ≤ bVal then 1#64 else 0#64) ∧ m' = m)
       · intro _ xs m' ⟨hxs, hm'⟩
         simp only [Blocks.get]; rw [wp_ret]
-        exact hret_cmp (aVal ≤ bVal) (fun h => by simp at h) (fun h => by simp at h) (fun _ =>
-          Iff.rfl) xs.fst m'
-          ⟨hxs, hm'⟩
+        exact hret_cmp (aVal ≤ bVal) (fun h => by simp at h) (fun h => by simp at h)
+          (fun _ => Iff.rfl) xs.fst m' ⟨hxs, hm'⟩
       · intro Js hJs
         apply bn_cmp_call_wp (R := R_cmp) hna_leA hnb_leB (by dsimp only [R_cmp]; sep_use hm)
         c0_let_simp; rw [hvalA', hvalB']
@@ -591,6 +682,567 @@ private theorem lcnf_nat_arith_op678_wp
             Bool.eq_false_iff.mpr fun ht => hle ((cmpResult64_sle0_iff aVal bVal).mp ht)
           apply wp_jnz_false hf0
           rw [wp_jump]; exact hJs (0#64, ()) m ⟨by simp [hle], rfl⟩
+
+private theorem nat_arith_finish
+    {rt : BitVec 64} (op : Nat) {aVal bVal : Nat} {st st' : RtC0State} {scr : BitVec 64}
+    {scrLimbs scrA' scrB' scrOut scrOut' : List (BitVec 64)}
+    {objs objs' : List LcnfObj} {R : Mem 64 → Prop} {m' : Mem 64}
+    {res : BitVec 64} {Q : Post [i64]}
+    (hwf : BigNumRtWf rt st scr scrLimbs)
+    (hlenA : scrA'.length = limbLenNat aVal) (hlenB : scrB'.length = limbLenNat bVal)
+    (hlenTot : scrA'.length + scrB'.length + scrOut.length = scrLimbs.length)
+    (hlenO' : scrOut'.length = scrOut.length)
+    (hmst : st'.PreservesMeta st) (hrem : st'.rem ≤ st.rem) (hb' : st'.Bounded48)
+    (hpost : natArithPost op aVal bVal res objs objs')
+    (hm' : (rtC0Inv rt st' ⋆ cell64 (rt + 33672#64) scr ⋆
+      cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆
+      array64 scr scrA' ⋆
+      array64 (scr + BitVec.ofNat 64 (8 * limbLenNat aVal)) scrB' ⋆
+      array64 (scr + BitVec.ofNat 64 (8 * (limbLenNat aVal + limbLenNat bVal))) scrOut' ⋆
+      lcnfHeap objs' ⋆ R) m')
+    (hQ : ∀ res st' scrLimbs' objs' m',
+      st'.PreservesMeta st → st'.rem ≤ st.rem → BigNumRtWf rt st' scr scrLimbs' →
+      natArithPost op aVal bVal res objs objs' →
+      (bigNumRtInv rt st' scr scrLimbs' ⋆ lcnfHeap objs' ⋆ R) m' → Q (res, ()) m') :
+    Q (res, ()) m' := by
+  have hlenOutTot : (scrA' ++ scrB' ++ scrOut').length = scrLimbs.length := by
+    simp [hlenA, hlenB, hlenO']; omega
+  have hwf' := BigNumRtWf.with_state_len hwf hb' hlenOutTot
+  have hm_big : (bigNumRtInv rt st' scr (scrA' ++ scrB' ++ scrOut') ⋆ lcnfHeap objs' ⋆ R) m' := by
+    dsimp only [bigNumRtInv]
+    have hlenAB : (scrA' ++ scrB').length = limbLenNat aVal + limbLenNat bVal := by
+      simp [hlenA, hlenB]
+    rw [hlenOutTot, array64_append, hlenAB, array64_append, hlenA]
+    sep_use hm'
+  exact hQ res st' (scrA' ++ scrB' ++ scrOut') objs' m' hmst hrem hwf' hpost hm_big
+
+private theorem nat_arith_from_out_wp
+    {rt : BitVec 64} (op : Nat) {aVal bVal : Nat} {st : RtC0State} {scr : BitVec 64}
+    {scrLimbs scrA' scrB' scrOut scrOut' : List (BitVec 64)}
+    {objs : List LcnfObj} {R : Mem 64 → Prop} {m' : Mem 64}
+    {Q : Post [i64]} {X : XPost} {tnNat : Nat}
+    (hwf : BigNumRtWf rt st scr scrLimbs)
+    (hlenA : scrA'.length = limbLenNat aVal) (hlenB : scrB'.length = limbLenNat bVal)
+    (hlenTot : scrA'.length + scrB'.length + scrOut.length = scrLimbs.length)
+    (hok : natArithOk op aVal bVal scrLimbs.length st)
+    (htn_le : tnNat ≤ scrOut'.length) (hlenO' : scrOut'.length = scrOut.length)
+    (hvalO : limbsVal (scrOut'.take tnNat) = natArithRes op aVal bVal)
+    (htn_eq : limbLenNat (natArithRes op aVal bVal) = tnNat)
+    (hop15 : op ∈ [1, 2, 3, 4, 5])
+    (hm' : (rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
+      cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆
+      array64 scr scrA' ⋆
+      array64 (scr + BitVec.ofNat 64 (8 * limbLenNat aVal)) scrB' ⋆
+      array64 (scr + BitVec.ofNat 64 (8 * (limbLenNat aVal + limbLenNat bVal))) scrOut' ⋆
+      lcnfHeap objs ⋆ R) m')
+    (hQ : ∀ res st' scrLimbs' objs' m',
+      st'.PreservesMeta st → st'.rem ≤ st.rem → BigNumRtWf rt st' scr scrLimbs' →
+      natArithPost op aVal bVal res objs objs' →
+      (bigNumRtInv rt st' scr scrLimbs' ⋆ lcnfHeap objs' ⋆ R) m' → Q (res, ()) m') :
+    wp rtR1Env Q X
+      (Expr.call (as := [i64, i64, i64]) (bs := [i64]) "bn_nat_from_limbs"
+        (Arg.var rt, Arg.var (scr + BitVec.ofNat 64 (8 * (limbLenNat aVal + limbLenNat bVal))),
+         Arg.var (BitVec.ofNat 64 tnNat), ()) fun p => Expr.ret (Arg.var p.fst, ())) m' := by
+  have ok := hok
+  dsimp only [natArithOk] at ok
+  simp only [nat_op123_toNat_ne17 hop15, hop15, ↓reduceIte] at ok
+  rcases ok with ⟨_, hmax_res, halloc⟩
+  have htn_max : tnNat ≤ mpzMaxLimbs := by rwa [← htn_eq]
+  have htn_bv : (BitVec.ofNat 64 tnNat).toNat = tnNat := by
+    rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by unfold mpzMaxLimbs at htn_max; omega)]
+  have hvalO' : limbsVal (scrOut'.take (BitVec.ofNat 64 tnNat).toNat) =
+      natArithRes op aVal bVal := by
+    rwa [htn_bv]
+  have htrim : trimLenLoop scrOut' (BitVec.ofNat 64 tnNat).toNat =
+      limbLenNat (natArithRes op aVal bVal) := by
+    rw [htn_bv, ← limbLenNat_trimLenLoop htn_le, hvalO]
+  let R_outFrom : Mem 64 → Prop := cell64 (rt + 33672#64) scr ⋆
+    cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆ array64 scr scrA' ⋆
+    array64 (scr + BitVec.ofNat 64 (8 * limbLenNat aVal)) scrB' ⋆ R
+  apply bn_nat_from_limbs_call_wp (R := R_outFrom) (by rwa [htn_bv]) (by rwa [htn_bv]) hwf.1
+    (fun hge => by rw [hvalO'] at hge; rw [htrim]; exact halloc hge)
+    (by dsimp only [R_outFrom]; sep_use hm')
+  intro p st' objs' m2 hmst hrem hb' hrep hsm hbg hm2
+  c0_step
+  rw [hvalO'] at hrep hsm hbg
+  refine nat_arith_finish op hwf hlenA hlenB hlenTot hlenO' hmst hrem hb' ?_
+    (by dsimp only [R_outFrom] at hm2; sep_use hm2) hQ
+  dsimp only [natArithPost]
+  simp only [nat_op123_toNat_ne6 hop15, nat_op123_toNat_ne7 hop15,
+    nat_op123_toNat_ne8 hop15, ↓reduceIte]
+  refine ⟨hrep, fun o ho => ?_⟩
+  by_cases hs : natArithRes op aVal bVal < 2 ^ 63
+  · rw [hsm hs]; exact ho
+  · rcases hbg (by omega) with ⟨newObj, _, _, rfl⟩
+    exact List.mem_cons_of_mem _ ho
+
+private theorem lcnf_nat_arith_op1_wp
+    (rt : BitVec 64) (aVal bVal : Nat) (st : RtC0State) (scr : BitVec 64)
+    (scrLimbs scrA' scrB' scrOut : List (BitVec 64))
+    (objs : List LcnfObj) (R : Mem 64 → Prop) (m : Mem 64)
+    (Q : Post [i64]) (X : XPost)
+    (hwf : BigNumRtWf rt st scr scrLimbs)
+    (hlenA : scrA'.length = limbLenNat aVal) (hlenB : scrB'.length = limbLenNat bVal)
+    (hvalA' : limbsVal (scrA'.take (BitVec.ofNat 64 (limbLenNat aVal)).toNat) = aVal)
+    (hvalB' : limbsVal (scrB'.take (BitVec.ofNat 64 (limbLenNat bVal)).toNat) = bVal)
+    (hna_bv : (BitVec.ofNat 64 (limbLenNat aVal)).toNat = limbLenNat aVal)
+    (hnb_bv : (BitVec.ofNat 64 (limbLenNat bVal)).toNat = limbLenNat bVal)
+    (hna_leA : (BitVec.ofNat 64 (limbLenNat aVal)).toNat ≤ scrA'.length)
+    (hnb_leB : (BitVec.ofNat 64 (limbLenNat bVal)).toNat ≤ scrB'.length)
+    (hlenTot : scrA'.length + scrB'.length + scrOut.length = scrLimbs.length)
+    (hout_ge : limbLenNat aVal + limbLenNat bVal + 2 ≤ scrOut.length)
+    (hna_max : limbLenNat aVal ≤ mpzMaxLimbs) (hnb_max : limbLenNat bVal ≤ mpzMaxLimbs)
+    (hok : natArithOk 1 aVal bVal scrLimbs.length st)
+    (hm : (rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
+      cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆
+      array64 scr scrA' ⋆
+      array64 (scr + BitVec.ofNat 64 (8 * limbLenNat aVal)) scrB' ⋆
+      array64 (scr + BitVec.ofNat 64 (8 * (limbLenNat aVal + limbLenNat bVal))) scrOut ⋆
+      lcnfHeap objs ⋆ R) m)
+    (hQ : ∀ res st' scrLimbs' objs' m',
+      st'.PreservesMeta st → st'.rem ≤ st.rem → BigNumRtWf rt st' scr scrLimbs' →
+      natArithPost 1 aVal bVal res objs objs' →
+      (bigNumRtInv rt st' scr scrLimbs' ⋆ lcnfHeap objs' ⋆ R) m' → Q (res, ()) m') :
+    wp rtR1Env Q X (natArithOp1Expr rt scr aVal bVal) m := by
+  let R_abOut : Mem 64 → Prop := rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
+    cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆ lcnfHeap objs ⋆ R
+  have hout1 : max (BitVec.ofNat 64 (limbLenNat aVal)).toNat
+      (BitVec.ofNat 64 (limbLenNat bVal)).toNat + 1 ≤ scrOut.length := by
+    rw [hna_bv, hnb_bv]; omega
+  have hlt1 : max (BitVec.ofNat 64 (limbLenNat aVal)).toNat
+      (BitVec.ofNat 64 (limbLenNat bVal)).toNat + 1 < 2 ^ 64 := by
+    rw [hna_bv, hnb_bv]; unfold mpzMaxLimbs at hna_max hnb_max; omega
+  dsimp only [natArithOp1Expr]
+  apply bn_add_call_wp (R := R_abOut) hna_leA hnb_leB hout1 hlt1
+    (by dsimp only [R_abOut]; sep_use hm)
+  intro outXs' m1
+  dsimp only
+  intro hlenO' htnO hvalO hm1
+  rw [hvalA', hvalB'] at htnO hvalO ⊢
+  try rw [Nat.mul_comm (limbLenNat aVal) 8] at hm1
+  exact nat_arith_from_out_wp 1 hwf hlenA hlenB hlenTot hok (by rw [hlenO']; exact htnO)
+    hlenO' hvalO rfl (by simp) (by dsimp only [R_abOut] at hm1; sep_use hm1) hQ
+
+private theorem lcnf_nat_arith_op2_wp
+    (rt : BitVec 64) (aVal bVal : Nat) (st : RtC0State) (scr : BitVec 64)
+    (scrLimbs scrA' scrB' scrOut : List (BitVec 64))
+    (objs : List LcnfObj) (R : Mem 64 → Prop) (m : Mem 64)
+    (Q : Post [i64]) (X : XPost)
+    (hwf : BigNumRtWf rt st scr scrLimbs)
+    (hlenA : scrA'.length = limbLenNat aVal) (hlenB : scrB'.length = limbLenNat bVal)
+    (hvalA' : limbsVal (scrA'.take (BitVec.ofNat 64 (limbLenNat aVal)).toNat) = aVal)
+    (hvalB' : limbsVal (scrB'.take (BitVec.ofNat 64 (limbLenNat bVal)).toNat) = bVal)
+    (hna_bv : (BitVec.ofNat 64 (limbLenNat aVal)).toNat = limbLenNat aVal)
+    (hna_leA : (BitVec.ofNat 64 (limbLenNat aVal)).toNat ≤ scrA'.length)
+    (hnb_leB : (BitVec.ofNat 64 (limbLenNat bVal)).toNat ≤ scrB'.length)
+    (hlenTot : scrA'.length + scrB'.length + scrOut.length = scrLimbs.length)
+    (hout_ge : limbLenNat aVal + limbLenNat bVal + 2 ≤ scrOut.length)
+    (hok : natArithOk 2 aVal bVal scrLimbs.length st)
+    (hm : (rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
+      cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆
+      array64 scr scrA' ⋆
+      array64 (scr + BitVec.ofNat 64 (8 * limbLenNat aVal)) scrB' ⋆
+      array64 (scr + BitVec.ofNat 64 (8 * (limbLenNat aVal + limbLenNat bVal))) scrOut ⋆
+      lcnfHeap objs ⋆ R) m)
+    (hQ : ∀ res st' scrLimbs' objs' m',
+      st'.PreservesMeta st → st'.rem ≤ st.rem → BigNumRtWf rt st' scr scrLimbs' →
+      natArithPost 2 aVal bVal res objs objs' →
+      (bigNumRtInv rt st' scr scrLimbs' ⋆ lcnfHeap objs' ⋆ R) m' → Q (res, ()) m') :
+    wp rtR1Env Q X (natArithOp2Expr rt scr aVal bVal) m := by
+  let R_cmp : Mem 64 → Prop := rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
+    cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆
+    array64 (scr + BitVec.ofNat 64 (8 * (limbLenNat aVal + limbLenNat bVal))) scrOut ⋆
+      lcnfHeap objs ⋆ R
+  let R_abOut : Mem 64 → Prop := rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
+    cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆ lcnfHeap objs ⋆ R
+  dsimp only [natArithOp2Expr]
+  apply bn_cmp_call_wp (R := R_cmp) hna_leA hnb_leB (by dsimp only [R_cmp]; sep_use hm)
+  c0_let_simp
+  rw [hvalA', hvalB']
+  by_cases hle : aVal ≤ bVal
+  · apply wp_jnz_true ((cmpResult64_sle0_iff aVal bVal).mpr hle)
+    c0_step
+    refine nat_arith_finish 2 hwf hlenA hlenB hlenTot rfl (preservesMeta_refl _)
+      (Nat.le_refl _) hwf.1 ?_ hm hQ
+    dsimp only [natArithPost, natArithRes, natRep]
+    have hsub0 : aVal - bVal = 0 := by omega
+    simp [hsub0]
+  · have hgt : bVal ≤ aVal := by omega
+    have hle_f : (cmpResult64 aVal bVal).sle 0#64 = false :=
+      Bool.eq_false_iff.mpr fun ht => hle ((cmpResult64_sle0_iff aVal bVal).mp ht)
+    apply wp_jnz_false hle_f
+    have hout2 : (BitVec.ofNat 64 (limbLenNat aVal)).toNat ≤ scrOut.length := by
+      rw [hna_bv]; omega
+    apply bn_sub_call_wp (R := R_abOut) hna_leA hnb_leB hout2
+      (by rw [hvalA', hvalB']; exact hgt) (by dsimp only [R_abOut]; sep_use hm)
+    intro outXs' m1
+    dsimp only
+    intro hlenO' htnO hvalO hm1
+    rw [hvalA', hvalB'] at htnO hvalO
+    try rw [hvalA', hvalB']
+    try rw [Nat.mul_comm (limbLenNat aVal) 8] at hm1
+    exact nat_arith_from_out_wp 2 hwf hlenA hlenB hlenTot hok (by rw [hlenO']; exact htnO)
+      hlenO' hvalO rfl (by simp) (by dsimp only [R_abOut] at hm1; sep_use hm1) hQ
+
+private theorem lcnf_nat_arith_op3_wp
+    (rt : BitVec 64) (aVal bVal : Nat) (st : RtC0State) (scr : BitVec 64)
+    (scrLimbs scrA' scrB' scrOut : List (BitVec 64))
+    (objs : List LcnfObj) (R : Mem 64 → Prop) (m : Mem 64)
+    (Q : Post [i64]) (X : XPost)
+    (hwf : BigNumRtWf rt st scr scrLimbs)
+    (hlenA : scrA'.length = limbLenNat aVal) (hlenB : scrB'.length = limbLenNat bVal)
+    (hvalA' : limbsVal (scrA'.take (BitVec.ofNat 64 (limbLenNat aVal)).toNat) = aVal)
+    (hvalB' : limbsVal (scrB'.take (BitVec.ofNat 64 (limbLenNat bVal)).toNat) = bVal)
+    (hna_bv : (BitVec.ofNat 64 (limbLenNat aVal)).toNat = limbLenNat aVal)
+    (hnb_bv : (BitVec.ofNat 64 (limbLenNat bVal)).toNat = limbLenNat bVal)
+    (hna_leA : (BitVec.ofNat 64 (limbLenNat aVal)).toNat ≤ scrA'.length)
+    (hnb_leB : (BitVec.ofNat 64 (limbLenNat bVal)).toNat ≤ scrB'.length)
+    (hlenTot : scrA'.length + scrB'.length + scrOut.length = scrLimbs.length)
+    (hout_ge : limbLenNat aVal + limbLenNat bVal + 2 ≤ scrOut.length)
+    (hna_max : limbLenNat aVal ≤ mpzMaxLimbs) (hnb_max : limbLenNat bVal ≤ mpzMaxLimbs)
+    (hok : natArithOk 3 aVal bVal scrLimbs.length st)
+    (hm : (rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
+      cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆
+      array64 scr scrA' ⋆
+      array64 (scr + BitVec.ofNat 64 (8 * limbLenNat aVal)) scrB' ⋆
+      array64 (scr + BitVec.ofNat 64 (8 * (limbLenNat aVal + limbLenNat bVal))) scrOut ⋆
+      lcnfHeap objs ⋆ R) m)
+    (hQ : ∀ res st' scrLimbs' objs' m',
+      st'.PreservesMeta st → st'.rem ≤ st.rem → BigNumRtWf rt st' scr scrLimbs' →
+      natArithPost 3 aVal bVal res objs objs' →
+      (bigNumRtInv rt st' scr scrLimbs' ⋆ lcnfHeap objs' ⋆ R) m' → Q (res, ()) m') :
+    wp rtR1Env Q X (natArithOp3Expr rt scr aVal bVal) m := by
+  let R_abOut : Mem 64 → Prop := rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
+    cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆ lcnfHeap objs ⋆ R
+  dsimp only [natArithOp3Expr]
+  c0_let_simp
+  by_cases ha0 : aVal = 0
+  · have hna0 : BitVec.ofNat 64 (limbLenNat aVal) = 0#64 := by simp [ha0, limbLenNat]
+    apply wp_jnz_true (by rw [hna0]; rfl)
+    c0_step
+    refine nat_arith_finish 3 hwf hlenA hlenB hlenTot rfl (preservesMeta_refl _)
+      (Nat.le_refl _) hwf.1 ?_ hm hQ
+    simp [natArithPost, natArithRes, natRep, ha0]
+  · have hna_pos : 0 < limbLenNat aVal := limbLenNat_pos_iff.mpr (Nat.pos_of_ne_zero ha0)
+    have hna_lt64 : limbLenNat aVal < 2 ^ 64 := by unfold mpzMaxLimbs at hna_max; omega
+    apply wp_jnz_false (bv64_ne0_of_pos_lt hna_pos hna_lt64)
+    c0_let_simp
+    by_cases hb0 : bVal = 0
+    · have hnb0 : BitVec.ofNat 64 (limbLenNat bVal) = 0#64 := by simp [hb0, limbLenNat]
+      apply wp_jnz_true (by rw [hnb0]; rfl)
+      c0_step
+      refine nat_arith_finish 3 hwf hlenA hlenB hlenTot rfl (preservesMeta_refl _)
+        (Nat.le_refl _) hwf.1 ?_ hm hQ
+      simp [natArithPost, natArithRes, natRep, hb0]
+    · have hnb_pos : 0 < limbLenNat bVal := limbLenNat_pos_iff.mpr (Nat.pos_of_ne_zero hb0)
+      have hnb_lt64 : limbLenNat bVal < 2 ^ 64 := by unfold mpzMaxLimbs at hnb_max; omega
+      apply wp_jnz_false (bv64_ne0_of_pos_lt hnb_pos hnb_lt64)
+      have hout3 : (BitVec.ofNat 64 (limbLenNat aVal)).toNat +
+          (BitVec.ofNat 64 (limbLenNat bVal)).toNat ≤ scrOut.length := by
+        rw [hna_bv, hnb_bv]; omega
+      have hlt3 : (BitVec.ofNat 64 (limbLenNat aVal)).toNat +
+          (BitVec.ofNat 64 (limbLenNat bVal)).toNat < 2 ^ 64 := by
+        rw [hna_bv, hnb_bv]; unfold mpzMaxLimbs at hna_max hnb_max; omega
+      apply bn_mul_call_wp (R := R_abOut) hna_leA hnb_leB hout3 hlt3
+        (by dsimp only [R_abOut]; sep_use hm)
+      intro outXs' m1 hlenO' htnO hvalO hm1
+      rw [hvalA', hvalB'] at htnO hvalO
+      try rw [hvalA', hvalB']
+      exact nat_arith_from_out_wp 3 hwf hlenA hlenB hlenTot hok (by rw [hlenO']; exact htnO)
+        hlenO' hvalO rfl (by simp) (by dsimp only [R_abOut] at hm1; sep_use hm1) hQ
+
+private theorem lcnf_nat_arith_op4_wp
+    (rt : BitVec 64) (aVal bVal : Nat) (st : RtC0State) (scr : BitVec 64)
+    (scrLimbs scrA' scrB' scrOut : List (BitVec 64))
+    (objs : List LcnfObj) (R : Mem 64 → Prop) (m : Mem 64)
+    (Q : Post [i64]) (X : XPost)
+    (hwf : BigNumRtWf rt st scr scrLimbs)
+    (hlenA : scrA'.length = limbLenNat aVal) (hlenB : scrB'.length = limbLenNat bVal)
+    (hvalA' : limbsVal (scrA'.take (BitVec.ofNat 64 (limbLenNat aVal)).toNat) = aVal)
+    (hvalB' : limbsVal (scrB'.take (BitVec.ofNat 64 (limbLenNat bVal)).toNat) = bVal)
+    (hna_bv : (BitVec.ofNat 64 (limbLenNat aVal)).toNat = limbLenNat aVal)
+    (hnb_bv : (BitVec.ofNat 64 (limbLenNat bVal)).toNat = limbLenNat bVal)
+    (hna_leA : (BitVec.ofNat 64 (limbLenNat aVal)).toNat ≤ scrA'.length)
+    (hnb_leB : (BitVec.ofNat 64 (limbLenNat bVal)).toNat ≤ scrB'.length)
+    (hlenTot : scrA'.length + scrB'.length + scrOut.length = scrLimbs.length)
+    (hout_ge : limbLenNat aVal + limbLenNat bVal + 2 ≤ scrOut.length)
+    (hna_max : limbLenNat aVal ≤ mpzMaxLimbs) (hnb_max : limbLenNat bVal ≤ mpzMaxLimbs)
+    (hok : natArithOk 4 aVal bVal scrLimbs.length st)
+    (hm : (rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
+      cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆
+      array64 scr scrA' ⋆
+      array64 (scr + BitVec.ofNat 64 (8 * limbLenNat aVal)) scrB' ⋆
+      array64 (scr + BitVec.ofNat 64 (8 * (limbLenNat aVal + limbLenNat bVal))) scrOut ⋆
+      lcnfHeap objs ⋆ R) m)
+    (hQ : ∀ res st' scrLimbs' objs' m',
+      st'.PreservesMeta st → st'.rem ≤ st.rem → BigNumRtWf rt st' scr scrLimbs' →
+      natArithPost 4 aVal bVal res objs objs' →
+      (bigNumRtInv rt st' scr scrLimbs' ⋆ lcnfHeap objs' ⋆ R) m' → Q (res, ()) m') :
+    wp rtR1Env Q X (natArithOp4Expr rt scr aVal bVal) m := by
+  let R_cmp : Mem 64 → Prop := rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
+    cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆
+    array64 (scr + BitVec.ofNat 64 (8 * (limbLenNat aVal + limbLenNat bVal))) scrOut ⋆
+      lcnfHeap objs ⋆ R
+  let R_abOut : Mem 64 → Prop := rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
+    cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆ lcnfHeap objs ⋆ R
+  have h8mul := bv64_mul8_of_lt (limbLenNat aVal) (by unfold mpzMaxLimbs at hna_max; omega)
+  dsimp only [natArithOp4Expr]
+  c0_let_simp
+  by_cases hb0 : bVal = 0
+  · have hnb0 : BitVec.ofNat 64 (limbLenNat bVal) = 0#64 := by simp [hb0, limbLenNat]
+    apply wp_jnz_true (by rw [hnb0]; rfl)
+    c0_step
+    refine nat_arith_finish 4 hwf hlenA hlenB hlenTot rfl (preservesMeta_refl _)
+      (Nat.le_refl _) hwf.1 ?_ hm hQ
+    simp [natArithPost, natArithRes, natRep, hb0]
+  · have hnb_pos : 0 < limbLenNat bVal := limbLenNat_pos_iff.mpr (Nat.pos_of_ne_zero hb0)
+    have hnb_lt64 : limbLenNat bVal < 2 ^ 64 := by unfold mpzMaxLimbs at hnb_max; omega
+    apply wp_jnz_false (bv64_ne0_of_pos_lt hnb_pos hnb_lt64)
+    apply bn_cmp_call_wp (R := R_cmp) hna_leA hnb_leB (by dsimp only [R_cmp]; sep_use hm)
+    c0_let_simp
+    rw [hvalA', hvalB']
+    by_cases hlt : aVal < bVal
+    · apply wp_jnz_true ((cmpResult64_slt0_iff aVal bVal).mpr hlt)
+      c0_step
+      refine nat_arith_finish 4 hwf hlenA hlenB hlenTot rfl (preservesMeta_refl _)
+        (Nat.le_refl _) hwf.1 ?_ hm hQ
+      simp [natArithPost, natArithRes, natRep, Nat.div_eq_of_lt hlt]
+    · have hge : bVal ≤ aVal := by omega
+      have hna_pos : 0 < limbLenNat aVal := limbLenNat_pos_iff.mpr (by omega)
+      have hlt_f : (cmpResult64 aVal bVal).slt 0#64 = false :=
+        Bool.eq_false_iff.mpr fun ht => hlt ((cmpResult64_slt0_iff aVal bVal).mp ht)
+      apply wp_jnz_false hlt_f
+      c0_let_simp
+      rw [h8mul]
+      have hm_split := hm
+      rw [array64_split_len
+        (a := scr + BitVec.ofNat 64 (8 * (limbLenNat aVal + limbLenNat bVal)))
+        (k := limbLenNat aVal) (by omega)] at hm_split
+      try rw [Nat.mul_comm (limbLenNat aVal) 8] at hm_split
+      have hq_len : (BitVec.ofNat 64 (limbLenNat aVal)).toNat ≤
+          (scrOut.take (limbLenNat aVal)).length := by
+        rw [List.length_take_of_le (by omega), hna_bv]; exact le_refl _
+      have hr_len : (BitVec.ofNat 64 (limbLenNat bVal)).toNat ≤
+          (scrOut.drop (limbLenNat aVal)).length := by
+        rw [List.length_drop, hnb_bv]; omega
+      have hmsb : scrB'[(BitVec.ofNat 64 (limbLenNat bVal)).toNat - 1]! ≠ 0#64 := by
+        rw [hnb_bv]
+        exact limbsVal_msb_nz hnb_pos (by omega) (by conv => lhs; rw [← hnb_bv, hvalB'])
+      apply bn_divmod_call_wp (R := R_abOut) (by rw [hna_bv]; exact hna_pos)
+        (by rw [hnb_bv]; exact hnb_pos) hna_leA hnb_leB hq_len hr_len hmsb
+        (by dsimp only [R_abOut]; sep_use hm_split)
+      intro qXs' rXs' m1 hlenQ hlenR hvalQ _ hm1
+      rw [hvalA', hvalB'] at hvalQ
+      have hq_len' : (BitVec.ofNat 64 (limbLenNat aVal)).toNat ≤ qXs'.length := by
+        rw [hlenQ]; exact hq_len
+      have hok' := hok
+      dsimp only [natArithOk] at hok'
+      simp only [show (4 : Nat) ≠ 17 by omega, show (4 : Nat) ∈ [1, 2, 3, 4, 5] by simp,
+        ↓reduceIte] at hok'
+      rcases hok' with ⟨_, _, halloc⟩
+      have hq_val : limbsVal (qXs'.take (limbLenNat aVal)) = aVal / bVal := by
+        rwa [hna_bv] at hvalQ
+      have htrimQ : trimLenLoop qXs' (BitVec.ofNat 64 (limbLenNat aVal)).toNat =
+          limbLenNat (aVal / bVal) := by
+        rw [hna_bv, ← limbLenNat_trimLenLoop
+          (by rw [hlenQ, List.length_take_of_le (by omega)]; exact le_refl _), hq_val]
+      apply bn_nat_from_limbs_call_wp (R := cell64 (rt + 33672#64) scr ⋆
+        cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆ array64 scr scrA' ⋆
+        array64 (scr + BitVec.ofNat 64 (8 * limbLenNat aVal)) scrB' ⋆
+        array64 ((scr + BitVec.ofNat 64 (8 * (limbLenNat aVal + limbLenNat bVal))) +
+          BitVec.ofNat 64 (8 * limbLenNat aVal)) rXs' ⋆ R)
+        hq_len' (by rw [hna_bv]; exact hna_max) hwf.1
+        (fun hge => by rw [hvalQ] at hge; rw [htrimQ]; exact halloc hge)
+        (by dsimp only [R_abOut] at hm1; sep_use hm1)
+      intro p st' objs' m2 hmst hrem hb' hrep hsm hbg hm2
+      c0_step
+      have hqr_len : (qXs' ++ rXs').length = scrOut.length := by
+        rw [List.length_append, hlenQ, hlenR, List.length_take_of_le (by omega),
+          List.length_drop]; omega
+      have hq'_len : qXs'.length = limbLenNat aVal := by
+        rw [hlenQ, List.length_take_of_le (by omega)]
+      have hm2' : (rtC0Inv rt st' ⋆ cell64 (rt + 33672#64) scr ⋆
+        cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆
+        array64 scr scrA' ⋆
+        array64 (scr + BitVec.ofNat 64 (8 * limbLenNat aVal)) scrB' ⋆
+        array64 (scr + BitVec.ofNat 64 (8 * (limbLenNat aVal + limbLenNat bVal))) (qXs' ++ rXs') ⋆
+        lcnfHeap objs' ⋆ R) m2 := by
+        rw [array64_append, hq'_len]
+        try rw [Nat.mul_comm (limbLenNat aVal) 8]
+        sep_use hm2
+      rw [hvalQ] at hrep hsm hbg
+      refine nat_arith_finish 4 hwf hlenA hlenB hlenTot hqr_len hmst hrem hb' ?_ hm2' hQ
+      dsimp only [natArithPost, natArithRes]
+      refine ⟨hrep, fun o ho => ?_⟩
+      by_cases hs : aVal / bVal < 2 ^ 63
+      · rw [hsm hs]; exact ho
+      · rcases hbg (by omega) with ⟨newObj, _, _, rfl⟩
+        exact List.mem_cons_of_mem _ ho
+
+private theorem lcnf_nat_arith_op5_wp
+    (rt : BitVec 64) (aVal bVal : Nat) (st : RtC0State) (scr : BitVec 64)
+    (scrLimbs scrA' scrB' scrOut : List (BitVec 64))
+    (objs : List LcnfObj) (R : Mem 64 → Prop) (m : Mem 64)
+    (Q : Post [i64]) (X : XPost)
+    (hwf : BigNumRtWf rt st scr scrLimbs)
+    (hlenA : scrA'.length = limbLenNat aVal) (hlenB : scrB'.length = limbLenNat bVal)
+    (hvalA' : limbsVal (scrA'.take (BitVec.ofNat 64 (limbLenNat aVal)).toNat) = aVal)
+    (hvalB' : limbsVal (scrB'.take (BitVec.ofNat 64 (limbLenNat bVal)).toNat) = bVal)
+    (hna_bv : (BitVec.ofNat 64 (limbLenNat aVal)).toNat = limbLenNat aVal)
+    (hnb_bv : (BitVec.ofNat 64 (limbLenNat bVal)).toNat = limbLenNat bVal)
+    (hna_leA : (BitVec.ofNat 64 (limbLenNat aVal)).toNat ≤ scrA'.length)
+    (hnb_leB : (BitVec.ofNat 64 (limbLenNat bVal)).toNat ≤ scrB'.length)
+    (hlenTot : scrA'.length + scrB'.length + scrOut.length = scrLimbs.length)
+    (hout_ge : limbLenNat aVal + limbLenNat bVal + 2 ≤ scrOut.length)
+    (hna_max : limbLenNat aVal ≤ mpzMaxLimbs) (hnb_max : limbLenNat bVal ≤ mpzMaxLimbs)
+    (hok : natArithOk 5 aVal bVal scrLimbs.length st)
+    (hm : (rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
+      cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆
+      array64 scr scrA' ⋆
+      array64 (scr + BitVec.ofNat 64 (8 * limbLenNat aVal)) scrB' ⋆
+      array64 (scr + BitVec.ofNat 64 (8 * (limbLenNat aVal + limbLenNat bVal))) scrOut ⋆
+      lcnfHeap objs ⋆ R) m)
+    (hQ : ∀ res st' scrLimbs' objs' m',
+      st'.PreservesMeta st → st'.rem ≤ st.rem → BigNumRtWf rt st' scr scrLimbs' →
+      natArithPost 5 aVal bVal res objs objs' →
+      (bigNumRtInv rt st' scr scrLimbs' ⋆ lcnfHeap objs' ⋆ R) m' → Q (res, ()) m') :
+    wp rtR1Env Q X (natArithOp5Expr rt scr aVal bVal) m := by
+  let R_cmp : Mem 64 → Prop := rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
+    cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆
+    array64 (scr + BitVec.ofNat 64 (8 * (limbLenNat aVal + limbLenNat bVal))) scrOut ⋆
+      lcnfHeap objs ⋆ R
+  let R_abOut : Mem 64 → Prop := rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
+    cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆ lcnfHeap objs ⋆ R
+  have h8mul := bv64_mul8_of_lt (limbLenNat aVal) (by unfold mpzMaxLimbs at hna_max; omega)
+  dsimp only [natArithOp5Expr]
+  apply wp_join_group
+    (fun _ m' => (bVal = 0 ∨ aVal < bVal) ∧
+      (rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
+        cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆
+        array64 scr scrA' ⋆
+        array64 (scr + BitVec.ofNat 64 (8 * limbLenNat aVal)) scrB' ⋆
+        array64 (scr + BitVec.ofNat 64 (8 * (limbLenNat aVal + limbLenNat bVal))) scrOut ⋆
+        lcnfHeap objs ⋆ R) m')
+  · intro J _ m' ⟨hcase, hm'⟩
+    simp only [Blocks.get]
+    have hmod_eq : aVal % bVal = aVal := by
+      rcases hcase with rfl | hlt
+      · simp
+      · exact Nat.mod_eq_of_lt hlt
+    have hok' := hok
+    dsimp only [natArithOk] at hok'
+    simp only [show (5 : Nat) ≠ 17 by omega, show (5 : Nat) ∈ [1, 2, 3, 4, 5] by simp,
+      ↓reduceIte] at hok'
+    rcases hok' with ⟨_, _, halloc⟩
+    have hmod_res : natArithRes 5 aVal bVal = aVal := by simp [natArithRes, hmod_eq]
+    rw [hmod_res] at halloc
+    have ha_val' : limbsVal (scrA'.take (limbLenNat aVal)) = aVal := by rwa [hna_bv] at hvalA'
+    have htrimA :
+        trimLenLoop scrA' (BitVec.ofNat 64 (limbLenNat aVal)).toNat = limbLenNat aVal := by
+      rw [hna_bv, ← limbLenNat_trimLenLoop (by omega), ha_val']
+    apply bn_nat_from_limbs_call_wp (R := cell64 (rt + 33672#64) scr ⋆
+      cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆
+      array64 (scr + BitVec.ofNat 64 (8 * limbLenNat aVal)) scrB' ⋆
+      array64 (scr + BitVec.ofNat 64 (8 * (limbLenNat aVal + limbLenNat bVal))) scrOut ⋆ R)
+      hna_leA (by rw [hna_bv]; exact hna_max) hwf.1
+      (fun hge => by rw [hvalA'] at hge; rw [htrimA]; exact halloc hge) (by sep_use hm')
+    intro p st' objs' m2 hmst hrem hb' hrep hsm hbg hm2
+    c0_step
+    rw [hvalA'] at hrep hsm hbg
+    refine nat_arith_finish 5 hwf hlenA hlenB hlenTot rfl hmst hrem hb' ?_ (by sep_use hm2) hQ
+    dsimp only [natArithPost, natArithRes]
+    rw [hmod_eq]
+    refine ⟨hrep, fun o ho => ?_⟩
+    by_cases hs : aVal < 2 ^ 63
+    · rw [hsm hs]; exact ho
+    · rcases hbg (by omega) with ⟨newObj, _, _, rfl⟩
+      exact List.mem_cons_of_mem _ ho
+  · intro Js hJs
+    c0_let_simp
+    by_cases hb0 : bVal = 0
+    · have hnb0 : BitVec.ofNat 64 (limbLenNat bVal) = 0#64 := by simp [hb0, limbLenNat]
+      apply wp_jnz_true (by rw [hnb0]; rfl)
+      rw [wp_jump]; exact hJs () m ⟨Or.inl hb0, hm⟩
+    · have hnb_pos : 0 < limbLenNat bVal := limbLenNat_pos_iff.mpr (Nat.pos_of_ne_zero hb0)
+      have hnb_lt64 : limbLenNat bVal < 2 ^ 64 := by unfold mpzMaxLimbs at hnb_max; omega
+      apply wp_jnz_false (bv64_ne0_of_pos_lt hnb_pos hnb_lt64)
+      apply bn_cmp_call_wp (R := R_cmp) hna_leA hnb_leB (by dsimp only [R_cmp]; sep_use hm)
+      c0_let_simp
+      rw [hvalA', hvalB']
+      by_cases hlt : aVal < bVal
+      · apply wp_jnz_true ((cmpResult64_slt0_iff aVal bVal).mpr hlt)
+        rw [wp_jump]; exact hJs () m ⟨Or.inr hlt, hm⟩
+      · have hge : bVal ≤ aVal := by omega
+        have hna_pos : 0 < limbLenNat aVal := limbLenNat_pos_iff.mpr (by omega)
+        have hlt_f : (cmpResult64 aVal bVal).slt 0#64 = false :=
+          Bool.eq_false_iff.mpr fun ht => hlt ((cmpResult64_slt0_iff aVal bVal).mp ht)
+        apply wp_jnz_false hlt_f
+        c0_let_simp
+        rw [h8mul]
+        have hm_split := hm
+        rw [array64_split_len
+          (a := scr + BitVec.ofNat 64 (8 * (limbLenNat aVal + limbLenNat bVal)))
+          (k := limbLenNat aVal) (by omega)] at hm_split
+        try rw [Nat.mul_comm (limbLenNat aVal) 8] at hm_split
+        have hq_len : (BitVec.ofNat 64 (limbLenNat aVal)).toNat ≤
+            (scrOut.take (limbLenNat aVal)).length := by
+          rw [List.length_take_of_le (by omega), hna_bv]; exact le_refl _
+        have hr_len : (BitVec.ofNat 64 (limbLenNat bVal)).toNat ≤
+            (scrOut.drop (limbLenNat aVal)).length := by
+          rw [List.length_drop, hnb_bv]; omega
+        have hmsb : scrB'[(BitVec.ofNat 64 (limbLenNat bVal)).toNat - 1]! ≠ 0#64 := by
+          rw [hnb_bv]
+          exact limbsVal_msb_nz hnb_pos (by omega) (by conv => lhs; rw [← hnb_bv, hvalB'])
+        apply bn_divmod_call_wp (R := R_abOut) (by rw [hna_bv]; exact hna_pos)
+          (by rw [hnb_bv]; exact hnb_pos) hna_leA hnb_leB hq_len hr_len hmsb
+          (by dsimp only [R_abOut]; sep_use hm_split)
+        intro qXs' rXs' m1 hlenQ hlenR _ hvalR hm1
+        rw [hvalA', hvalB'] at hvalR
+        have hr_len' : (BitVec.ofNat 64 (limbLenNat bVal)).toNat ≤ rXs'.length := by
+          rw [hlenR]; exact hr_len
+        have hok' := hok
+        dsimp only [natArithOk] at hok'
+        simp only [show (5 : Nat) ≠ 17 by omega, show (5 : Nat) ∈ [1, 2, 3, 4, 5] by simp,
+          ↓reduceIte] at hok'
+        rcases hok' with ⟨_, _, halloc⟩
+        have hr_val : limbsVal (rXs'.take (limbLenNat bVal)) = aVal % bVal := by
+          rwa [hnb_bv] at hvalR
+        have htrimR : trimLenLoop rXs' (BitVec.ofNat 64 (limbLenNat bVal)).toNat =
+            limbLenNat (aVal % bVal) := by
+          rw [hnb_bv, ← limbLenNat_trimLenLoop
+            (by rw [hlenR, List.length_drop]; omega), hr_val]
+        apply bn_nat_from_limbs_call_wp (R := cell64 (rt + 33672#64) scr ⋆
+          cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆ array64 scr scrA' ⋆
+          array64 (scr + BitVec.ofNat 64 (8 * limbLenNat aVal)) scrB' ⋆
+          array64 (scr + BitVec.ofNat 64 (8 * (limbLenNat aVal + limbLenNat bVal))) qXs' ⋆ R)
+          hr_len' (by rw [hnb_bv]; exact hnb_max) hwf.1
+          (fun hge => by rw [hvalR] at hge; rw [htrimR]; exact halloc hge)
+          (by dsimp only [R_abOut] at hm1; sep_use hm1)
+        intro p st' objs' m2 hmst hrem hb' hrep hsm hbg hm2
+        c0_step
+        have hqr_len : (qXs' ++ rXs').length = scrOut.length := by
+          rw [List.length_append, hlenQ, hlenR, List.length_take_of_le (by omega),
+            List.length_drop]; omega
+        have hq'_len : qXs'.length = limbLenNat aVal := by
+          rw [hlenQ, List.length_take_of_le (by omega)]
+        have hm2' : (rtC0Inv rt st' ⋆ cell64 (rt + 33672#64) scr ⋆
+          cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆
+          array64 scr scrA' ⋆
+          array64 (scr + BitVec.ofNat 64 (8 * limbLenNat aVal)) scrB' ⋆
+          array64 (scr + BitVec.ofNat 64 (8 * (limbLenNat aVal + limbLenNat bVal)))
+            (qXs' ++ rXs') ⋆
+          lcnfHeap objs' ⋆ R) m2 := by
+          rw [array64_append, hq'_len]
+          try rw [Nat.mul_comm (limbLenNat aVal) 8]
+          sep_use hm2
+        rw [hvalR] at hrep hsm hbg
+        refine nat_arith_finish 5 hwf hlenA hlenB hlenTot hqr_len hmst hrem hb' ?_ hm2' hQ
+        dsimp only [natArithPost, natArithRes]
+        refine ⟨hrep, fun o ho => ?_⟩
+        by_cases hs : aVal % bVal < 2 ^ 63
+        · rw [hsm hs]; exact ho
+        · rcases hbg (by omega) with ⟨newObj, _, _, rfl⟩
+          exact List.mem_cons_of_mem _ ho
 
 private theorem lcnf_nat_arith_op123_wp
     (rt op : BitVec 64) (aVal bVal : Nat) (st : RtC0State) (scr : BitVec 64)
@@ -616,259 +1268,7 @@ private theorem lcnf_nat_arith_op123_wp
       st'.PreservesMeta st → st'.rem ≤ st.rem → BigNumRtWf rt st' scr scrLimbs' →
       natArithPost op.toNat aVal bVal res objs objs' →
       (bigNumRtInv rt st' scr scrLimbs' ⋆ lcnfHeap objs' ⋆ R) m' → Q (res, ()) m') :
-    wp rtR1Env Q X
-      (Expr.let_
-        { sig := [i64, i64], code := OpCode.cmp CmpOp.eq i64 Ty.bool,
-          args := (Arg.var op, Arg.imm 1, ()) } fun p_18 =>
-        Expr.jnz (Arg.var p_18.fst)
-          (Expr.call (as := [i64, i64, i64, i64, i64]) (bs := [i64]) "bn_add"
-            (Arg.var scr, Arg.var (BitVec.ofNat 64 (limbLenNat aVal)),
-             Arg.var (scr + BitVec.ofNat 64 (8 * limbLenNat aVal)),
-             Arg.var (BitVec.ofNat 64 (limbLenNat bVal)),
-             Arg.var (scr + BitVec.ofNat 64 (8 * (limbLenNat aVal +
-               limbLenNat bVal))), ()) fun p_19 =>
-            Expr.call (as := [i64, i64, i64]) (bs := [i64]) "bn_nat_from_limbs"
-              (Arg.var rt,
-                Arg.var (scr + BitVec.ofNat 64 (8 * (limbLenNat aVal + limbLenNat bVal))),
-               Arg.var p_19.fst, ()) fun p => Expr.ret (Arg.var p.fst, ()))
-          (Expr.let_
-            { sig := [i64, i64], code := OpCode.cmp CmpOp.eq i64 Ty.bool,
-              args := (Arg.var op, Arg.imm 2, ()) } fun p_19 =>
-            Expr.jnz (Arg.var p_19.fst)
-              (Expr.call (as := [i64, i64, i64, i64]) (bs := [i64]) "bn_cmp"
-                (Arg.var scr, Arg.var (BitVec.ofNat 64 (limbLenNat aVal)),
-                 Arg.var (scr + BitVec.ofNat 64 (8 * limbLenNat aVal)),
-                 Arg.var (BitVec.ofNat 64 (limbLenNat bVal)), ()) fun p_20 =>
-                Expr.let_
-                  { sig := [i32], code := OpCode.sext 32 64, args := (Arg.imm 0, ()) } fun p_21 =>
-                  Expr.let_
-                    { sig := [i64, i64],
-                      code := OpCode.cmp CmpOp.sle i64 Ty.bool,
-                      args := (Arg.var p_20.fst, Arg.var p_21.fst, ()) } fun p_22 =>
-                    Expr.jnz (Arg.var p_22.fst) (Expr.ret (Arg.imm 1, ()))
-                      (Expr.call (as := [i64, i64, i64, i64, i64]) (bs := [i64]) "bn_sub"
-                        (Arg.var scr, Arg.var (BitVec.ofNat 64 (limbLenNat aVal)),
-                         Arg.var (scr + BitVec.ofNat 64 (8 * limbLenNat aVal)),
-                         Arg.var (BitVec.ofNat 64 (limbLenNat bVal)),
-                         Arg.var (scr + BitVec.ofNat 64 (8 * (limbLenNat aVal +
-                           limbLenNat bVal))), ()) fun p_23 =>
-                        Expr.call (as := [i64, i64, i64]) (bs := [i64]) "bn_nat_from_limbs"
-                          (Arg.var rt,
-                            Arg.var (scr + BitVec.ofNat 64 (8 * (limbLenNat aVal +
-                              limbLenNat bVal))),
-                           Arg.var p_23.fst, ()) fun p => Expr.ret (Arg.var p.fst, ())))
-              (Expr.let_
-                { sig := [i64, i64], code := OpCode.cmp CmpOp.eq i64 Ty.bool,
-                  args := (Arg.var op, Arg.imm 3, ()) } fun p_20 =>
-                Expr.jnz (Arg.var p_20.fst)
-                  (Expr.let_
-                    { sig := [i64, i64], code := OpCode.cmp CmpOp.eq i64 Ty.bool,
-                      args := (Arg.var (BitVec.ofNat 64 (limbLenNat aVal)), Arg.imm 0,
-                        ()) } fun p_21 =>
-                    Expr.jnz (Arg.var p_21.fst) (Expr.ret (Arg.imm 1, ()))
-                      (Expr.let_
-                        { sig := [i64, i64],
-                          code := OpCode.cmp CmpOp.eq i64 Ty.bool,
-                          args := (Arg.var (BitVec.ofNat 64 (limbLenNat bVal)), Arg.imm 0,
-                            ()) } fun p_22 =>
-                        Expr.jnz (Arg.var p_22.fst) (Expr.ret (Arg.imm 1, ()))
-                          (Expr.call (as := [i64, i64, i64, i64, i64]) (bs := [i64]) "bn_mul"
-                            (Arg.var scr, Arg.var (BitVec.ofNat 64 (limbLenNat aVal)),
-                             Arg.var (scr + BitVec.ofNat 64 (8 * limbLenNat aVal)),
-                             Arg.var (BitVec.ofNat 64 (limbLenNat bVal)),
-                             Arg.var (scr + BitVec.ofNat 64 (8 * (limbLenNat aVal +
-                               limbLenNat bVal))), ()) fun p_23 =>
-                            Expr.call (as := [i64, i64, i64]) (bs := [i64]) "bn_nat_from_limbs"
-                              (Arg.var rt,
-                                Arg.var (scr + BitVec.ofNat 64 (8 * (limbLenNat aVal +
-                                  limbLenNat bVal))),
-                               Arg.var p_23.fst, ()) fun p => Expr.ret (Arg.var p.fst, ()))))
-                  (Expr.let_
-                    { sig := [i64, i64],
-                      code := OpCode.cmp CmpOp.eq i64 Ty.bool,
-                      args := (Arg.var op, Arg.imm 4, ()) } fun p_21 =>
-                    Expr.jnz (Arg.var p_21.fst)
-                      (Expr.let_
-                        { sig := [i64, i64],
-                          code := OpCode.cmp CmpOp.eq i64 Ty.bool,
-                          args := (Arg.var (BitVec.ofNat 64 (limbLenNat bVal)), Arg.imm 0,
-                            ()) } fun p_22 =>
-                        Expr.jnz (Arg.var p_22.fst) (Expr.ret (Arg.imm 1, ()))
-                          (Expr.call (as := [i64, i64, i64, i64]) (bs := [i64]) "bn_cmp"
-                            (Arg.var scr, Arg.var (BitVec.ofNat 64 (limbLenNat aVal)),
-                             Arg.var (scr + BitVec.ofNat 64 (8 * limbLenNat aVal)),
-                             Arg.var (BitVec.ofNat 64 (limbLenNat bVal)), ()) fun p_23 =>
-                            Expr.let_
-                              { sig := [i32], code := OpCode.sext 32 64, args := (Arg.imm 0,
-                                ()) } fun p_24 =>
-                              Expr.let_
-                                { sig := [i64, i64],
-                                  code := OpCode.cmp CmpOp.slt i64 Ty.bool,
-                                  args := (Arg.var p_23.fst, Arg.var p_24.fst, ()) } fun p_25 =>
-                                Expr.jnz (Arg.var p_25.fst) (Expr.ret (Arg.imm 1, ()))
-                                  (Expr.let_
-                                    { sig := [i64, i64], code := OpCode.mul i64,
-                                      args := (Arg.imm 8,
-                                        Arg.var (BitVec.ofNat 64 (limbLenNat aVal)), ()) }
-                                          fun p_26 =>
-                                    Expr.let_
-                                      { sig := [i64, i64], code := OpCode.add i64,
-                                        args :=
-                                          (Arg.var (scr + BitVec.ofNat 64 (8 * (limbLenNat aVal +
-                                            limbLenNat bVal))),
-                                           Arg.var p_26.fst, ()) } fun p_27 =>
-                                      Expr.call (as := [i64, i64, i64, i64, i64,
-                                        i64]) (bs := []) "bn_divmod"
-                                        (Arg.var scr, Arg.var (BitVec.ofNat 64 (limbLenNat aVal)),
-                                         Arg.var (scr + BitVec.ofNat 64 (8 * limbLenNat aVal)),
-                                         Arg.var (BitVec.ofNat 64 (limbLenNat bVal)),
-                                         Arg.var (scr + BitVec.ofNat 64 (8 * (limbLenNat aVal +
-                                           limbLenNat bVal))),
-                                         Arg.var p_27.fst, ()) fun _ =>
-                                        Expr.call (as := [i64, i64,
-                                          i64]) (bs := [i64]) "bn_nat_from_limbs"
-                                          (Arg.var rt,
-                                           Arg.var (scr + BitVec.ofNat 64 (8 * (limbLenNat aVal +
-                                             limbLenNat bVal))),
-                                           Arg.var (BitVec.ofNat 64 (limbLenNat aVal)), ()) fun p =>
-                                          Expr.ret (Arg.var p.fst, ()))))
-                      (Expr.let_
-                        { sig := [i64, i64],
-                          code := OpCode.cmp CmpOp.eq i64 Ty.bool,
-                          args := (Arg.var op, Arg.imm 5, ()) } fun p_22 =>
-                        Expr.jnz (Arg.var p_22.fst)
-                          (Expr.group (sig := [[]])
-                            (fun _Js =>
-                              Blocks.cons
-                                (fun _ =>
-                                  Expr.call (as := [i64, i64,
-                                    i64]) (bs := [i64]) "bn_nat_from_limbs"
-                                    (Arg.var rt, Arg.var scr,
-                                     Arg.var (BitVec.ofNat 64 (limbLenNat aVal)), ()) fun p =>
-                                    Expr.ret (Arg.var p.fst, ()))
-                                Blocks.nil)
-                            fun Js =>
-                            Expr.let_
-                              { sig := [i64, i64],
-                                code := OpCode.cmp CmpOp.eq i64 Ty.bool,
-                                args := (Arg.var (BitVec.ofNat 64 (limbLenNat bVal)), Arg.imm 0,
-                                  ()) } fun p_23 =>
-                              Expr.jnz (Arg.var p_23.fst) (Expr.jump Js.fst ())
-                                (Expr.call (as := [i64, i64, i64, i64]) (bs := [i64]) "bn_cmp"
-                                  (Arg.var scr, Arg.var (BitVec.ofNat 64 (limbLenNat aVal)),
-                                   Arg.var (scr + BitVec.ofNat 64 (8 * limbLenNat aVal)),
-                                   Arg.var (BitVec.ofNat 64 (limbLenNat bVal)), ()) fun p_24 =>
-                                  Expr.let_
-                                    { sig := [i32], code := OpCode.sext 32 64, args := (Arg.imm 0,
-                                      ()) } fun p_25 =>
-                                    Expr.let_
-                                      { sig := [i64, i64],
-                                        code := OpCode.cmp CmpOp.slt i64 Ty.bool,
-                                        args := (Arg.var p_24.fst, Arg.var p_25.fst,
-                                          ()) } fun p_26 =>
-                                      Expr.jnz (Arg.var p_26.fst) (Expr.jump Js.fst ())
-                                        (Expr.let_
-                                          { sig := [i64, i64], code := OpCode.mul i64,
-                                            args := (Arg.imm 8,
-                                              Arg.var (BitVec.ofNat 64 (limbLenNat aVal)), ()) }
-                                          fun p_27 =>
-                                          Expr.let_
-                                            { sig := [i64, i64], code := OpCode.add i64,
-                                              args :=
-                                                (Arg.var (scr +
-                                                  BitVec.ofNat 64 (8 * (limbLenNat aVal +
-                                                    limbLenNat bVal))),
-                                                 Arg.var p_27.fst, ()) } fun p_28 =>
-                                            Expr.call (as := [i64, i64, i64, i64, i64,
-                                              i64]) (bs := []) "bn_divmod"
-                                              (Arg.var scr,
-                                                Arg.var (BitVec.ofNat 64 (limbLenNat aVal)),
-                                               Arg.var (scr +
-                                                 BitVec.ofNat 64 (8 * limbLenNat aVal)),
-                                               Arg.var (BitVec.ofNat 64 (limbLenNat bVal)),
-                                               Arg.var (scr +
-                                                 BitVec.ofNat 64 (8 * (limbLenNat aVal +
-                                                   limbLenNat bVal))),
-                                               Arg.var p_28.fst, ()) fun _ =>
-                                              Expr.call (as := [i64, i64,
-                                                i64]) (bs := [i64]) "bn_nat_from_limbs"
-                                                (Arg.var rt, Arg.var p_28.fst,
-                                                 Arg.var (BitVec.ofNat 64 (limbLenNat bVal)), ())
-                                                   fun p =>
-                                                Expr.ret (Arg.var p.fst, ()))))
-                          (Expr.let_
-                            { sig := [i64, i64],
-                              code := OpCode.cmp CmpOp.eq i64 Ty.bool,
-                              args := (Arg.var op, Arg.imm 6, ()) } fun p_23 =>
-                            Expr.jnz (Arg.var p_23.fst)
-                              (Expr.group (sig := [[i64]])
-                                (fun _Js => Blocks.cons (fun p =>
-                                  Expr.ret (Arg.var p.fst, ())) Blocks.nil)
-                                fun Js =>
-                                Expr.call (as := [i64, i64, i64, i64]) (bs := [i64]) "bn_cmp"
-                                  (Arg.var scr, Arg.var (BitVec.ofNat 64 (limbLenNat aVal)),
-                                   Arg.var (scr + BitVec.ofNat 64 (8 * limbLenNat aVal)),
-                                   Arg.var (BitVec.ofNat 64 (limbLenNat bVal)), ()) fun p =>
-                                  Expr.let_
-                                    { sig := [i32], code := OpCode.sext 32 64, args := (Arg.imm 0,
-                                      ()) } fun p_24 =>
-                                    Expr.let_
-                                      { sig := [i64, i64],
-                                        code := OpCode.cmp CmpOp.eq i64 Ty.bool,
-                                        args := (Arg.var p.fst, Arg.var p_24.fst, ()) } fun p =>
-                                      Expr.jnz (Arg.var p.fst) (Expr.jump Js.fst (Arg.imm 1, ()))
-                                        (Expr.jump Js.fst (Arg.imm 0, ())))
-                              (Expr.let_
-                                { sig := [i64, i64],
-                                  code := OpCode.cmp CmpOp.eq i64 Ty.bool,
-                                  args := (Arg.var op, Arg.imm 7, ()) } fun p_24 =>
-                                Expr.jnz (Arg.var p_24.fst)
-                                  (Expr.group (sig := [[i64]])
-                                    (fun _Js => Blocks.cons (fun p =>
-                                      Expr.ret (Arg.var p.fst, ())) Blocks.nil)
-                                    fun Js =>
-                                    Expr.call (as := [i64, i64, i64, i64]) (bs := [i64]) "bn_cmp"
-                                      (Arg.var scr, Arg.var (BitVec.ofNat 64 (limbLenNat aVal)),
-                                       Arg.var (scr + BitVec.ofNat 64 (8 * limbLenNat aVal)),
-                                       Arg.var (BitVec.ofNat 64 (limbLenNat bVal)), ()) fun p =>
-                                      Expr.let_
-                                        { sig := [i32], code := OpCode.sext 32 64,
-                                          args := (Arg.imm 0, ()) } fun p_25 =>
-                                        Expr.let_
-                                          { sig := [i64, i64],
-                                            code := OpCode.cmp CmpOp.slt i64 Ty.bool,
-                                            args := (Arg.var p.fst, Arg.var p_25.fst, ()) } fun p =>
-                                          Expr.jnz (Arg.var p.fst) (Expr.jump Js.fst (Arg.imm 1,
-                                            ()))
-                                            (Expr.jump Js.fst (Arg.imm 0, ())))
-                                  (Expr.let_
-                                    { sig := [i64, i64],
-                                      code := OpCode.cmp CmpOp.eq i64 Ty.bool,
-                                      args := (Arg.var op, Arg.imm 8, ()) } fun p_25 =>
-                                    Expr.jnz (Arg.var p_25.fst)
-                                      (Expr.group (sig := [[i64]])
-                                        (fun _Js => Blocks.cons (fun p =>
-                                          Expr.ret (Arg.var p.fst, ())) Blocks.nil)
-                                        fun Js =>
-                                        Expr.call (as := [i64, i64, i64,
-                                          i64]) (bs := [i64]) "bn_cmp"
-                                          (Arg.var scr, Arg.var (BitVec.ofNat 64 (limbLenNat aVal)),
-                                           Arg.var (scr + BitVec.ofNat 64 (8 * limbLenNat aVal)),
-                                           Arg.var (BitVec.ofNat 64 (limbLenNat bVal)), ()) fun p =>
-                                          Expr.let_
-                                            { sig := [i32], code := OpCode.sext 32 64,
-                                              args := (Arg.imm 0, ()) }
-                                            fun p_26 =>
-                                            Expr.let_
-                                              { sig := [i64, i64],
-                                                code := OpCode.cmp CmpOp.sle i64 Ty.bool,
-                                                args := (Arg.var p.fst, Arg.var p_26.fst,
-                                                  ()) } fun p =>
-                                              Expr.jnz (Arg.var p.fst) (Expr.jump Js.fst (Arg.imm 1,
-                                                ()))
-                                                (Expr.jump Js.fst (Arg.imm 0, ())))
-                                      (Expr.exit (as := [i64, i64]) "lcnf_panic" (Arg.var rt,
-                                        Arg.imm 5, ())))))))))) m := by
+    wp rtR1Env Q X (natArithOp123Expr rt op scr aVal bVal) m := by
   have hna_bv : (BitVec.ofNat 64 (limbLenNat aVal)).toNat = limbLenNat aVal := by
     rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by unfold mpzMaxLimbs at hna_max; omega)]
   have hnb_bv : (BitVec.ofNat 64 (limbLenNat bVal)).toNat = limbLenNat bVal := by
@@ -881,456 +1281,46 @@ private theorem lcnf_nat_arith_op123_wp
     rwa [hnb_bv]
   have hlenTot' : (scrA' ++ scrB' ++ scrOut).length = scrLimbs.length := by
     simp [hlenA, hlenB]; omega
-  have hm_merge : ∀ {st' scrOut' objs' m'} (hlenO' : scrOut'.length = scrOut.length),
-      (rtC0Inv rt st' ⋆ cell64 (rt + 33672#64) scr ⋆
-        cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆
-        array64 scr scrA' ⋆
-        array64 (scr + BitVec.ofNat 64 (8 * limbLenNat aVal)) scrB' ⋆
-        array64 (scr + BitVec.ofNat 64 (8 * (limbLenNat aVal + limbLenNat bVal))) scrOut' ⋆
-        lcnfHeap objs' ⋆ R) m' →
-      st'.Bounded48 →
-      ∃ scrLimbs', scrLimbs'.length = scrLimbs.length ∧ BigNumRtWf rt st' scr scrLimbs' ∧
-        (bigNumRtInv rt st' scr scrLimbs' ⋆ lcnfHeap objs' ⋆ R) m' := by
-    intro st' scrOut' objs' m' hlenO' hm' hb'
-    refine ⟨scrA' ++ scrB' ++ scrOut', by simp [hlenA, hlenB, hlenO']; omega,
-      BigNumRtWf.with_state_len hwf hb' (by simp [hlenA, hlenB, hlenO']; omega), ?_⟩
-    dsimp only [bigNumRtInv]
-    have hlenAB : (scrA' ++ scrB').length = limbLenNat aVal + limbLenNat bVal := by
-      simp [hlenA, hlenB]
-    rw [show (scrA' ++ scrB' ++ scrOut').length =
-      scrLimbs.length by simp [hlenA, hlenB, hlenO']; omega]
-    rw [array64_append, hlenAB, array64_append, hlenA]
-    sep_use hm'
   have hout_ge : limbLenNat aVal + limbLenNat bVal + 2 ≤ scrOut.length := by omega
-  have hfinish : ∀ {res st' scrOut' objs' m'} (hlenO' : scrOut'.length = scrOut.length)
-      (hmst : st'.PreservesMeta st) (hrem : st'.rem ≤ st.rem) (hb' : st'.Bounded48)
-      (hpost : natArithPost op.toNat aVal bVal res objs objs')
-      (hm' : (rtC0Inv rt st' ⋆ cell64 (rt + 33672#64) scr ⋆
-        cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆
-        array64 scr scrA' ⋆
-        array64 (scr + BitVec.ofNat 64 (8 * limbLenNat aVal)) scrB' ⋆
-        array64 (scr + BitVec.ofNat 64 (8 * (limbLenNat aVal + limbLenNat bVal))) scrOut' ⋆
-        lcnfHeap objs' ⋆ R) m'),
-      Q (res, ()) m' := by
-    intro res st' scrOut' objs' m' hlenO' hmst hrem hb' hpost hm'
-    obtain ⟨scrLimbs', _, hwf', hm''⟩ := hm_merge hlenO' hm' hb'
-    exact hQ res st' scrLimbs' objs' m' hmst hrem hwf' hpost hm''
-  let R_abOut : Mem 64 → Prop := rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
-    cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆ lcnfHeap objs ⋆ R
-  let R_cmp : Mem 64 → Prop := rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
-    cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆
-    array64 (scr + BitVec.ofNat 64 (8 * (limbLenNat aVal + limbLenNat bVal))) scrOut ⋆
-      lcnfHeap objs ⋆ R
-  let R_outFrom : Mem 64 → Prop := cell64 (rt + 33672#64) scr ⋆
-    cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆ array64 scr scrA' ⋆
-    array64 (scr + BitVec.ofNat 64 (8 * limbLenNat aVal)) scrB' ⋆ R
-  have hfrom_out : ∀ (ok : natArithOk op.toNat aVal bVal scrLimbs.length st)
-      {tnNat : Nat} {scrOut' : List (BitVec 64)} {m' : Mem 64},
-      tnNat ≤ scrOut'.length → scrOut'.length = scrOut.length →
-      limbsVal (scrOut'.take tnNat) = natArithRes op.toNat aVal bVal →
-      limbLenNat (natArithRes op.toNat aVal bVal) = tnNat →
-      op.toNat ∈ [1, 2, 3, 4, 5] →
-      (rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
-        cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆
-        array64 scr scrA' ⋆
-        array64 (scr + BitVec.ofNat 64 (8 * limbLenNat aVal)) scrB' ⋆
-        array64 (scr + BitVec.ofNat 64 (8 * (limbLenNat aVal + limbLenNat bVal))) scrOut' ⋆
-        lcnfHeap objs ⋆ R) m' →
-      wp rtR1Env Q X
-        (Expr.call (as := [i64, i64, i64]) (bs := [i64]) "bn_nat_from_limbs"
-          (Arg.var rt, Arg.var (scr + BitVec.ofNat 64 (8 * (limbLenNat aVal + limbLenNat bVal))),
-           Arg.var (BitVec.ofNat 64 tnNat), ()) fun p => Expr.ret (Arg.var p.fst, ())) m' := by
-    intro ok tnNat scrOut' m' htn_le hlenO' hvalO htn_eq hop15 hm'
-    dsimp only [natArithOk] at ok
-    simp only [show op.toNat ≠ 17 by
-      simp only [List.mem_cons, List.not_mem_nil, or_false] at hop15
-      omega, hop15, ↓reduceIte] at ok
-    rcases ok with ⟨_, hmax_res, halloc⟩
-    have htn_max : tnNat ≤ mpzMaxLimbs := by rwa [← htn_eq]
-    have htn_bv : (BitVec.ofNat 64 tnNat).toNat = tnNat := by
-      rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by unfold mpzMaxLimbs at htn_max; omega)]
-    have hvalO' : limbsVal (scrOut'.take (BitVec.ofNat 64 tnNat).toNat) =
-      natArithRes op.toNat aVal bVal := by
-      rwa [htn_bv]
-    have htrim : trimLenLoop scrOut' (BitVec.ofNat 64 tnNat).toNat =
-      limbLenNat (natArithRes op.toNat aVal bVal) := by
-      rw [htn_bv, ← limbLenNat_trimLenLoop htn_le, hvalO]
-    apply bn_nat_from_limbs_call_wp (R := R_outFrom) (by rwa [htn_bv]) (by rwa [htn_bv]) hwf.1
-      (fun hge => by rw [hvalO'] at hge; rw [htrim]; exact halloc hge)
-        (by dsimp only [R_outFrom]; sep_use hm')
-    intro p st' objs' m2 hmst hrem hb' hrep hsm hbg hm2
-    c0_step
-    rw [hvalO'] at hrep hsm hbg
-    refine hfinish hlenO' hmst hrem hb' ?_ (by dsimp only [R_outFrom] at hm2; sep_use hm2)
-    dsimp only [natArithPost]
-    have h6 : op.toNat ≠ 6 := by
-      simp only [List.mem_cons, List.not_mem_nil, or_false] at hop15; omega
-    have h7 : op.toNat ≠ 7 := by
-      simp only [List.mem_cons, List.not_mem_nil, or_false] at hop15; omega
-    have h8 : op.toNat ≠ 8 := by
-      simp only [List.mem_cons, List.not_mem_nil, or_false] at hop15; omega
-    simp only [h6, h7, h8, ↓reduceIte]
-    refine ⟨hrep, fun o ho => ?_⟩
-    by_cases hs : natArithRes op.toNat aVal bVal < 2 ^ 63
-    · rw [hsm hs]; exact ho
-    · rcases hbg (by omega) with ⟨newObj, _, _, rfl⟩
-      exact List.mem_cons_of_mem _ ho
+  dsimp only [natArithOp123Expr]
   c0_let_simp
   by_cases h1 : op = 1#64
   · subst h1
-    apply wp_jnz_true (by decide)
-    have hout1 : max (BitVec.ofNat 64 (limbLenNat aVal)).toNat (BitVec.ofNat 64
-      (limbLenNat bVal)).toNat + 1 ≤
-        scrOut.length := by rw [hna_bv, hnb_bv]; omega
-    have hlt1 : max (BitVec.ofNat 64 (limbLenNat aVal)).toNat (BitVec.ofNat 64
-      (limbLenNat bVal)).toNat + 1 < 2 ^ 64 := by
-      rw [hna_bv, hnb_bv]; unfold mpzMaxLimbs at hna_max hnb_max; omega
-    apply bn_add_call_wp (R := R_abOut) hna_leA hnb_leB hout1 hlt1
-      (by dsimp only [R_abOut]; sep_use hm)
-    intro outXs' m1
-    dsimp only
-    intro hlenO' htnO hvalO hm1
-    rw [hvalA', hvalB'] at htnO hvalO ⊢
-    try rw [Nat.mul_comm (limbLenNat aVal) 8] at hm1
-    exact hfrom_out hok (by rw [hlenO']; exact htnO) hlenO' hvalO rfl (by decide)
-      (by dsimp only [R_abOut] at hm1; sep_use hm1)
+    apply wp_jnz_true rfl
+    exact lcnf_nat_arith_op1_wp rt aVal bVal st scr scrLimbs scrA' scrB' scrOut objs R m Q X
+      hwf hlenA hlenB hvalA' hvalB' hna_bv hnb_bv hna_leA hnb_leB hlenTot hout_ge
+      hna_max hnb_max hok hm hQ
   · apply wp_jnz_false (beq_false_of_ne h1)
     c0_let_simp
     by_cases h2 : op = 2#64
     · subst h2
-      apply wp_jnz_true (by decide)
-      apply bn_cmp_call_wp (R := R_cmp) hna_leA hnb_leB (by dsimp only [R_cmp]; sep_use hm)
-      c0_let_simp
-      rw [hvalA', hvalB']
-      by_cases hle : aVal ≤ bVal
-      · apply wp_jnz_true ((cmpResult64_sle0_iff aVal bVal).mpr hle)
-        c0_step
-        refine hfinish rfl (preservesMeta_refl _) (Nat.le_refl _) hwf.1 ?_ hm
-        dsimp only [natArithPost, natArithRes, natRep]
-        have hsub0 : aVal - bVal = 0 := by omega
-        simp [hsub0]
-      · have hgt : bVal ≤ aVal := by omega
-        have hle_f : (cmpResult64 aVal bVal).sle 0#64 = false :=
-          Bool.eq_false_iff.mpr fun ht => hle ((cmpResult64_sle0_iff aVal bVal).mp ht)
-        apply wp_jnz_false hle_f
-        have hout2 : (BitVec.ofNat 64 (limbLenNat aVal)).toNat ≤ scrOut.length := by
-          rw [hna_bv]; omega
-        apply bn_sub_call_wp (R := R_abOut) hna_leA hnb_leB hout2
-          (by rw [hvalA', hvalB']; exact hgt) (by dsimp only [R_abOut]; sep_use hm)
-        intro outXs' m1
-        dsimp only
-        intro hlenO' htnO hvalO hm1
-        rw [hvalA', hvalB'] at htnO hvalO
-        try rw [hvalA', hvalB']
-        try rw [Nat.mul_comm (limbLenNat aVal) 8] at hm1
-        exact hfrom_out hok (by rw [hlenO']; exact htnO) hlenO' hvalO rfl (by decide)
-          (by dsimp only [R_abOut] at hm1; sep_use hm1)
+      apply wp_jnz_true rfl
+      exact lcnf_nat_arith_op2_wp rt aVal bVal st scr scrLimbs scrA' scrB' scrOut objs R m Q X
+        hwf hlenA hlenB hvalA' hvalB' hna_bv hna_leA hnb_leB hlenTot hout_ge hok hm hQ
     · apply wp_jnz_false (beq_false_of_ne h2)
       c0_let_simp
       by_cases h3 : op = 3#64
       · subst h3
-        apply wp_jnz_true (by decide)
-        by_cases ha0 : aVal = 0
-        · have hna0 : BitVec.ofNat 64 (limbLenNat aVal) = 0#64 := by simp [ha0, limbLenNat]
-          apply wp_jnz_true (by rw [hna0]; decide)
-          c0_step
-          refine hfinish rfl (preservesMeta_refl _) (Nat.le_refl _) hwf.1 ?_ hm
-          simp [natArithPost, natArithRes, natRep, ha0]
-        · have hna_nz : (BitVec.ofNat 64 (limbLenNat aVal) == 0#64) = false := by
-            apply Bool.eq_false_iff.mpr
-            intro ht
-            have := BitVec.toNat_eq.mp (beq_iff_eq.mp ht)
-            rw [hna_bv, show (0#64 : BitVec 64).toNat = 0 from rfl] at this
-            have := limbLenNat_pos_iff.mpr (Nat.pos_of_ne_zero ha0)
-            omega
-          apply wp_jnz_false hna_nz
-          by_cases hb0 : bVal = 0
-          · have hnb0 : BitVec.ofNat 64 (limbLenNat bVal) = 0#64 := by simp [hb0, limbLenNat]
-            apply wp_jnz_true (by rw [hnb0]; decide)
-            c0_step
-            refine hfinish rfl (preservesMeta_refl _) (Nat.le_refl _) hwf.1 ?_ hm
-            simp [natArithPost, natArithRes, natRep, hb0]
-          · have hnb_nz : (BitVec.ofNat 64 (limbLenNat bVal) == 0#64) = false := by
-              apply Bool.eq_false_iff.mpr
-              intro ht
-              have := BitVec.toNat_eq.mp (beq_iff_eq.mp ht)
-              rw [hnb_bv, show (0#64 : BitVec 64).toNat = 0 from rfl] at this
-              have := limbLenNat_pos_iff.mpr (Nat.pos_of_ne_zero hb0)
-              omega
-            apply wp_jnz_false hnb_nz
-            have hout3 : (BitVec.ofNat 64 (limbLenNat aVal)).toNat +
-                (BitVec.ofNat 64 (limbLenNat bVal)).toNat ≤ scrOut.length := by
-              rw [hna_bv, hnb_bv]; omega
-            have hlt3 : (BitVec.ofNat 64 (limbLenNat aVal)).toNat +
-                (BitVec.ofNat 64 (limbLenNat bVal)).toNat < 2 ^ 64 := by
-              rw [hna_bv, hnb_bv]; unfold mpzMaxLimbs at hna_max hnb_max; omega
-            apply bn_mul_call_wp (R := R_abOut) hna_leA hnb_leB hout3 hlt3
-              (by dsimp only [R_abOut]; sep_use hm)
-            intro outXs' m1 hlenO' htnO hvalO hm1
-            rw [hvalA', hvalB'] at htnO hvalO
-            try rw [hvalA', hvalB']
-            exact hfrom_out hok (by rw [hlenO']; exact htnO) hlenO' hvalO rfl (by decide)
-              (by dsimp only [R_abOut] at hm1; sep_use hm1)
+        apply wp_jnz_true rfl
+        exact lcnf_nat_arith_op3_wp rt aVal bVal st scr scrLimbs scrA' scrB' scrOut objs R m Q X
+          hwf hlenA hlenB hvalA' hvalB' hna_bv hnb_bv hna_leA hnb_leB hlenTot hout_ge
+          hna_max hnb_max hok hm hQ
       · apply wp_jnz_false (beq_false_of_ne h3)
         c0_let_simp
-        have h8mul := bv64_mul8_of_lt (limbLenNat aVal) (by unfold mpzMaxLimbs at hna_max; omega)
         by_cases h4 : op = 4#64
         · subst h4
-          apply wp_jnz_true (by decide)
-          by_cases hb0 : bVal = 0
-          · have hnb0 : BitVec.ofNat 64 (limbLenNat bVal) = 0#64 := by simp [hb0, limbLenNat]
-            apply wp_jnz_true (by rw [hnb0]; decide)
-            c0_step
-            refine hfinish rfl (preservesMeta_refl _) (Nat.le_refl _) hwf.1 ?_ hm
-            simp [natArithPost, natArithRes, natRep, hb0]
-          · have hnb_pos : 0 < limbLenNat bVal := limbLenNat_pos_iff.mpr (Nat.pos_of_ne_zero hb0)
-            have hnb_nz : (BitVec.ofNat 64 (limbLenNat bVal) == 0#64) = false := by
-              apply Bool.eq_false_iff.mpr; intro ht
-              have := BitVec.toNat_eq.mp (beq_iff_eq.mp ht)
-              rw [hnb_bv, show (0#64 : BitVec 64).toNat = 0 from rfl] at this; omega
-            apply wp_jnz_false hnb_nz
-            apply bn_cmp_call_wp (R := R_cmp) hna_leA hnb_leB (by dsimp only [R_cmp]; sep_use hm)
-            c0_let_simp
-            rw [hvalA', hvalB']
-            by_cases hlt : aVal < bVal
-            · apply wp_jnz_true ((cmpResult64_slt0_iff aVal bVal).mpr hlt)
-              c0_step
-              refine hfinish rfl (preservesMeta_refl _) (Nat.le_refl _) hwf.1 ?_ hm
-              simp [natArithPost, natArithRes, natRep, Nat.div_eq_of_lt hlt]
-            · have hge : bVal ≤ aVal := by omega
-              have hna_pos : 0 < limbLenNat aVal := limbLenNat_pos_iff.mpr (by omega)
-              have hlt_f : (cmpResult64 aVal bVal).slt 0#64 = false :=
-                Bool.eq_false_iff.mpr fun ht => hlt ((cmpResult64_slt0_iff aVal bVal).mp ht)
-              apply wp_jnz_false hlt_f
-              c0_let_simp
-              rw [h8mul]
-              have hm_split := hm
-              rw [array64_split_len
-                (a := scr + BitVec.ofNat 64 (8 * (limbLenNat aVal + limbLenNat bVal)))
-                (k := limbLenNat aVal) (by omega)] at hm_split
-              try rw [Nat.mul_comm (limbLenNat aVal) 8] at hm_split
-              have hq_len : (BitVec.ofNat 64 (limbLenNat aVal)).toNat ≤
-                  (scrOut.take (limbLenNat aVal)).length := by
-                rw [List.length_take_of_le (by omega), hna_bv]; exact le_refl _
-              have hr_len : (BitVec.ofNat 64 (limbLenNat bVal)).toNat ≤
-                  (scrOut.drop (limbLenNat aVal)).length := by
-                rw [List.length_drop, hnb_bv]; omega
-              have hmsb : scrB'[(BitVec.ofNat 64 (limbLenNat bVal)).toNat - 1]! ≠ 0#64 := by
-                rw [hnb_bv]
-                exact limbsVal_msb_nz hnb_pos (by omega) (by conv => lhs; rw [← hnb_bv, hvalB'])
-              apply bn_divmod_call_wp (R := R_abOut) (by rw [hna_bv]; exact hna_pos)
-                (by rw [hnb_bv]; exact hnb_pos) hna_leA hnb_leB hq_len hr_len hmsb
-                (by dsimp only [R_abOut]; sep_use hm_split)
-              intro qXs' rXs' m1 hlenQ hlenR hvalQ _ hm1
-              rw [hvalA', hvalB'] at hvalQ
-              have hq_len' : (BitVec.ofNat 64 (limbLenNat aVal)).toNat ≤ qXs'.length := by
-                rw [hlenQ]; exact hq_len
-              have hok' := hok
-              rw [show (4#64 : BitVec 64).toNat = 4 from rfl] at hok'
-              dsimp only [natArithOk] at hok'
-              simp only [show (4 : Nat) ≠ 17 by omega, show (4 : Nat) ∈ [1, 2, 3, 4, 5] by decide,
-                ↓reduceIte] at hok'
-              rcases hok' with ⟨_, _, halloc⟩
-              have hq_val : limbsVal (qXs'.take (limbLenNat aVal)) = aVal / bVal := by
-                rwa [hna_bv] at hvalQ
-              have htrimQ : trimLenLoop qXs' (BitVec.ofNat 64 (limbLenNat aVal)).toNat =
-                  limbLenNat (aVal / bVal) := by
-                rw [hna_bv, ← limbLenNat_trimLenLoop
-                  (by rw [hlenQ, List.length_take_of_le (by omega)]; exact le_refl _),
-                  hq_val]
-              apply bn_nat_from_limbs_call_wp (R := cell64 (rt + 33672#64) scr ⋆
-                cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆ array64 scr scrA' ⋆
-                array64 (scr + BitVec.ofNat 64 (8 * limbLenNat aVal)) scrB' ⋆
-                array64 ((scr + BitVec.ofNat 64 (8 * (limbLenNat aVal + limbLenNat bVal))) +
-                  BitVec.ofNat 64 (8 * limbLenNat aVal)) rXs' ⋆ R)
-                hq_len' (by rw [hna_bv]; exact hna_max) hwf.1
-                (fun hge => by rw [hvalQ] at hge; rw [htrimQ]; exact halloc hge)
-                (by dsimp only [R_abOut] at hm1; sep_use hm1)
-              intro p st' objs' m2 hmst hrem hb' hrep hsm hbg hm2
-              c0_step
-              have hqr_len : (qXs' ++ rXs').length = scrOut.length := by
-                rw [List.length_append, hlenQ, hlenR, List.length_take_of_le
-                  (by omega), List.length_drop]
-                omega
-              have hq'_len : qXs'.length = limbLenNat aVal := by
-                rw [hlenQ, List.length_take_of_le (by omega)]
-              have hm2' : (rtC0Inv rt st' ⋆ cell64 (rt + 33672#64) scr ⋆
-                cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆
-                array64 scr scrA' ⋆
-                array64 (scr + BitVec.ofNat 64 (8 * limbLenNat aVal)) scrB' ⋆
-                array64 (scr + BitVec.ofNat 64 (8 * (limbLenNat aVal + limbLenNat bVal)))
-                  (qXs' ++ rXs') ⋆
-                lcnfHeap objs' ⋆ R) m2 := by
-                rw [array64_append, hq'_len]
-                try rw [Nat.mul_comm (limbLenNat aVal) 8]
-                sep_use hm2
-              rw [hvalQ] at hrep hsm hbg
-              refine hfinish hqr_len hmst hrem hb' ?_ hm2'
-              dsimp only [natArithPost, natArithRes]
-              refine ⟨hrep, fun o ho => ?_⟩
-              by_cases hs : aVal / bVal < 2 ^ 63
-              · rw [hsm hs]; exact ho
-              · rcases hbg (by omega) with ⟨newObj, _, _, rfl⟩
-                exact List.mem_cons_of_mem _ ho
+          apply wp_jnz_true rfl
+          exact lcnf_nat_arith_op4_wp rt aVal bVal st scr scrLimbs scrA' scrB' scrOut objs R m Q X
+            hwf hlenA hlenB hvalA' hvalB' hna_bv hnb_bv hna_leA hnb_leB hlenTot hout_ge
+            hna_max hnb_max hok hm hQ
         · apply wp_jnz_false (beq_false_of_ne h4)
           c0_let_simp
           by_cases h5 : op = 5#64
           · subst h5
-            apply wp_jnz_true (by decide)
-            have hm_fromA :
-                ∀ m',
-                  (bVal = 0 ∨ aVal < bVal) →
-                  (rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
-                    cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆
-                    array64 scr scrA' ⋆
-                    array64 (scr + BitVec.ofNat 64 (8 * limbLenNat aVal)) scrB' ⋆
-                    array64 (scr + BitVec.ofNat 64 (8 * (limbLenNat aVal +
-                      limbLenNat bVal))) scrOut ⋆
-                    lcnfHeap objs ⋆ R) m' →
-                  wp rtR1Env Q X
-                    (Expr.call (as := [i64, i64, i64]) (bs := [i64]) "bn_nat_from_limbs"
-                      (Arg.var rt, Arg.var scr, Arg.var (BitVec.ofNat 64 (limbLenNat aVal)), ())
-                      fun p => Expr.ret (Arg.var p.fst, ())) m' := by
-              intro m' hcase hm'
-              have hmod_eq : aVal % bVal = aVal := by
-                rcases hcase with rfl | hlt
-                · simp
-                · exact Nat.mod_eq_of_lt hlt
-              have hok' := hok
-              rw [show (5#64 : BitVec 64).toNat = 5 from rfl] at hok'
-              dsimp only [natArithOk] at hok'
-              simp only [show (5 : Nat) ≠ 17 by omega, show (5 : Nat) ∈ [1, 2, 3, 4, 5] by decide,
-                ↓reduceIte] at hok'
-              rcases hok' with ⟨_, _, halloc⟩
-              have hmod_res : natArithRes 5 aVal bVal = aVal := by
-                simp [natArithRes, hmod_eq]
-              rw [hmod_res] at halloc
-              have ha_val' : limbsVal (scrA'.take (limbLenNat aVal)) = aVal := by
-                rwa [hna_bv] at hvalA'
-              have htrimA : trimLenLoop scrA' (BitVec.ofNat 64 (limbLenNat aVal)).toNat =
-                  limbLenNat aVal := by
-                rw [hna_bv, ← limbLenNat_trimLenLoop (by omega), ha_val']
-              apply bn_nat_from_limbs_call_wp (R := cell64 (rt + 33672#64) scr ⋆
-                cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆
-                array64 (scr + BitVec.ofNat 64 (8 * limbLenNat aVal)) scrB' ⋆
-                array64 (scr + BitVec.ofNat 64 (8 * (limbLenNat aVal + limbLenNat bVal))) scrOut ⋆
-                  R)
-                hna_leA (by rw [hna_bv]; exact hna_max) hwf.1
-                (fun hge => by rw [hvalA'] at hge; rw [htrimA]; exact halloc hge) (by sep_use hm')
-              intro p st' objs' m2 hmst hrem hb' hrep hsm hbg hm2
-              c0_step
-              rw [hvalA'] at hrep hsm hbg
-              refine hfinish rfl hmst hrem hb' ?_ (by sep_use hm2)
-              dsimp only [natArithPost, natArithRes]
-              rw [hmod_eq]
-              refine ⟨hrep, fun o ho => ?_⟩
-              by_cases hs : aVal < 2 ^ 63
-              · rw [hsm hs]; exact ho
-              · rcases hbg (by omega) with ⟨newObj, _, _, rfl⟩
-                exact List.mem_cons_of_mem _ ho
-            apply wp_join_group
-              (fun _ m' => (bVal = 0 ∨ aVal < bVal) ∧
-                (rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
-                  cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆
-                  array64 scr scrA' ⋆
-                  array64 (scr + BitVec.ofNat 64 (8 * limbLenNat aVal)) scrB' ⋆
-                  array64 (scr + BitVec.ofNat 64 (8 * (limbLenNat aVal + limbLenNat bVal))) scrOut ⋆
-                  lcnfHeap objs ⋆ R) m')
-            · intro J _ m' ⟨hcase, hm'⟩
-              simp only [Blocks.get]
-              exact hm_fromA m' hcase hm'
-            · intro Js hJs
-              by_cases hb0 : bVal = 0
-              · have hnb0 : BitVec.ofNat 64 (limbLenNat bVal) = 0#64 := by simp [hb0, limbLenNat]
-                apply wp_jnz_true (by rw [hnb0]; decide)
-                rw [wp_jump]; exact hJs () m ⟨Or.inl hb0, hm⟩
-              · have hnb_pos : 0 < limbLenNat bVal :=
-                limbLenNat_pos_iff.mpr (Nat.pos_of_ne_zero hb0)
-                have hnb_nz : (BitVec.ofNat 64 (limbLenNat bVal) == 0#64) = false := by
-                  apply Bool.eq_false_iff.mpr; intro ht
-                  have := BitVec.toNat_eq.mp (beq_iff_eq.mp ht)
-                  rw [hnb_bv, show (0#64 : BitVec 64).toNat = 0 from rfl] at this; omega
-                apply wp_jnz_false hnb_nz
-                apply bn_cmp_call_wp (R := R_cmp) hna_leA hnb_leB
-                  (by dsimp only [R_cmp]; sep_use hm)
-                c0_let_simp
-                rw [hvalA', hvalB']
-                by_cases hlt : aVal < bVal
-                · apply wp_jnz_true ((cmpResult64_slt0_iff aVal bVal).mpr hlt)
-                  rw [wp_jump]; exact hJs () m ⟨Or.inr hlt, hm⟩
-                · have hge : bVal ≤ aVal := by omega
-                  have hna_pos : 0 < limbLenNat aVal := limbLenNat_pos_iff.mpr (by omega)
-                  have hlt_f : (cmpResult64 aVal bVal).slt 0#64 = false :=
-                    Bool.eq_false_iff.mpr fun ht => hlt ((cmpResult64_slt0_iff aVal bVal).mp ht)
-                  apply wp_jnz_false hlt_f
-                  c0_let_simp
-                  rw [h8mul]
-                  have hm_split := hm
-                  rw [array64_split_len
-                    (a := scr + BitVec.ofNat 64 (8 * (limbLenNat aVal + limbLenNat bVal)))
-                    (k := limbLenNat aVal) (by omega)] at hm_split
-                  try rw [Nat.mul_comm (limbLenNat aVal) 8] at hm_split
-                  have hq_len : (BitVec.ofNat 64 (limbLenNat aVal)).toNat ≤
-                      (scrOut.take (limbLenNat aVal)).length := by
-                    rw [List.length_take_of_le (by omega), hna_bv]; exact le_refl _
-                  have hr_len : (BitVec.ofNat 64 (limbLenNat bVal)).toNat ≤
-                      (scrOut.drop (limbLenNat aVal)).length := by
-                    rw [List.length_drop, hnb_bv]; omega
-                  have hmsb : scrB'[(BitVec.ofNat 64 (limbLenNat bVal)).toNat - 1]! ≠ 0#64 := by
-                    rw [hnb_bv]
-                    exact limbsVal_msb_nz hnb_pos (by omega) (by conv => lhs; rw [← hnb_bv, hvalB'])
-                  apply bn_divmod_call_wp (R := R_abOut) (by rw [hna_bv]; exact hna_pos)
-                    (by rw [hnb_bv]; exact hnb_pos) hna_leA hnb_leB hq_len hr_len hmsb
-                    (by dsimp only [R_abOut]; sep_use hm_split)
-                  intro qXs' rXs' m1 hlenQ hlenR _ hvalR hm1
-                  rw [hvalA', hvalB'] at hvalR
-                  have hr_len' : (BitVec.ofNat 64 (limbLenNat bVal)).toNat ≤ rXs'.length := by
-                    rw [hlenR]; exact hr_len
-                  have hok' := hok
-                  rw [show (5#64 : BitVec 64).toNat = 5 from rfl] at hok'
-                  dsimp only [natArithOk] at hok'
-                  simp only [show (5 : Nat) ≠ 17 by omega, show (5 : Nat) ∈ [1, 2, 3, 4,
-                    5] by decide, ↓reduceIte] at hok'
-                  rcases hok' with ⟨_, _, halloc⟩
-                  have hr_val : limbsVal (rXs'.take (limbLenNat bVal)) = aVal % bVal := by
-                    rwa [hnb_bv] at hvalR
-                  have htrimR : trimLenLoop rXs' (BitVec.ofNat 64 (limbLenNat bVal)).toNat =
-                      limbLenNat (aVal % bVal) := by
-                    rw [hnb_bv, ← limbLenNat_trimLenLoop
-                      (by rw [hlenR, List.length_drop]; omega), hr_val]
-                  apply bn_nat_from_limbs_call_wp (R := cell64 (rt + 33672#64) scr ⋆
-                    cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆ array64 scr scrA' ⋆
-                    array64 (scr + BitVec.ofNat 64 (8 * limbLenNat aVal)) scrB' ⋆
-                    array64 (scr + BitVec.ofNat 64 (8 * (limbLenNat aVal + limbLenNat bVal))) qXs' ⋆
-                      R)
-                    hr_len' (by rw [hnb_bv]; exact hnb_max) hwf.1
-                    (fun hge => by rw [hvalR] at hge; rw [htrimR]; exact halloc hge)
-                    (by dsimp only [R_abOut] at hm1; sep_use hm1)
-                  intro p st' objs' m2 hmst hrem hb' hrep hsm hbg hm2
-                  c0_step
-                  have hqr_len : (qXs' ++ rXs').length = scrOut.length := by
-                    rw [List.length_append, hlenQ, hlenR, List.length_take_of_le (by omega),
-                      List.length_drop]; omega
-                  have hq'_len : qXs'.length = limbLenNat aVal := by
-                    rw [hlenQ, List.length_take_of_le (by omega)]
-                  have hm2' : (rtC0Inv rt st' ⋆ cell64 (rt + 33672#64) scr ⋆
-                    cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆
-                    array64 scr scrA' ⋆
-                    array64 (scr + BitVec.ofNat 64 (8 * limbLenNat aVal)) scrB' ⋆
-                    array64 (scr + BitVec.ofNat 64 (8 * (limbLenNat aVal + limbLenNat bVal)))
-                      (qXs' ++ rXs') ⋆
-                    lcnfHeap objs' ⋆ R) m2 := by
-                    rw [array64_append, hq'_len]
-                    try rw [Nat.mul_comm (limbLenNat aVal) 8]
-                    sep_use hm2
-                  rw [hvalR] at hrep hsm hbg
-                  refine hfinish hqr_len hmst hrem hb' ?_ hm2'
-                  dsimp only [natArithPost, natArithRes]
-                  refine ⟨hrep, fun o ho => ?_⟩
-                  by_cases hs : aVal % bVal < 2 ^ 63
-                  · rw [hsm hs]; exact ho
-                  · rcases hbg (by omega) with ⟨newObj, _, _, rfl⟩
-                    exact List.mem_cons_of_mem _ ho
+            apply wp_jnz_true rfl
+            exact lcnf_nat_arith_op5_wp rt aVal bVal st scr scrLimbs scrA' scrB' scrOut objs R m Q X
+              hwf hlenA hlenB hvalA' hvalB' hna_bv hnb_bv hna_leA hnb_leB hlenTot hout_ge
+              hna_max hnb_max hok hm hQ
           · apply wp_jnz_false (beq_false_of_ne h5)
             have hop678 : op.toNat ∈ [6, 7, 8] := by
               have : op.toNat ≠ 1 ∧ op.toNat ≠ 2 ∧ op.toNat ≠ 3 ∧ op.toNat ≠ 4 ∧ op.toNat ≠ 5 := by
@@ -1342,9 +1332,8 @@ private theorem lcnf_nat_arith_op123_wp
               simp only [List.mem_cons, List.not_mem_nil, or_false] at hop ⊢
               omega
             exact lcnf_nat_arith_op678_wp rt op aVal bVal st scr scrLimbs scrA' scrB' scrOut objs R
-              m
-              Q X hwf hop678 hna_max hnb_max hna_leA hnb_leB hvalA' hvalB' hlenTot' hlenA hlenB hm
-              hQ
+              m Q X hwf hop678 hna_max hnb_max hna_leA hnb_leB hvalA' hvalB' hlenTot' hlenA hlenB
+              hm hQ
 
 theorem lcnf_nat_arith_wp (xs : Tup Val [i64, i64, i64, i64]) (m : Mem 64)
     (Q : Post [i64]) (X : XPost) (h : lcnfNatArithSpec xs m Q X) :
@@ -1355,7 +1344,7 @@ theorem lcnf_nat_arith_wp (xs : Tup Val [i64, i64, i64, i64]) (m : Mem 64)
   c0_let_simp
   by_cases h17 : op = 17#64
   · subst h17
-    apply wp_jnz_true (by decide)
+    apply wp_jnz_true rfl
     exact lcnf_nat_arith_pred_wp rt a aVal bVal st scr scrLimbs objs R m Q X hwf ha hok hm hQ
   · have h17n : op.toNat ≠ 17 := fun h => h17 (BitVec.eq_of_toNat_eq (by simpa using h))
     have hb : natRep b bVal objs := by
@@ -1391,22 +1380,8 @@ theorem lcnf_nat_arith_wp (xs : Tup Val [i64, i64, i64, i64]) (m : Mem 64)
     · intro _ _ _ hf; exact False.elim hf
     · intro Js_err _
       c0_let_simp
-      have huga : (33554429#64 : BitVec 64).ult (BitVec.ofNat 64 (limbLenNat aVal)) = false := by
-        apply Bool.eq_false_iff.mpr; intro ht
-        have : (33554429#64 : BitVec 64).toNat < (BitVec.ofNat 64 (limbLenNat aVal)).toNat :=
-          of_decide_eq_true ht
-        rw [show (33554429#64 : BitVec 64).toNat = 33554429 from rfl,
-          BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by unfold mpzMaxLimbs at hna_max; omega)] at this
-        unfold mpzMaxLimbs at hna_max; omega
-      have hugb : (33554429#64 : BitVec 64).ult (BitVec.ofNat 64 (limbLenNat bVal)) = false := by
-        apply Bool.eq_false_iff.mpr; intro ht
-        have : (33554429#64 : BitVec 64).toNat < (BitVec.ofNat 64 (limbLenNat bVal)).toNat :=
-          of_decide_eq_true ht
-        rw [show (33554429#64 : BitVec 64).toNat = 33554429 from rfl,
-          BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by unfold mpzMaxLimbs at hnb_max; omega)] at this
-        unfold mpzMaxLimbs at hnb_max; omega
-      apply wp_jnz_false huga
-      apply wp_jnz_false hugb
+      apply wp_jnz_false (bv64_ult_max_false hna_max)
+      apply wp_jnz_false (bv64_ult_max_false hnb_max)
       apply wp_join_group (fun _ m' => m' = m)
       · intro _ _ m' hm'
         subst hm'
@@ -1443,8 +1418,7 @@ theorem lcnf_nat_arith_wp (xs : Tup Val [i64, i64, i64, i64]) (m : Mem 64)
         dsimp only [bigNumRtInv] at hm_split
         rw [array64_split_len hna_le_scr,
           array64_split_len (a := scr + BitVec.ofNat 64 (8 * limbLenNat aVal)) hnb_le_rest,
-          List.drop_drop,
-          BitVec.add_assoc, ← BitVec.ofNat_add, ← Nat.mul_add] at hm_split
+          List.drop_drop, BitVec.add_assoc, ← BitVec.ofNat_add, ← Nat.mul_add] at hm_split
         apply bn_load_nat_call_wp (R := rtC0Inv rt st ⋆ cell64 (rt + 33672#64) scr ⋆
           cell64 (rt + 33680#64) (BitVec.ofNat 64 scrLimbs.length) ⋆
           array64 (scr + BitVec.ofNat 64 (8 * limbLenNat aVal))
@@ -1471,12 +1445,12 @@ theorem lcnf_nat_arith_wp (xs : Tup Val [i64, i64, i64, i64]) (m : Mem 64)
           hvalA hvalB hlenTot hneed hna_max hnb_max hok (by sep_use hm2) hQ
       · intro Js hJs
         c0_let_simp
-        by_cases hgt : (BitVec.ofNat 64 (limbLenNat bVal)).ult (BitVec.ofNat 64 (limbLenNat aVal)) =
-          true
+        by_cases hgt : (BitVec.ofNat 64 (limbLenNat bVal)).ult
+            (BitVec.ofNat 64 (limbLenNat aVal)) = true
         · apply wp_jnz_true hgt
           rw [wp_jump]; exact hJs (BitVec.ofNat 64 (limbLenNat aVal), ()) m rfl
-        · have hgtf : (BitVec.ofNat 64 (limbLenNat bVal)).ult (BitVec.ofNat 64 (limbLenNat aVal)) =
-          false :=
+        · have hgtf : (BitVec.ofNat 64 (limbLenNat bVal)).ult
+              (BitVec.ofNat 64 (limbLenNat aVal)) = false :=
             Bool.eq_false_iff.mpr hgt
           apply wp_jnz_false hgtf
           rw [wp_jump]; exact hJs (BitVec.ofNat 64 (limbLenNat bVal), ()) m rfl
@@ -1500,6 +1474,5 @@ theorem lcnf_nat_arith_call_wp {rs : List Ty} {Q : Post rs} {X : XPost}
   apply wp_call_of (Γ := rtR1Env) (bs := [i64])
   apply rtR1Env_lcnf_nat_arith
   exact ⟨st, scr, scrLimbs, objs, aVal, bVal, R, hwf, ha, hb, hok, hm, hk⟩
-
 
 end LeanQbe.T.LeanLCNF
