@@ -225,7 +225,7 @@ theorem full_k6_add_clause_wp (Γ : Env) (hMaxV : Γ.Has "full_m6_max_v" m6MaxVS
     (hAssign : Γ.Has "full_k6_assign" k6AssignSpec)
     (hAddTicks : Γ.Has "full_k6_add_ticks" k6AddTicksSpec)
     (hWatch : Γ.Has "full_k6_watch" k6WatchSpec) :
-    ∀ args m Q X, step13K6AddClauseSpec args m Q X →
+    ∀ args m Q X, step13K6AddClauseHwSpec args m Q X →
       Func.wp Γ full_k6_add_clause_body args m Q X := by
   rintro ⟨h, lits_ptr, sz, ⟨⟩⟩ m Q X ⟨c, s, P, L, scr, gu, xs, R, rfl, hlen, hscr_s, hgu_s,
     hL_scr, hL_mv, hinv, hsync, hlvl0, hsz_le, hsz_max, hxlits, hent, hhwm0, hm, hcont⟩
@@ -302,12 +302,34 @@ theorem full_k6_add_clause_wp (Γ : Env) (hMaxV : Γ.Has "full_m6_max_v" m6MaxVS
         rw [List.getElem?_append_left (by rw [htk_len]; omega), List.getElem?_take_of_lt hi]
       have hassS : k6AssumpLitsS L scr' = k6AssumpLitsS L s.scratch.scratch_buf := by
         unfold k6AssumpLitsS; rw [hks'_eq]; unfold k6AssumpLits; rw [hna', hass']
+      have hhwm_post :
+          s.scratch.glue_used[33]? = some 0xFFFFFFFF#32 ∧ gu'[33]? = some 0xFFFFFFFF#32 ∨
+          s.scratch.glue_used[33]? ≠ some 0xFFFFFFFF#32 ∧ gu'[33]? ≠ some 0xFFFFFFFF#32 ∧
+            (s.scratch.glue_used[33]?.getD 0#32).toNat ≤ (gu'[33]?.getD 0#32).toNat ∧
+            (gu'[33]?.getD 0#32).toNat ≤ L.maxV ∧
+            ∀ i < sz.toNat,
+              (xs[i]?.getD 0#32).toNat / 2 + 1 ≤ (gu'[33]?.getD 0#32).toNat := by
+        have hgu33_eq : s.scratch.glue_used[33]? = some hw0 := by
+          rw [List.getElem?_eq_getElem hgu_len]
+        rcases hhwm_rel with ⟨h0, h1⟩ | ⟨h0, h1, h2, h3⟩
+        · exact Or.inl ⟨by rw [hgu33_eq, h0], by rw [hgu'_33, h1]⟩
+        · have hne_g : s.scratch.glue_used[33]? ≠ some 0xFFFFFFFF#32 := by
+            intro h; rw [hgu33_eq] at h; exact h0 (Option.some.inj h)
+          have hne_g' : gu'[33]? ≠ some 0xFFFFFFFF#32 := by
+            intro h; rw [hgu'_33] at h
+            have he : hw' = 0xFFFFFFFF#32 := Option.some.inj h
+            have hlt : hw'.toNat ≤ 8192 := Nat.le_trans h2 L.hmaxV.2
+            rw [he] at hlt; simp at hlt
+          refine Or.inr ⟨hne_g, hne_g', ?_, ?_, fun i hi => ?_⟩
+          · rw [hgu33_eq, hgu'_33, Option.getD_some, Option.getD_some]; exact h1
+          · rw [hgu'_33, Option.getD_some]; exact h2
+          · rw [hgu'_33, Option.getD_some]; exact h3 i hi
       exact hcont ok scr' gu' m' hlen' hpref hgu_other (hks'_eq ▸ hhwm_st)
         (hks'_eq ▸ hinv') (hks'_eq ▸ hsync') (hks'_eq ▸ hlvl') (hks'_eq ▸ hnv')
         (hks'_eq ▸ hna') hassS (fun hok => by rw [hks'_eq, hne' hok])
         (fun h2 => by rw [hks'_eq]; exact hge2' h2)
         (fun M hm1' hm2' hm3' => by rw [hks'_eq]; exact hbnd M hm1' hm2' hm3')
-        (sep_ac hm_arr)
+        hhwm_post (sep_ac hm_arr)
     have hhwm_id := s13_add_clause_hwm_id hgu'_33 hhwm0' hhwm_rel
     c0_hsteps_nogrp
     · have hsz0 : sz.toNat = 0 := by bv_omega

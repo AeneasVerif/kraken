@@ -115,6 +115,45 @@ open LeanQbe.T.Examples.Kissat.Src.Kitten
           array (t := i32) c.pGlueUsed gu' ⋆ array (t := i32) lits_ptr xs ⋆ R) m' →
         Q (ok, ()) m'
 
+/-- Step-13 `full_k6_add_clause` contract extended with `glue_used[33]` monotonicity &
+literal-index HWM bound (`gu'[33] >= (xs[i]/2 + 1)`). -/
+@[expose] def step13K6AddClauseHwSpec : Spec [i64, i64, i32] [.bool] :=
+  fun (h, lits_ptr, sz, ()) m Q _ =>
+    ∃ (c : FullCfg) (s : FullState) (P : (Nat → Bool) → Prop) (L : K6Layout)
+      (scr gu xs : List (BitVec 32)) (R : Mem 64 → Prop),
+      h = c.hdr ∧ s.LengthsOk c ∧ s.scratch.scratch_buf = scr ∧ s.scratch.glue_used = gu ∧
+      L.scrLen = c.scratch_cap ∧ L.maxV = k6MaxV c.scratch_cap ∧
+      K6Inv L P (k6StateOfScratch L scr) ∧ K6TrailSynced (k6StateOfScratch L scr) ∧
+      (k6StateOfScratch L scr).lvl = 0#32 ∧ sz.toNat ≤ xs.length ∧ sz.toNat < 2 ^ 28 ∧
+      (∀ i < sz.toNat, (xs[i]?.getD 0#32).toNat < 2 * (k6StateOfScratch L scr).nv.toNat) ∧
+      SemEntails P ((xs.take sz.toNat).map BitVec.toNat) ∧
+      K6HwmClean L (gu[33]?.getD 0#32) (k6StateOfScratch L scr) ∧
+      (array64 (c.hdr + 32) (hdrTailWords c s) ⋆ array (t := i32) c.pScratchBuf scr ⋆
+        array (t := i32) c.pGlueUsed gu ⋆ array (t := i32) lits_ptr xs ⋆ R) m ∧
+      ∀ (ok : Bool) (scr' gu' : List (BitVec 32)) (m' : Mem 64),
+        let ks := k6StateOfScratch L scr; let ks' := k6StateOfScratch L scr'
+        let s' : FullState :=
+          { s with scratch := { s.scratch with scratch_buf := scr', glue_used := gu' } }
+        s'.LengthsOk c → (∀ i < L.k6Base, scr'[i]? = scr[i]?) →
+        (∀ i < 64, i ≠ 33 → gu'[i]? = gu[i]?) →
+        K6HwmClean L (gu'[33]?.getD 0#32) ks' →
+        K6Inv L P ks' → K6TrailSynced ks' → ks'.lvl = 0#32 → ks'.nv = ks.nv →
+        ks'.nassump = ks.nassump → k6AssumpLitsS L scr' = k6AssumpLitsS L scr →
+        (ok = false → ks' = ks) →
+        (2 ≤ sz.toNat → ks'.trl_end = ks.trl_end ∧ ks'.prop = ks.prop ∧
+          ks'.unass = ks.unass ∧ ks'.incons = ks.incons) →
+        (∀ M, (∀ i < sz.toNat, (xs[i]?.getD 0#32).toNat < 2 * M) →
+          K6LitsBounded M ks → (∀ l ∈ k6TrailLits ks, l < 2 * M) →
+          K6LitsBounded M ks' ∧ (∀ l ∈ k6TrailLits ks', l < 2 * M)) →
+        (gu[33]? = some 0xFFFFFFFF#32 ∧ gu'[33]? = some 0xFFFFFFFF#32 ∨
+          gu[33]? ≠ some 0xFFFFFFFF#32 ∧ gu'[33]? ≠ some 0xFFFFFFFF#32 ∧
+            (gu[33]?.getD 0#32).toNat ≤ (gu'[33]?.getD 0#32).toNat ∧
+            (gu'[33]?.getD 0#32).toNat ≤ L.maxV ∧
+            ∀ i < sz.toNat, (xs[i]?.getD 0#32).toNat / 2 + 1 ≤ (gu'[33]?.getD 0#32).toNat) →
+        (array64 (c.hdr + 32) (hdrTailWords c s') ⋆ array (t := i32) c.pScratchBuf scr' ⋆
+          array (t := i32) c.pGlueUsed gu' ⋆ array (t := i32) lits_ptr xs ⋆ R) m' →
+        Q (ok, ()) m'
+
 @[expose] def k6MtfSpec : Spec [i64, i32] [] := fun (kPtr, _v, ()) m Q _ =>
   ∃ (L : K6Layout) (ks : K6State) (R : Mem 64 → Prop),
     ks.ShapesOk L ∧ ks.max_v = L.mv32 ∧ ks.nv.toNat ≤ L.maxV ∧ (K6Mem L kPtr ks ⋆ R) m ∧
@@ -271,7 +310,7 @@ open LeanQbe.T.Examples.Kissat.Src.Kitten
   , ⟨"full_k6_init",         [i64, i32],           [],      step13K6InitSpec,       true⟩
   , ⟨"full_k6_watch",        [i64, i32, i32, i32], [],      k6WatchSpec,            true⟩
   , ⟨"full_k6_assign",       [i64, i32, i32],      [],      k6AssignSpec,           true⟩
-  , ⟨"full_k6_add_clause",   [i64, i64, i32],      [.bool], step13K6AddClauseSpec,  true⟩
+  , ⟨"full_k6_add_clause",   [i64, i64, i32],      [.bool], step13K6AddClauseHwSpec, true⟩
   , ⟨"full_k6_mtf",          [i64, i32],           [],      k6MtfSpec,              true⟩
   , ⟨"full_k6_backtrack",    [i64, i32],           [],      step13K6BacktrackSpec,  true⟩
   , ⟨"full_k6_propagate",    [i64],                [i32],   step13K6PropagateSpec,  true⟩
@@ -288,6 +327,15 @@ theorem step13K6InitSpec_xfree : Spec.XFree step13K6InitSpec := by xfree
 theorem k6WatchSpec_xfree : Spec.XFree k6WatchSpec := by xfree
 theorem k6AssignSpec_xfree : Spec.XFree k6AssignSpec := by xfree
 theorem step13K6AddClauseSpec_xfree : Spec.XFree step13K6AddClauseSpec := by xfree
+theorem step13K6AddClauseHwSpec_xfree : Spec.XFree step13K6AddClauseHwSpec := by xfree
+
+theorem step13K6AddClauseSpec_le_hw : step13K6AddClauseSpec.Le step13K6AddClauseHwSpec := by
+  rintro ⟨h, lp, sz, ⟨⟩⟩ m Q X
+    ⟨c, s, P, L, scr, gu, xs, R, hh, hl, hs, hg, hLs, hLm, hi, hsy, hlv, hsl, hxm, hxt,
+      hse, hhw, hm, hQ⟩
+  exact ⟨c, s, P, L, scr, gu, xs, R, hh, hl, hs, hg, hLs, hLm, hi, hsy, hlv, hsl, hxm, hxt,
+    hse, hhw, hm, fun ok scr' gu' m' a b c1 d e f g h1 i j k l hbnd _ =>
+      hQ ok scr' gu' m' a b c1 d e f g h1 i j k l hbnd⟩
 theorem k6MtfSpec_xfree : Spec.XFree k6MtfSpec := by xfree
 theorem step13K6BacktrackSpec_xfree : Spec.XFree step13K6BacktrackSpec := by xfree
 theorem step13K6PropagateSpec_xfree : Spec.XFree step13K6PropagateSpec := by xfree
@@ -306,7 +354,7 @@ theorem specs_xfree : ∀ e ∈ specs, Spec.XFree e.spec := by
   · exact step13K6InitSpec_xfree
   · exact k6WatchSpec_xfree
   · exact k6AssignSpec_xfree
-  · exact step13K6AddClauseSpec_xfree
+  · exact step13K6AddClauseHwSpec_xfree
   · exact k6MtfSpec_xfree
   · exact step13K6BacktrackSpec_xfree
   · exact step13K6PropagateSpec_xfree
@@ -351,9 +399,13 @@ theorem has_full_k6_assign {Γ : Env} (h : Γ.Sat specs) :
     Γ.Has "full_k6_assign" k6AssignSpec :=
   mem_has h (by simp [specs]) k6AssignSpec_xfree
 
+theorem has_full_k6_add_clause_hw {Γ : Env} (h : Γ.Sat specs) :
+    Γ.Has "full_k6_add_clause" step13K6AddClauseHwSpec :=
+  mem_has h (by simp [specs]) step13K6AddClauseHwSpec_xfree
+
 theorem has_full_k6_add_clause {Γ : Env} (h : Γ.Sat specs) :
     Γ.Has "full_k6_add_clause" step13K6AddClauseSpec :=
-  mem_has h (by simp [specs]) step13K6AddClauseSpec_xfree
+  (has_full_k6_add_clause_hw h).of_le step13K6AddClauseSpec_le_hw
 
 theorem has_full_k6_mtf {Γ : Env} (h : Γ.Sat specs) :
     Γ.Has "full_k6_mtf" k6MtfSpec :=
