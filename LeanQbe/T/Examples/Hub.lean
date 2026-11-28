@@ -116,8 +116,6 @@ public import LeanQbe.T.Examples.Bitblast.Src.Validate
 public import LeanQbe.T.Examples.BvDecideBridge
 public import LeanQbe.T.Examples.ChaCha
 public import LeanQbe.T.Examples.ChaChaProg
-public import LeanQbe.T.Examples.KissatBeyond.Proof.XorF2
-public import LeanQbe.T.Examples.KissatBeyond.Ref.XorF2
 public import LeanQbe.T.Examples.LinkRec
 public import LeanQbe.T.Examples.LitmusProgs
 public import LeanQbe.T.Examples.LitmusProgsLemmas
@@ -134,6 +132,8 @@ public import LeanQbe.T.Examples.Programs
 public import LeanQbe.T.Examples.UnionFind
 public import LeanQbe.T.Examples.UnionFindLemmas
 public import LeanQbe.T.Examples.UnionFindProg
+public import LeanQbe.T.Examples.Vibesat.Proof.XorF2
+public import LeanQbe.T.Examples.Vibesat.Ref.XorF2
 
 set_option autoImplicit false
 

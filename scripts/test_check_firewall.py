@@ -228,7 +228,9 @@ class TestPurityFirewalls(unittest.TestCase):
             self.assertIn("13 > 12", conj_viols[0].detail)
 
     def test_default_check_firewall_stays_clean(self) -> None:
-        groups = cf.run_audit(REPO_ROOT, require_isa=True)
+        groups = cf.run_audit(REPO_ROOT, require_isa=True, purity_ref=True)
+        by_id = {g.leak_id: g for g in groups}
+        self.assertIn("LeanQbe/T/Examples/Vibesat/Ref/XorF2.lean", by_id["P-Ref"].files)
         for g in groups:
             self.assertEqual(g.violations, [], f"{g.leak_id}: {g.violations}")
 

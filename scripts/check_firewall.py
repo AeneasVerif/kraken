@@ -102,9 +102,10 @@ ARM64_PREFIXES = (
 )
 ARCH_PREFIXES = (*AMD64_PREFIXES, *ARM64_PREFIXES)
 
-PURITY_REF_PATH_RE = re.compile(r"(?:^|/)Kissat[^/]*/Ref/.*\.lean$")
+PURITY_REF_PATH_RE = re.compile(r"(?:^|/)(?:Kissat|Vibesat)[^/]*/Ref/.*\.lean$")
 PURITY_SPEC_PATH_RE = re.compile(
-    r"(?:^|/)Kissat[^/]*/(?:[^/]+/)*(?:Spec/.*|Proof/Spec/.*|Proof/[^/]+/Spec[^/]*)\.lean$"
+    r"(?:^|/)(?:Kissat|Vibesat)[^/]*/(?:[^/]+/)*"
+    r"(?:Spec/.*|Proof/Spec/.*|Proof/[^/]+/Spec[^/]*)\.lean$"
 )
 PURITY_FORBIDDEN_DECL_RE = re.compile(
     r"^(?:(?:public|private|protected|noncomputable|unsafe|partial|local|"
@@ -749,12 +750,12 @@ def _walk_lean_files(root: Path, path_re: re.Pattern[str]) -> list[str]:
 
 
 def discover_purity_ref_files(root: Path) -> list[str]:
-    """Collect `**/Kissat*/Ref/*.lean` files subject to Rule `P-Ref`."""
+    """Collect `**/{Kissat,Vibesat}*/Ref/*.lean` files subject to Rule `P-Ref`."""
     return _walk_lean_files(root, PURITY_REF_PATH_RE)
 
 
 def discover_purity_spec_files(root: Path) -> list[str]:
-    """Collect `**/Kissat*/Spec/*.lean` and pre-W8 `Proof/Spec*` files subject to Rule `P-Spec`."""
+    """Collect `**/{Kissat,Vibesat}*/Spec/*.lean` and `Proof/Spec*` files for Rule `P-Spec`."""
     return _walk_lean_files(root, PURITY_SPEC_PATH_RE)
 
 

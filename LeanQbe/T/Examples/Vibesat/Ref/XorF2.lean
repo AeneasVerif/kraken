@@ -37,7 +37,7 @@ set_option autoImplicit false
 
 public section
 
-namespace LeanQbe.T.Examples.KissatBeyond.Ref
+namespace LeanQbe.T.Examples.Vibesat.Ref
 
 open LeanQbe.T.Examples.Kissat.Ref
 open Std.Sat
@@ -107,4 +107,4 @@ def xorEvalPacked (α : Nat → Bool) (c2v scr : List (BitVec 32)) (rbase ncols 
 def XorPackedRowSound (F : CNF Nat) (c2v scr : List (BitVec 32)) (rbase ncols : Nat) : Prop :=
   ∀ α : Nat → Bool, F.Sat α → xorEvalPacked α c2v scr rbase ncols = false
 
-end LeanQbe.T.Examples.KissatBeyond.Ref
+end LeanQbe.T.Examples.Vibesat.Ref

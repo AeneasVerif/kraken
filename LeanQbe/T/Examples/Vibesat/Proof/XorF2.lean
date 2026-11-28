@@ -4,7 +4,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 module
 
-public import LeanQbe.T.Examples.KissatBeyond.Ref.XorF2
+public import LeanQbe.T.Examples.Vibesat.Ref.XorF2
 public import LeanQbe.T.Examples.Kissat.Proof.Ref.Cdcl
 public import LeanQbe.T.Examples.Kissat.Proof.Ref.Substitute
 
@@ -18,7 +18,7 @@ set_option autoImplicit false
 
 public section
 
-namespace LeanQbe.T.Examples.KissatBeyond.Ref
+namespace LeanQbe.T.Examples.Vibesat.Ref
 
 open LeanQbe.T.Examples.Kissat.Ref
 open Std.Sat
@@ -618,4 +618,4 @@ theorem kernighan_clear_lsb (w : BitVec 64) (hne : w ≠ 0#64) :
       have hzero : ¬ (i - b = 0) := by omega
       simp [hm1_eq, hzero]
 
-end LeanQbe.T.Examples.KissatBeyond.Ref
+end LeanQbe.T.Examples.Vibesat.Ref
