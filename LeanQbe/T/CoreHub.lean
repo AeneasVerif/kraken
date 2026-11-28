@@ -105,6 +105,7 @@ public import LeanQbe.T.Logic.Arith
 public import LeanQbe.T.Logic.BitVec
 public import LeanQbe.T.Logic.ByteArrayDecimal
 public import LeanQbe.T.Logic.Bytes
+public import LeanQbe.T.Logic.BytesUnaligned
 public import LeanQbe.T.Logic.C0Agrees
 public import LeanQbe.T.Logic.C0Grind
 public import LeanQbe.T.Logic.C0HeadStep
@@ -121,6 +122,7 @@ public import LeanQbe.T.Logic.ProofKitMasks
 public import LeanQbe.T.Logic.Rules
 public import LeanQbe.T.Logic.SepTree
 public import LeanQbe.T.Logic.SlabChain
+public import LeanQbe.T.Logic.SlabLayout
 public import LeanQbe.T.Logic.Vec
 public import LeanQbe.T.Logic.ZeroTerm
 public import LeanQbe.T.LoopRotate
