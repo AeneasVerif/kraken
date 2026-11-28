@@ -246,6 +246,11 @@ public import LeanQbe.T.Examples.Kissat.Proof.Bump.WpBumpHelpers
 public import LeanQbe.T.Examples.Kissat.Proof.Bump.WpSort
 public import LeanQbe.T.Examples.Kissat.Proof.Bump.WpSortHelpers
 public import LeanQbe.T.Examples.Kissat.Proof.Bump.WpSortRadix
+public import LeanQbe.T.Examples.Kissat.Proof.Clause.Cert
+public import LeanQbe.T.Examples.Kissat.Proof.Clause.Helpers
+public import LeanQbe.T.Examples.Kissat.Proof.Clause.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Clause.Wp0
+public import LeanQbe.T.Examples.Kissat.Proof.Clause.Wp1
 public import LeanQbe.T.Examples.Kissat.Proof.Config.Cert
 public import LeanQbe.T.Examples.Kissat.Proof.Config.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Config.Wp
@@ -356,6 +361,7 @@ public import LeanQbe.T.Examples.Kissat.Proof.Tiers.Cert
 public import LeanQbe.T.Examples.Kissat.Proof.Tiers.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Tiers.Wp0
 public import LeanQbe.T.Examples.Kissat.Proof.Tiers.Wp1
+public import LeanQbe.T.Examples.Kissat.Proof.Watch.Spec
 public import LeanQbe.T.Examples.Kissat.Ref.Base
 public import LeanQbe.T.Examples.Kissat.Ref.Cdcl
 public import LeanQbe.T.Examples.Kissat.Ref.Chrono
