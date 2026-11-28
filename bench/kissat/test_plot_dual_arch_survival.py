@@ -18,6 +18,7 @@ BENCH_DIR = Path(__file__).resolve().parent
 REPO_ROOT = BENCH_DIR.parents[1]
 SCRIPT_PATH = BENCH_DIR / "plot_dual_arch_survival.py"
 CHECKED_IN_SVG = REPO_ROOT / "img" / "kissat_dual_arch_survival.svg"
+CHECKED_IN_SVG_76K = REPO_ROOT / "img" / "kissat_dual_arch_survival_76239.svg"
 
 sys.path.insert(0, str(BENCH_DIR))
 import plot_dual_arch_survival as pda  # noqa: E402
@@ -87,11 +88,13 @@ class TestPlotDualArchSurvival(unittest.TestCase):
         self.assertEqual(args.git_ref, "artifacts")
 
     def test_checked_in_svg_invariants(self) -> None:
-        self.assertTrue(CHECKED_IN_SVG.is_file(), f"Missing checked-in SVG: {CHECKED_IN_SVG}")
-        info = assert_strict_svg_invariants(
-            self, CHECKED_IN_SVG.read_text(encoding="utf-8"), expect_dense_min_vertices=250
-        )
-        self.assertEqual(len(info["curve_vertices"]), 8)
+        for svg_path in (CHECKED_IN_SVG, CHECKED_IN_SVG_76K):
+            with self.subTest(svg=svg_path.name):
+                self.assertTrue(svg_path.is_file(), f"Missing checked-in SVG: {svg_path}")
+                info = assert_strict_svg_invariants(
+                    self, svg_path.read_text(encoding="utf-8"), expect_dense_min_vertices=250
+                )
+                self.assertEqual(len(info["curve_vertices"]), 8)
 
     def test_1207_export_plot_and_determinism(self) -> None:
         with tempfile.TemporaryDirectory() as td:

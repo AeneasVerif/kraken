@@ -332,14 +332,24 @@ python3 bench/kissat/extract_c0_direct.py --target fidelity --out /tmp/kissat_c0
 
 ### Dual-Architecture Performance Comparison
 
-We benchmark the full-fidelity C0 port of Kissat 4.0.4 (`0` external calls, `0` exit symbols;
-compiled with `LeanQbe.T` at commit **`123cf315`**) on dedicated x86-64 and Arm Neoverse-V2 servers
-across **1,207 CNF instances** (`140` curated multi-domain benchmarks at 3-rep interleaved median +
-`1,067` SAT-COMP / SMT-COMP / software-verification benchmarks at 1-rep; `30 s` wall-clock timeout
-per instance; `0` OOMs, `0` SAT model-verification failures, `0` verdict disagreements across all
-`11,896` trials, and `0` conflict-count differences among `C0-direct`, `C3b`, and `C4`) on both
-**x86-64** (AMD EPYC Zen 5) and **AArch64** (Arm Neoverse-V2), comparing four statically linked
-configurations built with **Clang 21 (`-O3`)**:
+We evaluate the full-fidelity C0 port of Kissat 4.0.4 (`0` external calls, `0` exit symbols;
+compiled with `LeanQbe.T` at commit **`123cf315`**) on dedicated **x86-64** (AMD EPYC Zen 5) and
+**AArch64** (Arm Neoverse-V2) servers across two suites using the same eight statically linked
+binaries built with **Clang 21 (`-O3`)**:
+
+- **Full SAT archive (`76,239` unique CNF instances, `15 s` wall-clock timeout, `609,912` trials):**
+  Spans `8` eras (`2002–2026` SAT-COMP, SMT/hardware/software verification, untracked GBD
+  instances, and `50,304` SATLIB instances), including `73,768` instances strictly disjoint from
+  all curated development suites (`0` missing trials, `0` OOMs, `0` SAT model-verification
+  failures, `0` within-ISA or cross-ISA verdict disagreements, and `0` conflict-count differences
+  among `C0-direct`, `C3b`, and `C4`).
+- **Curated multi-domain benchmark (`1,207` CNF instances, `30 s` timeout, `11,896` trials):**
+  `140` curated benchmarks at 3-rep interleaved median plus `1,067` SAT-COMP / SMT-COMP /
+  software-verification benchmarks at 1-rep (`0` OOMs, `0` model failures, `0` verdict
+  disagreements, `0` conflict-count differences; survival plot at
+  [kissat_dual_arch_survival.svg](img/kissat_dual_arch_survival.svg)).
+
+Each suite compares four statically linked pipelines:
 
 - **`C1`:** Upstream C Kissat 4.0.4 (`clang -O3`).
 - **`C0-direct`:** Our C0 solver source extracted to C99 (`clang -O3 -fwrapv
@@ -352,12 +362,12 @@ configurations built with **Clang 21 (`-O3`)**:
   spilling + register allocation + native x86-64 / AArch64 assembly). Comparing `C4` vs. `C3b`
   isolates LeanQbe's verified compiler backend against `clang++ -O3` on identical IR.
 
-![Verified Kissat Dual-Architecture 4-Way Survival Curves](img/kissat_dual_arch_survival.svg)
+![Verified Kissat Dual-Architecture 4-Way Survival Curves — Full Archive (N = 76,239)](img/kissat_dual_arch_survival_76239.svg)
 
 To keep `main` free of benchmark datasets, full per-instance compressed timing datasets
-(`survival.csv.xz` + `manifest.json`, including both the `123cf315` refresh and the earlier
-`e190f461` baseline) live on the companion **`artifacts`** branch under `bench/results/`. Regenerate
-`img/kissat_dual_arch_survival.svg` directly from `artifacts` via
+(`survival.csv.xz` + `manifest.json` for the `76,239`-CNF `@15 s` full archive, the `1,207`-CNF
+`@30 s` curated benchmark, and the earlier `e190f461` baseline) live on the companion
+**`artifacts`** branch under `bench/results/`. Regenerate either SVG directly from `artifacts` via
 [plot_dual_arch_survival.py](bench/kissat/plot_dual_arch_survival.py) (which defaults to
 `--git-ref artifacts` and reads via `git show` without checking out the branch), or run and plot a
 fresh local 4-way benchmark on your own machine:
@@ -365,12 +375,12 @@ fresh local 4-way benchmark on your own machine:
 ```bash
 # Inspect available datasets and manifests on the companion `artifacts` branch
 git ls-tree --name-only artifacts:bench/results/
-git show artifacts:bench/results/<run_tag>/manifest.json
+git show artifacts:bench/results/full_archive_76239_step13_123cf315/manifest.json
 
 # Regenerate the compact (< 40 KB) dual-arch survival SVG directly from `artifacts`
 python3 bench/kissat/plot_dual_arch_survival.py plot \
-  --git-ref artifacts --git-path bench/results/<run_tag> \
-  -o img/kissat_dual_arch_survival.svg
+  --git-ref artifacts --git-path bench/results/full_archive_76239_step13_123cf315 \
+  -o img/kissat_dual_arch_survival_76239.svg
 
 # Or run a fresh local 4-way benchmark and plot its survival curve
 timeout 3600 python3 bench/kissat/run_4way_stage1.py --out-json /tmp/kissat_4way.json
@@ -378,50 +388,65 @@ python3 bench/kissat/plot_dual_arch_survival.py plot \
   --x64 /tmp/kissat_4way.json -o /tmp/kissat_survival.svg
 ```
 
-| Architecture & Suite (`123cf315`) | Pipeline | Solved (`%`) | SAT / UNSAT | PAR-2 | vs. `C3b` (`W-GM / W-AM`) | vs. `C0-direct` (`W-GM / W-AM`) | vs. `C1` (`W-GM / W-AM`) | Solver `.text` |
+| Architecture & Suite (`123cf315`, `@15 s`) | Pipeline | Solved (`%`) | SAT / UNSAT | PAR-2 | vs. `C3b` (`W-GM / W-AM`) | vs. `C0-direct` (`W-GM / W-AM`) | vs. `C1` (`W-GM / W-AM`) | Solver `.text` |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **x86-64** (AMD EPYC Zen 5)<br>Combined (`N = 1,207`) | **`C1`** (`clang -O3`) | `1,163` (`96.4%`) | `559 / 604` | `3.829 s` | — | — | `1.000× W-GM / 1.000× W-AM` | — |
-| | **`C0-direct`** (`clang -O3`) | `1,141` (`94.5%`) | `545 / 596` | `5.101 s` | `0.968× W-GM / 0.968× W-AM` | `1.000× W-GM / 1.000× W-AM` | `1.085× W-GM / 1.286× W-AM` | `381.9 KB` |
-| | **`C3b`** (IR → `clang++ -O3`) | `1,141` (`94.5%`) | `545 / 596` | `5.161 s` | `1.000× W-GM / 1.000× W-AM` | `1.033× W-GM / 1.033× W-AM` | `1.121× W-GM / 1.328× W-AM` | `317.3 KB` |
-| | **`C4`** (`LeanQbe.T` x86-64) | `1,141` (`94.5%`) | `545 / 596` | `5.160 s` | **`1.006× W-GM / 0.999× W-AM`** | **`1.040× W-GM / 1.032× W-AM`** | **`1.128× W-GM / 1.327× W-AM`** | `430.7 KB` |
-| **AArch64** (Arm Neoverse-V2)<br>Combined (`N = 1,207`) | **`C1`** (`clang -O3`) | `1,155` (`95.7%`) | `556 / 599` | `4.405 s` | — | — | `1.000× W-GM / 1.000× W-AM` | — |
-| | **`C0-direct`** (`clang -O3`) | `1,137` (`94.2%`) | `541 / 596` | `5.382 s` | `0.923× W-GM / 0.920× W-AM` | `1.000× W-GM / 1.000× W-AM` | `0.972× W-GM / 1.123× W-AM` | `391.3 KB` |
-| | **`C3b`** (IR → `clang++ -O3`) | `1,136` (`94.1%`) | `540 / 596` | `5.571 s` | `1.000× W-GM / 1.000× W-AM` | `1.083× W-GM / 1.087× W-AM` | `1.053× W-GM / 1.220× W-AM` | `270.6 KB` |
-| | **`C4`** (`LeanQbe.T` AArch64) | `1,137` (`94.2%`) | `541 / 596` | `5.461 s` | **`0.971× W-GM / 0.958× W-AM`** | **`1.052× W-GM / 1.041× W-AM`** | **`1.023× W-GM / 1.170× W-AM`** | `383.0 KB` |
+| **x86-64** (AMD EPYC Zen 5)<br>Full Archive (`N = 76,239`) | **`C1`** (`clang -O3`) | `63,268` (`82.99%`) | `55,916 / 7,352` | `5.417 s` | — | — | `1.0000× W-GM / 1.0000× W-AM` | — |
+| | **`C0-direct`** (`clang -O3`) | `62,979` (`82.61%`) | `55,751 / 7,228` | `5.505 s` | `0.9890× W-GM / 0.9744× W-AM` | `1.0000× W-GM / 1.0000× W-AM` | `1.0217× W-GM / 1.0549× W-AM` | `381.9 KB` |
+| | **`C3b`** (IR → `clang++ -O3`) | `62,948` (`82.57%`) | `55,735 / 7,213` | `5.519 s` | `1.0000× W-GM / 1.0000× W-AM` | `1.0111× W-GM / 1.0263× W-AM` | `1.0328× W-GM / 1.0804× W-AM` | `317.3 KB` |
+| | **`C4`** (`LeanQbe.T` x86-64) | **`62,950`** (`82.57%`) | `55,735 / 7,215` | `5.520 s` | **`1.0097× W-GM / 1.0043× W-AM`** | **`1.0209× W-GM / 1.0307× W-AM`** | **`1.0429× W-GM / 1.0864× W-AM`** | `430.7 KB` |
+| **AArch64** (Arm Neoverse-V2)<br>Full Archive (`N = 76,239`) | **`C1`** (`clang -O3`) | `62,891` (`82.49%`) | `55,643 / 7,248` | `5.557 s` | — | — | `1.0000× W-GM / 1.0000× W-AM` | — |
+| | **`C0-direct`** (`clang -O3`) | `62,801` (`82.37%`) | `55,650 / 7,151` | `5.578 s` | `0.9667× W-GM / 0.9240× W-AM` | `1.0000× W-GM / 1.0000× W-AM` | `0.9887× W-GM / 0.9830× W-AM` | `391.3 KB` |
+| | **`C3b`** (IR → `clang++ -O3`) | `62,680` (`82.22%`) | `55,568 / 7,112` | `5.626 s` | `1.0000× W-GM / 1.0000× W-AM` | `1.0344× W-GM / 1.0822× W-AM` | `1.0215× W-GM / 1.0411× W-AM` | `270.6 KB` |
+| | **`C4`** (`LeanQbe.T` AArch64) | **`62,746`** (`82.30%`) | `55,610 / 7,136` | **`5.603 s`** | **`0.9880× W-GM / 0.9674× W-AM`** | **`1.0221× W-GM / 1.0479× W-AM`** | **`1.0101× W-GM / 1.0222× W-AM`** | `383.0 KB` |
 
-*Metrics: PAR-2 penalizes timeouts at `2 × 30 s = 60 s`; **W-GM** is the geometric mean of
+*Metrics: PAR-2 penalizes timeouts at `2 × 15 s = 30 s`; **W-GM** is the geometric mean of
 per-instance wall-time ratios over commonly solved instances (with a `20 ms` floor), and **W-AM**
-is the ratio of total wall time over commonly solved instances (ratios `< 1.000×` mean the candidate
-is faster). On the `140`-CNF curated subset alone (3-rep median), x86-64 `C4`, `C3b`, and
-`C0-direct` each solve `137 / 140` (`97.9%`, vs. `C1` `136 / 140`) with
-`C4 / C3b = 1.006× W-GM` (`1.003× W-AM`), and AArch64 `C4` and `C0-direct` solve `136 / 140`
-(`97.1%`, vs. `C1` and `C3b` `135 / 140`) with `C4 / C3b = 0.972× W-GM` (`0.965× W-AM`) and
-`C4 / C1 = 0.960× W-GM` (`1.145× W-AM`). Caveat: the `C4` binaries measured here were emitted by
+is the ratio of total wall time over commonly solved instances (ratios `< 1.0000×` mean the
+candidate is faster). On the companion `1,207`-CNF `@30 s` curated benchmark
+([kissat_dual_arch_survival.svg](img/kissat_dual_arch_survival.svg), PAR-2 timeout penalty `60 s`),
+x86-64 `C4` solves `1,141 / 1,207` (`94.5%`, PAR-2 `5.160 s`, vs. `C3b` `1,141` / `5.161 s`,
+`C0-direct` `1,141` / `5.101 s`, `C1` `1,163` / `3.829 s`) with
+`C4 / C3b = 1.006× W-GM / 0.999× W-AM`, `C4 / C0-direct = 1.040× W-GM / 1.032× W-AM`, and
+`C4 / C1 = 1.128× W-GM / 1.327× W-AM`; AArch64 `C4` solves `1,137 / 1,207` (`94.2%`, PAR-2
+`5.461 s`, vs. `C3b` `1,136` / `5.571 s`, `C0-direct` `1,137` / `5.382 s`, `C1` `1,155` /
+`4.405 s`) with `C4 / C3b = 0.971× W-GM / 0.958× W-AM`, `C4 / C0-direct = 1.052× W-GM / 1.041× W-AM`,
+and `C4 / C1 = 1.023× W-GM / 1.170× W-AM`. Caveat: the `C4` binaries measured here were emitted by
 the verified `LeanQbe.T` compiler pipeline at commit `123cf315` from the updated 546-function
 full-fidelity solver assembly (`--allow-uncertified`); `fidStep12Module` is the top-level verified
 assembly currently checked in on `main`, and materialized full-fidelity `LinkedCert`s are not yet
 built on `main`.*
 
 **Reading the results honestly:**
-- **Verified backend (`C4` vs. `C3b`):** Across `1,207` instances, LeanQbe's verified backend
-  outperforms `clang++ -O3` on identical lowered IR on AArch64 (**`0.971× W-GM / 0.958× W-AM`**,
-  solving `+1` more instance with PAR-2 `5.461 s` vs. `5.571 s`, and `2.1%` smaller solver `.text`
-  than `clang -O3` `C0-direct`: `383.0 KB` vs. `391.3 KB`) and matches `clang++ -O3` on x86-64
-  (**`1.006× W-GM / 0.999× W-AM`**, PAR-2 `5.160 s` vs. `5.161 s`). Relative to our earlier
-  `e190f461` baseline (archived on `artifacts`), `C4 / C3b` improved from
-  `1.046× W-GM / 1.030× W-AM` on x86-64 and `1.028× W-GM / 1.015× W-AM` on AArch64.
+- **Verified backend (`C4` vs. `C3b`):** Across all `76,239` archive instances (`@15 s`), LeanQbe's
+  verified backend outperforms `clang++ -O3` on identical lowered IR on AArch64
+  (**`0.9880× W-GM / 0.9674× W-AM`**, solving `+66` more instances: `62,746` vs. `62,680`, PAR-2
+  `5.603 s` vs. `5.626 s`, faster on `7 / 8` eras, and `2.1%` smaller `.text` than `clang -O3`
+  `C0-direct`: `383.0 KB` vs. `391.3 KB`) and matches `clang++ -O3` on x86-64
+  (**`1.0097× W-GM / 1.0043× W-AM`**, solving `+2` more instances: `62,950` vs. `62,948`, PAR-2
+  `5.520 s` vs. `5.519 s`). On the `1,207`-CNF `@30 s` curated benchmark, `C4 / C3b` improved from
+  our earlier `e190f461` baseline (`1.046× W-GM / 1.030× W-AM` x86-64, `1.028× W-GM / 1.015× W-AM`
+  AArch64; archived on `artifacts`) to `1.006× W-GM / 0.999× W-AM` on x86-64 and
+  `0.971× W-GM / 0.958× W-AM` on AArch64.
 - **Comparison with `clang -O3` on C0 (`C4` vs. `C0-direct`):** `clang -O3` on the extracted C99
-  source remains `3–5%` faster overall (`C4 / C0-direct = 1.040× W-GM / 1.032× W-AM` on x86-64 and
-  `1.052× W-GM / 1.041× W-AM` on AArch64), largely due to Clang auto-vectorization and higher-level
-  C optimizations before IR lowering; `C4` and `C0-direct` solve the exact same set of instances on
-  both architectures (`1,141` on x86-64, `1,137` on AArch64) with `0` conflict-count differences.
-- **UNSAT vs. SAT breakdown vs. upstream Kissat (`C1`):** On **UNSAT (`N = 638`)**, all four
-  pipelines stay closely clustered (`C1` `604/638` `94.7%` vs. `C4` `596/638` `93.4%` on x86-64;
-  `599/638` `93.9%` vs. `596/638` `93.4%` on AArch64), with `C4 / C1 = 1.134× W-GM / 1.222× W-AM`
-  on x86-64 and `1.034× W-GM / 1.081× W-AM` on AArch64. Most of the remaining solved-count gap vs.
-  upstream Kissat (`C1`) sits on **SAT (`N = 569`)** (`C1` `559/569` `98.2%` vs. `C4` `545/569`
-  `95.8%` on x86-64; `556/569` `97.7%` vs. `541/569` `95.1%` on AArch64), reflecting algorithmic
-  differences in the C0 port rather than compiler codegen overhead.
+  source remains faster overall (`C4 / C0-direct = 1.0209× W-GM / 1.0307× W-AM` on x86-64 and
+  `1.0221× W-GM / 1.0479× W-AM` on AArch64 across `76,239` instances; `1.040× W-GM / 1.032× W-AM`
+  and `1.052× W-GM / 1.041× W-AM` on the `1,207`-CNF `@30 s` benchmark), largely due to Clang
+  auto-vectorization and higher-level C optimizations prior to IR lowering. Across all mutually
+  solved instances (`62,946` on x86-64, `62,742` on AArch64), `C4`, `C3b`, and `C0-direct` execute
+  identical search trajectories with `0` conflict-count differences.
+- **Comparison with upstream Kissat (`C4` vs. `C1`), unseen generalization, & remaining gaps:**
+  Across the full `76,239`-CNF archive, `C4` tracks upstream Kissat 4.0.4 within
+  `1.0101× W-GM / 1.0222× W-AM` on AArch64 (`1.0095× W-GM / 1.0097× W-AM` on the `73,768` strictly
+  unseen instances) and `1.0429× W-GM / 1.0864× W-AM` on x86-64 (`1.0406× W-GM / 1.0633× W-AM` on
+  the `73,768` unseen instances). Restricting to the `25,935` harder non-SATLIB instances (`@15 s`),
+  `C4 / C1` is `1.0737× W-GM / 1.1008× W-AM` on x86-64 (`12,662` vs. `12,979` solved) and
+  `1.0311× W-GM / 1.0287× W-AM` on AArch64 (`12,458` vs. `12,603` solved; `C4 / C3b = 1.0017× W-GM / 0.9652× W-AM`),
+  with most of the remaining gap vs. `C1` reflecting algorithmic differences in the C0 port rather
+  than compiler codegen. The sole archive era where `C4 / C3b` exceeds `1.0100× W-GM` on either ISA
+  is `gbd_untracked` (`1.0425× W-GM / 1.0307× W-AM` x86-64, `1.0525× W-GM / 1.0424× W-AM` AArch64),
+  driven by `3,841` large (`50–100 MiB`) `station-repacking` DIMACS inputs (`1.059× W-GM / 1.059× W-AM`
+  x86-64, `1.077× W-GM / 1.079× W-AM` AArch64) whose wall time is dominated by byte-level DIMACS
+  parsing rather than CDCL search.
 
 ---
 
