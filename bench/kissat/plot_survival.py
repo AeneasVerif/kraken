@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Generate a compact 4-way Kissat survival-curve SVG (dual- or single-arch).
 
-Supports two input modes:
+Supports two input modes (for compressed datasets archived on the companion
+`artifacts` branch, use `bench/kissat/plot_dual_arch_survival.py`):
   1. Pre-stripped dual-architecture timing CSV (`--csv`):
        python3 bench/kissat/plot_survival.py \\
-         --csv bench/kissat/data/kissat_e190f461_survival.csv \\
-         --commit e190f461 \\
-         -o img/kissat_dual_arch_survival.svg
+         --csv /tmp/kissat_survival.csv \\
+         --commit 123cf315 \\
+         -o /tmp/kissat_dual_arch_survival.svg
 
   2. One or more `results.json` files (`--x64` and/or `--arm64`), compatible
      with `bench/kissat/run_4way_stage1.py --out-json`:

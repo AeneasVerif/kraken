@@ -17,7 +17,7 @@ from pathlib import Path
 BENCH_DIR = Path(__file__).resolve().parent
 REPO_ROOT = BENCH_DIR.parents[1]
 SCRIPT_PATH = BENCH_DIR / "plot_dual_arch_survival.py"
-E190_CSV = BENCH_DIR / "data" / "kissat_e190f461_survival.csv"
+CHECKED_IN_SVG = REPO_ROOT / "img" / "kissat_dual_arch_survival.svg"
 
 sys.path.insert(0, str(BENCH_DIR))
 import plot_dual_arch_survival as pda  # noqa: E402
@@ -86,11 +86,53 @@ class TestPlotDualArchSurvival(unittest.TestCase):
         args = parser.parse_args(["plot", "--git-path", "bench/results/foo", "-o", "/tmp/out.svg"])
         self.assertEqual(args.git_ref, "artifacts")
 
-    def test_e190_export_plot_and_determinism(self) -> None:
-        self.assertTrue(E190_CSV.is_file(), f"Missing fixture CSV: {E190_CSV}")
+    def test_checked_in_svg_invariants(self) -> None:
+        self.assertTrue(CHECKED_IN_SVG.is_file(), f"Missing checked-in SVG: {CHECKED_IN_SVG}")
+        info = assert_strict_svg_invariants(
+            self, CHECKED_IN_SVG.read_text(encoding="utf-8"), expect_dense_min_vertices=250
+        )
+        self.assertEqual(len(info["curve_vertices"]), 8)
+
+    def test_1207_export_plot_and_determinism(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
-            out_dir = tmp / "e190"
+            fixture_csv = tmp / "dual_arch_1207.csv"
+            with fixture_csv.open("w", encoding="utf-8", newline="") as f:
+                w = csv.writer(f)
+                w.writerow(
+                    [
+                        "id",
+                        "verdict",
+                        "x64_c1_s",
+                        "x64_c0direct_s",
+                        "x64_c3b_s",
+                        "x64_c4_s",
+                        "arm64_c1_s",
+                        "arm64_c0direct_s",
+                        "arm64_c3b_s",
+                        "arm64_c4_s",
+                    ]
+                )
+                for i in range(1207):
+                    frac = i / 1206.0
+                    base = 0.015 * ((24.0 / 0.015) ** frac)
+                    verdict = "sat" if i % 2 == 0 else "unsat"
+                    w.writerow(
+                        [
+                            f"cnf_{i:04d}",
+                            verdict,
+                            f"{base:.6f}" if i < 1163 else "",
+                            f"{base * 1.08:.6f}" if i < 1141 else "",
+                            f"{base * 1.12:.6f}" if i < 1141 else "",
+                            f"{base * 1.13:.6f}" if i < 1141 else "",
+                            f"{base * 1.05:.6f}" if i < 1155 else "",
+                            f"{base * 1.02:.6f}" if i < 1137 else "",
+                            f"{base * 1.10:.6f}" if i < 1136 else "",
+                            f"{base * 1.07:.6f}" if i < 1137 else "",
+                        ]
+                    )
+
+            out_dir = tmp / "run_123cf315"
             svg1 = tmp / "plot1.svg"
             svg2 = tmp / "plot2.svg"
 
@@ -98,11 +140,11 @@ class TestPlotDualArchSurvival(unittest.TestCase):
                 [
                     "export",
                     "--csv",
-                    str(E190_CSV),
+                    str(fixture_csv),
                     "--run-tag",
-                    "e190f461",
+                    "test_123cf315",
                     "--commit",
-                    "e190f461",
+                    "123cf315",
                     "--out-dir",
                     str(out_dir),
                 ]
@@ -116,22 +158,24 @@ class TestPlotDualArchSurvival(unittest.TestCase):
             self.assertLess(xz_path.stat().st_size, 1_000_000)
 
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            self.assertEqual(manifest["commit"], "e190f461")
-            self.assertEqual(manifest["run_tag"], "e190f461")
+            self.assertEqual(manifest["commit"], "123cf315")
+            self.assertEqual(manifest["run_tag"], "test_123cf315")
             self.assertEqual(manifest["row_count"], 1207)
             self.assertEqual(manifest["hosts"]["x64"]["cpu_label"], "AMD EPYC Zen 5")
             self.assertEqual(manifest["hosts"]["arm64"]["cpu_label"], "Arm Neoverse-V2")
             self.assertEqual(manifest["summary"]["x64"]["c1"]["solved"], 1163)
-            self.assertEqual(manifest["summary"]["x64"]["c4"]["solved"], 1146)
-            self.assertAlmostEqual(manifest["summary"]["x64"]["c4"]["w_gm"], 1.21, places=2)
-            self.assertAlmostEqual(manifest["summary"]["x64"]["c4"]["w_am"], 1.32, places=2)
-            self.assertAlmostEqual(manifest["summary"]["arm64"]["c4"]["w_gm"], 1.22, places=2)
-            self.assertAlmostEqual(manifest["summary"]["arm64"]["c4"]["w_am"], 1.26, places=2)
+            self.assertEqual(manifest["summary"]["x64"]["c4"]["solved"], 1141)
+            self.assertEqual(manifest["summary"]["arm64"]["c3b"]["solved"], 1136)
+            self.assertEqual(manifest["summary"]["arm64"]["c4"]["solved"], 1137)
+            self.assertAlmostEqual(manifest["summary"]["x64"]["c4"]["w_gm"], 1.13, places=2)
+            self.assertAlmostEqual(manifest["summary"]["x64"]["c4"]["w_am"], 1.13, places=2)
+            self.assertAlmostEqual(manifest["summary"]["arm64"]["c4"]["w_gm"], 1.07 / 1.05, places=2)
+            self.assertAlmostEqual(manifest["summary"]["arm64"]["c4"]["w_am"], 1.07 / 1.05, places=2)
 
             csv_text = lzma.decompress(xz_path.read_bytes()).decode("utf-8")
             self.assertIsNone(FORBIDDEN_AXION_RE.search(csv_text))
             self.assertIsNone(FORBIDDEN_BAREMETAL_RE.search(csv_text))
-            self.assertIn("# commit: e190f461", csv_text)
+            self.assertIn("# commit: 123cf315", csv_text)
             self.assertIn("# arm64_cpu: Arm Neoverse-V2", csv_text)
             body_lines = [ln for ln in csv_text.splitlines() if ln and not ln.startswith("#")]
             reader = csv.DictReader(io.StringIO("\n".join(body_lines)))

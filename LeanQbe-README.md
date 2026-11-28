@@ -3,11 +3,14 @@
 **LeanQbe.T** is a formally verified optimizing compiler written in Lean 4. It compiles typed
 Static Single Assignment (SSA) programs—from extended C0, Lean `LCNF`, WebAssembly,
 and Bedrock2 frontends—to native **SysV x86-64** and **AAPCS64 AArch64** assembly (as well as
-QBE IL and C++20), with end-to-end semantic preservation proved inside Lean's kernel.
+QBE IL and C++20), with semantic preservation proved inside Lean's kernel down to the Kraken
+instruction AST (pre-assembly; see [Trusted Computing Base](#trusted-computing-base-tcb--non-vacuity)).
 
 Machine-code correctness proofs compose through **Kraken** ([README.md](README.md)),
 which formalizes x86-64 (`Kraken.X64`) and AArch64 (`Kraken.AArch64`) instruction semantics in
-separation logic. All verified theorems in the main `LeanQbe` library depend only on Lean 4's
+separation logic under a synthetic uniform 4-byte instruction layout (`x64UniformLayout` /
+`armUniformLayout`), prior to text printing (including `.p2align` padding) and host
+assembly/linking. All verified theorems in the main `LeanQbe` library depend only on Lean 4's
 three standard axioms (`propext`, `Classical.choice`, `Quot.sound`), with zero `sorry`, zero
 custom trust axioms, and zero native-code reflection tactics (`native_decide`, `bv_decide`,
 `ofReduceBool`). The separate, experimental [`bv_decide_qbe`](#verified-bitblaster--experimental-bv_decide_qbe)
@@ -34,18 +37,18 @@ work in progress. Every verified track has a self-contained audit file under
 
 | Component | Status on `main` | What Is Proved Inside Lean's Kernel |
 | :--- | :--- | :--- |
-| **Optimizing Compiler & Linker** | **Verified (dual-arch)** | End-to-end semantic preservation from typed SSA (`Func.wp` / `ModuleOk`) through flat-IR optimization (`MainFlat`), legalization, spilling, register allocation, instruction selection, and acyclic/SCC certificate linking (`LinkedCert`) on x86-64 and AArch64. |
+| **Optimizing Compiler & Linker** | **Verified (dual-arch)** | Semantic preservation from typed SSA (`Func.wp` / `ModuleOk`) through flat-IR optimization (`MainFlat`), legalization, spilling, register allocation, instruction selection, and acyclic/SCC certificate linking (`LinkedCert`) down to Kraken x86-64 and AArch64 directive ASTs (pre-assembly). |
 | **Extended C0 Frontend & Logic** | **Verified** | C0 elaboration, SysV LP64 struct/bitfield layout, and symbolic separation-logic stepping tactics (`C0Step`) proved sound against `Func.wp`. |
-| **Lean `LCNF`: Runtime, Semantics, End-to-End Compilation, & FFI** | **Verified (dual-arch)** | Pure-C0 runtime (`rtC0CoreMod`) with dual-arch `LinkedCert`s (`≤ 272 B` stack); a pure value-level semantics (`Sem/P`) and a heap/reference-counting semantics (`Sem/H`) connected by Perceus soundness (`perceus_sound`) and lowering soundness (`lowerModule_moduleOk`); target-parametric theorems (`lean_fn_compiled_{acyclic,loop,scc}`) that turn a pure spec of a first-order Lean function into a machine-code `FnSpec`, instantiated on both ISAs for small Lean functions (`addNat`, `factAcc`, `listSum`, `treeSum`, `treeSize`); and a zero-axiom C0 FFI bridge (`LcnfC0Ffi`). |
+| **Lean `LCNF`: Runtime, Semantics, End-to-End Compilation, & FFI** | **Verified (dual-arch)** | Pure-C0 runtime (`rtC0CoreMod`) with dual-arch `LinkedCert`s (`≤ 272 B` stack; float primitives external); a pure value-level semantics (`Sem/P`) and a heap/reference-counting semantics (`Sem/H`) connected by Perceus soundness (`perceus_sound`) and lowering soundness (`lowerModule_moduleOk`); target-parametric theorems (`lean_fn_compiled_{acyclic,loop,scc}`) turning a pure spec of an extracted first-order Lean function into a machine-code `FnSpec` (relative to out-of-kernel LCNF extraction and `Sem/P` adequacy, with `lcnf_panic` unmodeled), instantiated on both ISAs for small Lean functions (`addNat`, `factAcc`, `listSum`, `treeSum`, `treeSize`); and a zero-axiom C0 FFI bridge (`LcnfC0Ffi`). |
 | **WebAssembly Sandbox** | **Verified (dual-arch)** | Software Fault Isolation (SFI) host-memory isolation across validated Wasm modules (including bulk-memory ops and mutual recursion) on x86-64 and AArch64. |
 | **Bedrock2 CFG Recovery & `Xcap` Interop** | **Verified (dual-arch)** | Witness-checked CFG recovery and contification over structured `BedrockWord` programs; bidirectional `FnSpec` ↔ `Xcap.cptr` bridge for cross-calls with externally verified assembly. |
-| **Systems Kernels & LRAT Checker** | **Verified (dual-arch)** | End-to-end machine-code proofs and concrete execution witnesses for RFC 8439 ChaCha20 (row-SIMD `v4i32`), Curve25519 bignum kernels, Union-Find, and an untrusted-bytes DIMACS + binary LRAT UNSAT checker (`lrat_check_bytes`). |
+| **Systems Kernels & LRAT Checker** | **Verified (dual-arch)** | Machine-code proofs (to Kraken AST) and concrete execution witnesses for RFC 8439 ChaCha20 (row-SIMD `v4i32`), Curve25519 bignum kernels, Union-Find, and an untrusted-bytes DIMACS + binary LRAT UNSAT checker (`lrat_check_bytes`). |
 | **Kissat Minimal CDCL (`KissatPlain`)** | **Verified (dual-arch)** | Pure CDCL solver (`plainModule`, entry point `kissat_solve_bytes`) with **dual SAT + UNSAT** soundness, materialized x86-64 & AArch64 `LinkedCert`s (`plainCert`), and concrete machine SAT/UNSAT non-vacuity (`2,048 B` workspace). |
-| **Full-Fidelity Kissat (`fidStep12Module`)** | **Source/IR verified; param dual-arch** | Pure-C0 port of Kissat 4.0.4 (`0` externs, `0` exits) with full CDCL + inprocessing: source/IR `ModuleOk`, entry point `kissat_solve_bytes` (wrapping `kissat_solve_bytes_m6`) UNSAT soundness, caller framing, and concrete `Mem 64` UNSAT non-vacuity on `fidStep12Module`. Parameterized dual-arch machine-code theorems (`KissatFidelityParam`) and fail-closed compile guards (`≤ 2,048 B` stack) cover `fidStep9Module`; materialized full-fidelity `LinkedCert`s are in progress. |
+| **Full-Fidelity Kissat (`fidStep12Module`)** | **Source/IR verified; param dual-arch** | Pure-C0 port of Kissat 4.0.4 (`0` externs, `0` exits) with full CDCL + inprocessing: source/IR `ModuleOk`, entry point `kissat_solve_bytes` (wrapping `kissat_solve_bytes_m6`) UNSAT soundness (SAT answers unproved; checked externally in CLI), caller framing, and concrete `Mem 64` UNSAT non-vacuity on `fidStep12Module`. Compile-parametric dual-arch machine-code theorems (`KissatFidelityParam`) and fail-closed compile guards (`≤ 2,048 B` stack) cover `fidStep9Module`; materialized full-fidelity `LinkedCert`s are not yet on `main`. |
 | **Simplified-CNF Exporter (`ExportCnf`)** | **Source/IR verified** | Pure-C0 simplifier and DIMACS serializer (`exportCnfEntryMod`, entry point `kissat_simplify_export_bytes`): grammar round-trip (`parseDimacs outBytes = some cnfOut`), UNSAT soundness (`cnfOut.Unsat → F0.Unsat`), and concrete `Mem 64` non-vacuity. |
-| **Bitblaster (`bv_solve_bytes`)** | **Verified (dual-arch)** | C0 And-Inverter Graph builder, Tseitin encoder, and driver (`bitblastModule`) covering all `32` `BVP1` opcodes, proved against Lean's `BVLogicalExpr.Unsat` (`bitblast_moduleOk`, `bv_solve_bytes_unsat_wp`); linked with `KissatPlain` into closed x86-64 & AArch64 `LinkedCert`s with machine-code UNSAT soundness and concrete non-vacuity; compile-parameterized theorems for linking with full-fidelity Kissat (`BitblastFidelityParam`). |
-| **`bv_decide_qbe` Tactic** | **Experimental (trusts a native run)** | Not a kernel proof: the tactic runs the verified `bv_solve_bytes` + full-fidelity Kissat machine code in-process and records each UNSAT answer as one per-goal axiom (`_leanqbe.bv_solve.ax`). Everything up to that native run is verified. |
-| **ARiSCA Multiplier Checker** | **Work in progress** | Kernel-executable checker for ART v1 multiplier-correctness traces over AIGER circuits with proved soundness (`checkArt_sound`, `checkArtB_sound`). A C0 port (`arisca_check_bytes`) compiles on both ISAs; its WP soundness proof and machine-code certificates are not yet done. |
+| **Bitblaster (`bv_solve_bytes`)** | **Verified (dual-arch)** | C0 And-Inverter Graph builder, Tseitin encoder, and driver (`bitblastModule`) covering all `32` `BVP1` opcodes, proved against Lean's `BVLogicalExpr.Unsat` (`bitblast_moduleOk`, `bv_solve_bytes_unsat_wp`, zero custom axioms); linked with `KissatPlain` into closed x86-64 & AArch64 `LinkedCert`s with machine-code UNSAT soundness and concrete non-vacuity; compile-parametric theorems for linking with full-fidelity Kissat (`BitblastFidelityParam`). |
+| **`bv_decide_qbe` Tactic** | **Experimental (trusts a native run)** | Not a kernel proof: runs `bv_solve_bytes` + full-fidelity Kissat in-process (`upstream` or `enhanced` preset) and records each UNSAT answer as one per-goal axiom (`_leanqbe.bv_solve.ax`). The bitblaster and solver are verified at source/IR level and by compile-parametric machine-code theorems (no materialized full-fidelity `LinkedCert` yet); the thin C FFI shim, word packing, axiom construction, and native execution are trusted. |
+| **ARiSCA Multiplier Checker** | **Work in progress** | Kernel-executable checker (`decide +kernel`; kernel-only TCB plus ART/AIGER parser spec) for ART v1 multiplier-correctness traces over AIGER circuits with proved soundness (`checkArt_sound`, `checkArtB_sound`). A C0 port (`arisca_check_bytes`) compiles on both ISAs; its WP soundness proof and machine-code certificates are not yet done. |
 | **Stage-0 Bootstrap (`LeanQbeBootstrap0`)** | **Work in progress** | Syntactic `LinkedCert` (`leanqbe0Cert`, `≤ 1,136 B ≤ 2,048 B` stack) compiling `leanqbe0Mod0` (extracted from `leanqbe0Compile`) and linking it with `rtC0CoreCert` into the closed `0`-extern x86-64 certificate `leanqbe0LinkedCert` (`nX = 64` for `lcnf_panic`), plus separate scalar soundness, codec, and printer checks. Extraction is outside the kernel and no self-hosted semantic fixpoint is proved. |
 
 ---
@@ -138,9 +141,11 @@ timeout 120 env CHECK_SCOPE=auto CHECK_BASE=HEAD~1 bash scripts/check.sh
     `lcnf_res_sim` for discharging the pure-level obligations. In
     [LcnfE2EDemos.lean](LeanQbeTest/T/LcnfE2EDemos.lean), Lean definitions (`addNat`, `factAcc`,
     `listSum`, `treeSum`, `treeSize`) are extracted, compiled, and proved—without any hand-written
-    heap-level or SSA-level WP—to return exactly what the original Lean function returns (under
-    stated size bounds), with concrete x86-64 and AArch64 instances in
-    [LcnfE2ECertX64.lean](LeanQbeTest/T/LcnfE2ECertX64.lean) and
+    heap-level or SSA-level WP—to return what the original Lean function returns (under stated size
+    bounds, relative to the extracted LCNF and `Sem/P` adequacy: extraction via `lcnf_of_lean!` /
+    `splice_lcnf_tflat!` runs outside the proof kernel, `lcnf_float_{bin,un,of_sci}` remain
+    external, and `lcnf_panic` is an unmodeled exit symbol), with concrete x86-64 and AArch64
+    instances in [LcnfE2ECertX64.lean](LeanQbeTest/T/LcnfE2ECertX64.lean) and
     [LcnfE2ECertArm64.lean](LeanQbeTest/T/LcnfE2ECertArm64.lean).
   - *Zero-Axiom C0 FFI Bridge:* [LcnfC0Ffi.lean](LeanQbe/T/LeanLCNF/LcnfC0Ffi.lean) lets lowered
     Lean `LCNF` code call verified raw-byte-slice C0 kernels via `ByteArray` or sentineled `Nat`
@@ -217,7 +222,7 @@ port of the **Kissat 4.0.4** CDCL SAT solver (`0` external calls, `0` exit symbo
 
 | Track | Module & Entry Point | Soundness Scope | Architecture Verification | Primary Audits |
 | :--- | :--- | :--- | :--- | :--- |
-| **Full-Fidelity Kissat** | `fidStep12Module` (`kissat_solve_bytes` / `kissat_solve_bytes_m6`) | UNSAT soundness (`r = 20 → cnf.Unsat`) + caller memory framing + concrete `8,192 B` UNSAT non-vacuity | Source/IR `ModuleOk` + WP proofs on `fidStep12Module`; parameterized dual-arch machine-code theorems & fail-closed compile guards (`≤ 2,048 B` stack) on `fidStep9Module` | [KissatFidelityStep12Test.lean](LeanQbeTest/T/KissatFidelityStep12Test.lean), [KissatFidelityParamAuditX64.lean](LeanQbeTest/T/KissatFidelityParamAuditX64.lean), [KissatFidelityParamAuditArm64.lean](LeanQbeTest/T/KissatFidelityParamAuditArm64.lean), [KissatFidelityCompileGuardX64.lean](LeanQbeTest/T/KissatFidelityCompileGuardX64.lean), [KissatFidelityCompileGuardArm64.lean](LeanQbeTest/T/KissatFidelityCompileGuardArm64.lean) |
+| **Full-Fidelity Kissat** | `fidStep12Module` (`kissat_solve_bytes` / `kissat_solve_bytes_m6`) | UNSAT soundness (`r = 20 → cnf.Unsat`; SAT answers unproved) + caller memory framing + concrete `8,192 B` UNSAT non-vacuity | Source/IR `ModuleOk` + WP proofs on `fidStep12Module`; compile-parametric dual-arch machine-code theorems (`KissatFidelityParam`) & fail-closed compile guards (`≤ 2,048 B` stack) on `fidStep9Module`; materialized full-fidelity `LinkedCert`s not yet on `main` | [KissatFidelityStep12Test.lean](LeanQbeTest/T/KissatFidelityStep12Test.lean), [KissatFidelityParamAuditX64.lean](LeanQbeTest/T/KissatFidelityParamAuditX64.lean), [KissatFidelityParamAuditArm64.lean](LeanQbeTest/T/KissatFidelityParamAuditArm64.lean), [KissatFidelityCompileGuardX64.lean](LeanQbeTest/T/KissatFidelityCompileGuardX64.lean), [KissatFidelityCompileGuardArm64.lean](LeanQbeTest/T/KissatFidelityCompileGuardArm64.lean) |
 | **Minimal CDCL (`KissatPlain`)** | `plainModule` (`kissat_solve_bytes`) | **Dual SAT + UNSAT** soundness + framing + concrete SAT & UNSAT non-vacuity (`2,048 B`) | Materialized x86-64 & AArch64 `LinkedCert`s (`plainCert`) with closed concrete machine execution witnesses (pure CDCL, no inprocessing) | [KissatPlainAuditX64.lean](LeanQbeTest/T/KissatPlainAuditX64.lean), [KissatPlainAuditArm64.lean](LeanQbeTest/T/KissatPlainAuditArm64.lean) |
 | **Simplified-CNF Exporter (`ExportCnf`)** | `exportCnfEntryMod` (`kissat_simplify_export_bytes`) | DIMACS parse round-trip (`parseDimacs outBytes = some cnfOut`) + UNSAT preservation (`cnfOut.Unsat → F0.Unsat`) + concrete `Mem 64` non-vacuity | Source/IR `ModuleOk` + WP proofs, legal across x86-64 & AArch64 | [ExportCnfEntryTest.lean](LeanQbeTest/T/ExportCnfEntryTest.lean) |
 
@@ -241,21 +246,40 @@ python3 bench/kissat/extract_c0_direct.py --target fidelity --out /tmp/kissat_c0
 ### Trusted Computing Base (TCB) & Non-Vacuity
 
 - **Proved Inside Lean (`[propext, Classical.choice, Quot.sound]`):** C0 elaboration, SSA
-  optimization, spilling, register allocation, instruction selection, certificate linking, UNSAT
-  preservation (and SAT model validity for `KissatPlain`), and concrete non-vacuity witnesses
-  confirming that preconditions are satisfiable.
+  optimization, spilling, register allocation, instruction selection, certificate linking down to
+  Kraken directive ASTs, UNSAT preservation (and SAT model validity for `KissatPlain`), and
+  concrete non-vacuity witnesses confirming that preconditions are satisfiable.
 - **Outside Lean (TCB):**
-  - The Lean 4 kernel and Kraken operational ISA models (`Kraken.X64`, `Kraken.AArch64`).
-  - The `parseDimacs` specification ([LratBytes.lean](LeanQbe/T/Examples/LratBytes.lean)): requires
-    variables `< 2^28`, rejects `-0`, missing headers, out-of-range variables, truncated clauses,
-    trailing non-whitespace tokens, and `%` trailers; skips `'c'` comment lines from any
-    whitespace-delimited position; treats empty clauses as UNSAT and `p cnf 0 0` as empty CNF.
-  - The native CLI wrapper ([kissat_cli.c](bench/kissat/kissat_cli.c)) and host assembler/linker
-    (`cc`/`as`/`ld`). The CLI enforces `RLIMIT_STACK >= 65536` and brackets input/workspace buffers
-    with `PROT_NONE` guard pages.
-  - For UNSAT-only certified builds, SAT assignments are checked at runtime by an external model
-    checker (`kissat_verify_dimacs_model` in [kissat_verify.h](test/kissat/kissat_verify.h));
-    `KissatPlain` proves SAT soundness inside Lean.
+  - **Lean 4 kernel & Kraken ISA models:** Hand-written operational semantics (`Kraken.X64`,
+    `Kraken.AArch64`), not yet validated against Intel XED, the ARM ASL specification, or hardware
+    co-simulation.
+  - **Synthetic 4-byte layout, text printing, & host toolchain:** Machine-code theorems are proved
+    on Kraken directive ASTs under a uniform 4-byte instruction layout (`x64UniformLayout` /
+    `armUniformLayout`, `instrSize _ := 4`), not on variable-length encoded bytes. Assembly text
+    printing (`toATTAligned` and AArch64 aligned printing, which inject `.p2align` padding outside
+    the AST, plus `.globl`/`.note.GNU-stack` wrappers), the host assembler and linker
+    (`cc`/`as`/`ld`), ELF relocation, and the OS loader are outside the kernel.
+  - **`Mem 64` flat memory vs. OS process memory & stack:** WP proofs assume a flat, total 64-bit
+    byte memory where precondition regions are mapped and unaliased; page faults, signals,
+    concurrent threads, and `RLIMIT_STACK` are not modeled. Proved stack bounds (`≤ 2,048 B` for
+    Kissat / `≤ 272 B` for the `LCNF` runtime) hold on real hardware only if the host provides at
+    least that much mapped stack.
+  - **Thin C CLI/FFI shims & compile-parametric full-fidelity builds:** The native CLI wrapper
+    ([kissat_cli.c](bench/kissat/kissat_cli.c)) enforces `RLIMIT_STACK >= 65536` and brackets
+    input/workspace buffers with `PROT_NONE` guard pages; the in-process `bv_decide_qbe` C FFI
+    shim ([kissat_ffi.c](bv_decide_qbe/c/kissat_ffi.c)) relies on Lean's unchecked OS thread stack
+    and exclusive ownership of its workspace `ByteArray`. Because materialized full-fidelity
+    `LinkedCert`s are not yet built on `main`, full-fidelity `C4` binaries are currently built with
+    `--allow-uncertified` (covered by compile-parametric `KissatFidelityParam` theorems rather than
+    a closed checked certificate).
+  - **DIMACS specification & external SAT check:** The `parseDimacs` specification
+    ([LratBytes.lean](LeanQbe/T/Examples/LratBytes.lean)) requires variables `< 2^28`, rejects `-0`,
+    missing headers, out-of-range variables, truncated clauses, trailing non-whitespace tokens, and
+    `%` trailers; skips `'c'` comment lines from any whitespace-delimited position; and treats
+    empty clauses as UNSAT and `p cnf 0 0` as empty CNF. For UNSAT-only builds (including
+    full-fidelity Kissat), SAT assignments are not proved inside Lean and are checked at runtime by
+    `kissat_verify_dimacs_model` in [kissat_verify.h](test/kissat/kissat_verify.h); `KissatPlain`
+    proves SAT soundness inside Lean.
 
 ### Verified Bitblaster & Experimental `bv_decide_qbe`
 
@@ -266,125 +290,138 @@ python3 bench/kissat/extract_c0_direct.py --target fidelity --out /tmp/kissat_c0
   equality, bitwise ops, addition, multiplication, shifts, rotates, unsigned division/remainder,
   `clz`, and `cpop`) directly against Lean's upstream `Std.Tactic.BVDecide.BVLogicalExpr.Unsat`
   (`bitblast_moduleOk`, `bv_solve_bytes_unsat_wp`, with zero custom axioms).
-- **Machine code:** [BitblastCertX64.lean](LeanQbeTest/T/BitblastCertX64.lean) and
+- **Machine code (to Kraken AST):** [BitblastCertX64.lean](LeanQbeTest/T/BitblastCertX64.lean) and
   [BitblastCertArm64.lean](LeanQbeTest/T/BitblastCertArm64.lean) link the bitblaster with
   `KissatPlain` (no externs left) and prove machine-code UNSAT soundness
   (`bitblast{X64,Arm64}_bv_solve_bytes_unsat_sound`) plus concrete non-vacuity.
   [Amd64/BitblastFidelityParam.lean](LeanQbe/T/Amd64/BitblastFidelityParam.lean) and
   [Arm64/BitblastFidelityParam.lean](LeanQbe/T/Arm64/BitblastFidelityParam.lean) prove the same
-  guarantee for any successful compilation of the bitblaster linked with full-fidelity Kissat.
+  guarantee parametrically for any successful compilation of the bitblaster linked with
+  full-fidelity Kissat.
 - **`bv_decide_qbe` tactic (experimental):** `bv_decide_qbe/`
   ([Tactic.lean](bv_decide_qbe/BvDecideQbe/Tactic.lean)) is a separate Lake package providing a
-  `bv_decide` alternative (also usable inside
-  `sym =>` / `grind =>`, honoring `cfg.timeout`). It reuses upstream normalization and
-  reflection, encodes the goal to `BVP1`, and solves it in-process with that verified
-  bitblaster + full-fidelity Kissat machine code, growing the scratch workspace on demand from
-  `2 MiB`. **Trust caveat:** the kernel does not re-run the solver. On UNSAT, the tactic adds one
-  per-goal axiom (`_leanqbe.bv_solve.ax`, stating that the encoded problem is unsatisfiable) and
-  closes the goal via the zero-axiom bridge `BVProg.unsat_of_bv_solve_words`. Only the
-  encapsulated FFI module ([FFI.lean](bv_decide_qbe/BvDecideQbe/FFI.lean)) can mint these axioms,
-  through an unforgeable `UnsatWitness` returned by `solveBVProg`. Proofs using `bv_decide_qbe`
-  therefore trust the host's assembly, linking, and execution of the verified machine code, much
-  like `native_decide` trusts compiled code.
+  `bv_decide` alternative (also usable inside `sym =>` / `grind =>`, honoring `cfg.timeout`). It
+  supports two execution presets—`enhanced` (default, adding conservative preprocessing such as
+  automatic AC normalization for multiplications and fast simulation counterexample pre-checks) and
+  `upstream` (`bv_decide_qbe_upstream`, `(mode := .upstream)`, or
+  `set_option bv_decide_qbe.mode "upstream"`, matching upstream `BVDecideConfig` defaults with the
+  in-process solver backend)—reusing upstream normalization and reflection, encoding the goal to
+  `BVP1`, and running `bv_solve_bytes` + full-fidelity Kissat in-process (growing the scratch
+  workspace on demand from `2 MiB`). **Trust caveat:** the kernel does not re-run the solver. On
+  UNSAT, the tactic emits one per-goal axiom (`_leanqbe.bv_solve.ax`, stating that the encoded
+  problem is unsatisfiable) and closes the goal via the zero-axiom bridge
+  `BVProg.unsat_of_bv_solve_words`; on SAT, zero axioms are emitted (counterexamples are decoded
+  and checked with `evalEfficient`, though SAT answers from full-fidelity Kissat are unproved).
+  [FFI.lean](bv_decide_qbe/BvDecideQbe/FFI.lean) keeps the raw native call and `UnsatWitness`
+  constructor `private`, returning an **encapsulated** `UnsatWitness` from `solveBVProg` to prevent
+  accidental misuse; like `native_decide`, Lean's `private` visibility is not a security boundary
+  against adversarial meta code (which can invoke `Lean.addDecl` directly under the same axiom
+  prefix). Proofs using `bv_decide_qbe` therefore trust the thin C FFI shim
+  ([kissat_ffi.c](bv_decide_qbe/c/kissat_ffi.c)), meta-level word packing (`packWordsU32LE`) and
+  axiom-type construction (`mkBvSolveAxiomType`), the build provenance of `libbv_solve_qbe.so`
+  (currently compile-parametric, with no materialized full-fidelity `LinkedCert`), the host
+  assembler/linker, Lean's compiler/runtime and unchecked OS thread stack, and upstream
+  `Std.Tactic.BVDecide` reflection.
 - **Upstream compatibility:** Run against the `60` `bv_decide` test files from Lean 4's upstream
   test suite, `bv_decide_qbe` passes `59`; the remaining file (`bv_import.lean`) is not applicable.
-  The compatibility and head-to-head comparison harness is checked in at
-  [run_upstream_suite.py](bv_decide_qbe/scripts/run_upstream_suite.py)
-  (`timeout 600 python3 bv_decide_qbe/scripts/run_upstream_suite.py --lean4-tests-dir <path>`);
+  The compatibility and head-to-head harness is checked in at
+  [run_upstream_suite.py](bv_decide_qbe/scripts/run_upstream_suite.py) and supports
+  `--qbe-mode upstream|enhanced|both`
+  (`timeout 600 python3 bv_decide_qbe/scripts/run_upstream_suite.py --lean4-tests-dir <path> --qbe-mode both`);
   `bash bv_decide_qbe/scripts/check.sh` runs the package's own checked-in tests.
 
 ### Dual-Architecture Performance Comparison
 
-We benchmark the verified Full-Fidelity Kissat solver (`fidStep12Module`, entry point
-`kissat_solve_bytes` / `kissat_solve_bytes_m6`, measured at commit **`e190f461`**) on dedicated
-hosts across **1,207 CNF instances** (`140` curated multi-domain benchmarks at 3-rep median +
+We benchmark the full-fidelity C0 port of Kissat 4.0.4 (`0` external calls, `0` exit symbols;
+compiled with `LeanQbe.T` at commit **`123cf315`**) on dedicated x86-64 and Arm Neoverse-V2 servers
+across **1,207 CNF instances** (`140` curated multi-domain benchmarks at 3-rep interleaved median +
 `1,067` SAT-COMP / SMT-COMP / software-verification benchmarks at 1-rep; `30 s` wall-clock timeout
-per instance; `0` OOMs and `0` verdict disagreements across all runs) on both **x86-64** (AMD EPYC
-Zen 5) and **AArch64** (Arm Neoverse-V2), comparing four statically linked configurations built
-with **Clang 21 (`-O3`)**:
+per instance; `0` OOMs, `0` SAT model-verification failures, `0` verdict disagreements across all
+`11,896` trials, and `0` conflict-count differences among `C0-direct`, `C3b`, and `C4`) on both
+**x86-64** (AMD EPYC Zen 5) and **AArch64** (Arm Neoverse-V2), comparing four statically linked
+configurations built with **Clang 21 (`-O3`)**:
 
 - **`C1`:** Upstream C Kissat 4.0.4 (`clang -O3`).
-- **`C0-direct`:** Our verified C0 source extracted to C99 (`clang -O3 -fwrapv
+- **`C0-direct`:** Our C0 solver source extracted to C99 (`clang -O3 -fwrapv
   -fno-strict-aliasing`). Comparing `C0-direct` vs. `C1` isolates algorithmic/data-structure
   differences in the C0 port.
 - **`C3b`:** The same C0-lowered `LeanQbe.T` IR printed to C++20 (`PrintCpp`, before LeanQbe
   mid-end passes) and compiled with `clang++ -std=c++20 -O3`. Comparing `C3b` vs. `C0-direct`
   isolates IR-lowering overhead and lost Clang auto-vectorization.
-- **`C4`:** **LeanQbe.T** end-to-end verified compilation (inlining policy + mid-end optimization +
+- **`C4`:** **LeanQbe.T** verified compiler backend (inlining policy + mid-end optimization +
   spilling + register allocation + native x86-64 / AArch64 assembly). Comparing `C4` vs. `C3b`
   isolates LeanQbe's verified compiler backend against `clang++ -O3` on identical IR.
 
 ![Verified Kissat Dual-Architecture 4-Way Survival Curves](img/kissat_dual_arch_survival.svg)
 
-Reproduce the SVG directly from the checked-in timing dataset
-([kissat_e190f461_survival.csv](bench/kissat/data/kissat_e190f461_survival.csv)), or run and plot
-a fresh local 4-way benchmark on your own machine:
+To keep `main` free of benchmark datasets, full per-instance compressed timing datasets
+(`survival.csv.xz` + `manifest.json`, including both the `123cf315` refresh and the earlier
+`e190f461` baseline) live on the companion **`artifacts`** branch under `bench/results/`. Regenerate
+`img/kissat_dual_arch_survival.svg` directly from `artifacts` via
+[plot_dual_arch_survival.py](bench/kissat/plot_dual_arch_survival.py) (which defaults to
+`--git-ref artifacts` and reads via `git show` without checking out the branch), or run and plot a
+fresh local 4-way benchmark on your own machine:
 
 ```bash
-# Regenerate the exact SVG above from the checked-in per-instance timing CSV
-python3 bench/kissat/plot_survival.py \
-  --csv bench/kissat/data/kissat_e190f461_survival.csv \
-  --commit e190f461 -o img/kissat_dual_arch_survival.svg
+# Inspect available datasets and manifests on the companion `artifacts` branch
+git ls-tree --name-only artifacts:bench/results/
+git show artifacts:bench/results/<run_tag>/manifest.json
+
+# Regenerate the compact (< 40 KB) dual-arch survival SVG directly from `artifacts`
+python3 bench/kissat/plot_dual_arch_survival.py plot \
+  --git-ref artifacts --git-path bench/results/<run_tag> \
+  -o img/kissat_dual_arch_survival.svg
 
 # Or run a fresh local 4-way benchmark and plot its survival curve
 timeout 3600 python3 bench/kissat/run_4way_stage1.py --out-json /tmp/kissat_4way.json
-python3 bench/kissat/plot_survival.py --x64 /tmp/kissat_4way.json -o /tmp/kissat_survival.svg
+python3 bench/kissat/plot_dual_arch_survival.py plot \
+  --x64 /tmp/kissat_4way.json -o /tmp/kissat_survival.svg
 ```
 
-| Architecture & Suite (`e190f461`) | Pipeline | Solved (`%`) | SAT / UNSAT | PAR-2 | vs. `C3b` (W-GM / W-AM) | vs. `C0-direct` (W-GM / W-AM) | vs. `C1` (W-GM / W-AM) | Solver `.text` |
+| Architecture & Suite (`123cf315`) | Pipeline | Solved (`%`) | SAT / UNSAT | PAR-2 | vs. `C3b` (`W-GM / W-AM`) | vs. `C0-direct` (`W-GM / W-AM`) | vs. `C1` (`W-GM / W-AM`) | Solver `.text` |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **x86-64** (AMD EPYC Zen 5)<br>Combined (`N = 1,207`) | **`C1`** (`clang -O3`) | `1,163` (`96.4%`) | `559 / 604` | `3.83 s` | — | — | `1.00× W-GM / 1.00× W-AM` | — |
-| | **`C0-direct`** (`clang -O3`) | `1,147` (`95.0%`) | `549 / 598` | `4.87 s` | — | `1.00× W-GM / 1.00× W-AM` | `1.09× W-GM / 1.24× W-AM` | `358 KB` |
-| | **`C3b`** (IR → `clang++ -O3`) | `1,147` (`95.0%`) | `549 / 598` | `4.93 s` | `1.00× W-GM / 1.00× W-AM` | `1.06× W-GM / 1.03× W-AM` | `1.16× W-GM / 1.28× W-AM` | `291 KB` |
-| | **`C4`** (`LeanQbe.T` x86-64) | `1,146` (`94.9%`) | `549 / 597` | `5.01 s` | **`1.05× W-GM / 1.03× W-AM`** | **`1.11× W-GM / 1.06× W-AM`** | **`1.21× W-GM / 1.32× W-AM`** | `379 KB` |
-| **AArch64** (Arm Neoverse-V2)<br>Combined (`N = 1,207`) | **`C1`** (`clang -O3`) | `1,156` (`95.8%`) | `556 / 600` | `4.31 s` | — | — | `1.00× W-GM / 1.00× W-AM` | — |
-| | **`C0-direct`** (`clang -O3`) | `1,144` (`94.8%`) | `546 / 598` | `5.15 s` | — | `1.00× W-GM / 1.00× W-AM` | `1.01× W-GM / 1.15× W-AM` | `371 KB` |
-| | **`C3b`** (IR → `clang++ -O3`) | `1,141` (`94.5%`) | `545 / 596` | `5.38 s` | `1.00× W-GM / 1.00× W-AM` | `1.17× W-GM / 1.08× W-AM` | `1.19× W-GM / 1.25× W-AM` | `248 KB` |
-| | **`C4`** (`LeanQbe.T` AArch64) | `1,141` (`94.5%`) | `545 / 596` | `5.41 s` | **`1.03× W-GM / 1.01× W-AM`** | **`1.20× W-GM / 1.10× W-AM`** | **`1.22× W-GM / 1.26× W-AM`** | `339 KB` |
+| **x86-64** (AMD EPYC Zen 5)<br>Combined (`N = 1,207`) | **`C1`** (`clang -O3`) | `1,163` (`96.4%`) | `559 / 604` | `3.829 s` | — | — | `1.000× W-GM / 1.000× W-AM` | — |
+| | **`C0-direct`** (`clang -O3`) | `1,141` (`94.5%`) | `545 / 596` | `5.101 s` | `0.968× W-GM / 0.968× W-AM` | `1.000× W-GM / 1.000× W-AM` | `1.085× W-GM / 1.286× W-AM` | `381.9 KB` |
+| | **`C3b`** (IR → `clang++ -O3`) | `1,141` (`94.5%`) | `545 / 596` | `5.161 s` | `1.000× W-GM / 1.000× W-AM` | `1.033× W-GM / 1.033× W-AM` | `1.121× W-GM / 1.328× W-AM` | `317.3 KB` |
+| | **`C4`** (`LeanQbe.T` x86-64) | `1,141` (`94.5%`) | `545 / 596` | `5.160 s` | **`1.006× W-GM / 0.999× W-AM`** | **`1.040× W-GM / 1.032× W-AM`** | **`1.128× W-GM / 1.327× W-AM`** | `430.7 KB` |
+| **AArch64** (Arm Neoverse-V2)<br>Combined (`N = 1,207`) | **`C1`** (`clang -O3`) | `1,155` (`95.7%`) | `556 / 599` | `4.405 s` | — | — | `1.000× W-GM / 1.000× W-AM` | — |
+| | **`C0-direct`** (`clang -O3`) | `1,137` (`94.2%`) | `541 / 596` | `5.382 s` | `0.923× W-GM / 0.920× W-AM` | `1.000× W-GM / 1.000× W-AM` | `0.972× W-GM / 1.123× W-AM` | `391.3 KB` |
+| | **`C3b`** (IR → `clang++ -O3`) | `1,136` (`94.1%`) | `540 / 596` | `5.571 s` | `1.000× W-GM / 1.000× W-AM` | `1.083× W-GM / 1.087× W-AM` | `1.053× W-GM / 1.220× W-AM` | `270.6 KB` |
+| | **`C4`** (`LeanQbe.T` AArch64) | `1,137` (`94.2%`) | `541 / 596` | `5.461 s` | **`0.971× W-GM / 0.958× W-AM`** | **`1.052× W-GM / 1.041× W-AM`** | **`1.023× W-GM / 1.170× W-AM`** | `383.0 KB` |
 
-*Metrics: PAR-2 penalizes timeouts at `2 × 30 s = 60 s`. Every ratio is explicitly labeled as
-either **W-GM** (geometric mean of per-instance wall-time ratios over commonly solved instances,
-with a `20 ms` floor) or **W-AM** (ratio of total wall time over commonly solved instances). On
-the `140`-CNF curated subset alone, all four x86-64 pipelines solve `136 / 140` (`97.1%`) with
-`C4 / C3b = 1.03× W-GM` (`1.03× W-AM`), and AArch64 `C1`, `C3b`, and `C4` solve `135 / 140`
-(`96.4%`, `C0-direct`: `136 / 140`) with `C4 / C3b = 1.03× W-GM` (`1.01× W-AM`). Caveat: `C4`
-binaries here are emitted by the verified compiler pipeline from `fidStep12Module` at commit
-`e190f461`; materialized full-fidelity `LinkedCert`s are not yet built on `main`.*
+*Metrics: PAR-2 penalizes timeouts at `2 × 30 s = 60 s`; **W-GM** is the geometric mean of
+per-instance wall-time ratios over commonly solved instances (with a `20 ms` floor), and **W-AM**
+is the ratio of total wall time over commonly solved instances (ratios `< 1.000×` mean the candidate
+is faster). On the `140`-CNF curated subset alone (3-rep median), x86-64 `C4`, `C3b`, and
+`C0-direct` each solve `137 / 140` (`97.9%`, vs. `C1` `136 / 140`) with
+`C4 / C3b = 1.006× W-GM` (`1.003× W-AM`), and AArch64 `C4` and `C0-direct` solve `136 / 140`
+(`97.1%`, vs. `C1` and `C3b` `135 / 140`) with `C4 / C3b = 0.972× W-GM` (`0.965× W-AM`) and
+`C4 / C1 = 0.960× W-GM` (`1.145× W-AM`). Caveat: the `C4` binaries measured here were emitted by
+the verified `LeanQbe.T` compiler pipeline at commit `123cf315` from the updated 546-function
+full-fidelity solver assembly (`--allow-uncertified`); `fidStep12Module` is the top-level verified
+assembly currently checked in on `main`, and materialized full-fidelity `LinkedCert`s are not yet
+built on `main`.*
 
 **Reading the results honestly:**
-- **Verified backend (`C4` vs. `C3b`):** Across `1,207` instances, LeanQbe's verified backend runs
-  within **`3–5%` W-GM (`1–3%` W-AM)** of `clang++ -O3` on the exact same lowered IR on both
-  x86-64 and AArch64. On AArch64, `C4`'s solver `.text` (`339 KB`) is `8.5%` smaller than
-  `C0-direct` (`371 KB`).
-- **IR lowering & SIMD gap (`C3b` vs. `C0-direct`):** On AArch64, `clang -O3` auto-vectorizes C0
-  initialization loops with 128-bit NEON instructions, driving most of the `1.17× W-GM`
-  (`1.08× W-AM`) gap on short (`< 200 ms`) instances; on longer (`>= 1 s`) runs across the
-  `N = 1,207` corpus, `C4 / C0-direct` narrows to `1.07× W-GM` (`1.06× W-AM`) on x86-64 and
-  `1.11× W-GM` (`1.09× W-AM`) on AArch64.
-- **UNSAT vs. SAT breakdown:** On **UNSAT (`N = 638`)**, all four pipelines are nearly overlaid
-  (`C1` `604/638` `94.7%` vs. `C4` `597/638` `93.6%` on x86-64; `600/638` `94.0%` vs. `596/638`
-  `93.4%` on AArch64). Most of the remaining solved-count separation vs. upstream Kissat (`C1`) sits
-  on **SAT (`N = 569`)** in the `1–10 s` region (`C1` `559/569` `98.2%` vs. `C4` `549/569` `96.5%`
-  on x86-64; `556/569` `97.7%` vs. `545/569` `95.8%` on AArch64).
-
-#### Preliminary Follow-Up Measurement (`c7484590`)
-
-Since `e190f461`, the backend has gained the conditional-threading, compare-sinking, spill-hint,
-displacement-folding, and AArch64 instruction-selection improvements described in
-[Architecture §3](#3-verified-optimization-codegen--certificate-linking). A smaller follow-up run
-of `C4` built at commit **`c7484590`**—a `156`-CNF panel drawn from the same corpus, `3`
-interleaved repetitions per configuration, same solver source, `0` verdict disagreements—gives:
-
-| Hardware | `C4` (`c7484590`) vs. `C3b` | `C4` (`c7484590`) vs. `C0-direct` |
-| :--- | :---: | :---: |
-| **x86-64** (AMD EPYC 9B45 Zen 5) | `0.998× W-GM / 0.990× W-AM` | `1.035× W-GM / 1.017× W-AM` |
-| **AArch64** (Arm Neoverse-V2) | `0.991× W-GM / 0.974× W-AM` | `1.096× W-GM / 1.047× W-AM` |
-
-*Ratios below `1.00×` mean `C4` is faster. In this run the verified backend matches or slightly
-beats `clang++ -O3` on identical IR on both ISAs, while `clang -O3` on the original C0 source
-remains `2–10%` faster. These per-instance timings are not yet checked in, and later AArch64
-improvements on `main` are not included; the survival plot and full table above will be
-regenerated together with the next full-fidelity certificates.*
+- **Verified backend (`C4` vs. `C3b`):** Across `1,207` instances, LeanQbe's verified backend
+  outperforms `clang++ -O3` on identical lowered IR on AArch64 (**`0.971× W-GM / 0.958× W-AM`**,
+  solving `+1` more instance with PAR-2 `5.461 s` vs. `5.571 s`, and `2.1%` smaller solver `.text`
+  than `clang -O3` `C0-direct`: `383.0 KB` vs. `391.3 KB`) and matches `clang++ -O3` on x86-64
+  (**`1.006× W-GM / 0.999× W-AM`**, PAR-2 `5.160 s` vs. `5.161 s`). Relative to our earlier
+  `e190f461` baseline (archived on `artifacts`), `C4 / C3b` improved from
+  `1.046× W-GM / 1.030× W-AM` on x86-64 and `1.028× W-GM / 1.015× W-AM` on AArch64.
+- **Comparison with `clang -O3` on C0 (`C4` vs. `C0-direct`):** `clang -O3` on the extracted C99
+  source remains `3–5%` faster overall (`C4 / C0-direct = 1.040× W-GM / 1.032× W-AM` on x86-64 and
+  `1.052× W-GM / 1.041× W-AM` on AArch64), largely due to Clang auto-vectorization and higher-level
+  C optimizations before IR lowering; `C4` and `C0-direct` solve the exact same set of instances on
+  both architectures (`1,141` on x86-64, `1,137` on AArch64) with `0` conflict-count differences.
+- **UNSAT vs. SAT breakdown vs. upstream Kissat (`C1`):** On **UNSAT (`N = 638`)**, all four
+  pipelines stay closely clustered (`C1` `604/638` `94.7%` vs. `C4` `596/638` `93.4%` on x86-64;
+  `599/638` `93.9%` vs. `596/638` `93.4%` on AArch64), with `C4 / C1 = 1.134× W-GM / 1.222× W-AM`
+  on x86-64 and `1.034× W-GM / 1.081× W-AM` on AArch64. Most of the remaining solved-count gap vs.
+  upstream Kissat (`C1`) sits on **SAT (`N = 569`)** (`C1` `559/569` `98.2%` vs. `C4` `545/569`
+  `95.8%` on x86-64; `556/569` `97.7%` vs. `541/569` `95.1%` on AArch64), reflecting algorithmic
+  differences in the C0 port rather than compiler codegen overhead.
 
 ---
 
@@ -393,7 +430,7 @@ regenerated together with the next full-fidelity certificates.*
 ### ARiSCA Multiplier Verification Checker
 [ArtCore.lean](LeanQbe/T/Examples/Arisca/ArtCore.lean) defines a checker for ART v1 traces that
 certify a binary AIGER circuit computes a (signed or unsigned) multiplication, designed to run
-inside the kernel via `decide +kernel`:
+inside the kernel via `decide +kernel` (kernel-only TCB plus the ART/AIGER parser specification):
 - **What is proved:** `checkArt_sound` ([ArtSound.lean](LeanQbe/T/Examples/Arisca/ArtSound.lean))
   and its variant `checkArtB_sound` ([ArtSoundB.lean](LeanQbe/T/Examples/Arisca/ArtSoundB.lean)):
   an accepted trace implies the parsed circuit's output equals the product of its inputs modulo
@@ -511,4 +548,4 @@ timeout 3600 bash bv_decide_qbe/scripts/check.sh
 | `LeanQbe/T/Bootstrap0/` & `bv_decide_qbe/` | Stage-0 bootstrapping workstream (`leanqbe0Compile`) and the experimental `bv_decide_qbe` tactic package |
 | `Kraken/` | Formalized x86-64 and AArch64 ISA semantics and separation-logic framework ([README.md](README.md)) |
 | `LeanQbeTest/T/`, `LeanQbeBootstrap0Test/` | Self-contained audit specifications, parity/unit tests, and dual-arch compile guards |
-| `scripts/`, `test/`, `bench/` | [build_bounded.sh](scripts/build_bounded.sh), [preflight.sh](scripts/preflight.sh), [check.sh](scripts/check.sh), native differential test suites, and Kissat benchmark harnesses ([build_solver.sh](bench/kissat/build_solver.sh), [run_4way_stage1.py](bench/kissat/run_4way_stage1.py), [compare_4way_min.py](bench/kissat/compare_4way_min.py)) |
+| `scripts/`, `test/`, `bench/` | [build_bounded.sh](scripts/build_bounded.sh), [preflight.sh](scripts/preflight.sh), [check.sh](scripts/check.sh), native differential test suites, and Kissat benchmark & plotting harnesses ([build_solver.sh](bench/kissat/build_solver.sh), [run_4way_stage1.py](bench/kissat/run_4way_stage1.py), [compare_4way_min.py](bench/kissat/compare_4way_min.py), [plot_dual_arch_survival.py](bench/kissat/plot_dual_arch_survival.py)) |
