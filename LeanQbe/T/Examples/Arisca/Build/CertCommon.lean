@@ -15,7 +15,7 @@ import Kraken.Separation
 # Arch-Free `LinkedCert` & `ModuleOk`-Parameterized Bridge for ARiSCA (`Arisca.Build.CertCommon`)
 
 Centralizes architecture-independent slice assembly (`mkAriscaCertTree`, 5 slices covering all
-`44` functions of `ariscaModule`), entry-function metadata (`arisca_check_bytes`), and
+`45` functions of `ariscaModule`), entry-function metadata (`arisca_check_bytes`), and
 `BenchAbi` + `ModuleOk`-parameterized `FnSpec` / `Eventually` lifts ready for direct composition
 once `M1-C` (`ModuleOk ariscaEnv ariscaModule`) lands.
 
@@ -34,9 +34,9 @@ open LeanQbe.T.Examples.Arisca.Src
 open LeanQbe.T.Examples.Arisca.Src.Module
 open LeanQbe.T.Examples.Arisca.Build
 
-/-! ## 1. Module & Entry Metadata (`arisca_check_bytes` at index 43) -/
+/-! ## 1. Module & Entry Metadata (`arisca_check_bytes` at index 44) -/
 
-theorem ariscaModule_fns_len : ariscaModule.fns.length = 44 := rfl
+theorem ariscaModule_fns_len : ariscaModule.fns.length = 45 := rfl
 
 theorem ariscaModule_namesNodup : (ariscaModule.fns.map Fn.name).Nodup := by
   have h := ariscaModule_checkAcyclic
@@ -47,11 +47,11 @@ theorem ariscaModule_namesNodup : (ariscaModule.fns.map Fn.name).Nodup := by
 /-- Top-level C0 entry function `arisca_check_bytes` (`[i64 × 6] → [i64]`). -/
 abbrev ariscaCheckBytesFn : Fn := Driver.arisca_check_bytes
 
-theorem ariscaCheckBytesFn_at_43 :
-    ariscaModule.fns[43]? = some ariscaCheckBytesFn := rfl
+theorem ariscaCheckBytesFn_at_44 :
+    ariscaModule.fns[44]? = some ariscaCheckBytesFn := rfl
 
 theorem ariscaCheckBytesFn_mem : ariscaCheckBytesFn ∈ ariscaModule.fns :=
-  List.mem_of_getElem? ariscaCheckBytesFn_at_43
+  List.mem_of_getElem? ariscaCheckBytesFn_at_44
 
 theorem ariscaCheckBytesFn_name : ariscaCheckBytesFn.name = "arisca_check_bytes" := rfl
 
@@ -79,7 +79,7 @@ theorem arisca_drop_take_add {α : Type _} (l : List α) (s i j : Nat) :
   rw [List.take_add, List.drop_drop]
 
 /-- Combine the 5 parallel `ariscaFlatMod` slice certificates (`[0,15)`, `[15,25)`, `[25,31)`,
-`[31,39)`, `[39,44)`) into a whole-module `LinkedCert` over `ariscaModule` via a balanced tree:
+`[31,39)`, `[39,45)`) into a whole-module `LinkedCert` over `ariscaModule` via a balanced tree:
 `((c0 ++ c1) ++ (c2 ++ c3)) ++ c4`. -/
 @[expose] noncomputable def mkAriscaCertTree {T : Target} {L : TargetLayout T}
     {lt : LegalTarget} {hcl : Rega.LabelClean T.toIsa}
@@ -148,15 +148,15 @@ theorem arisca_checkCompile_abi
     checkCompile A.T A.L A.lt [] [] 0 ariscaFns (chunksHints cert.chunks) 2048 = true :=
   linkedCert_checkCompile cert
 
-/-- Exact entry-function stack bound from `cert.bounds[43]`. -/
+/-- Exact entry-function stack bound from `cert.bounds[44]`. -/
 theorem arisca_entry_bound_of_getElem
     (cert : LinkedCert A.T A.L A.lt A.hcl ariscaModule [] [] 0 2048)
     {b : Nat}
-    (hb : (cert.bounds[43]'(by rw [cert.bounds_length, ariscaModule_fns_len]; decide)).2 = b) :
+    (hb : (cert.bounds[44]'(by rw [cert.bounds_length, ariscaModule_fns_len]; decide)).2 = b) :
     cert.bound "arisca_check_bytes" = b := by
-  have h43 : 43 < ariscaModule.fns.length := by rw [ariscaModule_fns_len]; decide
-  have h := cert.bound_at_fn_idx ariscaModule_namesNodup h43
-  have hnm : (ariscaModule.fns[43]'h43).name = "arisca_check_bytes" := rfl
+  have h44 : 44 < ariscaModule.fns.length := by rw [ariscaModule_fns_len]; decide
+  have h := cert.bound_at_fn_idx ariscaModule_namesNodup h44
+  have hnm : (ariscaModule.fns[44]'h44).name = "arisca_check_bytes" := rfl
   rw [hnm] at h
   exact h.trans hb
 

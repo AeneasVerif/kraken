@@ -219,7 +219,9 @@ def arParseArtHeaderAndTablesSpec : Spec [i64, i64, i64] [.bool] :=
             s'.pos.toNat = 10 + s'.n_nets.toNat + s'.n_in.toNat + s'.n_out.toNat ∧
             s'.pos.toNat ≤ s'.nw.toNat ∧
             s'.M = s.M ∧ s'.I = s.I ∧ s'.A = s.A ∧ s'.O = s.O ∧
-            s'.n_nets.toNat ≤ 0x3FFFFFFF ∧ (s'.spec = 0#32 ∨ s'.spec = 1#32) ∧
+            s'.n_nets.toNat ≤ 0x3FFFFFFF ∧
+            s'.spec = BitVec.ofNat 32 (wordAt artBytes 2) ∧
+            (s'.spec = 0#32 ∨ s'.spec = 1#32 ∨ s'.spec = 2#32) ∧
             s'.rs_n = 0#32 ∧ s'.rs_ptop = 0#64 ∧ s'.rs_cap = 0#32 ∧ s'.rs_pcap = 0#64 ∧
             s'.ptop = s.ptop ∧ s'.tn = s.tn ∧ s'.qn = s.qn ∧
             s'.pc = s.pc ∧ s'.tc = s.tc ∧ s'.cur_nr = s.cur_nr ∧
@@ -228,7 +230,7 @@ def arParseArtHeaderAndTablesSpec : Spec [i64, i64, i64] [.bool] :=
             s'.top.toNat ≤ s'.wlen.toNat ∧
             TablesGeom s' g.ands.length g.outs.length
               s'.n_nets.toNat s'.n_in.toNat s'.n_out.toNat s'.top.toNat ∧
-            MasksOk s'.n_out.toNat s'.mlo s'.mhi ∧
+            MasksOk s'.modW s'.mlo s'.mhi ∧
             BindRep s' g bindArr inNetArr outRefArr ∧
             bindArr.length = s'.n_nets.toNat ∧
             ruleOff.length = s'.n_nets.toNat ∧
@@ -242,7 +244,7 @@ def arParseArtHeaderAndTablesSpec : Spec [i64, i64, i64] [.bool] :=
             dense.length = 128 ∧ gsy.length = 85 ∧ gcl.length = 16 ∧ gch.length = 16 ∧
             (∀ i < s'.n_nets.toNat, flippedArr.getD i 0#8 = 0#8) ∧
             (∀ σ : Nat → Bool, PartnerRep σ s'.n_nets.toNat partnerArr ∧
-              RulesRep s'.n_out.toNat σ s' ruleOff ruleN [] [] [] []) ∧
+              RulesRep s'.modW σ s' ruleOff ruleN [] [] [] []) ∧
             (arCtxMem cx s' ⋆
               aigArraysMem s' rhs0 rhs1 olit ⋆
               netTablesMem s' bindArr ruleOff ruleN partnerArr flippedArr inNetArr outRefArr ⋆

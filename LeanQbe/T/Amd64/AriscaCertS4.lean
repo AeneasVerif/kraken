@@ -17,7 +17,7 @@ meta import LeanQbe.T.Examples.Arisca.Build.Flat
 meta import LeanQbe.T.Amd64.AriscaCertBounds
 
 /-!
-# `ariscaModule` SysV x86-64 Certificate Slice 4/5 (`[39, 44)`, `Driver` part 2)
+# `ariscaModule` SysV x86-64 Certificate Slice 4/5 (`[39, 45)`, `Driver` part 2)
 -/
 
 set_option autoImplicit false
@@ -28,7 +28,7 @@ namespace LeanQbe.T.Amd64
 
 open LeanQbe.T LeanQbe.T.Examples.Arisca.Build
 
-/-- Slice 4 sub-module (`[39, 44)`, `5` functions ending at `arisca_check_bytes`). -/
+/-- Slice 4 sub-module (`[39, 45)`, `6` functions ending at `arisca_check_bytes`). -/
 @[expose] noncomputable def ariscaX64Slice4Mod : Module :=
   { fns := ariscaFlatMod.fns.drop 39 }
 

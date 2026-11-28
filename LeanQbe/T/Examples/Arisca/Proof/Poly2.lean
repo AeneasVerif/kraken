@@ -89,10 +89,10 @@ private theorem apply_post_vq_wp (Γ : T.Env)
     (hvqs : vqSkip'.length = vqSkip.length) (hqFin : qFin ≤ s1.pcap.toNat)
     (hcurNr_rm : s.cur_nr.toNat ≤ curRm.length) (hcurNr_rl : s.cur_nr.toNat ≤ curRl.length)
     (hcurNr_rh : s.cur_nr.toNat ≤ curRh.length)
-    (hMasks : MasksOk s.n_out.toNat s.mlo s.mhi)
+    (hMasks : MasksOk s.modW s.mlo s.mhi)
     (hPart : ∀ σ, Valid σ → PartnerRep σ s.n_nets.toNat partnerArr)
     (hCurR : ∀ σ, Valid σ →
-      CurRRep s.n_out.toNat σ s.cur_nr.toNat sym.toNat curRm curRl curRh curRp)
+      CurRRep s.modW σ s.cur_nr.toNat sym.toNat curRm curRl curRh curRp)
     (hcurSl : ∀ r < s.cur_nr.toNat, MonoSliceOk curRp (curRm.getD r 0#32).toNat curRp.length)
     (hcurSo : ∀ r < s.cur_nr.toNat, MonoSorted curRp (curRm.getD r 0#32).toNat)
     (hcurMr32 : ∀ r < s.cur_nr.toNat,
@@ -163,8 +163,8 @@ private theorem apply_post_vq_wp (Γ : T.Env)
         SymsBound curRp curRm s.cur_nr.toNat bd →
         SymsBound dstPool dstTm s'.tn.toNat bd) →
       (∀ σ, Valid σ →
-        polyEval s.n_out.toNat σ dstPool dstTm dstTl dstTh s'.tn.toNat =
-          polyEval s.n_out.toNat σ srcPool0 srcTm0 srcTl0 srcTh0 s.tn.toNat) →
+        polyEval s.modW σ dstPool dstTm dstTl dstTh s'.tn.toNat =
+          polyEval s.modW σ srcPool0 srcTm0 srcTl0 srcTh0 s.tn.toNat) →
       (arCtxMem cx s' ⋆ array (t := i32) s'.partner partnerArr ⋆
         array (t := i32) s'.cur_rm curRm ⋆ array64 s'.cur_rl curRl ⋆
         array64 s'.cur_rh curRh ⋆ array (t := i32) s'.cur_rp curRp ⋆
@@ -264,10 +264,10 @@ private theorem apply_post_bx_wp (Γ : T.Env)
     (hslB : slB.toNat = bxSymLenSum (if s.pc.toNat = 0 then pool0 else pool1)
       (if s.tc.toNat = 0 then tm0 else tm1) bxL nb.toNat)
     (hNonEmpty : ∃ σ₀, Valid σ₀)
-    (hMasks : MasksOk s.n_out.toNat s.mlo s.mhi)
+    (hMasks : MasksOk s.modW s.mlo s.mhi)
     (hPart : ∀ σ, Valid σ → PartnerRep σ s.n_nets.toNat partnerArr)
     (hCurR : ∀ σ, Valid σ →
-      CurRRep s.n_out.toNat σ s.cur_nr.toNat sym.toNat curRm curRl curRh curRp)
+      CurRRep s.modW σ s.cur_nr.toNat sym.toNat curRm curRl curRh curRp)
     (hcurNr_rm : s.cur_nr.toNat ≤ curRm.length) (hcurNr_rl : s.cur_nr.toNat ≤ curRl.length)
     (hcurNr_rh : s.cur_nr.toNat ≤ curRh.length)
     (hcurSl : ∀ r < s.cur_nr.toNat, MonoSliceOk curRp (curRm.getD r 0#32).toNat curRp.length)
@@ -334,8 +334,8 @@ private theorem apply_post_bx_wp (Γ : T.Env)
           SymsBound curRp curRm s.cur_nr.toNat bd →
           SymsBound dstPool dstTm s'.tn.toNat bd) ∧
         (∀ σ, Valid σ →
-          polyEval s.n_out.toNat σ dstPool dstTm dstTl dstTh s'.tn.toNat =
-            polyEval s.n_out.toNat σ srcPool srcTm srcTl srcTh s.tn.toNat)) →
+          polyEval s.modW σ dstPool dstTm dstTl dstTh s'.tn.toNat =
+            polyEval s.modW σ srcPool srcTm srcTl srcTh s.tn.toNat)) →
       (arCtxMem cx s' ⋆ array (t := i32) s'.partner partnerArr ⋆
         array (t := i32) s'.cur_rm curRm ⋆ array64 s'.cur_rl curRl ⋆
         array64 s'.cur_rh curRh ⋆ array (t := i32) s'.cur_rp curRp ⋆

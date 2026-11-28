@@ -180,7 +180,7 @@ theorem main_apply_step (Γ : LeanQbe.T.Env)
     (_htLen : t.LenOk g s0) (hdLen : d.LenOk s0.qcap.toNat)
     (_hs_w : sA.w = s0.w) (_hs_wl : sA.wlen = s0.wlen) (_hs_top : sA.top = s0.top)
     (hs_tcap : sA.tcap = s0.tcap) (hs_qcap : sA.qcap = s0.qcap) (hs_pcap : sA.pcap = s0.pcap)
-    (hs_nn : sA.n_nets = s0.n_nets) (hs_no : sA.n_out = s0.n_out)
+    (hs_nn : sA.n_nets = s0.n_nets) (hs_no : sA.modW = s0.modW)
     (hs_mlo : sA.mlo = s0.mlo) (hs_mhi : sA.mhi = s0.mhi)
     (_hs_pa : sA.partner = s0.partner)
     (_hs_tm : sA.tm = s0.tm) (_hs_ts : sA.ts = s0.ts) (_hs_tl : sA.tl = s0.tl)
@@ -192,7 +192,7 @@ theorem main_apply_step (Γ : LeanQbe.T.Env)
     (htn : sA.tn.toNat ≤ s0.tcap.toNat) (hpt : sA.ptop.toNat ≤ s0.pcap.toNat)
     (hixSw : (sA.ix = s0.ix ∧ sA.ix2 = s0.ix2) ∨ (sA.ix = s0.ix2 ∧ sA.ix2 = s0.ix))
     (hPart : ∀ ρ : Nat → Bool, PartnerRep (cSig g ρ t.bindArr) s0.n_nets.toNat t.partnerArr)
-    (hCurR : ∀ ρ : Nat → Bool, CurRRep s0.n_out.toNat (cSig g ρ t.bindArr)
+    (hCurR : ∀ ρ : Nat → Bool, CurRRep s0.modW (cSig g ρ t.bindArr)
       sA.cur_nr.toNat sym.toNat curRm curRl curRh curRp)
     (hCurSort : ∀ r < sA.cur_nr.toNat, MonoSorted curRp (curRm.getD r 0#32).toNat)
     (hCurOk : ∀ r < sA.cur_nr.toNat,
@@ -212,14 +212,12 @@ theorem main_apply_step (Γ : LeanQbe.T.Env)
     (hTotT : monoTotalWords (if sA.pc.toNat = 0 then d.pool0 else d.pool1)
       (if sA.tc.toNat = 0 then d.tm0 else d.tm1) sA.tn.toNat ≤ sA.ptop.toNat)
     (hEv : ∀ ρ : Nat → Bool,
-      polyEval s0.n_out.toNat (cSig g ρ t.bindArr)
+      polyEval s0.modW (cSig g ρ t.bindArr)
           (if sA.pc.toNat = 0 then d.pool0 else d.pool1)
           (if sA.tc.toNat = 0 then d.tm0 else d.tm1)
           (if sA.tc.toNat = 0 then d.tl0 else d.tl1)
           (if sA.tc.toNat = 0 then d.th0 else d.th1) sA.tn.toNat =
-        BitVec.ofNat s0.n_out.toNat (outWord g ρ) -
-          BitVec.ofInt s0.n_out.toNat (inWord (decide (s0.spec = 1#32)) (g.I / 2) ρ 0) *
-            BitVec.ofInt s0.n_out.toNat (inWord (decide (s0.spec = 1#32)) (g.I / 2) ρ (g.I / 2)))
+        sp0TargetEval s0.spec s0.modW g ρ)
     (hmA : (arCtxMem cx sA ⋆ array (t := i32) sA.partner t.partnerArr ⋆
       array (t := i32) sA.cur_rm curRm ⋆ array64 sA.cur_rl curRl ⋆ array64 sA.cur_rh curRh ⋆
       array (t := i32) sA.cur_rp curRp ⋆
@@ -268,15 +266,12 @@ theorem main_apply_step (Γ : LeanQbe.T.Env)
       monoTotalWords (if sB.pc.toNat = 0 then dB.pool0 else dB.pool1)
         (if sB.tc.toNat = 0 then dB.tm0 else dB.tm1) sB.tn.toNat ≤ sB.ptop.toNat →
       (∀ ρ : Nat → Bool,
-        polyEval s0.n_out.toNat (cSig g ρ t.bindArr)
+        polyEval s0.modW (cSig g ρ t.bindArr)
             (if sB.pc.toNat = 0 then dB.pool0 else dB.pool1)
             (if sB.tc.toNat = 0 then dB.tm0 else dB.tm1)
             (if sB.tc.toNat = 0 then dB.tl0 else dB.tl1)
             (if sB.tc.toNat = 0 then dB.th0 else dB.th1) sB.tn.toNat =
-          BitVec.ofNat s0.n_out.toNat (outWord g ρ) -
-            BitVec.ofInt s0.n_out.toNat (inWord (decide (s0.spec = 1#32)) (g.I / 2) ρ 0) *
-              BitVec.ofInt s0.n_out.toNat
-                (inWord (decide (s0.spec = 1#32)) (g.I / 2) ρ (g.I / 2))) →
+          sp0TargetEval s0.spec s0.modW g ρ) →
       (arCtxMem cx sB ⋆ array (t := i32) sB.partner t.partnerArr ⋆
         array (t := i32) sB.cur_rm curRm ⋆ array64 sB.cur_rl curRl ⋆ array64 sB.cur_rh curRh ⋆
         array (t := i32) sB.cur_rp curRp ⋆
@@ -830,10 +825,10 @@ theorem main_rulesRep_step {s0 s1 s2 s1' : ArCtxState} {g : Aig} {t : CmTabArrs}
     (hrsh : dL.rsH = d0.rsH) (hrsp : dL.rsPool = d0.rsPool)
     (hRep : ∀ ρ : Nat → Bool,
       PartnerRep (cSig g ρ t.bindArr) s0.n_nets.toNat t.partnerArr ∧
-      RulesRep s0.n_out.toNat (cSig g ρ t.bindArr) s2 t.ruleOff t.ruleN
+      RulesRep s0.modW (cSig g ρ t.bindArr) s2 t.ruleOff t.ruleN
         d0.rsM d0.rsL d0.rsH d0.rsPool) :
     ∀ ρ : Nat → Bool,
-      RulesRep s0.n_out.toNat (cSig g ρ t.bindArr) s1' t.ruleOff t.ruleN
+      RulesRep s0.modW (cSig g ρ t.bindArr) s1' t.ruleOff t.ruleN
         dL.rsM dL.rsL dL.rsH dL.rsPool := fun ρ => by
   have hR0 := (hRep ρ).2
   rw [hrsm, hrsl, hrsh, hrsp]

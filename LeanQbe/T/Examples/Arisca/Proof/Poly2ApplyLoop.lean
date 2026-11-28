@@ -220,8 +220,8 @@ private theorem apply_je_wp (Γ : T.Env)
     (hbxM0 : sym.toNat ∈ symListAt (if s.pc.toNat = 0 then pool0_1 else pool1_1) mOffBv.toNat)
     (hsk0_d : vqSkip'.getD rI.toNat 0#8 = 0#8)
     (hrl_eq : rlBv = curRl.getD rI.toNat 0#64) (hrh_eq : rhBv = curRh.getD rI.toNat 0#64)
-    (hcmul : coeff128 s.n_out.toNat l h =
-      coeff128 s.n_out.toNat cl ch * coeff128 s.n_out.toNat rlBv rhBv)
+    (hcmul : coeff128 s.modW l h =
+      coeff128 s.modW cl ch * coeff128 s.modW rlBv rhBv)
     (hInvI' : ApplyInnerInv cx sym s pool0_1 pool1_1 qm qs ql qh curRm curRl curRh curRp Valid
       (array (t := i32) s.partner partnerArr ⋆ array (t := i32) s.cur_rm curRm ⋆
        array64 s.cur_rl curRl ⋆ array64 s.cur_rh curRh ⋆ array (t := i32) s.cur_rp curRp ⋆
@@ -599,8 +599,8 @@ private theorem apply_je_wp (Γ : T.Env)
         c0_hsteps_nogrp
         exact hJs (qnI, ptI, ⟨⟩) mI (apply_inner_skip_step hr_lt (fun σ hV => by
           dsimp only [termEval]; rw [← hrl_eq, ← hrh_eq]
-          have hcz : coeff128 s.n_out.toNat cl ch *
-              coeff128 s.n_out.toNat rlBv rhBv = 0#(s.n_out.toNat) := by
+          have hcz : coeff128 s.modW cl ch *
+              coeff128 s.modW rlBv rhBv = 0#(s.modW) := by
             rw [← hcmul, apply_cmul_zero]
           exact apply_mul_ite_zero _ _ hcz) hInvI0)
 
@@ -695,7 +695,9 @@ private theorem apply_inner_loop_wp (Γ : T.Env)
     array64 s.cur_rl curRl ⋆ array64 s.cur_rh curRh ⋆ array (t := i32) s.cur_rp curRp ⋆
     rest4 ⋆ R
   have hnr_eq : s.cur_nr = s0.cur_nr := by conv => lhs; rw [hCtx0.hs1]
-  have hnout_eq : s.n_out = s0.n_out := by conv => lhs; rw [hCtx0.hs1]
+  have hnout_eq : s.modW = s0.modW := by
+    simp only [ArCtxState.modW, show s.spec = s0.spec by conv => lhs; rw [hCtx0.hs1],
+      show s.n_out = s0.n_out by conv => lhs; rw [hCtx0.hs1]]
   obtain ⟨_, hqnB_le, hspt_le, hptB_le, poolB, qmB, qsB, qlB, qhB,
     hlB1, hlB2, hlB3, hlB4, hlB5, hpreB, hSlB, hSoB, hSiB, hWB, hSyB, hEvB, hmB⟩ := hOuterInv
   refine wp_loop_group (fun remR ⟨rI, qnI, ptI, ⟨⟩⟩ mI =>
@@ -770,7 +772,7 @@ private theorem apply_inner_loop_wp (Γ : T.Env)
                 array (t := i32) s.qm qmI ⋆ array64 s.qs qsI ⋆ array64 s.ql qlI ⋆
                 array64 s.qh qhI ⋆ Rloop4,
               (by have hmk := hCtx0.hMasks
-                  rw [show s.n_out = s0.n_out by conv => lhs; rw [hCtx0.hs1],
+                  rw [hnout_eq,
                     show s.mlo = s0.mlo by conv => lhs; rw [hCtx0.hs1],
                     show s.mhi = s0.mhi by conv => lhs; rw [hCtx0.hs1]]
                   exact hmk),
@@ -898,8 +900,8 @@ theorem apply_outer_loop_wp (Γ : T.Env)
         SymsBound curRp curRm s0.cur_nr.toNat bd →
         SymsBound dstPool dstTm s'.tn.toNat bd) →
       (∀ σ, Valid σ →
-        polyEval s0.n_out.toNat σ dstPool dstTm dstTl dstTh s'.tn.toNat =
-          polyEval s0.n_out.toNat σ srcPool0 srcTm0 srcTl0 srcTh0 s0.tn.toNat) →
+        polyEval s0.modW σ dstPool dstTm dstTl dstTh s'.tn.toNat =
+          polyEval s0.modW σ srcPool0 srcTm0 srcTl0 srcTh0 s0.tn.toNat) →
       (arCtxMem cx s' ⋆ array (t := i32) s'.partner partnerArr ⋆
         array (t := i32) s'.cur_rm curRm ⋆ array64 s'.cur_rl curRl ⋆
         array64 s'.cur_rh curRh ⋆ array (t := i32) s'.cur_rp curRp ⋆

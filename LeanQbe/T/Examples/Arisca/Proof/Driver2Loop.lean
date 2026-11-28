@@ -41,6 +41,41 @@ open LeanQbe.T.Examples.Arisca.Src.Driver
 
 @[expose] public section
 
+/-- WP specification for `arisca_check_aig(cx, art, art_len)` on already-parsed AIG arrays. -/
+def ariscaCheckAigSpec : Spec [i64, i64, i64] [.bool] :=
+  fun ⟨cx, art, artLen, ⟨⟩⟩ m Q _ =>
+    ∃ (s : ArCtxState) (g : Aig) (rhs0 rhs1 olit : List (BitVec 32))
+      (artBytes : List UInt8) (R : Mem 64 → Prop),
+      0 < s.w.toNat ∧
+      s.w.toNat + s.wlen.toNat < 2 ^ 64 ∧
+      s.top.toNat = 776 + align8 (4 * g.ands.length) + align8 (4 * g.ands.length) +
+        4 * g.outs.length ∧
+      s.top.toNat ≤ s.wlen.toNat ∧
+      s.rhs0 = s.w + 776#64 ∧
+      s.rhs1 = s.w + BitVec.ofNat 64 (776 + align8 (4 * g.ands.length)) ∧
+      s.olit = s.w + BitVec.ofNat 64
+        (776 + align8 (4 * g.ands.length) + align8 (4 * g.ands.length)) ∧
+      AigArraysRep g rhs0 rhs1 olit ∧
+      s.M.toNat = g.M ∧ s.I.toNat = g.I ∧
+      s.A.toNat = g.ands.length ∧ s.O.toNat = g.outs.length ∧
+      s.rs_n = 0#32 ∧ s.rs_ptop = 0#64 ∧ s.rs_cap = 0#32 ∧ s.rs_pcap = 0#64 ∧
+      s.ptop = 0#64 ∧ s.tn = 0#32 ∧ s.qn = 0#32 ∧
+      s.pc = 0#32 ∧ s.tc = 0#32 ∧ s.cur_nr = 0#32 ∧
+      artLen.toNat = artBytes.length ∧
+      art.toNat + artBytes.length < 2 ^ 64 ∧
+      (arCtxMem cx s ⋆
+        arrayPad i32 s.rhs0 rhs0 ⋆
+        arrayPad i32 s.rhs1 rhs1 ⋆
+        array (t := i32) s.olit olit ⋆
+        region (s.w + s.top) (s.wlen.toNat - s.top.toNat) ⋆
+        bytes art artBytes ⋆ R) m ∧
+      (∀ (ok : Bool) (m' : Mem 64),
+        (ok = true → ariscaCircuitProp (BitVec.ofNat 32 (wordAt artBytes 2)) g) →
+        (∃ s' : ArCtxState,
+          (arCtxMem cx s' ⋆ region (s.w + 776#64) (s.wlen.toNat - 776) ⋆
+            bytes art artBytes ⋆ R) m') →
+        Q (ok, ⟨⟩) m')
+
 /-- WP specification for `ar_check_main(cx, aig, aig_len, art, art_len)`. -/
 def arCheckMainSpec : Spec [i64, i64, i64, i64, i64] [.bool] :=
   fun ⟨cx, aig, aigLen, art, artLen, ⟨⟩⟩ m Q _ =>
@@ -56,12 +91,9 @@ def arCheckMainSpec : Spec [i64, i64, i64, i64, i64] [.bool] :=
       (arCtxMem cx s ⋆ region (s.w + 776#64) (s.wlen.toNat - 776) ⋆
         bytes aig aigBytes ⋆ bytes art artBytes ⋆ R) m ∧
       (∀ (ok : Bool) (m' : Mem 64),
-        (ok = true → ∃ (g : Aig) (signed : Bool),
+        (ok = true → ∃ g : Aig,
           parseAig (toNatBytes aigBytes) = some g ∧
-          ∀ ρ : Nat → Bool,
-            BitVec.ofNat g.outs.length (outWord g ρ) =
-              BitVec.ofInt g.outs.length (inWord signed (g.I / 2) ρ 0) *
-                BitVec.ofInt g.outs.length (inWord signed (g.I / 2) ρ (g.I / 2))) →
+          ariscaCircuitProp (BitVec.ofNat 32 (wordAt artBytes 2)) g) →
         (∃ s' : ArCtxState,
           (arCtxMem cx s' ⋆ region (s.w + 776#64) (s.wlen.toNat - 776) ⋆
             bytes aig aigBytes ⋆ bytes art artBytes ⋆ R) m') →
@@ -77,12 +109,9 @@ def ariscaCheckBytesSpec : Spec [i64, i64, i64, i64, i64, i64] [i64] :=
       (bytes aigPtr aigBytes ⋆ bytes artPtr artBytes ⋆
         region workPtr workLen.toNat ⋆ R) m ∧
       (∀ (ret : BitVec 64) (m' : Mem 64),
-        (ret = 20#64 → ∃ (g : Aig) (signed : Bool),
+        (ret = 20#64 → ∃ g : Aig,
           parseAig (toNatBytes aigBytes) = some g ∧
-          ∀ ρ : Nat → Bool,
-            BitVec.ofNat g.outs.length (outWord g ρ) =
-              BitVec.ofInt g.outs.length (inWord signed (g.I / 2) ρ 0) *
-                BitVec.ofInt g.outs.length (inWord signed (g.I / 2) ρ (g.I / 2))) →
+          ariscaCircuitProp (BitVec.ofNat 32 (wordAt artBytes 2)) g) →
         (bytes aigPtr aigBytes ⋆ bytes artPtr artBytes ⋆
           region workPtr workLen.toNat ⋆ R) m' →
         Q (ret, ⟨⟩) m')
@@ -221,7 +250,6 @@ structure CmBase (s0 : ArCtxState) (g : Aig) (top0 : Nat)
   rcap_eq : s0.rcap = s0.qcap
   rs_pcap_eq : s0.rs_pcap = s0.pcap
   rpcap_eq : s0.rpcap = s0.pcap
-  parse_aig : parseAig (toNatBytes aigBytes) = some g
   g_M_le : g.M ≤ 0x3FFFFFF0
   s_M : s0.M.toNat = g.M
   s_I : s0.I.toNat = g.I
@@ -230,77 +258,71 @@ structure CmBase (s0 : ArCtxState) (g : Aig) (top0 : Nat)
   art_fit : s0.art.toNat + artBytes.length < 2 ^ 64
   nw4 : 4 * s0.nw.toNat = artBytes.length
   nnets_bd : s0.n_nets.toNat ≤ 0x3FFFFFFF
-  spec_01 : s0.spec = 0#32 ∨ s0.spec = 1#32
+  spec_bd : s0.spec = 0#32 ∨ s0.spec = 1#32 ∨ s0.spec = 2#32
+  spec_word : s0.spec = BitVec.ofNat 32 (wordAt artBytes 2)
   tgeom : TablesGeom s0 g.ands.length g.outs.length
     s0.n_nets.toNat s0.n_in.toNat s0.n_out.toNat top0
   dgeom : DynGeom s0 top0 s0.qcap.toNat
-  masks : MasksOk s0.n_out.toNat s0.mlo s0.mhi
+  masks : MasksOk s0.modW s0.mlo s0.mhi
 
-@[reducible] def cmStepStraight : Expr Val Cont [.bool] → Expr Val Cont [.bool]
-  | @Expr.let_ _ _ _ [.bits 64] _ k => k (0#64, ())
-  | @Expr.let_ _ _ _ [.bits 32] _ k => k (0#32, ())
-  | @Expr.let_ _ _ _ [.bool] _ k => k (false, ())
-  | @Expr.load _ _ _ (.bits 64) _ k => k 0#64
-  | @Expr.load _ _ _ (.bits 32) _ k => k 0#32
+def cmStep64 (e : Expr Val Cont [.bool]) : Expr Val Cont [.bool] :=
+  match e with | @Expr.let_ _ _ _ [.bits 64] _ k => k (0#64, ()) | e => e
+
+def cmStep32 (e : Expr Val Cont [.bool]) : Expr Val Cont [.bool] :=
+  match e with | @Expr.let_ _ _ _ [.bits 32] _ k => k (0#32, ()) | e => e
+
+def cmStepB (e : Expr Val Cont [.bool]) : Expr Val Cont [.bool] :=
+  match e with | @Expr.let_ _ _ _ [.bool] _ k => k (false, ()) | e => e
+
+def cmLoad32 (e : Expr Val Cont [.bool]) : Expr Val Cont [.bool] :=
+  match e with | @Expr.load _ _ _ (.bits 32) _ k => k 0#32 | e => e
+
+def cmJnzF (e : Expr Val Cont [.bool]) : Expr Val Cont [.bool] :=
+  match e with | .jnz _ _ f => f | e => e
+
+def cmGrpHere (e : Expr Val Cont [.bool]) : Expr Val Cont [.bool] :=
+  match e with
+  | .group (sig := [[.bits 32]]) b _ => Blocks.get (b ((fun _ _ => False), ())) .here (0#32, ())
   | e => e
 
-@[reducible] def cmAfterLoop : Nat → Expr Val Cont [.bool] → Expr Val Cont [.bool]
-  | 0, e => e
-  | _ + 1, .jnz _ _ f => f
-  | n + 1, e => cmAfterLoop n (cmStepStraight e)
+def cmAig1 (cx art artLen : Val i64) : Expr Val Cont [.bool] :=
+  cmGrpHere (cmStep32 (cmStep32 (cmLoad32 (cmStep64 (cmJnzF (cmStepB (cmStep64 (cmLoad32
+    (cmStep64 (cmStep64 (cmStep64 (cmLoad32 (cmStep64 (cmStep64 (cmLoad32 (cmStep64 (cmJnzF
+      (cmStepB (cmLoad32 (cmStep64
+        (arisca_check_aig_body Val Cont (cx, art, artLen, ()))))))))))))))))))))))
 
-@[reducible] def cmStepIgnore : Expr Val Cont [.bool] → Expr Val Cont [.bool]
-  | .jnz _ _ f => f
-  | e => cmStepStraight e
-
-@[reducible] def cmFindGroup : Nat → Expr Val Cont [.bool] → Expr Val Cont [.bool]
-  | 0, e => e
-  | _ + 1, e@(.group ..) => e
-  | n + 1, e => cmFindGroup n (cmStepIgnore e)
-
-@[reducible] def cmFindCall : Nat → Expr Val Cont [.bool] → Expr Val Cont [.bool]
-  | 0, e => e
-  | _ + 1, e@(.call ..) => e
-  | n + 1, e => cmFindCall n (cmStepIgnore e)
-
-@[reducible] def cmGatesExpr (cx aig aigLen art artLen : Val i64) : Expr Val Cont [.bool] :=
-  match ar_check_main_body Val Cont (cx, aig, aigLen, art, artLen, ()) with
-  | @Expr.call _ _ _ _ _ [.bool] _ k1 =>
-    match k1 (true, ()) with
-    | .jnz _ (@Expr.call _ _ _ _ _ [.bool] _ k2) _ =>
-      match k2 (true, ()) with
-      | .jnz _ (@Expr.call _ _ _ _ _ [.bool] _ k3) _ =>
-        match k3 (true, ()) with
-        | .jnz _ e _ => cmFindGroup 20 e
-        | _ => .ret (Arg.imm false, ())
+@[irreducible] def cmGatesExpr (cx _aig _aigLen art artLen : Val i64) : Expr Val Cont [.bool] :=
+  match cmJnzF (cmStepB (cmLoad32 (cmStep64 (cmGrpHere (cmJnzF (cmStepB (cmLoad32
+      (cmStep64 (cmAig1 cx art artLen))))))))) with
+  | @Expr.call _ _ _ _ _ [.bool] _ k2 =>
+    match k2 (true, ()) with
+    | .jnz _ (@Expr.call _ _ _ _ _ [.bool] _ k3) _ =>
+      match k3 (true, ()) with
+      | .jnz _ e _ => cmStep32 (cmStep32 (cmLoad32 (cmStep64 e)))
       | _ => .ret (Arg.imm false, ())
     | _ => .ret (Arg.imm false, ())
   | _ => .ret (Arg.imm false, ())
 
-@[reducible] def cmConesExpr (cx aig aigLen art artLen : Val i64) : Expr Val Cont [.bool] :=
+@[irreducible] def cmConesExpr (cx aig aigLen art artLen : Val i64) : Expr Val Cont [.bool] :=
   match cmGatesExpr cx aig aigLen art artLen with
   | .group (sig := [[.bits 32]]) b _ =>
-    cmFindGroup 20 (cmAfterLoop 20 (Blocks.get (b ((fun _ _ => False), ())) .here (0#32, ())))
+    cmJnzF (cmStepB (cmLoad32 (cmStep64
+      (Blocks.get (b ((fun _ _ => False), ())) .here (0#32, ())))))
   | _ => .ret (Arg.imm false, ())
 
-@[reducible] def cmSp0Expr (cx aig aigLen art artLen : Val i64) : Expr Val Cont [.bool] :=
+@[irreducible] def cmSp0Expr (cx aig aigLen art artLen : Val i64) : Expr Val Cont [.bool] :=
   match cmConesExpr cx aig aigLen art artLen with
   | .group (sig := [[.bits 32]]) b _ =>
-    cmFindCall 20 (cmAfterLoop 20 (Blocks.get (b ((fun _ _ => False), ())) .here (0#32, ())))
+    cmJnzF (cmStepB (cmLoad32 (cmStep64
+      (Blocks.get (b ((fun _ _ => False), ())) .here (0#32, ())))))
   | _ => .ret (Arg.imm false, ())
 
-@[reducible] def cmMainExpr (cx aig aigLen art artLen : Val i64) : Expr Val Cont [.bool] :=
+@[irreducible] def cmMainExpr (cx aig aigLen art artLen : Val i64) : Expr Val Cont [.bool] :=
   match cmSp0Expr cx aig aigLen art artLen with
   | @Expr.call _ _ _ _ _ [.bool] _ k =>
     match k (true, ()) with
-    | .jnz _ e _ => cmFindGroup 20 e
+    | .jnz _ e _ => e
     | _ => .ret (Arg.imm false, ())
-  | _ => .ret (Arg.imm false, ())
-
-@[reducible] def cmExitExpr (cx aig aigLen art artLen : Val i64) : Expr Val Cont [.bool] :=
-  match cmMainExpr cx aig aigLen art artLen with
-  | .group (sig := [[.bits 32]]) b _ =>
-    cmAfterLoop 20 (Blocks.get (b ((fun _ _ => False), ())) .here (0#32, ()))
   | _ => .ret (Arg.imm false, ())
 
 end
@@ -588,7 +610,7 @@ theorem main_gates_loop_wp (Γ : LeanQbe.T.Env)
     (hSort0 : RulesSorted d0.rsPool d0.rsM s0.rs_n.toNat)
     (hRep0 : ∀ ρ : Nat → Bool,
       PartnerRep (cSig g ρ t0.bindArr) s0.n_nets.toNat t0.partnerArr ∧
-      RulesRep s0.n_out.toNat (cSig g ρ t0.bindArr) s0 t0.ruleOff t0.ruleN
+      RulesRep s0.modW (cSig g ρ t0.bindArr) s0 t0.ruleOff t0.ruleN
         d0.rsM d0.rsL d0.rsH d0.rsPool)
     (hm0 : (arCtxMem cx s0 ⋆ bytes s0.art artBytes ⋆ cmArenaMem s0 s0 top0 t0 d0 ⋆
       bytes aig aigBytes ⋆ R) m0)
@@ -611,7 +633,7 @@ theorem main_gates_loop_wp (Γ : LeanQbe.T.Env)
       RulesSorted d1.rsPool d1.rsM s1.rs_n.toNat →
       (∀ ρ : Nat → Bool,
         PartnerRep (cSig g ρ t0.bindArr) s0.n_nets.toNat t1.partnerArr ∧
-        RulesRep s0.n_out.toNat (cSig g ρ t0.bindArr) s1 t1.ruleOff t1.ruleN
+        RulesRep s0.modW (cSig g ρ t0.bindArr) s1 t1.ruleOff t1.ruleN
           d1.rsM d1.rsL d1.rsH d1.rsPool) →
       t1.rhs0 = t0.rhs0 → t1.rhs1 = t0.rhs1 → t1.olit = t0.olit →
       t1.bindArr = t0.bindArr → t1.flippedArr = t0.flippedArr →
@@ -629,6 +651,7 @@ theorem main_gates_loop_wp (Γ : LeanQbe.T.Env)
         bytes aig aigBytes ⋆ R) m1 →
       wp Γ Q X (cmConesExpr cx aig aigLen art artLen) m1) :
     wp Γ Q X (cmGatesExpr cx aig aigLen art artLen) m0 := by
+  unfold cmGatesExpr
   have hrcap30 : s0.rs_cap.toNat < 2 ^ 30 := by
     rw [hb.rs_cap_eq]; have := hb.cap_hi; omega
   have hrpcap32 : s0.rs_pcap.toNat < 2 ^ 32 := by
@@ -665,7 +688,7 @@ theorem main_gates_loop_wp (Γ : LeanQbe.T.Env)
         RulesSorted rp rm sL.rs_n.toNat ∧
         (∀ ρ : Nat → Bool,
           PartnerRep (cSig g ρ t0.bindArr) s0.n_nets.toNat pa ∧
-          RulesRep s0.n_out.toNat (cSig g ρ t0.bindArr) sL ro rn rm rl rh rp) ∧
+          RulesRep s0.modW (cSig g ρ t0.bindArr) sL ro rn rm rl rh rp) ∧
         (arCtxMem cx sL ⋆ bytes s0.art artBytes ⋆ cmArenaMem sL s0 top0 tL dL ⋆
           bytes aig aigBytes ⋆ R) mL) ?_ ?_
   · intro J rem ⟨i, ⟨⟩⟩ mL hrec ⟨hi_le, _, sL, ro, rn, pa, sn, sp, mn, mv, dn, gy, gl, gh,
@@ -689,20 +712,26 @@ theorem main_gates_loop_wp (Γ : LeanQbe.T.Env)
         rw [show sL.art = s0.art by rw [hsL]]
         exact sep_cast hmL (by dsimp only [Rgate]; ac_rfl)
       have hBindL : BindRep sL g t0.bindArr t0.inNetArr t0.outRefArr :=
-        { bind_len := by rw [show sL.n_nets = s0.n_nets by rw [hsL]]; exact hBind.bind_len,
+        { nets_le := by rw [show sL.n_nets = s0.n_nets by rw [hsL]]; exact hBind.nets_le,
+          bind_len := by rw [show sL.n_nets = s0.n_nets by rw [hsL]]; exact hBind.bind_len,
           bind_bound := by rw [show sL.n_nets = s0.n_nets by rw [hsL]]; exact hBind.bind_bound,
+          spec_bd := by rw [show sL.spec = s0.spec by rw [hsL]]; exact hBind.spec_bd,
           in_len := by rw [show sL.n_in = s0.n_in by rw [hsL]]; exact hBind.in_len,
           in_eq := by rw [show sL.n_in = s0.n_in by rw [hsL]]; exact hBind.in_eq,
-          i_even := hBind.i_even,
+          i_even := by rw [show sL.spec = s0.spec by rw [hsL]]; exact hBind.i_even,
           in_ok := by
             intro j hj; rw [show sL.n_in = s0.n_in by rw [hsL]] at hj
-            rw [show sL.n_nets = s0.n_nets by rw [hsL]]; exact hBind.in_ok j hj,
+            rw [show sL.n_nets = s0.n_nets by rw [hsL], show sL.spec = s0.spec by rw [hsL]]
+            exact hBind.in_ok j hj,
           out_len := by rw [show sL.n_out = s0.n_out by rw [hsL]]; exact hBind.out_len,
           out_eq := by rw [show sL.n_out = s0.n_out by rw [hsL]]; exact hBind.out_eq,
-          out_bounds := by rw [show sL.n_out = s0.n_out by rw [hsL]]; exact hBind.out_bounds,
+          out_even := by rw [show sL.spec = s0.spec by rw [hsL]]; exact hBind.out_even,
+          out_bounds := by
+            rw [show sL.modW = s0.modW by rw [hsL]; rfl]; exact hBind.out_bounds,
           out_ok := by
             intro j hj; rw [show sL.n_out = s0.n_out by rw [hsL]] at hj
-            rw [show sL.n_nets = s0.n_nets by rw [hsL]]; exact hBind.out_ok j hj }
+            rw [show sL.n_nets = s0.n_nets by rw [hsL], show sL.spec = s0.spec by rw [hsL]]
+            exact hBind.out_ok j hj }
       dsimp only [Arg.val]
       apply wp_call_of_spec
       refine hGate _ _ _ _ ⟨sL, g, artBytes, t0.rhs0, t0.rhs1, t0.olit, t0.bindArr,
@@ -723,11 +752,11 @@ theorem main_gates_loop_wp (Γ : LeanQbe.T.Env)
         by rw [lgy, htLen.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.1]; decide,
         by rw [lgl, htLen.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.1]; decide,
         by rw [lgh, htLen.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2]; decide,
-        by rw [show sL.n_out = s0.n_out by rw [hsL], show sL.mlo = s0.mlo by rw [hsL],
+        by rw [show sL.modW = s0.modW by rw [hsL]; rfl, show sL.mlo = s0.mlo by rw [hsL],
              show sL.mhi = s0.mhi by rw [hsL]]; exact hb.masks,
         hAig, hBindL, hTotL, hOkL, hSortL,
         fun ρ => by
-          rw [show sL.n_nets = s0.n_nets by rw [hsL], show sL.n_out = s0.n_out by rw [hsL]]
+          rw [show sL.n_nets = s0.n_nets by rw [hsL], show sL.modW = s0.modW by rw [hsL]; rfl]
           exact hRepL ρ,
         hm_g,
         fun ok s' ro' rn' pa' sn' sp' mn' mv' dn' gy' gl' gh' rm' rl' rh' rp' m'
@@ -800,7 +829,7 @@ theorem main_gates_loop_wp (Γ : LeanQbe.T.Env)
             by rw [show sL.n_nets = s0.n_nets by rw [hsL]] at hSy'; exact hSy' hSyL,
             hOk', hSort', fun ρ => by
               rw [show sL.n_nets = s0.n_nets by rw [hsL],
-                  show s'.n_out = s0.n_out by rw [hs'_s0]] at hRep'
+                  show s'.modW = s0.modW by rw [hs'_s0]; rfl] at hRep'
               exact hRep' ρ,
             hm'_arena⟩
     · have htLenL : ({ t0 with
@@ -818,9 +847,11 @@ theorem main_gates_loop_wp (Γ : LeanQbe.T.Env)
       have hdLenL : ({ d0 with rsM := rm, rsL := rl, rsH := rh, rsPool := rp } :
           CmDynArrs).LenOk s0.qcap.toNat :=
         ⟨lrm ▸ hdLen.1, lrl ▸ hdLen.2.1, lrh ▸ hdLen.2.2.1, lrp ▸ hdLen.2.2.2.1, hdLen.2.2.2.2⟩
-      exact hNext sL _ _ mL htLenL hdLenL hsL hposL hrsnL hrsptL hTotL hSyL hOkL hSortL hRepL
-        rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
+      have hExitG := hNext sL _ _ mL htLenL hdLenL hsL hposL hrsnL hrsptL hTotL hSyL hOkL hSortL
+        hRepL rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
         rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl hmL
+      unfold cmConesExpr cmGatesExpr at hExitG
+      exact hExitG
   · intro J hJ; c0_hsteps
     exact hJ s0.n_gates.toNat (0#32, ⟨⟩) m0 ⟨Nat.zero_le _, Nat.sub_zero _, s0,
       t0.ruleOff, t0.ruleN, t0.partnerArr, t0.stkN, t0.stkP, t0.memoN, t0.memoV, t0.dense,
@@ -904,7 +935,7 @@ theorem main_cones_loop_wp (Γ : LeanQbe.T.Env)
     (hSort1 : RulesSorted d1.rsPool d1.rsM s1.rs_n.toNat)
     (hRep1 : ∀ ρ : Nat → Bool,
       PartnerRep (cSig g ρ t1.bindArr) s0.n_nets.toNat t1.partnerArr ∧
-      RulesRep s0.n_out.toNat (cSig g ρ t1.bindArr) s1 t1.ruleOff t1.ruleN
+      RulesRep s0.modW (cSig g ρ t1.bindArr) s1 t1.ruleOff t1.ruleN
         d1.rsM d1.rsL d1.rsH d1.rsPool)
     (hm1 : (arCtxMem cx s1 ⋆ bytes s0.art artBytes ⋆ cmArenaMem s1 s0 top0 t1 d1 ⋆
       bytes aig aigBytes ⋆ R) m1)
@@ -928,7 +959,7 @@ theorem main_cones_loop_wp (Γ : LeanQbe.T.Env)
       RulesSorted d2.rsPool d2.rsM s2.rs_n.toNat →
       (∀ ρ : Nat → Bool,
         PartnerRep (cSig g ρ t1.bindArr) s0.n_nets.toNat t2.partnerArr ∧
-        RulesRep s0.n_out.toNat (cSig g ρ t1.bindArr) s2 t2.ruleOff t2.ruleN
+        RulesRep s0.modW (cSig g ρ t1.bindArr) s2 t2.ruleOff t2.ruleN
           d2.rsM d2.rsL d2.rsH d2.rsPool) →
       t2.rhs0 = t1.rhs0 → t2.rhs1 = t1.rhs1 → t2.olit = t1.olit →
       t2.bindArr = t1.bindArr → t2.partnerArr = t1.partnerArr →
@@ -939,6 +970,7 @@ theorem main_cones_loop_wp (Γ : LeanQbe.T.Env)
         bytes aig aigBytes ⋆ R) m2 →
       wp Γ Q X (cmSp0Expr cx aig aigLen art artLen) m2) :
     wp Γ Q X (cmConesExpr cx aig aigLen art artLen) m1 := by
+  unfold cmConesExpr cmGatesExpr
   have htcap30 : s0.tcap.toNat < 2 ^ 30 := by
     rw [hb.tcap_eq]; have := hb.cap_hi; omega
   have hqcap32 : s0.qcap.toNat + 16 < 2 ^ 32 := by have := hb.cap_hi; omega
@@ -976,7 +1008,7 @@ theorem main_cones_loop_wp (Γ : LeanQbe.T.Env)
           (dL.rsPool.getD (dL.rsM.getD j 0#32).toNat 0#32).toNat + 1 < 2 ^ 32) ∧
         RulesSorted dL.rsPool dL.rsM sL.rs_n.toNat ∧
         (∀ ρ : Nat → Bool,
-          RulesRep s0.n_out.toNat (cSig g ρ t1.bindArr) sL ro rn
+          RulesRep s0.modW (cSig g ρ t1.bindArr) sL ro rn
             dL.rsM dL.rsL dL.rsH dL.rsPool) ∧
         (arCtxMem cx sL ⋆ bytes s0.art artBytes ⋆ cmArenaMem sL s0 top0 tL dL ⋆
           bytes aig aigBytes ⋆ R) mL) ?_ ?_
@@ -1068,13 +1100,13 @@ theorem main_cones_loop_wp (Γ : LeanQbe.T.Env)
            exact Nat.le_of_eq hdL.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.1.symm,
         by rw [show sL.qcap = s0.qcap by rw [hsL, hs1]]
            exact Nat.le_of_eq hdL.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.1.symm,
-        by rw [show sL.n_out = s0.n_out by rw [hsL, hs1], show sL.mlo = s0.mlo by rw [hsL, hs1],
+        by rw [show sL.modW = s0.modW by rw [hsL, hs1]; rfl, show sL.mlo = s0.mlo by rw [hsL, hs1],
              show sL.mhi = s0.mhi by rw [hsL, hs1]]; exact hb.masks,
         hTotL, hOkL, hSortL, ⟨cSig g (fun _ => false) t1.bindArr, fun _ => false, rfl⟩,
         fun σ ⟨ρ, hρ⟩ => by
           subst hρ
           rw [show sL.n_nets = s0.n_nets by rw [hsL, hs1],
-              show sL.n_out = s0.n_out by rw [hsL, hs1]]
+              show sL.modW = s0.modW by rw [hsL, hs1]; rfl]
           exact ⟨(hRep1 ρ).1, hRepL ρ⟩,
         hm_c,
         fun ok s' ro' rn' rm' rl' rh' rp' tm0' tm1' ts0' tl0' th0' ts1' tl1' th1'
@@ -1169,15 +1201,17 @@ theorem main_cones_loop_wp (Γ : LeanQbe.T.Env)
             by rw [show s0.rs_pcap = sL.rs_pcap by rw [hsL, hs1]]; exact hrspt', hTot',
             by rw [show sL.n_nets = s0.n_nets by rw [hsL, hs1]] at hSy'; exact hSy' hSyL,
             hOk', hSort', fun ρ => by
-              rw [show s0.n_out = s'.n_out by rw [hs'_s1, hs1]]
+              rw [show s0.modW = s'.modW by rw [hs'_s1, hs1]; rfl]
               exact hRep' (cSig g ρ t1.bindArr) ⟨ρ, rfl⟩,
             hm'_arena⟩
     · have htLenL : ({ t1 with ruleOff := ro, ruleN := rn } : CmTabArrs).LenOk g s0 :=
         ⟨htLen.1, htLen.2.1, htLen.2.2.1, htLen.2.2.2.1, lro ▸ htLen.2.2.2.2.1,
          lrn ▸ htLen.2.2.2.2.2.1, htLen.2.2.2.2.2.2⟩
-      exact hNext sL _ dL mL htLenL hdL hsL hixSw hpcL htcL hposL hrsnL hrsptL hTotL hSyL hOkL
-        hSortL (fun ρ => ⟨(hRep1 ρ).1, hRepL ρ⟩)
+      have hExitC := hNext sL _ dL mL htLenL hdL hsL hixSw hpcL htcL hposL hrsnL hrsptL hTotL hSyL
+        hOkL hSortL (fun ρ => ⟨(hRep1 ρ).1, hRepL ρ⟩)
         rfl rfl rfl rfl rfl rfl rfl rfl hrm hrl hrh hrm2 hrl2 hrh2 hrp hmL
+      unfold cmSp0Expr cmConesExpr cmGatesExpr at hExitC
+      exact hExitC
   · intro J hJ; c0_hsteps
     exact hJ s0.n_cones.toNat (0#32, ⟨⟩) m1 ⟨Nat.zero_le _, Nat.sub_zero _, s1,
       t1.ruleOff, t1.ruleN, d1, rfl, rfl, hdLen, rfl, rfl, rfl, rfl, rfl, rfl, rfl,

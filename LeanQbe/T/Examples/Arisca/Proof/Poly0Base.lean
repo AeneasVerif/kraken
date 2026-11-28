@@ -170,8 +170,8 @@ def arCompactSpec : Spec [i64] [] :=
             symListAt srcPool (srcTm.getD i 0#32).toNat ∧
           MonoSliceOk dstPool (dstTm.getD i 0#32).toNat s'.ptop.toNat) →
         monoTotalWords dstPool dstTm s.tn.toNat = s'.ptop.toNat →
-        polyEval s.n_out.toNat σ dstPool dstTm dstTl dstTh s.tn.toNat =
-          polyEval s.n_out.toNat σ srcPool srcTm dstTl dstTh s.tn.toNat →
+        polyEval s.modW σ dstPool dstTm dstTl dstTh s.tn.toNat =
+          polyEval s.modW σ srcPool srcTm dstTl dstTh s.tn.toNat →
         (arCtxMem cx s' ⋆ tMem s' tm0' tm1' ts0 tl0 th0 ts1 tl1 th1 pool0' pool1' ⋆ R) m' →
         Q () m')
 

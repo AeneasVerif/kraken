@@ -10,13 +10,13 @@ public import LeanQbe.T.Examples.Arisca.Proof.CertBridge
 /-!
 # End-to-End AAPCS64 Arm64 Machine-Code Soundness for ARiSCA (`Arm64.Arisca`)
 
-Composes the 44-function WP proof (`ariscaModule_ok`) with the kernel-checked AAPCS64 Arm64
-compilation certificate (`ariscaArm64Cert`, entry stack bound `624` bytes) into:
+Composes the 45-function WP proof (`ariscaModule_ok`) with the kernel-checked AAPCS64 Arm64
+compilation certificate (`ariscaArm64Cert`, entry stack bound `656` bytes) into:
 * `module_fnspec` — whole-module `Defined` + `FnSpec` on any AArch64 host embedding
   `ariscaArm64Cert`;
 * `check_bytes_arm64_correct` — full AAPCS64 Arm64 machine-code soundness (`XPost := False`) +
   callee-saved register, stack-pointer, and `Mem 64` separation-logic framing (`X0 = 20#64`
-  (`AR_ACCEPT`) implies `ArtSound.checkArt_sound` modular polynomial/circuit equivalence);
+  (`AR_ACCEPT`) implies `ArtSound.checkArt_sound` multiplier or `SPEC_MITER` equivalence);
 * `check_bytes_arm64_sound` — concise soundness corollary;
 * `arm64_nonvacuous` — concrete closed-host `Mem 64` execution witness on `ariscaArm64Cert.host`.
 -/
@@ -37,7 +37,7 @@ open LeanQbe.T.Examples.Arisca.Proof.CertBridge
 section Generic
 variable [hh : Host]
 
-/-- Closed `FnSpec` for all `44` functions of `ariscaModule` under `ariscaEnv` on `armTarget`. -/
+/-- Closed `FnSpec` for all `45` functions of `ariscaModule` under `ariscaEnv` on `armTarget`. -/
 theorem module_fnspec (k₀ : Nat)
     (hc : ariscaArm64Cert.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
     {f : Fn} (hf : f ∈ ariscaModule.fns) :
@@ -46,7 +46,7 @@ theorem module_fnspec (k₀ : Nat)
   arisca_module_fnspec_abi arm64BenchAbi ariscaArm64Cert ariscaArm64_legalSigAll hh k₀ hc hu hf
 
 /-- Closed end-to-end AAPCS64 Arm64 machine-code soundness and framing of `arisca_check_bytes`
-(`X0..X5 → X0`, `AR_ACCEPT = 20#64`, entry stack bound `624` bytes). -/
+(`X0..X5 → X0`, `AR_ACCEPT = 20#64`, entry stack bound `656` bytes). -/
 theorem check_bytes_arm64_correct (k₀ : Nat)
     (hc : ariscaArm64Cert.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
     (aig_ptr aig_len art_ptr art_len work_ptr work_len : BitVec 64)
@@ -69,12 +69,9 @@ theorem check_bytes_arm64_correct (k₀ : Nat)
       (fun st =>
         st.pc = ra ∧
         ((st.data.regs.getXReg .X0).toBitVec = 20#64 →
-          ∃ (g : Aig) (signed : Bool),
+          ∃ g : Aig,
             parseAig (toNatBytes aigBytes) = some g ∧
-            ∀ ρ : Nat → Bool,
-              BitVec.ofNat g.outs.length (outWord g ρ) =
-                BitVec.ofInt g.outs.length (inWord signed (g.I / 2) ρ 0) *
-                  BitVec.ofInt g.outs.length (inWord signed (g.I / 2) ρ (g.I / 2))) ∧
+            ariscaCircuitProp (BitVec.ofNat 32 (wordAt artBytes 2)) g) ∧
         (∀ r ∈ [XReg.X19, .X20, .X21, .X22, .X23, .X24, .X25, .X26, .X27, .X28, .X29],
           st.data.regs.getXReg r = s.regs.getXReg r) ∧
         st.data.regs.SP = s.regs.SP ∧
@@ -111,12 +108,9 @@ theorem check_bytes_arm64_sound (k₀ : Nat)
       (fun st =>
         st.pc = ra ∧
         ((st.data.regs.getXReg .X0).toBitVec = 20#64 →
-          ∃ (g : Aig) (signed : Bool),
+          ∃ g : Aig,
             parseAig (toNatBytes aigBytes) = some g ∧
-            ∀ ρ : Nat → Bool,
-              BitVec.ofNat g.outs.length (outWord g ρ) =
-                BitVec.ofInt g.outs.length (inWord signed (g.I / 2) ρ 0) *
-                  BitVec.ofInt g.outs.length (inWord signed (g.I / 2) ρ (g.I / 2))))
+            ariscaCircuitProp (BitVec.ofNat 32 (wordAt artBytes 2)) g))
       ⟨s, Labels.label "arisca_check_bytes"⟩ :=
   arisca_check_bytes_sound_abi arm64BenchAbi ariscaArm64Cert ariscaArm64_legalSigAll hh k₀ hc hu
     aig_ptr aig_len art_ptr art_len work_ptr work_len aigBytes artBytes haig hart
@@ -140,12 +134,9 @@ theorem arm64_nonvacuous :
       (fun st =>
         st.pc = 0x1234 ∧
         ((st.data.regs.getXReg .X0).toBitVec = 20#64 →
-          ∃ (g : Aig) (signed : Bool),
+          ∃ g : Aig,
             parseAig (toNatBytes nvAigBytes) = some g ∧
-            ∀ ρ : Nat → Bool,
-              BitVec.ofNat g.outs.length (outWord g ρ) =
-                BitVec.ofInt g.outs.length (inWord signed (g.I / 2) ρ 0) *
-                  BitVec.ofInt g.outs.length (inWord signed (g.I / 2) ρ (g.I / 2))) ∧
+            ariscaCircuitProp (BitVec.ofNat 32 (wordAt nvArtBytes 2)) g) ∧
         (st.data.dmem =⋆
           (bytes ariscaNvAigPtr nvAigBytes ⋆ bytes ariscaNvArtPtr nvArtBytes ⋆
             region ariscaNvWorkPtr ariscaNvWorkCap.toNat) ⋆

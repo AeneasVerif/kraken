@@ -78,10 +78,10 @@ private theorem main_even_apply (Γ : LeanQbe.T.Env)
     (hrs_tot_bd : monoTotalWords d0.rsPool d0.rsM s2.rs_n.toNat ≤ 4000000000)
     (hRep : ∀ ρ : Nat → Bool,
       PartnerRep (cSig g ρ t.bindArr) s0.n_nets.toNat t.partnerArr ∧
-      RulesRep s0.n_out.toNat (cSig g ρ t.bindArr) s2 t.ruleOff t.ruleN
+      RulesRep s0.modW (cSig g ρ t.bindArr) s2 t.ruleOff t.ruleN
         d0.rsM d0.rsL d0.rsH d0.rsPool)
     (hRep1' : ∀ ρ : Nat → Bool,
-      RulesRep s0.n_out.toNat (cSig g ρ t.bindArr) s1' t.ruleOff t.ruleN
+      RulesRep s0.modW (cSig g ρ t.bindArr) s1' t.ruleOff t.ruleN
         dL.rsM dL.rsL dL.rsH dL.rsPool)
     (hrsmL : dL.rsM = d0.rsM) (hrslL : dL.rsL = d0.rsL)
     (hrshL : dL.rsH = d0.rsH) (_hrspL : dL.rsPool = d0.rsPool)
@@ -100,14 +100,12 @@ private theorem main_even_apply (Γ : LeanQbe.T.Env)
     (hTotR : monoTotalWords (if sR.pc.toNat = 0 then dR.pool0 else dR.pool1)
       (if sR.tc.toNat = 0 then dR.tm0 else dR.tm1) sR.tn.toNat ≤ sR.ptop.toNat)
     (hEvR : ∀ ρ : Nat → Bool,
-      polyEval s0.n_out.toNat (cSig g ρ t.bindArr)
+      polyEval s0.modW (cSig g ρ t.bindArr)
           (if sR.pc.toNat = 0 then dR.pool0 else dR.pool1)
           (if sR.tc.toNat = 0 then dR.tm0 else dR.tm1)
           (if sR.tc.toNat = 0 then dR.tl0 else dR.tl1)
           (if sR.tc.toNat = 0 then dR.th0 else dR.th1) sR.tn.toNat =
-        BitVec.ofNat s0.n_out.toNat (outWord g ρ) -
-          BitVec.ofInt s0.n_out.toNat (inWord (decide (s0.spec = 1#32)) (g.I / 2) ρ 0) *
-            BitVec.ofInt s0.n_out.toNat (inWord (decide (s0.spec = 1#32)) (g.I / 2) ρ (g.I / 2)))
+        sp0TargetEval s0.spec s0.modW g ρ)
     (hR_cases :
       (flL.getD v.toNat 0#8 = 0#8 ∧
         sR.cur_rm = s1'.rs_m + BitVec.ofNat 64 (4 * (t.ruleOff.getD v.toNat 0#32).toNat) ∧
@@ -117,7 +115,7 @@ private theorem main_even_apply (Γ : LeanQbe.T.Env)
       (sR.cur_rm = s1'.rm2 ∧ sR.cur_rl = s1'.rl2 ∧ sR.cur_rh = s1'.rh2 ∧
         sR.cur_rp = s1'.rpool ∧
         (∀ σ : Nat → Bool, (∃ ρ, σ = cSig g ρ t.bindArr) →
-          CurRRep s1'.n_out.toNat σ sR.cur_nr.toNat
+          CurRRep s1'.modW σ sR.cur_nr.toNat
             (if flL.getD v.toNat 0#8 ≠ 0#8 then 2 * v.toNat + 1 else 2 * v.toNat)
             dR.rm2 dR.rl2 dR.rh2 dR.rpool) ∧
         (∀ r < sR.cur_nr.toNat, MonoSorted dR.rpool (dR.rm2.getD r 0#32).toNat) ∧
@@ -155,15 +153,12 @@ private theorem main_even_apply (Γ : LeanQbe.T.Env)
       monoTotalWords (if sB.pc.toNat = 0 then dB.pool0 else dB.pool1)
         (if sB.tc.toNat = 0 then dB.tm0 else dB.tm1) sB.tn.toNat ≤ sB.ptop.toNat →
       (∀ ρ : Nat → Bool,
-        polyEval s0.n_out.toNat (cSig g ρ t.bindArr)
+        polyEval s0.modW (cSig g ρ t.bindArr)
             (if sB.pc.toNat = 0 then dB.pool0 else dB.pool1)
             (if sB.tc.toNat = 0 then dB.tm0 else dB.tm1)
             (if sB.tc.toNat = 0 then dB.tl0 else dB.tl1)
             (if sB.tc.toNat = 0 then dB.th0 else dB.th1) sB.tn.toNat =
-          BitVec.ofNat s0.n_out.toNat (outWord g ρ) -
-            BitVec.ofInt s0.n_out.toNat (inWord (decide (s0.spec = 1#32)) (g.I / 2) ρ 0) *
-              BitVec.ofInt s0.n_out.toNat
-                (inWord (decide (s0.spec = 1#32)) (g.I / 2) ρ (g.I / 2))) →
+          sp0TargetEval s0.spec s0.modW g ρ) →
       (arCtxMem cx sB ⋆ bytes s0.art artBytes ⋆
         cmArenaMem sB s0 top0 { t with flippedArr := flL } dB ⋆ bytes aig aigBytes ⋆ R) mB →
       wp Γ Q X kNext mB) :
@@ -212,7 +207,10 @@ private theorem main_even_apply (Γ : LeanQbe.T.Env)
     refine main_apply_step Γ hApply hb htLen hdLenR
       (by rw [hsR_s1, hs1_eq]) (by rw [hsR_s1, hs1_eq]) (by rw [hsR_s1, hs1_eq])
       (by rw [hsR_s1, hs1_eq]) (by rw [hsR_s1, hs1_eq]) (by rw [hsR_s1, hs1_eq])
-      (by rw [hsR_s1, hs1_eq]) (by rw [hsR_s1, hs1_eq]) (by rw [hsR_s1, hs1_eq])
+      (by rw [hsR_s1, hs1_eq])
+      (by simp only [ArCtxState.modW, show sR.spec = s0.spec by rw [hsR_s1, hs1_eq],
+            show sR.n_out = s0.n_out by rw [hsR_s1, hs1_eq]])
+      (by rw [hsR_s1, hs1_eq])
       (by rw [hsR_s1, hs1_eq]) (by rw [hsR_s1, hs1_eq]) (by rw [hsR_s1, hs1_eq])
       (by rw [hsR_s1, hs1_eq]) (by rw [hsR_s1, hs1_eq]) (by rw [hsR_s1, hs1_eq])
       (by rw [hsR_s1, hs1_eq]) (by rw [hsR_s1, hs1_eq]) (by rw [hsR_s1, hs1_eq])
@@ -293,7 +291,10 @@ private theorem main_even_apply (Γ : LeanQbe.T.Env)
     refine main_apply_step Γ hApply hb htLen hdLenR
       (by rw [hsR_s1, hs1_eq]) (by rw [hsR_s1, hs1_eq]) (by rw [hsR_s1, hs1_eq])
       (by rw [hsR_s1, hs1_eq]) (by rw [hsR_s1, hs1_eq]) (by rw [hsR_s1, hs1_eq])
-      (by rw [hsR_s1, hs1_eq]) (by rw [hsR_s1, hs1_eq]) (by rw [hsR_s1, hs1_eq])
+      (by rw [hsR_s1, hs1_eq])
+      (by simp only [ArCtxState.modW, show sR.spec = s0.spec by rw [hsR_s1, hs1_eq],
+            show sR.n_out = s0.n_out by rw [hsR_s1, hs1_eq]])
+      (by rw [hsR_s1, hs1_eq])
       (by rw [hsR_s1, hs1_eq]) (by rw [hsR_s1, hs1_eq]) (by rw [hsR_s1, hs1_eq])
       (by rw [hsR_s1, hs1_eq]) (by rw [hsR_s1, hs1_eq]) (by rw [hsR_s1, hs1_eq])
       (by rw [hsR_s1, hs1_eq]) (by rw [hsR_s1, hs1_eq]) (by rw [hsR_s1, hs1_eq])
@@ -303,7 +304,9 @@ private theorem main_even_apply (Γ : LeanQbe.T.Env)
       (fun ρ => by
         rw [hsym_val]
         have h1 := hCurR' (cSig g ρ t.bindArr) ⟨ρ, rfl⟩
-        rw [show s1'.n_out = s0.n_out by rw [hs1'_s1, hs1_eq]] at h1
+        rw [show s1'.modW = s0.modW by
+          simp only [ArCtxState.modW, show s1'.spec = s0.spec by rw [hs1'_s1, hs1_eq],
+            show s1'.n_out = s0.n_out by rw [hs1'_s1, hs1_eq]]] at h1
         exact h1)
       hCurSort' hCurOk'
       (by
@@ -437,7 +440,7 @@ private theorem main_odd_flip_apply (Γ : LeanQbe.T.Env)
     (_hs1'_pos : s1'.pos.toNat ≤ s0.nw.toNat)
     (hv_fl : (BitVec.setWidth 64 v).toNat < flL.length)
     (h2v1_lt : 2 * v.toNat + 1 < 2 ^ 32)
-    (hcneg : coeff128 s1'.n_out.toNat nl nh = -coeff128 s1'.n_out.toNat 1#64 0#64)
+    (hcneg : coeff128 s1'.modW nl nh = -coeff128 s1'.modW 1#64 0#64)
     (hRflip0 : Rflip0 =
       (aigArraysMem s1' t.rhs0 t.rhs1 t.olit ⋆ arrayPad i32 s1'.bind t.bindArr ⋆
        arrayPad i32 s1'.rule_off t.ruleOff ⋆ arrayPad i32 s1'.rule_n t.ruleN ⋆
@@ -451,7 +454,7 @@ private theorem main_odd_flip_apply (Γ : LeanQbe.T.Env)
        u32PadTail s1'.rpool dL.rpool.length ⋆
        region (s1'.w + s1'.top) (s1'.wlen.toNat - s1'.top.toNat)))
     (hRep : ∀ ρ : Nat → Bool, PartnerRep (cSig g ρ t.bindArr) s0.n_nets.toNat t.partnerArr ∧
-      RulesRep s0.n_out.toNat (cSig g ρ t.bindArr) s2 t.ruleOff t.ruleN
+      RulesRep s0.modW (cSig g ρ t.bindArr) s2 t.ruleOff t.ruleN
         d0.rsM d0.rsL d0.rsH d0.rsPool)
     (hSlL : ∀ j < s1'.tn.toNat,
       MonoSliceOk (if s1'.pc.toNat = 0 then dL.pool0 else dL.pool1)
@@ -468,14 +471,12 @@ private theorem main_odd_flip_apply (Γ : LeanQbe.T.Env)
     (hTotL : monoTotalWords (if s1'.pc.toNat = 0 then dL.pool0 else dL.pool1)
       (if s1'.tc.toNat = 0 then dL.tm0 else dL.tm1) s1'.tn.toNat ≤ s1'.ptop.toNat)
     (hEvL : ∀ ρ : Nat → Bool,
-      polyEval s0.n_out.toNat (cSig g ρ t.bindArr)
+      polyEval s0.modW (cSig g ρ t.bindArr)
           (if s1'.pc.toNat = 0 then dL.pool0 else dL.pool1)
           (if s1'.tc.toNat = 0 then dL.tm0 else dL.tm1)
           (if s1'.tc.toNat = 0 then dL.tl0 else dL.tl1)
           (if s1'.tc.toNat = 0 then dL.th0 else dL.th1) s1'.tn.toNat =
-        BitVec.ofNat s0.n_out.toNat (outWord g ρ) -
-          BitVec.ofInt s0.n_out.toNat (inWord (decide (s0.spec = 1#32)) (g.I / 2) ρ 0) *
-            BitVec.ofInt s0.n_out.toNat (inWord (decide (s0.spec = 1#32)) (g.I / 2) ρ (g.I / 2)))
+        sp0TargetEval s0.spec s0.modW g ρ)
     (hmF : let rpF := ((dL.rpool.set 0 0#32).set 1 1#32).set 2 (2#32 * v + 1#32)
       let rmF := (dL.rm.set 0 0#32).set 1 1#32
       let rlF := (dL.rl.set 0 (1#64 &&& s1'.mlo)).set 1 nl
@@ -518,15 +519,12 @@ private theorem main_odd_flip_apply (Γ : LeanQbe.T.Env)
       monoTotalWords (if sB.pc.toNat = 0 then dB.pool0 else dB.pool1)
         (if sB.tc.toNat = 0 then dB.tm0 else dB.tm1) sB.tn.toNat ≤ sB.ptop.toNat →
       (∀ ρ : Nat → Bool,
-        polyEval s0.n_out.toNat (cSig g ρ t.bindArr)
+        polyEval s0.modW (cSig g ρ t.bindArr)
             (if sB.pc.toNat = 0 then dB.pool0 else dB.pool1)
             (if sB.tc.toNat = 0 then dB.tm0 else dB.tm1)
             (if sB.tc.toNat = 0 then dB.tl0 else dB.tl1)
             (if sB.tc.toNat = 0 then dB.th0 else dB.th1) sB.tn.toNat =
-          BitVec.ofNat s0.n_out.toNat (outWord g ρ) -
-            BitVec.ofInt s0.n_out.toNat (inWord (decide (s0.spec = 1#32)) (g.I / 2) ρ 0) *
-              BitVec.ofInt s0.n_out.toNat
-                (inWord (decide (s0.spec = 1#32)) (g.I / 2) ρ (g.I / 2))) →
+          sp0TargetEval s0.spec s0.modW g ρ) →
       (arCtxMem cx sB ⋆ bytes s0.art artBytes ⋆
         cmArenaMem sB s0 top0 { t with flippedArr := flB } dB ⋆ bytes aig aigBytes ⋆ R) mB →
       wp Γ Q X (Expr.jump J ()) mB) :
@@ -574,8 +572,11 @@ private theorem main_odd_flip_apply (Γ : LeanQbe.T.Env)
   have hdLenF : dF.LenOk s0.qcap.toNat := d_LenOk_flip hdL lrmF lrlF lrhF lrpF
   have h2v_eq : (2#32 * v).toNat = 2 * v.toNat := by
     rw [BitVec.toNat_mul, show (2#32 : BitVec 32).toNat = 2 from rfl, Nat.mod_eq_of_lt (by omega)]
-  have hcneg' : coeff128 s0.n_out.toNat nl nh = -coeff128 s0.n_out.toNat 1#64 0#64 := by
-    rw [show s1'.n_out = s0.n_out by rw [hs1'_s1, hs1_eq]] at hcneg; exact hcneg
+  have hcneg' : coeff128 s0.modW nl nh = -coeff128 s0.modW 1#64 0#64 := by
+    rw [show s1'.modW = s0.modW by
+      simp only [ArCtxState.modW, show s1'.spec = s0.spec by rw [hs1'_s1, hs1_eq],
+        show s1'.n_out = s0.n_out by rw [hs1'_s1, hs1_eq]]] at hcneg
+    exact hcneg
   have ⟨hCurRF, hCurSortF, hCurOkF, hCurTotF⟩ := flip_cur_bundle (g := g)
     (bindArr := t.bindArr) (v := v) hb.masks hrm_l16 hrl_l16 hrh_l16 hrp_l192
     h2v1_lt hcneg'
@@ -591,7 +592,10 @@ private theorem main_odd_flip_apply (Γ : LeanQbe.T.Env)
   refine main_apply_step Γ hApply hb htLen hdLenF (sA := sF)
     (by rw [hsF_s1, hs1_eq]) (by rw [hsF_s1, hs1_eq]) (by rw [hsF_s1, hs1_eq])
     (by rw [hsF_s1, hs1_eq]) (by rw [hsF_s1, hs1_eq]) (by rw [hsF_s1, hs1_eq])
-    (by rw [hsF_s1, hs1_eq]) (by rw [hsF_s1, hs1_eq]) (by rw [hsF_s1, hs1_eq])
+    (by rw [hsF_s1, hs1_eq])
+    (by simp only [ArCtxState.modW, show sF.spec = s0.spec by rw [hsF_s1, hs1_eq],
+          show sF.n_out = s0.n_out by rw [hsF_s1, hs1_eq]])
+    (by rw [hsF_s1, hs1_eq])
     (by rw [hsF_s1, hs1_eq]) (by rw [hsF_s1, hs1_eq]) (by rw [hsF_s1, hs1_eq])
     (by rw [hsF_s1, hs1_eq]) (by rw [hsF_s1, hs1_eq]) (by rw [hsF_s1, hs1_eq])
     (by rw [hsF_s1, hs1_eq]) (by rw [hsF_s1, hs1_eq]) (by rw [hsF_s1, hs1_eq])
@@ -700,10 +704,10 @@ private theorem main_even_buildR_call (Γ : LeanQbe.T.Env)
     (hTotRs : monoTotalWords d0.rsPool d0.rsM s2.rs_n.toNat ≤ s2.rs_ptop.toNat)
     (hSyRs : SymsBound d0.rsPool d0.rsM s2.rs_n.toNat s0.n_nets.toNat)
     (hRep : ∀ ρ : Nat → Bool, PartnerRep (cSig g ρ t.bindArr) s0.n_nets.toNat t.partnerArr ∧
-      RulesRep s0.n_out.toNat (cSig g ρ t.bindArr) s2 t.ruleOff t.ruleN
+      RulesRep s0.modW (cSig g ρ t.bindArr) s2 t.ruleOff t.ruleN
         d0.rsM d0.rsL d0.rsH d0.rsPool)
     (hRep1' : ∀ ρ : Nat → Bool,
-      RulesRep s0.n_out.toNat (cSig g ρ t.bindArr) s1' t.ruleOff t.ruleN
+      RulesRep s0.modW (cSig g ρ t.bindArr) s1' t.ruleOff t.ruleN
         dL.rsM dL.rsL dL.rsH dL.rsPool)
     (hSlL : ∀ j < s1'.tn.toNat,
       MonoSliceOk (if s1'.pc.toNat = 0 then dL.pool0 else dL.pool1)
@@ -720,14 +724,12 @@ private theorem main_even_buildR_call (Γ : LeanQbe.T.Env)
     (hTotL : monoTotalWords (if s1'.pc.toNat = 0 then dL.pool0 else dL.pool1)
       (if s1'.tc.toNat = 0 then dL.tm0 else dL.tm1) s1'.tn.toNat ≤ s1'.ptop.toNat)
     (hEvL : ∀ ρ : Nat → Bool,
-      polyEval s0.n_out.toNat (cSig g ρ t.bindArr)
+      polyEval s0.modW (cSig g ρ t.bindArr)
           (if s1'.pc.toNat = 0 then dL.pool0 else dL.pool1)
           (if s1'.tc.toNat = 0 then dL.tm0 else dL.tm1)
           (if s1'.tc.toNat = 0 then dL.tl0 else dL.tl1)
           (if s1'.tc.toNat = 0 then dL.th0 else dL.th1) s1'.tn.toNat =
-        BitVec.ofNat s0.n_out.toNat (outWord g ρ) -
-          BitVec.ofInt s0.n_out.toNat (inWord (decide (s0.spec = 1#32)) (g.I / 2) ρ 0) *
-            BitVec.ofInt s0.n_out.toNat (inWord (decide (s0.spec = 1#32)) (g.I / 2) ρ (g.I / 2)))
+        sp0TargetEval s0.spec s0.modW g ρ)
     (hRbr : Rbr =
       (aigArraysMem s1' t.rhs0 t.rhs1 t.olit ⋆ arrayPad i32 s1'.bind t.bindArr ⋆
        u32PadTail s1'.rule_off t.ruleOff.length ⋆ u32PadTail s1'.rule_n t.ruleN.length ⋆
@@ -777,15 +779,12 @@ private theorem main_even_buildR_call (Γ : LeanQbe.T.Env)
       monoTotalWords (if sB.pc.toNat = 0 then dB.pool0 else dB.pool1)
         (if sB.tc.toNat = 0 then dB.tm0 else dB.tm1) sB.tn.toNat ≤ sB.ptop.toNat →
       (∀ ρ : Nat → Bool,
-        polyEval s0.n_out.toNat (cSig g ρ t.bindArr)
+        polyEval s0.modW (cSig g ρ t.bindArr)
             (if sB.pc.toNat = 0 then dB.pool0 else dB.pool1)
             (if sB.tc.toNat = 0 then dB.tm0 else dB.tm1)
             (if sB.tc.toNat = 0 then dB.tl0 else dB.tl1)
             (if sB.tc.toNat = 0 then dB.th0 else dB.th1) sB.tn.toNat =
-          BitVec.ofNat s0.n_out.toNat (outWord g ρ) -
-            BitVec.ofInt s0.n_out.toNat (inWord (decide (s0.spec = 1#32)) (g.I / 2) ρ 0) *
-              BitVec.ofInt s0.n_out.toNat
-                (inWord (decide (s0.spec = 1#32)) (g.I / 2) ρ (g.I / 2))) →
+          sp0TargetEval s0.spec s0.modW g ρ) →
       (arCtxMem cx sB ⋆ bytes s0.art artBytes ⋆
         cmArenaMem sB s0 top0 { t with flippedArr := flL } dB ⋆ bytes aig aigBytes ⋆ R) mB →
       wp Γ Q X (Expr.jump J ()) mB) :
@@ -877,14 +876,18 @@ private theorem main_even_buildR_call (Γ : LeanQbe.T.Env)
     by rw [show s1'.qcap = s0.qcap by rw [hs1'_s1, hs1_eq], CmDynArrs.len_ix2 hdL]
        exact Nat.le_refl _,
     by rw [CmDynArrs.len_ix hdL, CmDynArrs.len_ix2 hdL],
-    by rw [show s1'.n_out = s0.n_out by rw [hs1'_s1, hs1_eq],
+    by rw [show s1'.modW = s0.modW by
+             simp only [ArCtxState.modW, show s1'.spec = s0.spec by rw [hs1'_s1, hs1_eq],
+               show s1'.n_out = s0.n_out by rw [hs1'_s1, hs1_eq]],
            show s1'.mlo = s0.mlo by rw [hs1'_s1, hs1_eq],
            show s1'.mhi = s0.mhi by rw [hs1'_s1, hs1_eq]]; exact hb.masks,
     ⟨cSig g (fun _ => false) t.bindArr, fun _ => false, rfl⟩,
     fun σ ⟨ρ, hρ⟩ => by
       subst hρ
       rw [show s1'.n_nets = s0.n_nets by rw [hs1'_s1, hs1_eq],
-          show s1'.n_out = s0.n_out by rw [hs1'_s1, hs1_eq]]
+          show s1'.modW = s0.modW by
+            simp only [ArCtxState.modW, show s1'.spec = s0.spec by rw [hs1'_s1, hs1_eq],
+              show s1'.n_out = s0.n_out by rw [hs1'_s1, hs1_eq]]]
       exact ⟨fun w _ => cSig_odd g ρ t.bindArr w, hRep1' ρ⟩,
     by rw [hrsm_eq, hrsp_eq, show s1'.rs_n = s2.rs_n by rw [hs1'_s1]]; exact hSortRs,
     by rw [hrsm_eq, hrsp_eq, show s1'.rs_n = s2.rs_n by rw [hs1'_s1]]; exact hOkRs,
@@ -1009,21 +1012,17 @@ private theorem main_loop_exit_ok {cx : Val i64} {Q : Post [.bool]}
     (hixSw : (sL.ix = s0.ix ∧ sL.ix2 = s0.ix2) ∨ (sL.ix = s0.ix2 ∧ sL.ix2 = s0.ix))
     (htn0 : sL.tn = 0#32)
     (hEvL : ∀ ρ : Nat → Bool,
-      polyEval s0.n_out.toNat (cSig g ρ t.bindArr)
+      polyEval s0.modW (cSig g ρ t.bindArr)
           (if sL.pc.toNat = 0 then dL.pool0 else dL.pool1)
           (if sL.tc.toNat = 0 then dL.tm0 else dL.tm1)
           (if sL.tc.toNat = 0 then dL.tl0 else dL.tl1)
           (if sL.tc.toNat = 0 then dL.th0 else dL.th1) sL.tn.toNat =
-        BitVec.ofNat s0.n_out.toNat (outWord g ρ) -
-          BitVec.ofInt s0.n_out.toNat (inWord (decide (s0.spec = 1#32)) (g.I / 2) ρ 0) *
-            BitVec.ofInt s0.n_out.toNat (inWord (decide (s0.spec = 1#32)) (g.I / 2) ρ (g.I / 2)))
+        sp0TargetEval s0.spec s0.modW g ρ)
     (hmL : (arCtxMem cx sL ⋆ bytes s0.art artBytes ⋆
       cmArenaMem sL s0 top0 { t with flippedArr := flL } dL ⋆ bytes aig aigBytes ⋆ R) mL)
     (hTrue : ∀ (s' : ArCtxState) (m' : Mem 64),
       (∀ ρ : Nat → Bool,
-        BitVec.ofNat s0.n_out.toNat (outWord g ρ) =
-          BitVec.ofInt s0.n_out.toNat (inWord (decide (s0.spec = 1#32)) (g.I / 2) ρ 0) *
-            BitVec.ofInt s0.n_out.toNat (inWord (decide (s0.spec = 1#32)) (g.I / 2) ρ (g.I / 2))) →
+        0#(s0.modW) = sp0TargetEval s0.spec s0.modW g ρ) →
       (arCtxMem cx s' ⋆ region (s0.w + 776#64) (s0.wlen.toNat - 776) ⋆
         bytes aig aigBytes ⋆ bytes s0.art artBytes ⋆ R) m' → Q (true, ⟨⟩) m') :
     Q (true, ⟨⟩) mL := by
@@ -1054,10 +1053,7 @@ private theorem main_loop_exit_ok {cx : Val i64} {Q : Post [.bool]}
     htGeomL hmL
   refine hTrue sL mL (fun ρ => ?_) hcol
   have h1 := hEvL ρ; rw [htn0_nat, polyEval_zero] at h1
-  have hsub := congrArg (· + BitVec.ofInt s0.n_out.toNat
-      (inWord (decide (s0.spec = 1#32)) (g.I / 2) ρ 0) *
-    BitVec.ofInt s0.n_out.toNat (inWord (decide (s0.spec = 1#32)) (g.I / 2) ρ (g.I / 2))) h1.symm
-  simpa [BitVec.zero_add, BitVec.sub_add_cancel] using hsub
+  exact h1
 
 /-- `n_main` loop and final `pos == nw` / `tn == 0` checks of `ar_check_main`. -/
 theorem main_main_loop_wp (Γ : LeanQbe.T.Env)
@@ -1093,7 +1089,7 @@ theorem main_main_loop_wp (Γ : LeanQbe.T.Env)
     (hSortRs : RulesSorted d0.rsPool d0.rsM s2.rs_n.toNat)
     (hRep : ∀ ρ : Nat → Bool,
       PartnerRep (cSig g ρ t.bindArr) s0.n_nets.toNat t.partnerArr ∧
-      RulesRep s0.n_out.toNat (cSig g ρ t.bindArr) s2 t.ruleOff t.ruleN
+      RulesRep s0.modW (cSig g ρ t.bindArr) s2 t.ruleOff t.ruleN
         d0.rsM d0.rsL d0.rsH d0.rsPool)
     (hSl2 : ∀ j < s2.tn.toNat,
       MonoSliceOk (if s2.pc.toNat = 0 then d0.pool0 else d0.pool1)
@@ -1109,14 +1105,12 @@ theorem main_main_loop_wp (Γ : LeanQbe.T.Env)
     (hTot2 : monoTotalWords (if s2.pc.toNat = 0 then d0.pool0 else d0.pool1)
       (if s2.tc.toNat = 0 then d0.tm0 else d0.tm1) s2.tn.toNat ≤ s2.ptop.toNat)
     (hEv2 : ∀ ρ : Nat → Bool,
-      polyEval s0.n_out.toNat (cSig g ρ t.bindArr)
+      polyEval s0.modW (cSig g ρ t.bindArr)
           (if s2.pc.toNat = 0 then d0.pool0 else d0.pool1)
           (if s2.tc.toNat = 0 then d0.tm0 else d0.tm1)
           (if s2.tc.toNat = 0 then d0.tl0 else d0.tl1)
           (if s2.tc.toNat = 0 then d0.th0 else d0.th1) s2.tn.toNat =
-        BitVec.ofNat s0.n_out.toNat (outWord g ρ) -
-          BitVec.ofInt s0.n_out.toNat (inWord (decide (s0.spec = 1#32)) (g.I / 2) ρ 0) *
-            BitVec.ofInt s0.n_out.toNat (inWord (decide (s0.spec = 1#32)) (g.I / 2) ρ (g.I / 2)))
+        sp0TargetEval s0.spec s0.modW g ρ)
     (hm2 : (arCtxMem cx s2 ⋆ bytes s0.art artBytes ⋆ cmArenaMem s2 s0 top0 t d0 ⋆
       bytes aig aigBytes ⋆ R) m2)
     (hFail : ∀ (s' : ArCtxState) (m' : Mem 64),
@@ -1124,12 +1118,11 @@ theorem main_main_loop_wp (Γ : LeanQbe.T.Env)
         bytes aig aigBytes ⋆ bytes s0.art artBytes ⋆ R) m' → Q (false, ⟨⟩) m')
     (hTrue : ∀ (s' : ArCtxState) (m' : Mem 64),
       (∀ ρ : Nat → Bool,
-        BitVec.ofNat s0.n_out.toNat (outWord g ρ) =
-          BitVec.ofInt s0.n_out.toNat (inWord (decide (s0.spec = 1#32)) (g.I / 2) ρ 0) *
-            BitVec.ofInt s0.n_out.toNat (inWord (decide (s0.spec = 1#32)) (g.I / 2) ρ (g.I / 2))) →
+        0#(s0.modW) = sp0TargetEval s0.spec s0.modW g ρ) →
       (arCtxMem cx s' ⋆ region (s0.w + 776#64) (s0.wlen.toNat - 776) ⋆
         bytes aig aigBytes ⋆ bytes s0.art artBytes ⋆ R) m' → Q (true, ⟨⟩) m') :
     wp Γ Q X (cmMainExpr cx aig aigLen art artLen) m2 := by
+  unfold cmMainExpr cmSp0Expr cmConesExpr cmGatesExpr
   have hnw4 : 4 * s0.nw.toNat ≤ artBytes.length := by rw [hb.nw4]; exact Nat.le_refl _
   refine wp_loop_group (fun (rem : Nat) (args : Tup Val [i32]) (mL : Mem 64) =>
       let ⟨i, ⟨⟩⟩ := args
@@ -1162,15 +1155,12 @@ theorem main_main_loop_wp (Γ : LeanQbe.T.Env)
         monoTotalWords (if sL.pc.toNat = 0 then dL.pool0 else dL.pool1)
           (if sL.tc.toNat = 0 then dL.tm0 else dL.tm1) sL.tn.toNat ≤ sL.ptop.toNat ∧
         (∀ ρ : Nat → Bool,
-          polyEval s0.n_out.toNat (cSig g ρ t.bindArr)
+          polyEval s0.modW (cSig g ρ t.bindArr)
               (if sL.pc.toNat = 0 then dL.pool0 else dL.pool1)
               (if sL.tc.toNat = 0 then dL.tm0 else dL.tm1)
               (if sL.tc.toNat = 0 then dL.tl0 else dL.tl1)
               (if sL.tc.toNat = 0 then dL.th0 else dL.th1) sL.tn.toNat =
-            BitVec.ofNat s0.n_out.toNat (outWord g ρ) -
-              BitVec.ofInt s0.n_out.toNat (inWord (decide (s0.spec = 1#32)) (g.I / 2) ρ 0) *
-                BitVec.ofInt s0.n_out.toNat
-                  (inWord (decide (s0.spec = 1#32)) (g.I / 2) ρ (g.I / 2))) ∧
+            sp0TargetEval s0.spec s0.modW g ρ) ∧
         (arCtxMem cx sL ⋆ bytes s0.art artBytes ⋆ cmArenaMem sL s0 top0 tL dL ⋆
           bytes aig aigBytes ⋆ R) mL) ?_ ?_
   · intro J rem ⟨i, ⟨⟩⟩ mL hrec
@@ -1396,7 +1386,10 @@ theorem main_main_loop_wp (Γ : LeanQbe.T.Env)
                 array64 s1'.rh rhF0 ⋆ array (t := i32) s1'.rpool rpF ⋆ Rbase
               apply wp_call_of_spec
               refine hCneg _ _ _ _ ⟨s1', Rcneg,
-                by rw [show s1'.n_out = s0.n_out by rw [hs1'_s1, hs1_eq],
+                by rw [show s1'.modW = s0.modW by
+                         simp only [ArCtxState.modW,
+                           show s1'.spec = s0.spec by rw [hs1'_s1, hs1_eq],
+                           show s1'.n_out = s0.n_out by rw [hs1'_s1, hs1_eq]],
                        show s1'.mlo = s0.mlo by rw [hs1'_s1, hs1_eq],
                        show s1'.mhi = s0.mhi by rw [hs1'_s1, hs1_eq]]; exact hb.masks,
                 sep_cast ‹_› (by dsimp only [Rbase, Rcneg, rmF]; ac_rfl), fun nl nh hcneg => ?_⟩

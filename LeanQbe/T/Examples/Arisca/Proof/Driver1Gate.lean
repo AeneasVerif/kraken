@@ -242,7 +242,7 @@ private theorem gate_scratch_eq {s sC : ArCtxState} (h : GateSame s sC)
         (rsPool'.getD (rsM'.getD r 0#32).toNat 0#32).toNat + 1 < 2 ^ 32) ∧
       RulesSorted rsPool' rsM' sC.rs_n.toNat ∧
       (∀ ρ, PartnerRep (cSig g ρ bindArr) s.n_nets.toNat partnerArr' ∧
-        RulesRep sC.n_out.toNat (cSig g ρ bindArr) sC ruleOff' ruleN' rsM' rsL' rsH' rsPool')) →
+        RulesRep sC.modW (cSig g ρ bindArr) sC ruleOff' ruleN' rsM' rsL' rsH' rsPool')) →
     (arCtxMem cx sC ⋆ bytes sC.art artBytes ⋆ gateBodyMem sC rhs0 rhs1 olit bindArr ruleOff' ruleN'
       partnerArr' flippedArr inNetArr outRefArr sN sP mN mV dense' gsy' gcl' gch'
       rsM' rsL' rsH' rsPool' R) mC → Q (ok, ⟨⟩) mC
@@ -279,17 +279,17 @@ private structure GateCommon (Γ : LeanQbe.T.Env) (s : ArCtxState) (g : Aig)
   gsy_len : 85 ≤ gsy.length
   gcl_len : 16 ≤ gcl.length
   gch_len : 16 ≤ gch.length
-  masks : MasksOk s.n_out.toNat s.mlo s.mhi
+  masks : MasksOk s.modW s.mlo s.mhi
   aig : AigRep g rhs0 rhs1 olit
   bind : BindRep s g bindArr inNetArr outRefArr
-  nout1 : 1 ≤ s.n_out.toNat
+  nout1 : 1 ≤ s.modW
   rsn : s.rs_n.toNat ≤ s.rs_cap.toNat
   rspt : s.rs_ptop.toNat ≤ s.rs_pcap.toNat
   tot : monoTotalWords rsPool rsM s.rs_n.toNat ≤ s.rs_ptop.toNat
   rsOk : ∀ r < s.rs_n.toNat, (rsPool.getD (rsM.getD r 0#32).toNat 0#32).toNat + 1 < 2 ^ 32
   rsSorted : RulesSorted rsPool rsM s.rs_n.toNat
   allRep : ∀ ρ : Nat → Bool, PartnerRep (cSig g ρ bindArr) s.n_nets.toNat partnerArr ∧
-    RulesRep s.n_out.toNat (cSig g ρ bindArr) s ruleOff ruleN rsM rsL rsH rsPool
+    RulesRep s.modW (cSig g ρ bindArr) s ruleOff ruleN rsM rsL rsH rsPool
 
 private theorem ar_do_gate_vso_wp {Γ : LeanQbe.T.Env}
     {cx : BitVec 64} {ok_ti : Bool} {kraw nout nin nl : BitVec 32} {all : BitVec 64}

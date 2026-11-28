@@ -51,8 +51,8 @@ private abbrev DcanonPost (cx dPtr : Val i64) (s : ArCtxState) (d : List (BitVec
     (∀ i < k.toNat, MonoSliceOk gsy' (5 * i) 80 ∧ (gsy'.getD (5 * i) 0#32).toNat ≤ 4 ∧
       ∀ sym ∈ symListAt gsy' (5 * i), ∃ j < 4, sym = (s.g_vs.getD j 0#32).toNat) →
     (∀ i < k.toNat, MonoSorted gsy' (5 * i)) →
-    (∀ σ : Nat → Bool, polyEval s.n_out.toNat σ gsy' gsyMOff gcl' gch' k.toNat =
-        denseEvalNOut s.n_out.toNat σ s.g_vs d) →
+    (∀ σ : Nat → Bool, polyEval s.modW σ gsy' gsyMOff gcl' gch' k.toNat =
+        denseEvalNOut s.modW σ s.g_vs d) →
     (arCtxMem cx s ⋆ array64 dPtr d ⋆ arrayPad i32 s.gsy gsy' ⋆
       array64 s.gcl gcl' ⋆ array64 s.gch gch' ⋆ R) m' → Q (k, ⟨⟩) m'
 
@@ -125,13 +125,13 @@ private theorem ar_dcanon_p3 (Γ : LeanQbe.T.Env)
     {cx dPtr : Val i64} {nV : Val i32} {s : ArCtxState} {d gcl0 gch0 gcl2 gch2 : List (BitVec 64)}
     {gsy0 gsy2 : List (BitVec 32)} {R Rpad : Mem 64 → Prop}
     {Q : Post [i32]} {X : XPost} {m2 : Mem 64} (hRpad : Rpad = DcanonRpad s gsy0 R)
-    (hmasks : MasksOk s.n_out.toNat s.mlo s.mhi)
+    (hmasks : MasksOk s.modW s.mlo s.mhi)
     (hgsy_len : 85 ≤ gsy0.length) (hgcl_len : 16 ≤ gcl0.length) (hgch_len : 16 ≤ gch0.length)
     (hgsy2 : gsy2.length = gsy0.length)
     (hgcl2 : gcl2.length = gcl0.length) (hgch2 : gch2.length = gch0.length)
     (hinv2 : DcanonTermInv s gsy2 nV.toNat) (heval2 : ∀ σ : Nat → Bool,
-      polyEval s.n_out.toNat σ gsy2 gsyMOff gcl2 gch2 nV.toNat =
-        denseEvalNOut s.n_out.toNat σ s.g_vs d)
+      polyEval s.modW σ gsy2 gsyMOff gcl2 gch2 nV.toNat =
+        denseEvalNOut s.modW σ s.g_vs d)
     (hm2 : (arCtxMem cx s ⋆ array64 dPtr d ⋆ array (t := i32) s.gsy gsy2 ⋆
       array64 s.gcl gcl2 ⋆ array64 s.gch gch2 ⋆ Rpad) m2)
     (hQ : DcanonPost cx dPtr s d gsy0 gcl0 gch0 R Q) :
@@ -153,10 +153,10 @@ private theorem ar_dcanon_p3 (Γ : LeanQbe.T.Env)
           iV3.toNat + 1 ≤ jV.toNat ∧ jV.toNat ≤ nV.toNat ∧ remj = nV.toNat - jV.toNat ∧
           mj = m3 ∧ (∀ dlt < jV.toNat - iV3.toNat,
             symListAt gsy2 (5 * (iV3.toNat + dlt)) = symListAt gsy2 (5 * iV3.toNat)) ∧
-          coeff128 s.n_out.toNat lV hV = (List.range (jV.toNat - iV3.toNat)).foldl
-            (fun acc dlt => acc + coeff128 s.n_out.toNat
+          coeff128 s.modW lV hV = (List.range (jV.toNat - iV3.toNat)).foldl
+            (fun acc dlt => acc + coeff128 s.modW
               (gcl2.getD (iV3.toNat + dlt) 0#64) (gch2.getD (iV3.toNat + dlt) 0#64))
-            0#(s.n_out.toNat)) ?_ ?_
+            0#(s.modW)) ?_ ?_
       · intro Jj remj ⟨lV, hV, jV, ⟨⟩⟩ mj hrecj ⟨hij, hjn, _, hmj_eq, hsymj, hlhj⟩; subst mj
         refine wp_join0 (fun mj' => mj' = m3) (fun _ mj' hmj' => by
             subst mj'
@@ -461,7 +461,7 @@ private theorem ar_dcanon_p2 (Γ : LeanQbe.T.Env)
     {cx dPtr : Val i64} {nV : Val i32} {s : ArCtxState} {d gcl0 gch0 gcl1 gch1 : List (BitVec 64)}
     {gsy0 gsy1 : List (BitVec 32)} {R Rpad : Mem 64 → Prop}
     {Q : Post [i32]} {X : XPost} {m1 : Mem 64} (hRpad : Rpad = DcanonRpad s gsy0 R)
-    (hmasks : MasksOk s.n_out.toNat s.mlo s.mhi)
+    (hmasks : MasksOk s.modW s.mlo s.mhi)
     (hgsy_len : 85 ≤ gsy0.length) (hgcl_len : 16 ≤ gcl0.length) (hgch_len : 16 ≤ gch0.length)
     (hpinv : Phase1MaskInv s d gsy0 gsy1 gcl0 gcl1 gch0 gch1 nV.toNat 16)
     (hm1 : (arCtxMem cx s ⋆ array64 dPtr d ⋆ array (t := i32) s.gsy gsy1 ⋆
@@ -517,9 +517,9 @@ private theorem ar_dcanon_p2 (Γ : LeanQbe.T.Env)
           exact ar_dcanon_p2_j Γ hMcmp hgsy_len hgcl_len hgch_len hgsy1 hgcl1 hgch1
             hp2i hi_n htl_eq hth_eq hcp hk5 hmc (fun r x m' h => hrecp2 r x m' (by omega))
       · intro Jc hJc; c0_hsteps; exact hJc 5 (0#32, ⟨⟩) m2 ⟨rfl, gsy2, copy5Inv_init gsy2 _ _, hm2⟩
-    · have heval2 : ∀ σ : Nat → Bool, polyEval s.n_out.toNat σ gsy2 gsyMOff gcl2 gch2 nV.toNat =
-          denseEvalNOut s.n_out.toNat σ s.g_vs d := fun σ => by
-        rw [polyEval_eq_of_perm s.n_out.toNat σ gsy2 gsy1 gcl2 gch2 gcl1 gch1 nV.toNat hn16
+    · have heval2 : ∀ σ : Nat → Bool, polyEval s.modW σ gsy2 gsyMOff gcl2 gch2 nV.toNat =
+          denseEvalNOut s.modW σ s.g_vs d := fun σ => by
+        rw [polyEval_eq_of_perm s.modW σ gsy2 gsy1 gcl2 gch2 gcl1 gch1 nV.toNat hn16
           hp2i.2.2.2.2, hpinv.2.2.2.2.2 σ]; rfl
       change wp Γ Q X (dcanonP3 cx s.gsy nV) m2
       exact ar_dcanon_p3 Γ hCadd hMcmp hRpad hmasks hgsy_len hgcl_len hgch_len hgsy2

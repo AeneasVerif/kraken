@@ -187,7 +187,7 @@ private theorem buildR_pass1_full_handoff (Γ : T.Env)
     (hrh_len : s.rcap.toNat ≤ rh.length) (hrm2_len : s.rcap.toNat ≤ rm2.length)
     (hrl2_len : s.rcap.toNat ≤ rl2.length) (hrh2_len : s.rcap.toNat ≤ rh2.length)
     (hrpool_len : s.rpcap.toNat ≤ rpool.length) (hix_eq : ix.length = ix2.length)
-    (hix_len : s.qcap.toNat ≤ ix.length) (hMasks : MasksOk s.n_out.toNat s.mlo s.mhi)
+    (hix_len : s.qcap.toNat ≤ ix.length) (hMasks : MasksOk s.modW s.mlo s.mhi)
     (hoff_cnt : off.toNat + cnt.toNat ≤ s.rs_n.toNat)
     (hrs_n_le : s.rs_n.toNat ≤ s.rs_cap.toNat) (hrs_cap_le : s.rs_cap.toNat ≤ rsM.length)
     (hrsL_len : s.rs_cap.toNat ≤ rsL.length) (hrsH_len : s.rs_cap.toNat ≤ rsH.length)
@@ -204,7 +204,7 @@ private theorem buildR_pass1_full_handoff (Γ : T.Env)
       (if fv_b then 1 else 0) + ruleBw8 flippedArr rsPool rsM off.toNat cnt.toNat)
     (hRules : ∀ σ, Valid σ →
       (∀ w < s.n_nets.toNat, σ (2 * w + 1) = !(σ (2 * w))) ∧
-      RulesRep s.n_out.toNat σ s ruleOff ruleN rsM rsL rsH rsPool)
+      RulesRep s.modW σ s ruleOff ruleN rsM rsL rsH rsPool)
     (hm : (arCtxMem cx s ⋆ array (t := i32) s.rule_off ruleOff ⋆ array (t := i32) s.rule_n ruleN ⋆
       array (t := i8) s.flipped flippedArr ⋆ rsMem s rsM rsL rsH rsPool ⋆
       rMem s rm rl rh rm2 rl2 rh2 rpool ⋆ array (t := i32) s.ix ix ⋆
@@ -221,7 +221,7 @@ private theorem buildR_pass1_full_handoff (Γ : T.Env)
       rm'.length = rm.length → rl'.length = rl.length → rh'.length = rh.length →
       rm2'.length = rm2.length → rl2'.length = rl2.length → rh2'.length = rh2.length →
       rpool'.length = rpool.length → ix'.length = ix.length → ix2'.length = ix2.length →
-      (∀ σ, Valid σ → CurRRep s.n_out.toNat σ k2.toNat
+      (∀ σ, Valid σ → CurRRep s.modW σ k2.toNat
         (if flippedArr.getD v.toNat 0#8 ≠ 0#8 then 2 * v.toNat + 1 else 2 * v.toNat)
         rm2' rl2' rh2' rpool') →
       (∀ r < k2.toNat, MonoSliceOk rpool' (rm2'.getD r 0#32).toNat rpool'.length ∧
@@ -236,17 +236,17 @@ private theorem buildR_pass1_full_handoff (Γ : T.Env)
       Q (true, ⟨⟩) m') :
     wp Γ Q X (buildRPass2EntryExpr cx v off cnt fv_b any bt bw) m := by
   have hEv_rules : ∀ σ, Valid σ →
-      (if fv_b then 1#(s.n_out.toNat) else 0#(s.n_out.toNat)) +
+      (if fv_b then 1#(s.modW) else 0#(s.modW)) +
         (if fv_b then
-          -polyEvalRange s.n_out.toNat σ rsPool rsM rsL rsH off.toNat cnt.toNat
-         else polyEvalRange s.n_out.toNat σ rsPool rsM rsL rsH off.toNat cnt.toNat) =
-      bv s.n_out.toNat
+          -polyEvalRange s.modW σ rsPool rsM rsL rsH off.toNat cnt.toNat
+         else polyEvalRange s.modW σ rsPool rsM rsL rsH off.toNat cnt.toNat) =
+      bv s.modW
         (σ (if flippedArr.getD v.toNat 0#8 ≠ 0#8 then 2 * v.toNat + 1 else 2 * v.toNat)) := by
     intro σ hσ
     have hR := hRules σ hσ
     have hrr := (rule_range_bounds hv_lt hne hR.2).2
     have hfb_eq : (flippedArr.getD v.toNat 0#8 ≠ 0#8) ↔ fv_b = true := by rw [hfv_def]; simp
-    have hev := rules_flipped_eval s.n_out.toNat v.toNat σ rsPool rsM rsL rsH off.toNat
+    have hev := rules_flipped_eval s.modW v.toNat σ rsPool rsM rsL rsH off.toNat
       cnt.toNat fv_b (hR.1 v.toNat hv_lt) (by rw [← hoff_def, ← hcnt_def] at hrr; exact hrr)
     cases hfv : fv_b <;> simp [hfv] at hfb_eq <;> simp [hfb_eq] <;> simpa [hfv] using hev
   refine buildR_pass2_wp Γ hCneg (R := array (t := i32) s.ix ix ⋆ array (t := i32) s.ix2 ix2 ⋆ R)
@@ -293,7 +293,7 @@ theorem buildR_pass1_wp (Γ : T.Env)
     (hrh_len : s.rcap.toNat ≤ rh.length) (hrm2_len : s.rcap.toNat ≤ rm2.length)
     (hrl2_len : s.rcap.toNat ≤ rl2.length) (hrh2_len : s.rcap.toNat ≤ rh2.length)
     (hrpool_len : s.rpcap.toNat ≤ rpool.length) (hix_eq : ix.length = ix2.length)
-    (hix_len : s.qcap.toNat ≤ ix.length) (hMasks : MasksOk s.n_out.toNat s.mlo s.mhi)
+    (hix_len : s.qcap.toNat ≤ ix.length) (hMasks : MasksOk s.modW s.mlo s.mhi)
     (hrs_n_le : s.rs_n.toNat ≤ s.rs_cap.toNat) (hrs_cap_bd : s.rs_cap.toNat < 2 ^ 30)
     (hrs_cap_le : s.rs_cap.toNat ≤ rsM.length)
     (hrsL_len : s.rs_cap.toNat ≤ rsL.length) (hrsH_len : s.rs_cap.toNat ≤ rsH.length)
@@ -306,7 +306,7 @@ theorem buildR_pass1_wp (Γ : T.Env)
     (hValid : ∃ σ₀, Valid σ₀)
     (hRules : ∀ σ, Valid σ →
       (∀ w < s.n_nets.toNat, σ (2 * w + 1) = !(σ (2 * w))) ∧
-      RulesRep s.n_out.toNat σ s ruleOff ruleN rsM rsL rsH rsPool)
+      RulesRep s.modW σ s ruleOff ruleN rsM rsL rsH rsPool)
     (hm : (arCtxMem cx s ⋆ array (t := i32) s.rule_off ruleOff ⋆ array (t := i32) s.rule_n ruleN ⋆
       array (t := i8) s.flipped flippedArr ⋆ rsMem s rsM rsL rsH rsPool ⋆
       rMem s rm rl rh rm2 rl2 rh2 rpool ⋆ array (t := i32) s.ix ix ⋆
@@ -336,7 +336,7 @@ theorem buildR_pass1_wp (Γ : T.Env)
       rm'.length = rm.length → rl'.length = rl.length → rh'.length = rh.length →
       rm2'.length = rm2.length → rl2'.length = rl2.length → rh2'.length = rh2.length →
       rpool'.length = rpool.length → ix'.length = ix.length → ix2'.length = ix2.length →
-      (∀ σ, Valid σ → CurRRep s.n_out.toNat σ k2.toNat
+      (∀ σ, Valid σ → CurRRep s.modW σ k2.toNat
         (if flippedArr.getD v.toNat 0#8 ≠ 0#8 then 2 * v.toNat + 1 else 2 * v.toNat)
         rm2' rl2' rh2' rpool') →
       (∀ r < k2.toNat, MonoSliceOk rpool' (rm2'.getD r 0#32).toNat rpool'.length ∧

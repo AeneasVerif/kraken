@@ -157,9 +157,16 @@ bool ar_parse_art_header_and_tables(ArCtx *cx, u8 *art, u64 art_len) {
   C0_TIE2(ok, h8, ar_next_word(cx)); if (!ok) { return false; }
   C0_TIE2(ok, h9, ar_next_word(cx)); if (!ok) { return false; }
   if (h0 != AR_ART_MAGIC || h1 != 1u) { return false; }
-  if (h2 > 1u) { return false; }
-  if (h3 != cx->I || (h3 & 1u) != 0u || h3 < 2u) { return false; }
-  if (h4 != cx->O || h4 < 1u || h4 > 128u) { return false; }
+  if (h2 > 2u) { return false; }
+  u32 mw = h4;
+  if (h2 == 2u) {
+    if (h3 != cx->I) { return false; }
+    if (h4 != cx->O || h4 < 2u || (h4 & 1u) != 0u || (h4 >> 1) > 128u) { return false; }
+    mw = h4 >> 1;
+  } else {
+    if (h3 != cx->I || (h3 & 1u) != 0u || h3 < 2u) { return false; }
+    if (h4 != cx->O || h4 < 1u || h4 > 128u) { return false; }
+  }
   if ((u64)h9 != cx->nw) { return false; }
   if (h5 > 0x3FFFFFFFu) { return false; }
   cx->spec = h2;
@@ -169,11 +176,17 @@ bool ar_parse_art_header_and_tables(ArCtx *cx, u8 *art, u64 art_len) {
   cx->n_gates = h6;
   cx->n_cones = h7;
   cx->n_main = h8;
-  if (cx->n_out >= 64u) {
+  if (mw == 128u) {
     cx->mlo = ~0ULL;
-    cx->mhi = (cx->n_out == 128u) ? (~0ULL) : ((1ULL << (cx->n_out - 64u)) - 1ULL);
+    cx->mhi = ~0ULL;
+  } else if (mw > 64u) {
+    cx->mlo = ~0ULL;
+    cx->mhi = (1ULL << (mw - 64u)) - 1ULL;
+  } else if (mw == 64u) {
+    cx->mlo = ~0ULL;
+    cx->mhi = 0ULL;
   } else {
-    cx->mlo = (1ULL << cx->n_out) - 1ULL;
+    cx->mlo = (1ULL << mw) - 1ULL;
     cx->mhi = 0ULL;
   }
   if ((u64)cx->n_nets + (u64)cx->n_in + (u64)cx->n_out > cx->nw - cx->pos) {
@@ -217,18 +230,28 @@ bool ar_parse_art_header_and_tables(ArCtx *cx, u8 *art, u64 art_len) {
   while (i < cx->n_in) {
     u32 v = 0u;
     C0_TIE2(ok, v, ar_next_word(cx)); if (!ok) { return false; }
-    if (v >= cx->n_nets || cx->bind[v] != 2u * (i + 1u)) { return false; }
-    cx->in_net[i] = v;
+    if (v == AR_NONE) {
+      if (cx->spec != 2u) { return false; }
+      cx->in_net[i] = AR_NONE;
+    } else {
+      if (v >= cx->n_nets || cx->bind[v] != 2u * (i + 1u)) { return false; }
+      cx->in_net[i] = v;
+    }
     i = i + 1u;
   }
   u32 j = 0u;
   while (j < cx->n_out) {
     u32 r = 0u;
     C0_TIE2(ok, r, ar_next_word(cx)); if (!ok) { return false; }
-    if ((r >> 1) >= cx->n_nets) { return false; }
-    u32 b = cx->bind[r >> 1];
-    if (b == AR_NONE || (b ^ (r & 1u)) != cx->olit[j]) { return false; }
-    cx->out_ref[j] = r;
+    if (r == AR_NONE) {
+      if (cx->spec != 2u || cx->olit[j] > 1u) { return false; }
+      cx->out_ref[j] = AR_NONE;
+    } else {
+      if ((r >> 1) >= cx->n_nets) { return false; }
+      u32 b = cx->bind[r >> 1];
+      if (b == AR_NONE || (b ^ (r & 1u)) != cx->olit[j]) { return false; }
+      cx->out_ref[j] = r;
+    }
     j = j + 1u;
   }
   return true;

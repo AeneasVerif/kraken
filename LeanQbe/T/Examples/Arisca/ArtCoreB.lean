@@ -198,6 +198,51 @@ def checkArtB (signed : Bool) (aigN aigLen artN artLen : Nat) : Bool :=
       (Nat.beq (Nat.land artLen 3) 0))
     (parseAig (toBytes aigN aigLen))
 
+/-! ## ART v1.5 Miter Mode (`spec = 2`) -/
+
+/-- Bucketed phases after IN/OUT for `SPEC_MITER`. -/
+def runPhasesBMiter (e : Env) (mw nNets nG nC nMain : Nat) (outRef aouts : List Nat)
+    (ws : List Nat) : Bool :=
+  gates e false
+    (fun st ws =>
+      cones e (fun st ws =>
+          insRuns e.M (bitLen (Nat.mul 2 (Nat.succ nNets)))
+            (ilogK (bitLen (Nat.mul 2 (Nat.succ nNets)))) 1000000000
+            (initPMiter e.M st.pr st.rules e.nd mw outRef aouts) Tree.empty 0
+            (fun t nz => mainLoopB e st.pr st.rules nNets (bitLen (Nat.mul 2 (Nat.succ nNets)))
+              (ilogK (bitLen (Nat.mul 2 (Nat.succ nNets)))) nMain t nz 0 ws))
+        nC st ws)
+    nG ⟨Tree.empty, ⟨e.nd, Tree.empty, 0⟩⟩ ws
+
+/-- Bucketed post-bind checker for `SPEC_MITER`. -/
+def afterBindBMiter (g : Aig) (h : List Nat) (bt : Tree Nat) (ws : List Nat) : Bool :=
+  let mw := Nat.shiftRight (nthN h 4) 1
+  let e : Env := ⟨Nat.pow 2 mw, g.M, g.I, bitLen g.M, andTree (bitLen g.M) g.I g.ands,
+    bitLen (nthN h 5), bt⟩
+  rdN false (nthN h 3) (fun inNet ws => rdN false (nthN h 4) (fun outRef ws =>
+      Bool.rec false
+        (runPhasesBMiter e mw (nthN h 5) (nthN h 6) (nthN h 7) (nthN h 8) outRef g.outs ws)
+        (Bool.rec false (outOkMiter e (nthN h 5) outRef g.outs) (inOkMiter e (nthN h 5) inNet)))
+    ws) ws
+
+/-- Bucketed word-level ART v1.5 `SPEC_MITER` checker on a parsed AIG. -/
+def checkWordsBMiter (g : Aig) (ws0 : List Nat) : Bool :=
+  rdN false 10 (fun h ws =>
+    Bool.rec false
+      (rdN false (nthN h 5) (fun bindW ws =>
+          Option.rec false (fun bt => afterBindBMiter g h bt ws)
+            (bindTree g.M (bitLen (nthN h 5)) (nthN h 5) bindW Tree.empty))
+        ws)
+      (headerMiterOk g h ws0))
+    ws0
+
+/-- **The geobucket ART v1.5 miter checker** (`spec == 2`). -/
+def checkArtBMiter (aigN aigLen artN artLen : Nat) : Bool :=
+  Option.rec false
+    (fun g => Bool.rec false (checkWordsBMiter g (toWords artN (Nat.shiftRight artLen 2)))
+      (Nat.beq (Nat.land artLen 3) 0))
+    (parseAig (toBytes aigN aigLen))
+
 end LeanQbe.T.Examples.Arisca
 
 end

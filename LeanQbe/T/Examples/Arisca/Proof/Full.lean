@@ -17,12 +17,13 @@ import LeanQbe.T.Logic.Bytes
 import Kraken.Separation
 
 /-!
-# End-to-End ARiSCA ART v1 Checker Module Soundness (`Arisca.Proof.Full`)
+# End-to-End ARiSCA ART v1.5 Checker Module Soundness (`Arisca.Proof.Full`)
 
-Assembles all `44` canonical `Func.wp` proofs (`Header` + `Parse` + `Poly` + `Driver`) into flat
-`ariscaModule_ok : ModuleOk ariscaEnv ariscaModule`, derives top-level `arisca_check_bytes_sound`
-with `XPost := False` matching `ArtSound.checkArt_sound`, and proves concrete `Mem 64`
-non-vacuity `arisca_check_bytes_nv` (`<= std3`).
+Assembles all `45` canonical `Func.wp` proofs (`Header` + `Parse` + `Poly` + `Driver`) into flat
+`ariscaModule_ok : ModuleOk ariscaEnv ariscaModule`, derives top-level `arisca_check_aig_sound`
+and `arisca_check_bytes_sound` with `XPost := False` covering `spec = 0 / 1` (multiplier) and
+`spec = 2` (`SPEC_MITER`), and proves concrete `Mem 64` non-vacuity `arisca_check_bytes_nv`
+(`<= std3`).
 -/
 
 set_option autoImplicit false
@@ -49,7 +50,7 @@ open LeanQbe.T.Examples.Arisca.Src.Module
 def arMcmpCombSpec : Spec [i64, i64] [i32] :=
   fun xs m Q X => arMcmpSpec xs m Q X ∨ arMcmpSliceSpec xs m Q X
 
-/-- Closed `44`-row specification table for `ariscaModule` (all `noExit = true`). -/
+/-- Closed `45`-row specification table for `ariscaModule` (all `noExit = true`). -/
 def ariscaSpecTable : List SpecEntry :=
   -- Header (10): indices 0..9
   [ ⟨"ar_rd32", [i64], [i32], arRd32Spec, true⟩
@@ -86,7 +87,7 @@ def ariscaSpecTable : List SpecEntry :=
   , ⟨"ar_load_rule", [i64, i32], [.bool], arLoadRuleSpec, true⟩
   , ⟨"ar_store_rule", [i64, i32], [.bool], arStoreRuleSpec, true⟩
   , ⟨"ar_build_R", [i64, i32], [.bool], arBuildRSpec, true⟩
-  -- Driver (13): indices 31..43
+  -- Driver (14): indices 31..44
   , ⟨"ar_ttsim", [i64, i32, i32, i64], [.bool, i64], arTtsimSpec, true⟩
   , ⟨"ar_dzero", [i64], [], arDzeroSpec, true⟩
   , ⟨"ar_dlit", [i64, i32, i32], [], arDlitSpec, true⟩
@@ -98,6 +99,7 @@ def ariscaSpecTable : List SpecEntry :=
   , ⟨"ar_do_gate", [i64], [.bool], arDoGateSpec, true⟩
   , ⟨"ar_do_cone", [i64], [.bool], arDoConeSpec, true⟩
   , ⟨"ar_setup_dynamic", [i64], [.bool], arSetupDynamicSpec, true⟩
+  , ⟨"arisca_check_aig", [i64, i64, i64], [.bool], ariscaCheckAigSpec, true⟩
   , ⟨"ar_check_main", [i64, i64, i64, i64, i64], [.bool], arCheckMainSpec, true⟩
   , ⟨"arisca_check_bytes", [i64, i64, i64, i64, i64, i64], [i64],
       ariscaCheckBytesSpec, true⟩ ]
@@ -105,16 +107,28 @@ def ariscaSpecTable : List SpecEntry :=
 /-- Closed canonical `Env` for `ariscaModule`. -/
 def ariscaEnv : T.Env := T.Env.ofTable ariscaSpecTable
 
-/-- Callee prefix before `arisca_check_bytes` inside `ariscaModule.fns` (`43` fns). -/
-def ariscaPre : List Fn :=
-  Header.fns ++ Parse.fns ++ Poly.fns ++ Driver.fns.take 12
+/-- Callee prefix before `arisca_check_aig` inside `ariscaModule.fns` (`42` fns). -/
+def ariscaAigPre : List Fn :=
+  Header.fns ++ Parse.fns ++ Poly.fns ++ Driver.fns.take 11
 
-/-- Top-level `arisca_check_bytes` entry function (`44`th slot of `ariscaModule.fns`). -/
+/-- Shared AIG+ART checker `arisca_check_aig` (`43`rd slot of `ariscaModule.fns`). -/
+def ariscaCheckAigFn : Fn :=
+  ⟨"arisca_check_aig", [i64, i64, i64], [.bool], Driver.arisca_check_aig_body⟩
+
+/-- Restricted `Env` visible to `arisca_check_aig` (`42` declared internal callees). -/
+def ariscaAigSolvedEnv : T.Env :=
+  T.Env.restrict ariscaEnv (ariscaAigPre.map Fn.sig ++ ariscaModule.externs.map Extern.sig)
+
+/-- Callee prefix before `arisca_check_bytes` inside `ariscaModule.fns` (`44` fns). -/
+def ariscaPre : List Fn :=
+  Header.fns ++ Parse.fns ++ Poly.fns ++ Driver.fns.take 13
+
+/-- Top-level `arisca_check_bytes` entry function (`45`th slot of `ariscaModule.fns`). -/
 def ariscaCheckBytesFn : Fn :=
   ⟨"arisca_check_bytes", [i64, i64, i64, i64, i64, i64], [i64],
     Driver.arisca_check_bytes_body⟩
 
-/-- Restricted `Env` visible to `arisca_check_bytes` (`43` declared internal callees). -/
+/-- Restricted `Env` visible to `arisca_check_bytes` (`44` declared internal callees). -/
 def ariscaSolvedEnv : T.Env :=
   T.Env.restrict ariscaEnv (ariscaPre.map Fn.sig ++ ariscaModule.externs.map Extern.sig)
 
@@ -141,7 +155,7 @@ end
 
 public section
 
-theorem ariscaSpecTable_length : ariscaSpecTable.length = 44 := rfl
+theorem ariscaSpecTable_length : ariscaSpecTable.length = 45 := rfl
 
 theorem ariscaSpecTable_nodup : (ariscaSpecTable.map SpecEntry.name).Nodup := by
   show ([ "ar_rd32", "ar_next_word", "ar_aalloc", "u64_mul128", "ar_cmul", "ar_cadd",
@@ -152,7 +166,7 @@ theorem ariscaSpecTable_nodup : (ariscaSpecTable.map SpecEntry.name).Nodup := by
     , "ar_add_q", "ar_build_sp0", "ar_load_rule", "ar_store_rule", "ar_build_R"
     , "ar_ttsim", "ar_dzero", "ar_dlit", "ar_dmul", "ar_daxpy", "ar_dcanon"
     , "ar_install_rule", "ar_mask6", "ar_do_gate", "ar_do_cone", "ar_setup_dynamic"
-    , "ar_check_main", "arisca_check_bytes" ] : List String).Nodup
+    , "arisca_check_aig", "ar_check_main", "arisca_check_bytes" ] : List String).Nodup
   decide
 
 theorem ariscaSpecTable_noExit : ∀ e ∈ ariscaSpecTable, e.noExit = true := by
@@ -162,7 +176,7 @@ theorem ariscaSpecTable_noExit : ∀ e ∈ ariscaSpecTable, e.noExit = true := b
     rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
     rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
     rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
-    rfl | rfl | rfl | rfl <;> rfl
+    rfl | rfl | rfl | rfl | rfl <;> rfl
 
 theorem ariscaEnv_noExit :
     ∀ f as bs xs m Q X X',
@@ -310,7 +324,7 @@ private theorem ariscaModule_tableImpl :
     SpecEntry.Impl.of (ar_store_rule_wp ariscaEnv),
     SpecEntry.Impl.of (ar_build_R_wp ariscaEnv hMcmp (ariscaEnv_row_at 7 _)
       (ariscaEnv_row_at 5 _)),
-    -- Driver (31..43)
+    -- Driver (31..44)
     SpecEntry.Impl.of (ar_ttsim_wp ariscaEnv),
     SpecEntry.Impl.of (ar_dzero_wp ariscaEnv),
     SpecEntry.Impl.of (ar_dlit_wp ariscaEnv (ariscaEnv_row_at 32 _)),
@@ -327,24 +341,69 @@ private theorem ariscaModule_tableImpl :
     SpecEntry.Impl.of (ar_do_cone_wp ariscaEnv (ariscaEnv_row_at 1 _) (ariscaEnv_row_at 28 _)
       (ariscaEnv_row_at 25 _) (ariscaEnv_row_at 29 _)),
     SpecEntry.Impl.of (ar_setup_dynamic_wp ariscaEnv (ariscaEnv_row_at 2 _)),
+    SpecEntry.Impl.of (arisca_check_aig_wp ariscaEnv (ariscaEnv_row_at 14 _)
+      (ariscaEnv_row_at 41 _) (ariscaEnv_row_at 39 _) (ariscaEnv_row_at 40 _)
+      (ariscaEnv_row_at 27 _) (ariscaEnv_row_at 1 _) (ariscaEnv_row_at 30 _)
+      (ariscaEnv_row_at 25 _) (ariscaEnv_row_at 7 _)),
     SpecEntry.Impl.of (ar_check_main_wp ariscaEnv (ariscaEnv_row_at 13 _)
-      (ariscaEnv_row_at 14 _) (ariscaEnv_row_at 41 _) (ariscaEnv_row_at 39 _)
-      (ariscaEnv_row_at 40 _) (ariscaEnv_row_at 27 _) (ariscaEnv_row_at 1 _)
-      (ariscaEnv_row_at 30 _) (ariscaEnv_row_at 25 _) (ariscaEnv_row_at 7 _)),
-    SpecEntry.Impl.of (arisca_check_bytes_wp ariscaEnv (ariscaEnv_row_at 42 _)),
+      (ariscaEnv_row_at 42 _)),
+    SpecEntry.Impl.of (arisca_check_bytes_wp ariscaEnv (ariscaEnv_row_at 43 _)),
     trivial⟩
 
-/-- Closed `ModuleOk` for `ariscaModule` against the canonical `44`-row `ariscaEnv`. -/
+/-- Closed `ModuleOk` for `ariscaModule` against the canonical `45`-row `ariscaEnv`. -/
 theorem ariscaModule_ok : ModuleOk ariscaEnv ariscaModule :=
   Module.moduleOk_of_checkAcyclic ariscaModule_checkAcyclic ariscaModule_wf
     (T.Env.ofTable_sound ariscaModule_fns_nodup ariscaModule_tableImpl)
+
+private theorem ariscaModule_fns_aig_split :
+    ariscaModule.fns = ariscaAigPre ++ ariscaCheckAigFn :: Driver.fns.drop 12 := by
+  rfl
 
 private theorem ariscaModule_fns_split :
     ariscaModule.fns = ariscaPre ++ [ariscaCheckBytesFn] := by
   rfl
 
-/-- Top-level `arisca_check_bytes` ART v1 soundness (`XPost := False`, `<= std3`) restricted to
-the `43` declared internal callees. -/
+/-- Top-level `arisca_check_aig` ART v1.5 soundness (`XPost := False`, `<= std3`) restricted to
+the `42` declared internal callees (`spec = 0 / 1` multiplier and `spec = 2` `SPEC_MITER`). -/
+theorem arisca_check_aig_sound (cx art artLen : BitVec 64)
+    (m : Mem 64) (Q : Post [.bool]) (s : ArCtxState) (g : Aig)
+    (rhs0 rhs1 olit : List (BitVec 32)) (artBytes : List UInt8) (R : Mem 64 → Prop)
+    (hwPos : 0 < s.w.toNat) (hwFit : s.w.toNat + s.wlen.toNat < 2 ^ 64)
+    (htop : s.top.toNat =
+      776 + align8 (4 * g.ands.length) + align8 (4 * g.ands.length) + 4 * g.outs.length)
+    (htle : s.top.toNat ≤ s.wlen.toNat)
+    (hr0 : s.rhs0 = s.w + 776#64)
+    (hr1 : s.rhs1 = s.w + BitVec.ofNat 64 (776 + align8 (4 * g.ands.length)))
+    (hol : s.olit = s.w + BitVec.ofNat 64
+      (776 + align8 (4 * g.ands.length) + align8 (4 * g.ands.length)))
+    (hAigArr : AigArraysRep g rhs0 rhs1 olit)
+    (hM : s.M.toNat = g.M) (hI : s.I.toNat = g.I)
+    (hA : s.A.toNat = g.ands.length) (hO : s.O.toNat = g.outs.length)
+    (hrsn : s.rs_n = 0#32) (hrspt : s.rs_ptop = 0#64) (hrscap : s.rs_cap = 0#32)
+    (hrspcap : s.rs_pcap = 0#64) (hptop : s.ptop = 0#64) (htn : s.tn = 0#32) (hqn : s.qn = 0#32)
+    (hpc : s.pc = 0#32) (htc : s.tc = 0#32) (hcnr : s.cur_nr = 0#32)
+    (hartLen : artLen.toNat = artBytes.length) (hartFit : art.toNat + artBytes.length < 2 ^ 64)
+    (hm : (arCtxMem cx s ⋆ arrayPad i32 s.rhs0 rhs0 ⋆ arrayPad i32 s.rhs1 rhs1 ⋆
+      array (t := i32) s.olit olit ⋆ region (s.w + s.top) (s.wlen.toNat - s.top.toNat) ⋆
+      bytes art artBytes ⋆ R) m)
+    (hQ : ∀ (ok : Bool) (m' : Mem 64),
+      (ok = true → ariscaCircuitProp (BitVec.ofNat 32 (wordAt artBytes 2)) g) →
+      (∃ s' : ArCtxState,
+        (arCtxMem cx s' ⋆ region (s.w + 776#64) (s.wlen.toNat - 776) ⋆
+          bytes art artBytes ⋆ R) m') →
+      Q (ok, ⟨⟩) m') :
+    Func.wp ariscaAigSolvedEnv Driver.arisca_check_aig_body
+      (cx, art, artLen, ⟨⟩) m Q (fun _ _ _ _ => False) :=
+  ariscaModule_ok.wp_restrict (fn := ariscaCheckAigFn) ariscaModule_fns_aig_split
+    (ariscaEnv_row_at 42 ⟨"arisca_check_aig", [i64, i64, i64], [.bool],
+        ariscaCheckAigSpec, true⟩ (by rfl) (by intro _ _ _ _ h; exact h)
+      (cx, art, artLen, ⟨⟩) m Q (fun _ _ _ _ => False)
+      ⟨s, g, rhs0, rhs1, olit, artBytes, R, hwPos, hwFit, htop, htle, hr0, hr1, hol, hAigArr,
+        hM, hI, hA, hO, hrsn, hrspt, hrscap, hrspcap, hptop, htn, hqn, hpc, htc, hcnr,
+        hartLen, hartFit, hm, fun ok m' hok hm' => hQ ok m' hok hm'⟩)
+
+/-- Top-level `arisca_check_bytes` ART v1.5 soundness (`XPost := False`, `<= std3`) restricted to
+the `44` declared internal callees (`spec = 0 / 1` multiplier and `spec = 2` `SPEC_MITER`). -/
 theorem arisca_check_bytes_sound (aigPtr aigLen artPtr artLen workPtr workLen : BitVec 64)
     (m : Mem 64) (Q : Post [i64]) (aigBytes artBytes : List UInt8) (R : Mem 64 → Prop)
     (haig : aigLen.toNat = aigBytes.length)
@@ -352,19 +411,16 @@ theorem arisca_check_bytes_sound (aigPtr aigLen artPtr artLen workPtr workLen : 
     (hm : (bytes aigPtr aigBytes ⋆ bytes artPtr artBytes ⋆
       region workPtr workLen.toNat ⋆ R) m)
     (hQ : ∀ (ret : BitVec 64) (m' : Mem 64),
-      (ret = 20#64 → ∃ (g : Aig) (signed : Bool),
+      (ret = 20#64 → ∃ g : Aig,
         parseAig (toNatBytes aigBytes) = some g ∧
-        ∀ ρ : Nat → Bool,
-          BitVec.ofNat g.outs.length (outWord g ρ) =
-            BitVec.ofInt g.outs.length (inWord signed (g.I / 2) ρ 0) *
-              BitVec.ofInt g.outs.length (inWord signed (g.I / 2) ρ (g.I / 2))) →
+        ariscaCircuitProp (BitVec.ofNat 32 (wordAt artBytes 2)) g) →
       (bytes aigPtr aigBytes ⋆ bytes artPtr artBytes ⋆
         region workPtr workLen.toNat ⋆ R) m' →
       Q (ret, ⟨⟩) m') :
     Func.wp ariscaSolvedEnv Driver.arisca_check_bytes_body
       (aigPtr, aigLen, artPtr, artLen, workPtr, workLen, ⟨⟩) m Q (fun _ _ _ _ => False) :=
   ariscaModule_ok.wp_restrict (fn := ariscaCheckBytesFn) ariscaModule_fns_split
-    (ariscaEnv_row_at 43 ⟨"arisca_check_bytes", [i64, i64, i64, i64, i64, i64], [i64],
+    (ariscaEnv_row_at 44 ⟨"arisca_check_bytes", [i64, i64, i64, i64, i64, i64], [i64],
         ariscaCheckBytesSpec, true⟩ (by rfl) (by intro _ _ _ _ h; exact h)
       (aigPtr, aigLen, artPtr, artLen, workPtr, workLen, ⟨⟩) m Q (fun _ _ _ _ => False)
       ⟨aigBytes, artBytes, R, haig, hart, hm, fun ret m' h20 hm' => hQ ret m' h20 hm'⟩)
@@ -410,12 +466,9 @@ theorem arisca_check_bytes_nv :
       (fun r m' =>
         (bytes nvAigPtr nvAigBytes ⋆ bytes nvArtPtr nvArtBytes ⋆
           region nvWorkPtr nvWorkCap.toNat ⋆ (ExtHashMap.emp : Mem 64 → Prop)) m' ∧
-        (r.1 = 20#64 → ∃ (g : Aig) (signed : Bool),
+        (r.1 = 20#64 → ∃ g : Aig,
           parseAig (toNatBytes nvAigBytes) = some g ∧
-          ∀ ρ : Nat → Bool,
-            BitVec.ofNat g.outs.length (outWord g ρ) =
-              BitVec.ofInt g.outs.length (inWord signed (g.I / 2) ρ 0) *
-                BitVec.ofInt g.outs.length (inWord signed (g.I / 2) ρ (g.I / 2))))
+          ariscaCircuitProp (BitVec.ofNat 32 (wordAt nvArtBytes 2)) g))
       (fun _ _ _ _ => False) :=
   arisca_check_bytes_sound nvAigPtr nvAigLen nvArtPtr nvArtLen nvWorkPtr nvWorkCap nvMem _
     nvAigBytes nvArtBytes ExtHashMap.emp rfl rfl nvMem_ok

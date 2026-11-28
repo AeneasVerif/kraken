@@ -37,15 +37,15 @@ public section
 
 /-! ## 1. `ariscaEnv` Entry & `InlNoExit` Bridges -/
 
-/-- Every function in `ariscaModule.fns` (`44` fns) ignores exit continuations in `ariscaEnv`. -/
+/-- Every function in `ariscaModule.fns` (`45` fns) ignores exit continuations in `ariscaEnv`. -/
 theorem ariscaEnv_inlNoExit : ∀ g ∈ ariscaModule.fns, InlNoExit ariscaEnv g :=
   fun g _ => ariscaEnv_noExit g.name g.as g.rs
 
-/-- Row `43` lookup in `ariscaEnv` for top-level `"arisca_check_bytes"`. -/
+/-- Row `44` lookup in `ariscaEnv` for top-level `"arisca_check_bytes"`. -/
 theorem ariscaEnv_check_bytes :
     ∀ xs m Q X, ariscaCheckBytesSpec xs m Q X →
       ariscaEnv "arisca_check_bytes" [i64, i64, i64, i64, i64, i64] [i64] xs m Q X :=
-  ariscaEnv_row_at 43
+  ariscaEnv_row_at 44
     ⟨"arisca_check_bytes", [i64, i64, i64, i64, i64, i64], [i64],
       ariscaCheckBytesSpec, true⟩
     (by rfl) (by intro _ _ _ _ h; exact h)
@@ -122,7 +122,7 @@ section AbiCompose
 
 variable (A : BenchAbi)
 
-/-- Closed 44-function `Defined` + `FnSpec` under `ariscaEnv` over any host embedding
+/-- Closed 45-function `Defined` + `FnSpec` under `ariscaEnv` over any host embedding
 `cert.code`. -/
 theorem arisca_module_fnspec_abi
     (cert : LinkedCert A.T A.L A.lt A.hcl ariscaModule [] [] 0 2048)
@@ -136,7 +136,7 @@ theorem arisca_module_fnspec_abi
     ariscaEnv_inlNoExit k₀ hc hu hf
 
 /-- Closed end-to-end machine-code soundness and ABI/heap framing for `"arisca_check_bytes"`
-(`XPost := False`, `ret = 20#64` (`AR_ACCEPT`) implies multiplier equivalence). -/
+(`XPost := False`, `ret = 20#64` (`AR_ACCEPT`) implies multiplier or `SPEC_MITER` equivalence). -/
 theorem arisca_check_bytes_correct_abi
     (cert : LinkedCert A.T A.L A.lt A.hcl ariscaModule [] [] 0 2048)
     (hleg : LegalSigAll A.lt ariscaModule.fns)
@@ -158,12 +158,9 @@ theorem arisca_check_bytes_correct_abi
       (fun st =>
         A.T.mach.pc st = ra ∧
         (A.retGpr (A.T.mach.data st) = 20#64 →
-          ∃ (g : Aig) (signed : Bool),
+          ∃ g : Aig,
             parseAig (toNatBytes aigBytes) = some g ∧
-            ∀ ρ : Nat → Bool,
-              BitVec.ofNat g.outs.length (outWord g ρ) =
-                BitVec.ofInt g.outs.length (inWord signed (g.I / 2) ρ 0) *
-                  BitVec.ofInt g.outs.length (inWord signed (g.I / 2) ρ (g.I / 2))) ∧
+            ariscaCircuitProp (BitVec.ofNat 32 (wordAt artBytes 2)) g) ∧
         A.calleeSavedOk s (A.T.mach.data st) ∧
         A.spRestored s (A.T.mach.data st) ∧
         (A.T.mach.mem (A.T.mach.data st) =⋆
@@ -175,12 +172,9 @@ theorem arisca_check_bytes_correct_abi
       (aig_ptr, aig_len, art_ptr, art_len, work_ptr, work_len, ()) m
       (fun r m' =>
         (r.1 = 20#64 →
-          ∃ (g : Aig) (signed : Bool),
+          ∃ g : Aig,
             parseAig (toNatBytes aigBytes) = some g ∧
-            ∀ ρ : Nat → Bool,
-              BitVec.ofNat g.outs.length (outWord g ρ) =
-                BitVec.ofInt g.outs.length (inWord signed (g.I / 2) ρ 0) *
-                  BitVec.ofInt g.outs.length (inWord signed (g.I / 2) ρ (g.I / 2))) ∧
+            ariscaCircuitProp (BitVec.ofNat 32 (wordAt artBytes 2)) g) ∧
         (bytes aig_ptr aigBytes ⋆ bytes art_ptr artBytes ⋆
           region work_ptr work_len.toNat) m')
       (fun _ _ _ _ => False) :=
@@ -216,12 +210,9 @@ theorem arisca_check_bytes_sound_abi
       (fun st =>
         A.T.mach.pc st = ra ∧
         (A.retGpr (A.T.mach.data st) = 20#64 →
-          ∃ (g : Aig) (signed : Bool),
+          ∃ g : Aig,
             parseAig (toNatBytes aigBytes) = some g ∧
-            ∀ ρ : Nat → Bool,
-              BitVec.ofNat g.outs.length (outWord g ρ) =
-                BitVec.ofInt g.outs.length (inWord signed (g.I / 2) ρ 0) *
-                  BitVec.ofInt g.outs.length (inWord signed (g.I / 2) ρ (g.I / 2))))
+            ariscaCircuitProp (BitVec.ofNat 32 (wordAt artBytes 2)) g))
       (A.T.mach.mkState s (A.T.mach.labelAddr hh "arisca_check_bytes")) :=
   eventually_weaken _ _ _ _ (fun _ ⟨hpc, h20, _⟩ => ⟨hpc, h20⟩)
     (arisca_check_bytes_correct_abi A cert hleg hh k₀ hc hu
@@ -237,12 +228,9 @@ theorem arisca_check_bytes_nv_abi
       (fun st =>
         A.T.mach.pc st = A.init.ra0 ∧
         (A.retGpr (A.T.mach.data st) = 20#64 →
-          ∃ (g : Aig) (signed : Bool),
+          ∃ g : Aig,
             parseAig (toNatBytes nvAigBytes) = some g ∧
-            ∀ ρ : Nat → Bool,
-              BitVec.ofNat g.outs.length (outWord g ρ) =
-                BitVec.ofInt g.outs.length (inWord signed (g.I / 2) ρ 0) *
-                  BitVec.ofInt g.outs.length (inWord signed (g.I / 2) ρ (g.I / 2))) ∧
+            ariscaCircuitProp (BitVec.ofNat 32 (wordAt nvArtBytes 2)) g) ∧
         (A.T.mach.mem (A.T.mach.data st) =⋆
           (bytes ariscaNvAigPtr nvAigBytes ⋆ bytes ariscaNvArtPtr nvArtBytes ⋆
             region ariscaNvWorkPtr ariscaNvWorkCap.toNat) ⋆
@@ -257,12 +245,9 @@ theorem arisca_check_bytes_nv_abi
       ariscaNvArgs (ariscaNvPayload.At 0x1000#64)
       (fun r m' =>
         (r.1 = 20#64 →
-          ∃ (g : Aig) (signed : Bool),
+          ∃ g : Aig,
             parseAig (toNatBytes nvAigBytes) = some g ∧
-            ∀ ρ : Nat → Bool,
-              BitVec.ofNat g.outs.length (outWord g ρ) =
-                BitVec.ofInt g.outs.length (inWord signed (g.I / 2) ρ 0) *
-                  BitVec.ofInt g.outs.length (inWord signed (g.I / 2) ρ (g.I / 2))) ∧
+            ariscaCircuitProp (BitVec.ofNat 32 (wordAt nvArtBytes 2)) g) ∧
         (bytes ariscaNvAigPtr nvAigBytes ⋆ bytes ariscaNvArtPtr nvArtBytes ⋆
           region ariscaNvWorkPtr ariscaNvWorkCap.toNat) m')
       (fun _ _ _ _ => False) :=

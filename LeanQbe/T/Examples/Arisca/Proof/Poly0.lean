@@ -1124,7 +1124,7 @@ theorem ar_compact_wp (Γ : T.Env) :
             (n := s.tn.toNat) (fun p hp => (hPref p (by omega)).2.2),
           ← hi_eq, ← hk_eq]
       · rw [hdst_eq, htm_eq]
-        exact polyEval_congr_symListAt s.n_out.toNat σ dstCur tmCur srcPool srcTm _ _ s.tn.toNat
+        exact polyEval_congr_symListAt s.modW σ dstCur tmCur srcPool srcTm _ _ s.tn.toNat
           (fun p hp => (hPref p (by omega)).1)
       · dsimp only [tm0', tm1', pool0', pool1']
         rw [hfoc2]; exact sep_cast ‹_› (by ac_rfl)

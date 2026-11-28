@@ -604,8 +604,21 @@ bool ar_setup_dynamic(ArCtx *cx) {
   return true;
 }
 
-bool ar_check_main(ArCtx *cx, const u8 *aig, u64 aig_len, u8 *art, u64 art_len) {
-  if (!ar_parse_aig(cx, aig, aig_len)) { return false; }
+bool arisca_check_aig(ArCtx *cx, u8 *art, u64 art_len) {
+  if (cx->M > 0x3FFFFFF0u) { return false; }
+  if ((u64)cx->I + (u64)cx->A != (u64)cx->M) { return false; }
+  u32 maxlit = 2u * cx->M + 1u;
+  u32 k = 0u;
+  while (k < cx->O) {
+    if (cx->olit[k] > maxlit) { return false; }
+    k = k + 1u;
+  }
+  k = 0u;
+  while (k < cx->A) {
+    u32 nd = cx->I + 1u + k;
+    if ((cx->rhs0[k] >> 1) >= nd || (cx->rhs1[k] >> 1) >= nd) { return false; }
+    k = k + 1u;
+  }
   if (!ar_parse_art_header_and_tables(cx, art, art_len)) { return false; }
   if (!ar_setup_dynamic(cx)) { return false; }
   u32 i = 0u;
@@ -660,6 +673,11 @@ bool ar_check_main(ArCtx *cx, const u8 *aig, u64 aig_len, u8 *art, u64 art_len) 
   return true;
 }
 
+bool ar_check_main(ArCtx *cx, const u8 *aig, u64 aig_len, u8 *art, u64 art_len) {
+  if (!ar_parse_aig(cx, aig, aig_len)) { return false; }
+  return arisca_check_aig(cx, art, art_len);
+}
+
 u64 arisca_check_bytes(u64 aig_ptr, u64 aig_len, u64 art_ptr, u64 art_len,
                        u64 work_ptr, u64 work_len) {
   if (aig_ptr == 0ULL || art_ptr == 0ULL || work_ptr == 0ULL) { return AR_REJECT; }
@@ -687,7 +705,7 @@ u64 arisca_check_bytes(u64 aig_ptr, u64 aig_len, u64 art_ptr, u64 art_len,
 }
 "
 
-/-- Ordered live functions of `Arisca/Src/Driver.lean` (`13` fns). -/
+/-- Ordered live functions of `Arisca/Src/Driver.lean` (`14` fns). -/
 def fns : List Fn := arisca_driver_fns
 
 end
@@ -705,13 +723,14 @@ theorem ar_mask6_wf : Func.Wf ar_mask6_body := by arisca_wf_reify
 theorem ar_do_gate_wf : Func.Wf ar_do_gate_body := by arisca_wf_reify
 theorem ar_do_cone_wf : Func.Wf ar_do_cone_body := by arisca_wf_reify
 theorem ar_setup_dynamic_wf : Func.Wf ar_setup_dynamic_body := by arisca_wf_reify
+theorem arisca_check_aig_wf : Func.Wf arisca_check_aig_body := by arisca_wf_reify
 theorem ar_check_main_wf : Func.Wf ar_check_main_body := by arisca_wf_reify
 theorem arisca_check_bytes_wf : Func.Wf arisca_check_bytes_body := by arisca_wf_reify
 
 theorem fns_wf : ∀ f ∈ fns, f.Wf := by
   intro f hf
   simp only [fns, arisca_driver_fns, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
   · exact ar_ttsim_wf
   · exact ar_dzero_wf
   · exact ar_dlit_wf
@@ -723,6 +742,7 @@ theorem fns_wf : ∀ f ∈ fns, f.Wf := by
   · exact ar_do_gate_wf
   · exact ar_do_cone_wf
   · exact ar_setup_dynamic_wf
+  · exact arisca_check_aig_wf
   · exact ar_check_main_wf
   · exact arisca_check_bytes_wf
 

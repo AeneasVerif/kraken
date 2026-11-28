@@ -65,6 +65,23 @@ def outWordL (g : Aig) (ρ : Nat → Bool) : List Nat → Nat
 /-- unsigned value of the AIG outputs `O[0..|O|)` (LSB first) -/
 def outWord (g : Aig) (ρ : Nat → Bool) : Nat := outWordL g ρ (List.range g.outs.length)
 
+/-- `Σ_{j ∈ js} 2^j · out_{off+j}` over relative output bit indices `js` -/
+def outSliceL (g : Aig) (ρ : Nat → Bool) (off : Nat) : List Nat → Nat
+  | [] => 0
+  | j :: js => 2 ^ j * (g.litVal ρ (g.outs.getD (off + j) 0)).toNat + outSliceL g ρ off js
+
+/-- unsigned value of the `w`-bit output slice `O[off .. off + w)` (LSB first) -/
+def outSlice (g : Aig) (ρ : Nat → Bool) (off w : Nat) : Nat :=
+  outSliceL g ρ off (List.range w)
+
+/-- helper exposing start index `j` for `miterHalfTerms` induction -/
+noncomputable def miterHalfGo (M : Nat) (neg : Bool) (rules : Tree Poly) (nd : Nat)
+    (refs aouts : List Nat) (j : Nat) : List Poly :=
+  List.rec (motive := fun _ => Nat → List Nat → List Poly) (fun _ _ => [])
+    (fun r _ ih j ao =>
+      List.rec [] (fun a ao' _ => miterTerm M neg rules nd r a j :: ih (Nat.succ j) ao') ao)
+    refs j aouts
+
 /-- `Σ_i c_i · ρ(off+i)`, `c_i = 2^i`, except `c_{n-1} = -2^(n-1)` when `signed` -/
 def inWordL (signed : Bool) (n : Nat) (ρ : Nat → Bool) (off : Nat) : List Nat → Int
   | [] => 0
@@ -1114,6 +1131,265 @@ theorem checkArt_sound (signed : Bool) (aigN aigLen artN artLen : Nat)
   obtain ⟨g, hg, h⟩ := orec_true h
   obtain ⟨-, h⟩ := band_true h
   exact ⟨g, hg, checkWords_sound signed g _ h⟩
+
+/-! ## ART v1.5 Miter Soundness (`SPEC_MITER`, `spec = 2`) -/
+
+theorem litVal_const (g : Aig) (ρ : Nat → Bool) (a : Nat) (ha : a ≤ 1) :
+    g.litVal ρ a = (a == 1) := by
+  cases a with
+  | zero =>
+    unfold Aig.litVal Aig.nodeVal
+    simp
+  | succ a' =>
+    have : a' = 0 := by omega
+    subst this
+    unfold Aig.litVal Aig.nodeVal
+    simp
+
+theorem outOkMiter_spec (e : Env) (nNets : Nat) (outRef : List Nat) : ∀ aouts,
+    outOkMiter e nNets outRef aouts = true →
+    ∀ k, k < outRef.length → k < aouts.length ∧
+      ((nthN outRef k = UNB ∧ nthN aouts k ≤ 1) ∨
+        (nthN outRef k ≠ UNB ∧ ∃ b,
+          e.bind.get e.nd (Nat.shiftRight (nthN outRef k) 1) = some b ∧
+          Nat.xor b (Nat.land (nthN outRef k) 1) = nthN aouts k)) := by
+  induction outRef with
+  | nil => intro _ _ k hk; simp at hk
+  | cons r rs ih =>
+    intro aouts h k hk
+    unfold outOkMiter at h; dsimp only at h
+    cases aouts with
+    | nil => cases h
+    | cons a ao =>
+      dsimp only at h
+      cases hru : Nat.beq r UNB
+      · rw [hru] at h; simp only [brec_false] at h
+        obtain ⟨-, h⟩ := band_true h
+        obtain ⟨b, hb, h⟩ := orec_true h
+        obtain ⟨hb2, h⟩ := band_true h
+        cases k with
+        | zero =>
+          refine ⟨by simp, Or.inr ⟨Nat.ne_of_beq_eq_false hru, b, hb, beq_true.mp hb2⟩⟩
+        | succ k =>
+          obtain ⟨h1, h2⟩ := ih ao (by unfold outOkMiter; exact h) k (by simp at hk; omega)
+          exact ⟨by simp; omega, h2⟩
+      · rw [hru] at h; simp only [brec_true] at h
+        obtain ⟨ha1, h⟩ := band_true h
+        cases k with
+        | zero =>
+          exact ⟨by simp, Or.inl ⟨beq_true.mp hru, ble_true.mp ha1⟩⟩
+        | succ k =>
+          obtain ⟨h1, h2⟩ := ih ao (by unfold outOkMiter; exact h) k (by simp at hk; omega)
+          exact ⟨by simp; omega, h2⟩
+
+theorem miterTerm_eval {w : Nat} (g : Aig) (ρ : Nat → Bool) (e : Env) (hM : e.M = 2 ^ w)
+    (neg : Bool) (rules : Tree Poly) (r a j : Nat)
+    (hok : (r = UNB ∧ a ≤ 1) ∨ (r ≠ UNB ∧ ∃ b,
+      e.bind.get e.nd (Nat.shiftRight r 1) = some b ∧ Nat.xor b (Nat.land r 1) = a)) :
+    evalP w (sig g ρ e) (miterTerm e.M neg rules e.nd r a j) =
+      (if neg then -BitVec.ofNat w (2 ^ j) else BitVec.ofNat w (2 ^ j)) *
+        bv w (g.litVal ρ a) := by
+  have hcw : BitVec.ofNat w (Bool.rec (Nat.pow 2 j) (negC e.M (Nat.pow 2 j)) neg) =
+      if neg then -BitVec.ofNat w (2 ^ j) else BitVec.ofNat w (2 ^ j) := by
+    cases neg
+    · simp
+    · simp only [brec_true, ↓reduceIte]; exact negC_ofNat e.M (Nat.pow 2 j) hM
+  unfold miterTerm
+  dsimp only
+  have hcond : ∀ hc : (Bool.rec (Bool.rec false
+      (Option.rec true (fun _ => false) (rules.get e.nd (Nat.shiftRight r 1)))
+      (Nat.ble a 1)) true (Nat.beq r UNB) : Bool) = true, a ≤ 1 := by
+    intro hc
+    cases hr : Nat.beq r UNB
+    · rw [hr] at hc; simp only [brec_false] at hc
+      cases ha : Nat.ble a 1
+      · rw [ha] at hc; cases hc
+      · exact ble_true.mp ha
+    · rcases hok with ⟨-, ha⟩ | ⟨hne, _⟩
+      · exact ha
+      · exact absurd (beq_true.mp hr) hne
+  cases hc : (Bool.rec (Bool.rec false
+      (Option.rec true (fun _ => false) (rules.get e.nd (Nat.shiftRight r 1)))
+      (Nat.ble a 1)) true (Nat.beq r UNB) : Bool)
+  · simp only [brec_false]
+    rcases hok with ⟨hr, _⟩ | ⟨_, b, hb1, hb2⟩
+    · rw [hr] at hc; cases hc
+    · rw [scaleP_eval e.M hM, litP_eval e.M hM, hcw]
+      have hdiv : Nat.mul 2 (Nat.shiftRight r 1) = 2 * (r / 2) := by
+        show 2 * (r >>> 1) = 2 * (r / 2); rw [Nat.shiftRight_eq_div_pow, Nat.pow_one]
+      have hmod : Nat.land r 1 = r % 2 := Nat.and_one_is_mod r
+      have hb1' : e.bind.get e.nd (r / 2) = some b := by rw [← shiftRight_one]; exact hb1
+      have hsig : (sig g ρ e (2 * (r / 2)) ^^ (r % 2 == 1)) = g.litVal ρ a := by
+        rw [sig_bound g ρ e hb1', ← litVal_xor, hb2]
+      rw [hdiv, hmod]
+      rcases Nat.mod_two_eq_zero_or_one r with hrm | hrm
+      · rw [hrm] at hsig ⊢
+        have h0 : Nat.beq 0 1 = false := rfl
+        have h0' : ((0 : Nat) == 1) = false := rfl
+        rw [h0]; rw [h0', Bool.xor_false] at hsig
+        simp only [brec_false, Bool.false_eq_true, ↓reduceIte, hsig]
+      · rw [hrm] at hsig ⊢
+        have h1 : Nat.beq 1 1 = true := rfl
+        rw [h1]; simp only [brec_true]
+        rw [← hsig]
+        cases sig g ρ e (2 * (r / 2)) <;> simp [bv]
+  · simp only [brec_true]
+    have ha1 := hcond hc
+    rw [litVal_const g ρ a ha1]
+    have ha01 : a = 0 ∨ a = 1 := by omega
+    rcases ha01 with rfl | rfl
+    · have e01 : Nat.beq 0 1 = false := rfl
+      rw [e01]; simp [bv]; rfl
+    · have e11 : Nat.beq 1 1 = true := rfl
+      rw [e11]; simp only [brec_true, beq_self_eq_true]
+      rw [single_eval e.M hM, monoVal_zero, hcw]
+      simp [bv]
+
+theorem miterHalfGo_eval {w : Nat} (g : Aig) (ρ : Nat → Bool) (e : Env) (hM : e.M = 2 ^ w)
+    (neg : Bool) (rules : Tree Poly) (off : Nat) (refs aouts : List Nat) :
+    ∀ j, refs.length = aouts.length →
+      (∀ k, k < refs.length → nthN aouts k = g.outs.getD (off + j + k) 0) →
+      (∀ k, k < refs.length →
+        (nthN refs k = UNB ∧ nthN aouts k ≤ 1) ∨
+        (nthN refs k ≠ UNB ∧ ∃ b,
+          e.bind.get e.nd (Nat.shiftRight (nthN refs k) 1) = some b ∧
+          Nat.xor b (Nat.land (nthN refs k) 1) = nthN aouts k)) →
+      evalL w (sig g ρ e) (miterHalfGo e.M neg rules e.nd refs aouts j) =
+        (if neg then -1 else 1) *
+          BitVec.ofNat w (outSliceL g ρ off (List.range' j refs.length)) := by
+  induction refs generalizing aouts with
+  | nil =>
+    intro j hlen _ _
+    cases aouts with
+    | nil => simp [miterHalfGo, evalL_nil, outSliceL]
+    | cons _ _ => simp at hlen
+  | cons r rs ih =>
+    intro j hlen haout hok
+    cases aouts with
+    | nil => simp at hlen
+    | cons a ao =>
+      have hlen' : rs.length = ao.length := by simp at hlen; exact hlen
+      have ha0 : a = g.outs.getD (off + j) 0 := by
+        have := haout 0 (by simp); simpa [nthN_zero] using this
+      have hok0 := hok 0 (by simp)
+      simp only [nthN_zero] at hok0
+      have htail := ih ao (j + 1) hlen'
+        (fun k hk => by
+          have := haout (k + 1) (by simp; omega)
+          rw [nthN_succ] at this
+          rw [this, show off + (j + 1) + k = off + j + (k + 1) by omega])
+        (fun k hk => by
+          have := hok (k + 1) (by simp; omega)
+          rw [nthN_succ, nthN_succ] at this
+          exact this)
+      have hcons : miterHalfGo e.M neg rules e.nd (r :: rs) (a :: ao) j =
+          miterTerm e.M neg rules e.nd r a j ::
+            miterHalfGo e.M neg rules e.nd rs ao (j + 1) := rfl
+      rw [hcons, evalL_cons, miterTerm_eval g ρ e hM neg rules r a j hok0, htail]
+      rw [List.length_cons, List.range'_succ, outSliceL, BitVec.ofNat_add, BitVec.ofNat_mul,
+        bv_toNat, ← ha0]
+      cases neg <;> grind
+
+theorem initPMiter_eval {w nNets : Nat} (g : Aig) (ρ : Nat → Bool) (e : Env) (hM : e.M = 2 ^ w)
+    (pr : Pairs) (hv : VanOk w (sig g ρ e) (van pr)) (rules : Tree Poly) (mw : Nat)
+    (outRef : List Nat) (hlen : outRef.length = 2 * mw) (hg : g.outs.length = 2 * mw)
+    (hok : outOkMiter e nNets outRef g.outs = true) :
+    evalP w (sig g ρ e) (initPMiter e.M pr rules e.nd mw outRef g.outs) =
+      BitVec.ofNat w (outSlice g ρ 0 mw) - BitVec.ofNat w (outSlice g ρ mw mw) := by
+  have hob := outOkMiter_spec e nNets outRef g.outs hok
+  obtain ⟨htr, htr_el⟩ := takeN_spec mw outRef (by omega)
+  obtain ⟨hta, hta_el⟩ := takeN_spec mw g.outs (by omega)
+  obtain ⟨hdr, hdr_el⟩ := dropN_spec mw outRef
+  obtain ⟨hda, hda_el⟩ := dropN_spec mw g.outs
+  have h1 : miterHalfTerms e.M false rules e.nd (takeN mw outRef) (takeN mw g.outs) =
+      miterHalfGo e.M false rules e.nd (takeN mw outRef) (takeN mw g.outs) 0 := rfl
+  have h2 : miterHalfTerms e.M true rules e.nd (dropN mw outRef) (dropN mw g.outs) =
+      miterHalfGo e.M true rules e.nd (dropN mw outRef) (dropN mw g.outs) 0 := rfl
+  have he1 := miterHalfGo_eval g ρ e hM false rules 0 (takeN mw outRef) (takeN mw g.outs) 0
+    (by omega)
+    (fun k hk => by rw [hta_el k (by omega), nthN_eq_getD]; simp)
+    (fun k hk => by
+      rw [htr_el k (by omega), hta_el k (by omega)]
+      exact (hob k (by omega)).2)
+  have he2 := miterHalfGo_eval g ρ e hM true rules mw (dropN mw outRef) (dropN mw g.outs) 0
+    (by omega)
+    (fun k hk => by rw [hda_el k, nthN_eq_getD]; simp)
+    (fun k hk => by
+      rw [hdr_el k, hda_el k]
+      exact (hob (mw + k) (by omega)).2)
+  unfold initPMiter
+  rw [normP_eval _ hv, sumB_eval e.M hM, evalL_append, h1, h2, he1, he2]
+  rw [htr, show (dropN mw outRef).length = mw by omega, ← List.range_eq_range']
+  unfold outSlice
+  grind
+
+theorem checkWordsMiter_sound (g : Aig) (ws0 : List Nat) (h : checkWordsMiter g ws0 = true) :
+    g.outs.length % 2 = 0 ∧ 2 ≤ g.outs.length ∧ g.outs.length ≤ 256 ∧
+      ∀ ρ : Nat → Bool,
+        BitVec.ofNat (g.outs.length / 2) (outSlice g ρ 0 (g.outs.length / 2)) =
+          BitVec.ofNat (g.outs.length / 2)
+            (outSlice g ρ (g.outs.length / 2) (g.outs.length / 2)) := by
+  unfold checkWordsMiter at h
+  obtain ⟨hd, ws1, -, h⟩ := rdN_true h
+  obtain ⟨hhdr, h⟩ := band_true h
+  obtain ⟨bindW, ws2, -, h⟩ := rdN_true h
+  obtain ⟨bt, -, h⟩ := orec_true h
+  unfold afterBindMiter at h
+  obtain ⟨inNet, ws3, -, h⟩ := rdN_true h
+  obtain ⟨outRef, ws4, houtl, h⟩ := rdN_true h
+  obtain ⟨hio, h⟩ := band_true h
+  obtain ⟨-, hout⟩ := band_true hio
+  unfold headerMiterOk at hhdr
+  obtain ⟨-, hhdr⟩ := band_true hhdr
+  obtain ⟨-, hhdr⟩ := band_true hhdr
+  obtain ⟨-, hhdr⟩ := band_true hhdr
+  obtain ⟨-, hhdr⟩ := band_true hhdr
+  obtain ⟨hO, hhdr⟩ := band_true hhdr
+  obtain ⟨hge2, hhdr⟩ := band_true hhdr
+  obtain ⟨hevO, hhdr⟩ := band_true hhdr
+  obtain ⟨hle128, -⟩ := band_true hhdr
+  rw [beq_true] at hO hevO
+  rw [ble_true] at hge2 hle128
+  rw [len_eq] at hO
+  have hO_even : g.outs.length % 2 = 0 := by
+    rw [← hO, ← land_one]; exact hevO
+  have hO_ge2 : 2 ≤ g.outs.length := by rw [← hO]; exact hge2
+  have hO_le256 : g.outs.length ≤ 256 := by
+    have hshr : Nat.shiftRight (nthN hd 4) 1 = nthN hd 4 / 2 := shiftRight_one _
+    rw [hshr] at hle128; rw [← hO]; omega
+  refine ⟨hO_even, hO_ge2, hO_le256, fun ρ => ?_⟩
+  generalize hmw : g.outs.length / 2 = w
+  have hmw' : Nat.shiftRight (nthN hd 4) 1 = w := by rw [shiftRight_one, hO, hmw]
+  let e : Env := ⟨Nat.pow 2 (Nat.shiftRight (nthN hd 4) 1), g.M, g.I, bitLen g.M,
+    andTree (bitLen g.M) g.I g.ands, bitLen (nthN hd 5), bt⟩
+  have hM : e.M = 2 ^ w := by show Nat.pow 2 (Nat.shiftRight (nthN hd 4) 1) = 2 ^ w; rw [hmw']; rfl
+  have hT : e.andT = andTree e.ad g.I g.ands := rfl
+  unfold runPhasesMiter at h
+  have hinit : GInv w (sig g ρ e) e ⟨Tree.empty, ⟨e.nd, Tree.empty, 0⟩⟩ :=
+    ⟨fun v Q hv => by simp [Tree.get_empty] at hv, fun c s hcs => by simp [Tree.get_empty] at hcs⟩
+  obtain ⟨st, ws5, hst, h⟩ := gates_ok g ρ e hM hT _ _ _ ws4 hinit h
+  obtain ⟨st', ws6, hst', h⟩ := cones_ok e hM _ _ st ws5 hst h
+  have hP := mainLoop_ok e hM (sig_flip g ρ e) st'.pr hst'.2 st'.rules hst'.1 _ _ _ _ 0 ws6 rfl h
+  have hP' : evalP w (sig g ρ e) (initPMiter e.M st'.pr st'.rules e.nd w outRef g.outs) = 0 := by
+    simpa only [e, hmw'] using hP
+  rw [initPMiter_eval (nNets := nthN hd 5) g ρ e hM st'.pr (van_ok st'.pr hst'.2) st'.rules w
+    outRef (by rw [houtl, hO]; omega) (by omega) hout] at hP'
+  have := congrArg (· + BitVec.ofNat w (outSlice g ρ w w)) hP'
+  simp only [BitVec.sub_add_cancel] at this
+  rw [this]; exact BitVec.zero_add _
+
+theorem checkArtMiter_sound (aigN aigLen artN artLen : Nat)
+    (h : checkArtMiter aigN aigLen artN artLen = true) :
+    ∃ g, parseAig (toBytes aigN aigLen) = some g ∧
+      g.outs.length % 2 = 0 ∧ 2 ≤ g.outs.length ∧ g.outs.length ≤ 256 ∧
+      ∀ ρ : Nat → Bool,
+        BitVec.ofNat (g.outs.length / 2) (outSlice g ρ 0 (g.outs.length / 2)) =
+          BitVec.ofNat (g.outs.length / 2)
+            (outSlice g ρ (g.outs.length / 2) (g.outs.length / 2)) := by
+  unfold checkArtMiter at h
+  obtain ⟨g, hg, h⟩ := orec_true h
+  obtain ⟨-, h⟩ := band_true h
+  exact ⟨g, hg, checkWordsMiter_sound g _ h⟩
 
 end
 

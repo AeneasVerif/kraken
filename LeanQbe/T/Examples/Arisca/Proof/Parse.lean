@@ -93,6 +93,15 @@ private theorem bv32_eq_0_or_1 {x : BitVec 32} (h : ¬ (1#32 : BitVec 32).toNat 
   · exact Or.inl (BitVec.eq_of_toNat_eq (by simpa using h0))
   · exact Or.inr (BitVec.eq_of_toNat_eq (by simpa using h1))
 
+private theorem bv32_eq_0_1_2 {x : BitVec 32} (h : ¬ (2#32 : BitVec 32).toNat < x.toNat) :
+    x = 0#32 ∨ x = 1#32 ∨ x = 2#32 := by
+  have hx : x.toNat = 0 ∨ x.toNat = 1 ∨ x.toNat = 2 := by
+    rw [show (2#32 : BitVec 32).toNat = 2 from rfl] at h; omega
+  rcases hx with h0 | h1 | h2
+  · exact Or.inl (BitVec.eq_of_toNat_eq (by simpa using h0))
+  · exact Or.inr (Or.inl (BitVec.eq_of_toNat_eq (by simpa using h1)))
+  · exact Or.inr (Or.inr (BitVec.eq_of_toNat_eq (by simpa using h2)))
+
 private theorem bv32_ge_of_not_ult {x : BitVec 32} {k : Nat}
     (h : ¬ x.toNat < (BitVec.ofNat 32 k).toNat) (hk : k < 2 ^ 32) : k ≤ x.toNat := by
   rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hk] at h; omega
@@ -165,7 +174,7 @@ private theorem u64_setWidth_toNat (x : BitVec 32) : (x.setWidth 64).toNat = x.t
 
 private theorem art_pos_sum_le {nw : BitVec 64} {nNets nIn nOut : BitVec 32}
     (hnw10 : 10 ≤ nw.toNat) (hn : nNets.toNat ≤ 0x3FFFFFFF) (hi : nIn.toNat ≤ 0x3FFFFFFF)
-    (ho : nOut.toNat ≤ 128) (hc : ¬ (2 ^ 64 - 10 + nw.toNat) % 2 ^ 64 <
+    (ho : nOut.toNat ≤ 256) (hc : ¬ (2 ^ 64 - 10 + nw.toNat) % 2 ^ 64 <
       (nNets.toNat + nIn.toNat + nOut.toNat) % 2 ^ 64) :
     10 + nNets.toNat + nIn.toNat + nOut.toNat ≤ nw.toNat := by
   have := nw.isLt
@@ -398,7 +407,9 @@ private abbrev ArtTruePost (cx art : BitVec 64) (s : ArCtxState) (g : Aig)
     s'.w = s.w ∧ s'.wlen = s.wlen ∧ s'.art = art ∧ 4 * s'.nw.toNat = artBytes.length ∧
     s'.pos.toNat = 10 + s'.n_nets.toNat + s'.n_in.toNat + s'.n_out.toNat ∧
     s'.pos.toNat ≤ s'.nw.toNat ∧ s'.M = s.M ∧ s'.I = s.I ∧ s'.A = s.A ∧ s'.O = s.O ∧
-    s'.n_nets.toNat ≤ 0x3FFFFFFF ∧ (s'.spec = 0#32 ∨ s'.spec = 1#32) ∧
+    s'.n_nets.toNat ≤ 0x3FFFFFFF ∧
+    s'.spec = BitVec.ofNat 32 (wordAt artBytes 2) ∧
+    (s'.spec = 0#32 ∨ s'.spec = 1#32 ∨ s'.spec = 2#32) ∧
     s'.rs_n = 0#32 ∧ s'.rs_ptop = 0#64 ∧ s'.rs_cap = 0#32 ∧ s'.rs_pcap = 0#64 ∧
     s'.ptop = s.ptop ∧ s'.tn = s.tn ∧ s'.qn = s.qn ∧
     s'.pc = s.pc ∧ s'.tc = s.tc ∧ s'.cur_nr = s.cur_nr ∧
@@ -406,7 +417,7 @@ private abbrev ArtTruePost (cx art : BitVec 64) (s : ArCtxState) (g : Aig)
       tablesEndTop g.ands.length g.outs.length s'.n_nets.toNat s'.n_in.toNat s'.n_out.toNat ∧
     s'.top.toNat ≤ s'.wlen.toNat ∧ TablesGeom s' g.ands.length g.outs.length
       s'.n_nets.toNat s'.n_in.toNat s'.n_out.toNat s'.top.toNat ∧
-    MasksOk s'.n_out.toNat s'.mlo s'.mhi ∧ BindRep s' g bindArr inNetArr outRefArr ∧
+    MasksOk s'.modW s'.mlo s'.mhi ∧ BindRep s' g bindArr inNetArr outRefArr ∧
     bindArr.length = s'.n_nets.toNat ∧ ruleOff.length = s'.n_nets.toNat ∧
     ruleN.length = s'.n_nets.toNat ∧ partnerArr.length = s'.n_nets.toNat ∧
     flippedArr.length = s'.n_nets.toNat ∧ inNetArr.length = s'.n_in.toNat ∧
@@ -415,7 +426,7 @@ private abbrev ArtTruePost (cx art : BitVec 64) (s : ArCtxState) (g : Aig)
     gsy.length = 85 ∧ gcl.length = 16 ∧ gch.length = 16 ∧
     (∀ i < s'.n_nets.toNat, flippedArr.getD i 0#8 = 0#8) ∧
     (∀ σ : Nat → Bool, PartnerRep σ s'.n_nets.toNat partnerArr ∧
-      RulesRep s'.n_out.toNat σ s' ruleOff ruleN [] [] [] []) ∧
+      RulesRep s'.modW σ s' ruleOff ruleN [] [] [] []) ∧
     (arCtxMem cx s' ⋆ aigArraysMem s' rhs0 rhs1 olit ⋆
       netTablesMem s' bindArr ruleOff ruleN partnerArr flippedArr inNetArr outRefArr ⋆
       gateScratchMem s' stkN stkP memoN memoV dense gsy gcl gch ⋆
@@ -467,9 +478,14 @@ private structure ArtLoopCtx where
     s2.n_out = h4 ∧ s2.n_nets = h5 ∧ s2.rs_n = 0#32 ∧ s2.rs_ptop = 0#64 ∧
     s2.rs_cap = 0#32 ∧ s2.rs_pcap = 0#64 ∧ s2.ptop = s.ptop ∧ s2.tn = s.tn ∧
     s2.qn = s.qn ∧ s2.pc = s.pc ∧ s2.tc = s.tc ∧ s2.cur_nr = s.cur_nr ∧
-    s2.top.toNat = top15.toNat ∧ MasksOk s2.n_out.toNat s2.mlo s2.mhi
-  hh_ok : (h2 = 0#32 ∨ h2 = 1#32) ∧ h3.toNat % 2 = 0 ∧ 2 ≤ h3.toNat ∧ h3 = s.I ∧
-    h3.toNat ≤ 0x3FFFFFFF ∧ 1 ≤ h4.toNat ∧ h4.toNat ≤ 128 ∧ h4 = s.O ∧ h5.toNat ≤ 0x3FFFFFFF
+    s2.top.toNat = top15.toNat ∧ MasksOk s2.modW s2.mlo s2.mhi
+  hh_ok : h2 = BitVec.ofNat 32 (wordAt artBytes 2) ∧
+    (h2 = 0#32 ∨ h2 = 1#32 ∨ h2 = 2#32) ∧
+    (h2 ≠ 2#32 → h3.toNat % 2 = 0 ∧ 2 ≤ h3.toNat) ∧ h3 = s.I ∧
+    h3.toNat ≤ 0x3FFFFFFF ∧
+    (if h2 = 2#32 then h4.toNat % 2 = 0 ∧ 2 ≤ h4.toNat ∧ h4.toNat / 2 ≤ 128
+     else 1 ≤ h4.toNat ∧ h4.toNat ≤ 128) ∧
+    h4 = s.O ∧ h5.toNat ≤ 0x3FFFFFFF
   hslens : stkN.length = arTTStk ∧ stkP.length = arTTStk ∧ memoN.length = arTTMaxAnd ∧
     memoV.length = arTTMaxAnd ∧ dense.length = 128 ∧ gsy.length = 85 ∧ gcl.length = 16 ∧
     gch.length = 16
@@ -506,11 +522,15 @@ private theorem art_build_true_post (C : ArtLoopCtx)
     (louC : ouC.length = C.h4.toNat)
     (hinvA : ∀ k < C.h5.toNat, (bC.getD k 0#32 ≠ cNone32 → (bC.getD k 0#32).toNat ≤ 2 * C.g.M + 1) ∧
       rnC.getD k 0#32 = cNone32 ∧ pC.getD k 0#32 = cNone32 ∧ fC.getD k 0#8 = 0#8)
-    (hinvB : ∀ k < C.h3.toNat, (inC.getD k 0#32).toNat < C.h5.toNat ∧
-      (bC.getD (inC.getD k 0#32).toNat 0#32).toNat = 2 * (k + 1))
-    (hinvC : ∀ k < C.h4.toNat, ((ouC.getD k 0#32) >>> 1).toNat < C.h5.toNat ∧
-      let bk := bC.getD ((ouC.getD k 0#32) >>> 1).toNat 0#32
-      bk ≠ cNone32 ∧ (bk ^^^ ((ouC.getD k 0#32) &&& 1#32)).toNat = C.g.outs.getD k 0)
+    (hinvB : ∀ k < C.h3.toNat,
+      (C.h2 = 2#32 ∧ inC.getD k 0#32 = cNone32) ∨
+      ((inC.getD k 0#32).toNat < C.h5.toNat ∧
+       (bC.getD (inC.getD k 0#32).toNat 0#32).toNat = 2 * (k + 1)))
+    (hinvC : ∀ k < C.h4.toNat,
+      (C.h2 = 2#32 ∧ ouC.getD k 0#32 = cNone32 ∧ C.g.outs.getD k 0 ≤ 1) ∨
+      (((ouC.getD k 0#32) >>> 1).toNat < C.h5.toNat ∧
+       let bk := bC.getD ((ouC.getD k 0#32) >>> 1).toNat 0#32
+       bk ≠ cNone32 ∧ (bk ^^^ ((ouC.getD k 0#32) &&& 1#32)).toNat = C.g.outs.getD k 0))
     (hjC_eq : idx.toNat = C.h4.toNat)
     (hmC : ArtLoopMem C.cx C.art C.s2
       { C.s2 with pos := BitVec.ofNat 64 (10 + C.h5.toNat + C.h3.toNat + idx.toNat) }
@@ -522,7 +542,7 @@ private theorem art_build_true_post (C : ArtLoopCtx)
     hs2_spec, hs2_nin, hs2_nout, hs2_nnets, hs2_rn, hs2_rpt, hs2_rc, hs2_rpc,
     hs2_ptop, hs2_tn, hs2_qn, hs2_pc, hs2_tc, hs2_cnr, hs2_top, hmasks2⟩ :=
     C.hs2_eqs
-  obtain ⟨hspec, hh3_even, hh3_ge2, hh3_I, _, hh4_ge1, hh4_le128, hh4_O, hh5_le⟩ := C.hh_ok
+  obtain ⟨hh2_word, hspec, hh3_ev, hh3_I, _, hh4_bd, hh4_O, hh5_le⟩ := C.hh_ok
   obtain ⟨hsn, hsp, hmn, hmv, hd, hgy, hcl, hch⟩ := C.hslens
   let sFin : ArCtxState :=
     { C.s2 with pos := BitVec.ofNat 64 (10 + C.h5.toNat + C.h3.toNat + C.h4.toNat) }
@@ -551,28 +571,49 @@ private theorem art_build_true_post (C : ArtLoopCtx)
       C.hgeom.memo_n_eq, C.hgeom.memo_v_eq, C.hgeom.dense_eq, C.hgeom.gsy_eq, C.hgeom.gcl_eq,
       C.hgeom.gch_eq⟩
   have hI3 : C.h3.toNat = C.g.I := by rw [← hI_eq, hh3_I]
+  have hO4 : C.h4.toNat = C.g.outs.length := by rw [← hO_eq, hh4_O]
+  have hsFin_spec : sFin.spec = C.h2 := hs2_spec
+  have hsFin_modW : sFin.modW = C.s2.modW := rfl
   have hbindRep : BindRep sFin C.g bC inC ouC :=
-    ⟨by change C.s2.n_nets.toNat ≤ bC.length; rw [hs2_nnets]; omega,
+    ⟨by change C.s2.n_nets.toNat ≤ 0x3FFFFFFF; rw [hs2_nnets]; exact hh5_le,
+     by change C.s2.n_nets.toNat ≤ bC.length; rw [hs2_nnets]; omega,
      fun v hv hne => (hinvA v (by rw [← hs2_nnets]; exact hv)).1 hne,
+     by rw [hsFin_spec]; exact hspec,
      by change C.s2.n_in.toNat ≤ inC.length; rw [hs2_nin]; omega,
      by change C.s2.n_in.toNat = C.g.I; rw [hs2_nin]; exact hI3,
-     ⟨by rw [← hI3]; exact hh3_even, by rw [← hI3]; exact hh3_ge2⟩,
-     fun i hi => by rw [hs2_nin] at hi; rw [hs2_nnets]; exact hinvB i hi,
+     fun hns => by rw [hsFin_spec] at hns; rw [← hI3]; exact hh3_ev hns,
+     fun i hi => by
+       rw [hs2_nin] at hi; rw [hsFin_spec, hs2_nnets]; exact hinvB i hi,
      by change C.s2.n_out.toNat ≤ ouC.length; rw [hs2_nout]; omega,
-     by change C.s2.n_out.toNat = C.g.outs.length; rw [hs2_nout, hh4_O]; exact hO_eq,
-     ⟨by change 1 ≤ C.s2.n_out.toNat; rw [hs2_nout]; exact hh4_ge1,
-      by change C.s2.n_out.toNat ≤ 128; rw [hs2_nout]; exact hh4_le128⟩,
-     fun j hj => by rw [hs2_nout] at hj; rw [hs2_nnets]; exact hinvC j hj⟩
+     by change C.s2.n_out.toNat = C.g.outs.length; exact hs2_nout ▸ hO4,
+     fun hs2 => by
+       rw [hsFin_spec] at hs2
+       simp only [hs2, ↓reduceIte] at hh4_bd
+       rw [← hO4]; exact hh4_bd.1,
+     by
+       have hmw_bd : 1 ≤ sFin.modW ∧ sFin.modW ≤ 128 := by
+         dsimp only [ArCtxState.modW]
+         rw [hsFin_spec]
+         change 1 ≤ (if C.h2 = 2#32 then C.s2.n_out.toNat / 2 else C.s2.n_out.toNat) ∧
+           (if C.h2 = 2#32 then C.s2.n_out.toNat / 2 else C.s2.n_out.toNat) ≤ 128
+         rw [hs2_nout]
+         by_cases hc2 : C.h2 = 2#32
+         · simp only [hc2, ↓reduceIte] at hh4_bd ⊢; omega
+         · simp only [hc2, ↓reduceIte] at hh4_bd ⊢; omega
+       exact hmw_bd,
+     fun j hj => by
+       rw [hs2_nout] at hj; rw [hsFin_spec, hs2_nnets]; exact hinvC j hj⟩
   refine C.hQ true mC (Or.inr ⟨rfl, sFin, bC, roC, rnC, pC, fC, inC, ouC,
     C.stkN, C.stkP, C.memoN, C.memoV, C.dense, C.gsy, C.gcl, C.gch,
     hs2_w, hs2_wl, hs2_art, hs2_nw4, hsFin_pos,
     by rw [hsFin_pos, show sFin.n_nets = C.h5 from hs2_nnets, show sFin.n_in = C.h3 from hs2_nin,
       show sFin.n_out = C.h4 from hs2_nout]; exact hs2_pos_lt,
     hs2_M, hs2_I, hs2_A, hs2_O, by change C.s2.n_nets.toNat ≤ _; rw [hs2_nnets]; exact hh5_le,
-    by change C.s2.spec = _ ∨ _; rw [hs2_spec]; exact hspec,
+    by rw [hsFin_spec]; exact hh2_word,
+    by rw [hsFin_spec]; exact hspec,
     hs2_rn, hs2_rpt, hs2_rc, hs2_rpc, hs2_ptop, hs2_tn, hs2_qn, hs2_pc, hs2_tc, hs2_cnr, hsFin_top,
     by change C.s2.top.toNat ≤ C.s2.wlen.toNat; rw [hs2_top, hs2_wl]; exact ht15,
-    hsFin_geom, hmasks2, hbindRep,
+    hsFin_geom, hsFin_modW ▸ hmasks2, hbindRep,
     by rw [← hs2_nnets] at lb; exact lb, by rw [← hs2_nnets] at lro; exact lro,
     by rw [← hs2_nnets] at lrn; exact lrn, by rw [← hs2_nnets] at lp; exact lp,
     by rw [← hs2_nnets] at lf; exact lf, by rw [← hs2_nin] at linC; exact linC,
@@ -646,6 +687,8 @@ private def artLoopWalk (stopAt : Nat) (exitNext : Bool) (ok0 : Val .bool) (idx0
       else artLoopWalk stopAt false ok0 idx0 f nCalls t
     | .group (sig := [[]]) bs _ => match bs (artDc _) with
       | .cons b _ => artLoopWalk stopAt exitNext ok0 idx0 f nCalls (b ⟨⟩)
+    | .group (sig := [[.bits 32]]) bs _ => match bs (artDc _) with
+      | .cons b _ => artLoopWalk stopAt exitNext ok0 idx0 f nCalls (b (0#32, ⟨⟩))
     | .group (sig := [[.bool, .bits 32]]) bs k => if stopAt == 0 then .group bs k
       else match bs (artDc _) with
         | .cons b _ => artLoopWalk (stopAt - 1) true ok0 idx0 f nCalls (b (ok0, idx0, ⟨⟩))
@@ -666,17 +709,20 @@ private theorem art_loopC_wp (Γ : LeanQbe.T.Env)
     (linC : inC.length = C.h3.toNat) (lou0 : outRefArr.length = C.h4.toNat)
     (hinvA : ∀ k < C.h5.toNat, (bC.getD k 0#32 ≠ cNone32 → (bC.getD k 0#32).toNat ≤ 2 * C.g.M + 1) ∧
       rnC.getD k 0#32 = cNone32 ∧ pC.getD k 0#32 = cNone32 ∧ fC.getD k 0#8 = 0#8)
-    (hinvB : ∀ k < C.h3.toNat, (inC.getD k 0#32).toNat < C.h5.toNat ∧
-      (bC.getD (inC.getD k 0#32).toNat 0#32).toNat = 2 * (k + 1))
+    (hinvB : ∀ k < C.h3.toNat,
+      (C.h2 = 2#32 ∧ inC.getD k 0#32 = cNone32) ∨
+      ((inC.getD k 0#32).toNat < C.h5.toNat ∧
+       (bC.getD (inC.getD k 0#32).toNat 0#32).toNat = 2 * (k + 1)))
     (hm0 : ArtLoopMem C.cx C.art C.s2
       { C.s2 with pos := BitVec.ofNat 64 (10 + C.h5.toNat + C.h3.toNat) }
       bC roC rnC pC fC inC outRefArr C.olit C.rhs0 C.rhs1 C.g.outs.length C.h5.toNat C.h3.toNat
       C.h4.toNat C.top15.toNat C.stkN C.stkP C.memoN C.memoV C.dense C.gsy C.gcl C.gch
       C.artBytes C.R m) : wp Γ C.Q X (artLoopExpr 2 C.cx okB idxB) m := by
   obtain ⟨_, _, _, hart_fit, _, _, _, _, hO_eq⟩ := C.hbounds
-  obtain ⟨hs2_w, hs2_wl, hs2_art, _, hs2_nw_le, _, _, _, _, _, _, _, hs2_nout, hs2_nnets, _⟩ :=
+  obtain ⟨hs2_w, hs2_wl, hs2_art, _, hs2_nw_le, _, _, _, _, _, hs2_spec, _, hs2_nout,
+      hs2_nnets, _⟩ :=
     C.hs2_eqs
-  obtain ⟨_, _, _, _, _, _, _, hh4_O, _⟩ := C.hh_ok
+  obtain ⟨_, _, _, _, _, _, hh4_O, _⟩ := C.hh_ok
   have hltC : ∀ k < C.h4.toNat, 10 + C.h5.toNat + C.h3.toNat + k + 1 < 2 ^ 64 :=
     fun k hk => by omega
   refine c0_while_state (α := ArtLoopSt) (fun st => (st.ok, st.idx, ()))
@@ -687,9 +733,11 @@ private theorem art_loopC_wp (Γ : LeanQbe.T.Env)
         bC roC rnC pC fC inC ouC C.olit C.rhs0 C.rhs1 C.g.outs.length C.h5.toNat C.h3.toNat
         C.h4.toNat C.top15.toNat C.stkN C.stkP C.memoN C.memoV C.dense C.gsy C.gcl C.gch
         C.artBytes C.R mC ∧
-      (∀ k < st.idx.toNat, ((ouC.getD k 0#32) >>> 1).toNat < C.h5.toNat ∧
-        let bk := bC.getD ((ouC.getD k 0#32) >>> 1).toNat 0#32
-        bk ≠ cNone32 ∧ (bk ^^^ ((ouC.getD k 0#32) &&& 1#32)).toNat = C.g.outs.getD k 0))
+      (∀ k < st.idx.toNat,
+        (C.h2 = 2#32 ∧ ouC.getD k 0#32 = cNone32 ∧ C.g.outs.getD k 0 ≤ 1) ∨
+        (((ouC.getD k 0#32) >>> 1).toNat < C.h5.toNat ∧
+         let bk := bC.getD ((ouC.getD k 0#32) >>> 1).toNat 0#32
+         bk ≠ cNone32 ∧ (bk ^^^ ((ouC.getD k 0#32) &&& 1#32)).toNat = C.g.outs.getD k 0)))
     (fun JC hJC => by
       c0_hsteps_nogrp
       exact hJC ⟨okB, 0#32⟩ m
@@ -708,55 +756,94 @@ private theorem art_loopC_wp (Γ : LeanQbe.T.Env)
         obtain ⟨_, _, hmC_ok⟩ := hokC_t hc; clear hc
         let sC1 :=
           { C.s2 with pos := BitVec.ofNat 64 (10 + C.h5.toNat + C.h3.toNat + stC.idx.toNat + 1) }
-        c0_hsplit
-        · c0_hstraight; exact art_fail_ctx C sC1 lb lro lrn lp lf linC louC hs2_w hs2_wl hmC_ok
-        have hr_lt : (r >>> 1#32).toNat < C.h5.toNat := by
-          rw [hs2_nnets] at hc; rw [bv32_shr1_toNat]; try rw [Nat.shiftRight_eq_div_pow] at hc
-          exact Nat.lt_of_not_le hc
-        clear hc
-        have hr64 : ((r >>> 1#32).setWidth 64).toNat = (r >>> 1#32).toNat :=
-          u64_setWidth_toNat (r >>> 1#32)
-        have hbr_len : (r >>> 1#32).toNat < bC.length := by rw [lb]; exact hr_lt
-        have hbr_len2 : r.toNat / 2 < bC.length := by rw [← bv32_shr1_toNat]; exact hbr_len
-        have hbr64 : ((r >>> 1#32).setWidth 64).toNat < bC.length := by rw [hr64]; exact hbr_len
-        c0_hstraight; try dsimp only; c0_hfast_nobound; c0_hsplit_nobound
-        · c0_hstraight; exact art_fail_ctx C sC1 lb lro lrn lp lf linC louC hs2_w hs2_wl hmC_ok
-        have hb_ne : bC.getD (r >>> 1#32).toNat 0#32 ≠ cNone32 := by
-          rw [bv32_shr1_toNat, List.getD_eq_getElem?_getD,
-            List.getElem?_eq_getElem hbr_len2, Option.getD_some]; exact hc
-        clear hc
+        have hj64 : (stC.idx.setWidth 64).toNat = stC.idx.toNat := u64_setWidth_toNat stC.idx
         have holj : stC.idx.toNat < C.olit.length := by
           rw [C.hrep.olit_len, ← hO_eq, ← congrArg BitVec.toNat hh4_O]; exact hjC_lt
-        have holj64 : (stC.idx.setWidth 64).toNat < C.olit.length := by
-          rw [u64_setWidth_toNat]; exact holj
-        try dsimp only [ArCtxState.olit]
-        c0_hstraight; c0_hsplit_nobound
-        · c0_hstraight; exact art_fail_ctx C sC1 lb lro lrn lp lf linC louC hs2_w hs2_wl hmC_ok
-        have hj64 : (stC.idx.setWidth 64).toNat = stC.idx.toNat := u64_setWidth_toNat stC.idx
-        have hxor_eq : (bC.getD (r >>> 1#32).toNat 0#32 ^^^ (r &&& 1#32)) =
-            C.olit.getD stC.idx.toNat 0#32 := by
-          rw [bv32_shr1_toNat, List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hbr_len2,
-            Option.getD_some, List.getD_eq_getElem?_getD, List.getElem?_eq_getElem holj,
-            Option.getD_some]; exact hc
-        clear hc; have houj : stC.idx.toNat < ouC.length := by rw [louC]; exact hjC_lt
+        have holj64 : (stC.idx.setWidth 64).toNat < C.olit.length := by rw [hj64]; exact holj
+        have houj : stC.idx.toNat < ouC.length := by rw [louC]; exact hjC_lt
         have houj64 : (stC.idx.setWidth 64).toNat < ouC.length := by rw [hj64]; exact houj
-        c0_hstraight; try dsimp only; c0_hfast_nobound
-        try dsimp only [ArCtxState.out_ref] at hm; rw [hj64] at hm
         have hjC1 : (stC.idx + 1#32).toNat = stC.idx.toNat + 1 := bv32_add1_toNat hjC_lt
-        refine hJC ⟨okC, stC.idx + 1#32⟩ m
-          (by dsimp only; rw [hjC1]; exact Nat.sub_lt_sub_left hjC_lt (Nat.lt_succ_self _))
-          ⟨ouC.set stC.idx.toNat r, by dsimp only; rw [hjC1]; exact hjC_lt, by simp [louC],
-           by dsimp only [ArtLoopMem]; rw [hjC1, ← Nat.add_assoc]; exact sep_cast hm (by ac_rfl),
-           fun k hk => ?_⟩
-        dsimp only at hk; rw [hjC1] at hk; rw [getD_set_nat 0#32 ouC stC.idx.toNat r (by omega)]
-        by_cases hlt : k < stC.idx.toNat
-        · have hne : k ≠ stC.idx.toNat := by omega
-          simp only [hne, ↓reduceIte]; exact hinvC k hlt
-        · have heq : k = stC.idx.toNat := by omega
-          simp only [heq, ↓reduceIte]; refine ⟨hr_lt, hb_ne, ?_⟩
-          rw [show (r >>> 1 : BitVec 32).toNat = (r >>> 1#32).toNat from rfl, hxor_eq]
-          exact C.hrep.olit_eq stC.idx.toNat
-            (by rw [← hO_eq, ← congrArg BitVec.toNat hh4_O]; exact hjC_lt)
+        refine wp_unroll_group fun _ _ => ?_
+        c0_hsplit
+        · have hr_none : r = cNone32 := hc; clear hc
+          c0_hsplit
+          · c0_hstraight
+            exact art_fail_ctx C sC1 lb lro lrn lp lf linC louC hs2_w hs2_wl hmC_ok
+          · have hspec2 : C.h2 = 2#32 := by rw [← hs2_spec]; exact hc
+            clear hc; try dsimp only [ArCtxState.olit]
+            c0_hsplit_nobound
+            · c0_hstraight
+              exact art_fail_ctx C sC1 lb lro lrn lp lf linC louC hs2_w hs2_wl hmC_ok
+            · have hol_le1 : C.g.outs.getD stC.idx.toNat 0 ≤ 1 := by
+                have hnot :
+                    ¬ (1#32 : BitVec 32).toNat < (C.olit.getD stC.idx.toNat 0#32).toNat := by
+                  rw [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem holj, Option.getD_some]
+                  exact hc
+                have hle1 : (C.olit.getD stC.idx.toNat 0#32).toNat ≤ 1 := by
+                  rw [show (1#32 : BitVec 32).toNat = 1 from rfl] at hnot; omega
+                rw [← C.hrep.olit_eq stC.idx.toNat
+                  (by rw [← hO_eq, ← congrArg BitVec.toNat hh4_O]; exact hjC_lt)]
+                exact hle1
+              clear hc; c0_hsteps_nogrp
+              dsimp only [ArCtxState.out_ref] at hm; rw [hj64] at hm
+              refine hJC ⟨okC, stC.idx + 1#32⟩ m
+                (by dsimp only; rw [hjC1]; exact Nat.sub_lt_sub_left hjC_lt (Nat.lt_succ_self _))
+                ⟨ouC.set stC.idx.toNat cNone32, by dsimp only; rw [hjC1]; exact hjC_lt,
+                 by simp [louC],
+                 by dsimp only [ArtLoopMem]; rw [hjC1]; simp only [Nat.add_assoc] at hm ⊢
+                    exact sep_cast hm (by ac_rfl),
+                 fun k hk => ?_⟩
+              dsimp only at hk; rw [hjC1] at hk
+              rw [getD_set_nat 0#32 ouC stC.idx.toNat cNone32 (by omega)]
+              by_cases hlt : k < stC.idx.toNat
+              · have hne : k ≠ stC.idx.toNat := by omega
+                simp only [hne, ↓reduceIte]; exact hinvC k hlt
+              · have heq : k = stC.idx.toNat := by omega
+                simp only [heq, ↓reduceIte]; exact Or.inl ⟨hspec2, trivial, hol_le1⟩
+        · clear hc
+          c0_hsplit
+          · c0_hstraight; exact art_fail_ctx C sC1 lb lro lrn lp lf linC louC hs2_w hs2_wl hmC_ok
+          · have hr_lt : (r >>> 1#32).toNat < C.h5.toNat := by
+              rw [hs2_nnets] at hc; rw [bv32_shr1_toNat]; try rw [Nat.shiftRight_eq_div_pow] at hc
+              exact Nat.lt_of_not_le hc
+            clear hc
+            have hr64 : ((r >>> 1#32).setWidth 64).toNat = (r >>> 1#32).toNat :=
+              u64_setWidth_toNat (r >>> 1#32)
+            have hbr_len : (r >>> 1#32).toNat < bC.length := by rw [lb]; exact hr_lt
+            have hbr_len2 : r.toNat / 2 < bC.length := by rw [← bv32_shr1_toNat]; exact hbr_len
+            have hbr64 : ((r >>> 1#32).setWidth 64).toNat < bC.length := by rw [hr64]; exact hbr_len
+            c0_hsplit_nobound
+            · c0_hstraight; exact art_fail_ctx C sC1 lb lro lrn lp lf linC louC hs2_w hs2_wl hmC_ok
+            have hb_ne : bC.getD (r >>> 1#32).toNat 0#32 ≠ cNone32 := by
+              rw [bv32_shr1_toNat, List.getD_eq_getElem?_getD,
+                List.getElem?_eq_getElem hbr_len2, Option.getD_some]; exact hc
+            clear hc
+            try dsimp only [ArCtxState.olit]
+            c0_hsplit_nobound
+            · c0_hstraight; exact art_fail_ctx C sC1 lb lro lrn lp lf linC louC hs2_w hs2_wl hmC_ok
+            have hxor_eq : (bC.getD (r >>> 1#32).toNat 0#32 ^^^ (r &&& 1#32)) =
+                C.olit.getD stC.idx.toNat 0#32 := by
+              rw [bv32_shr1_toNat, List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hbr_len2,
+                Option.getD_some, List.getD_eq_getElem?_getD, List.getElem?_eq_getElem holj,
+                Option.getD_some]; exact hc
+            clear hc
+            c0_hsteps_nogrp
+            dsimp only [ArCtxState.out_ref] at hm; rw [hj64] at hm
+            refine hJC ⟨okC, stC.idx + 1#32⟩ m
+              (by dsimp only; rw [hjC1]; exact Nat.sub_lt_sub_left hjC_lt (Nat.lt_succ_self _))
+              ⟨ouC.set stC.idx.toNat r, by dsimp only; rw [hjC1]; exact hjC_lt, by simp [louC],
+               by dsimp only [ArtLoopMem]; rw [hjC1]; simp only [Nat.add_assoc] at hm ⊢
+                  exact sep_cast hm (by ac_rfl),
+               fun k hk => ?_⟩
+            dsimp only at hk; rw [hjC1] at hk; rw [getD_set_nat 0#32 ouC stC.idx.toNat r (by omega)]
+            by_cases hlt : k < stC.idx.toNat
+            · have hne : k ≠ stC.idx.toNat := by omega
+              simp only [hne, ↓reduceIte]; exact hinvC k hlt
+            · have heq : k = stC.idx.toNat := by omega
+              simp only [heq, ↓reduceIte]; refine Or.inr ⟨hr_lt, hb_ne, ?_⟩
+              rw [show (r >>> 1 : BitVec 32).toNat = (r >>> 1#32).toNat from rfl, hxor_eq]
+              exact C.hrep.olit_eq stC.idx.toNat
+                (by rw [← hO_eq, ← congrArg BitVec.toNat hh4_O]; exact hjC_lt)
       · have hjC_eq : stC.idx.toNat = C.h4.toNat := by
           rw [hs2_nout] at hc; exact Nat.le_antisymm hjC (Nat.le_of_not_lt hc)
         clear hc; c0_hsteps
@@ -778,7 +865,8 @@ private theorem art_loopB_wp (Γ : LeanQbe.T.Env)
       C.h4.toNat C.top15.toNat C.stkN C.stkP C.memoN C.memoV C.dense C.gsy C.gcl C.gch
       C.artBytes C.R m) : wp Γ C.Q X (artLoopExpr 1 C.cx okA idxA) m := by
   obtain ⟨_, _, _, hart_fit, _⟩ := C.hbounds
-  obtain ⟨hs2_w, hs2_wl, hs2_art, _, hs2_nw_le, _, _, _, _, _, _, hs2_nin, _, hs2_nnets, _⟩ :=
+  obtain ⟨hs2_w, hs2_wl, hs2_art, _, hs2_nw_le, _, _, _, _, _, hs2_spec, hs2_nin, _,
+      hs2_nnets, _⟩ :=
     C.hs2_eqs
   obtain ⟨_, _, _, _, hh3_le, _⟩ := C.hh_ok
   have hltB : ∀ k < C.h3.toNat, 10 + C.h5.toNat + k + 1 < 2 ^ 64 := fun k hk => by omega
@@ -790,8 +878,10 @@ private theorem art_loopB_wp (Γ : LeanQbe.T.Env)
         bC roC rnC pC fC inC outRefArr C.olit C.rhs0 C.rhs1 C.g.outs.length C.h5.toNat C.h3.toNat
         C.h4.toNat C.top15.toNat C.stkN C.stkP C.memoN C.memoV C.dense C.gsy C.gcl C.gch
         C.artBytes C.R mB ∧
-      (∀ k < st.idx.toNat, (inC.getD k 0#32).toNat < C.h5.toNat ∧
-        (bC.getD (inC.getD k 0#32).toNat 0#32).toNat = 2 * (k + 1)))
+      (∀ k < st.idx.toNat,
+        (C.h2 = 2#32 ∧ inC.getD k 0#32 = cNone32) ∨
+        ((inC.getD k 0#32).toNat < C.h5.toNat ∧
+         (bC.getD (inC.getD k 0#32).toNat 0#32).toNat = 2 * (k + 1))))
     (fun JB hJB => by
       c0_hsteps_nogrp
       exact hJB ⟨okA, 0#32⟩ m
@@ -809,35 +899,63 @@ private theorem art_loopB_wp (Γ : LeanQbe.T.Env)
           exact art_fail_ctx C s' lb lro lrn lp lf linC lou0 (hs2_w ▸ hw') (hs2_wl ▸ hwl') hm'
         obtain ⟨_, _, hmB_ok⟩ := hokB_t hc; clear hc
         let sB1 := { C.s2 with pos := BitVec.ofNat 64 (10 + C.h5.toNat + stB.idx.toNat + 1) }
-        c0_hsplit
-        · c0_hstraight; exact art_fail_ctx C sB1 lb lro lrn lp lf linC lou0 hs2_w hs2_wl hmB_ok
-        have hv_lt : v.toNat < C.h5.toNat := by rw [hs2_nnets] at hc; exact Nat.lt_of_not_le hc
-        clear hc; have hv64 : (v.setWidth 64).toNat = v.toNat := u64_setWidth_toNat v
-        have hbv_len : v.toNat < bC.length := by rw [lb]; exact hv_lt
-        have hbv64 : (v.setWidth 64).toNat < bC.length := by rw [hv64]; exact hbv_len
-        c0_hstraight; try dsimp only; c0_hsplit_nobound
-        · c0_hstraight; exact art_fail_ctx C sB1 lb lro lrn lp lf linC lou0 hs2_w hs2_wl hmB_ok
-        have hbv_eq : bC.getD v.toNat 0#32 = 2#32 * (stB.idx + 1#32) := by
-          rw [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hbv_len, Option.getD_some]
-          exact hc
-        clear hc; have hini : stB.idx.toNat < inC.length := by rw [linC]; exact hiB_lt
+        have hini : stB.idx.toNat < inC.length := by rw [linC]; exact hiB_lt
         have hini64 : (stB.idx.setWidth 64).toNat < inC.length := by
           rw [u64_setWidth_toNat]; exact hini
-        c0_hstraight; try dsimp only; c0_hfast_nobound
-        dsimp only [ArCtxState.in_net] at hm
-        rw [u64_setWidth_toNat stB.idx] at hm
         have hiB1 : (stB.idx + 1#32).toNat = stB.idx.toNat + 1 := bv32_add1_toNat hiB_lt
-        refine hJB ⟨okB, stB.idx + 1#32⟩ m
-          (by dsimp only; rw [hiB1]; exact Nat.sub_lt_sub_left hiB_lt (Nat.lt_succ_self _))
-          ⟨inC.set stB.idx.toNat v, by dsimp only; rw [hiB1]; exact hiB_lt, by simp [linC],
-           by dsimp only [ArtLoopMem]; rw [hiB1, ← Nat.add_assoc]; exact sep_cast hm (by ac_rfl),
-           fun k hk => ?_⟩
-        dsimp only at hk; rw [hiB1] at hk; rw [getD_set_nat 0#32 inC stB.idx.toNat v (by omega)]
-        by_cases hlt : k < stB.idx.toNat
-        · have hne : k ≠ stB.idx.toNat := by omega
-          simp only [hne, ↓reduceIte]; exact hinvB k hlt
-        · have heq : k = stB.idx.toNat := by omega
-          simp only [heq, ↓reduceIte]; exact ⟨hv_lt, by rw [hbv_eq, bv32_mul2_add1_i hh3_le hiB_lt]⟩
+        refine wp_unroll_group fun _ _ => ?_
+        c0_hsplit
+        · have hv_none : v = cNone32 := hc; clear hc
+          c0_hsteps_nogrp
+          c0_hsplit
+          · c0_hstraight; exact art_fail_ctx C sB1 lb lro lrn lp lf linC lou0 hs2_w hs2_wl hmB_ok
+          · have hspec2 : C.h2 = 2#32 := by rw [← hs2_spec]; exact hc
+            clear hc; c0_hstraight; try dsimp only; c0_hfast_nobound
+            dsimp only [ArCtxState.in_net] at hm
+            rw [u64_setWidth_toNat stB.idx] at hm
+            refine hJB ⟨okB, stB.idx + 1#32⟩ m
+              (by dsimp only; rw [hiB1]; exact Nat.sub_lt_sub_left hiB_lt (Nat.lt_succ_self _))
+              ⟨inC.set stB.idx.toNat cNone32, by dsimp only; rw [hiB1]; exact hiB_lt,
+               by simp [linC],
+               by dsimp only [ArtLoopMem]; rw [hiB1, ← Nat.add_assoc]
+                  exact sep_cast hm (by ac_rfl),
+               fun k hk => ?_⟩
+            dsimp only at hk; rw [hiB1] at hk
+            rw [getD_set_nat 0#32 inC stB.idx.toNat cNone32 (by omega)]
+            by_cases hlt : k < stB.idx.toNat
+            · have hne : k ≠ stB.idx.toNat := by omega
+              simp only [hne, ↓reduceIte]; exact hinvB k hlt
+            · have heq : k = stB.idx.toNat := by omega
+              simp only [heq, ↓reduceIte]; exact Or.inl ⟨hspec2, trivial⟩
+        · clear hc
+          c0_hsplit
+          · c0_hstraight; exact art_fail_ctx C sB1 lb lro lrn lp lf linC lou0 hs2_w hs2_wl hmB_ok
+          · have hv_lt : v.toNat < C.h5.toNat := by rw [hs2_nnets] at hc; exact Nat.lt_of_not_le hc
+            clear hc; have hv64 : (v.setWidth 64).toNat = v.toNat := u64_setWidth_toNat v
+            have hbv_len : v.toNat < bC.length := by rw [lb]; exact hv_lt
+            have hbv64 : (v.setWidth 64).toNat < bC.length := by rw [hv64]; exact hbv_len
+            c0_hstraight; try dsimp only; c0_hsplit_nobound
+            · c0_hstraight; exact art_fail_ctx C sB1 lb lro lrn lp lf linC lou0 hs2_w hs2_wl hmB_ok
+            have hbv_eq : bC.getD v.toNat 0#32 = 2#32 * (stB.idx + 1#32) := by
+              rw [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hbv_len, Option.getD_some]
+              exact hc
+            clear hc
+            c0_hstraight; try dsimp only; c0_hfast_nobound
+            dsimp only [ArCtxState.in_net] at hm
+            rw [u64_setWidth_toNat stB.idx] at hm
+            refine hJB ⟨okB, stB.idx + 1#32⟩ m
+              (by dsimp only; rw [hiB1]; exact Nat.sub_lt_sub_left hiB_lt (Nat.lt_succ_self _))
+              ⟨inC.set stB.idx.toNat v, by dsimp only; rw [hiB1]; exact hiB_lt, by simp [linC],
+               by dsimp only [ArtLoopMem]; rw [hiB1, ← Nat.add_assoc]
+                  exact sep_cast hm (by ac_rfl),
+               fun k hk => ?_⟩
+            dsimp only at hk; rw [hiB1] at hk; rw [getD_set_nat 0#32 inC stB.idx.toNat v (by omega)]
+            by_cases hlt : k < stB.idx.toNat
+            · have hne : k ≠ stB.idx.toNat := by omega
+              simp only [hne, ↓reduceIte]; exact hinvB k hlt
+            · have heq : k = stB.idx.toNat := by omega
+              simp only [heq, ↓reduceIte]
+              exact Or.inr ⟨hv_lt, by rw [hbv_eq, bv32_mul2_add1_i hh3_le hiB_lt]⟩
       · have hiB_eq : stB.idx.toNat = C.h3.toNat := by
           rw [hs2_nin] at hc; exact Nat.le_antisymm hiB (Nat.le_of_not_lt hc)
         clear hc; c0_hstraight; change wp Γ C.Q X (artLoopExpr 2 C.cx stB.ok stB.idx) mB
@@ -1020,7 +1138,12 @@ theorem ar_parse_art_header_and_tables_wp (Γ : LeanQbe.T.Env)
       sep_mono_r (fun _ => sep_pull5r) hm
     art_nw_word 0 1 Γ hNW s0 hart_fit hnw_le hm_pre_fail ok0 h0 m0 hm hc hm0
     art_nw_word 1 2 Γ hNW s0 hart_fit hnw_le hm_pre_fail ok1 h1 m1 hm hc hm
-    art_nw_word 2 3 Γ hNW s0 hart_fit hnw_le hm_pre_fail ok2 h2 m2 hm hc hm
+    c0_hsteps_nogrp
+    c0_hcall (ar_nw_step Γ hNW (s0 3) hm rfl hart_fit (hnw_le 2) rfl (by decide) rfl)
+    intro ok2 h2 m2 h_t2 h_f2; c0_hsplit; rotate_left
+    · c0_hsteps; obtain ⟨s', hw', hwl', hm'⟩ := h_f2 (by have h_eq := hc; simp [h_eq])
+      exact hm_pre_fail s' hw' hwl' m2 hm'
+    obtain ⟨_, hh2_word, hm⟩ := h_t2 hc; clear hc
     art_nw_word 3 4 Γ hNW s0 hart_fit hnw_le hm_pre_fail ok3 h3 m3 hm hc hm
     art_nw_word 4 5 Γ hNW s0 hart_fit hnw_le hm_pre_fail ok4 h4 m4 hm hc hm
     art_nw_word 5 6 Γ hNW s0 hart_fit hnw_le hm_pre_fail ok5 h5 m5 hm hc hm
@@ -1035,218 +1158,271 @@ theorem ar_parse_art_header_and_tables_wp (Γ : LeanQbe.T.Env)
     obtain ⟨hnw_gt9, _, hm⟩ := hok9_t hc; clear hc
     art_hdr_chk hm_pre_fail s0 m9 hm hc (skip)
     art_hdr_chk hm_pre_fail s0 m9 hm hc (skip)
-    art_hdr_chk hm_pre_fail s0 m9 hm hc (have hspec : h2 = 0#32 ∨ h2 = 1#32 := bv32_eq_0_or_1 hc)
-    art_hdr_chk hm_pre_fail s0 m9 hm hc (have hh3_I : h3 = s.I := hc)
-    art_hdr_chk hm_pre_fail s0 m9 hm hc (have hh3_even : h3.toNat % 2 = 0 := u32_and1_even hc)
     art_hdr_chk hm_pre_fail s0 m9 hm hc
-      (have hh3_ge2 : 2 ≤ h3.toNat := bv32_ge_of_not_ult hc (by decide))
-    art_hdr_chk hm_pre_fail s0 m9 hm hc (have hh4_O : h4 = s.O := hc)
-    art_hdr_chk hm_pre_fail s0 m9 hm hc
-      (have hh4_ge1 : 1 ≤ h4.toNat := bv32_ge_of_not_ult hc (by decide))
-    art_hdr_chk hm_pre_fail s0 m9 hm hc
-      (have hh4_le128 : h4.toNat ≤ 128 := bv32_le_of_not_ugt hc (by decide))
-    art_hdr_chk hm_pre_fail s0 m9 hm hc (skip)
-    art_hdr_chk hm_pre_fail s0 m9 hm hc
-      (have hh5_le : h5.toNat ≤ 0x3FFFFFFF := bv32_le_of_not_ugt hc (by decide))
-    let mlo : BitVec 64 := if h4.toNat ≥ 64 then ~~~0#64 else (1#64 <<< h4.setWidth 64) - 1#64
-    let mhi : BitVec 64 := if h4.toNat ≥ 64 then
-        if h4 = 128#32 then ~~~0#64 else (1#64 <<< (h4 - 64#32).setWidth 64) - 1#64
-      else 0#64
-    have hmasks : MasksOk h4.toNat mlo mhi := MasksOk.of_set_masks h4 hh4_ge1 hh4_le128
-    let s1 : ArCtxState :=
-      { s with
-        art := art, nw := art_len >>> 2, pos := 10#64, spec := h2, n_in := h3, n_out := h4,
-        n_nets := h5, n_gates := h6, n_cones := h7, n_main := h8, mlo := mlo, mhi := mhi }
+      (have hspec : h2 = 0#32 ∨ h2 = 1#32 ∨ h2 = 2#32 := bv32_eq_0_1_2 hc)
     c0_hsteps_nogrp
-    refine wp_join_group (fun _ mJ => (arCtxMem cx s1 ⋆ (bytes art artBytes ⋆
-      (arrayPad i32 s.rhs0 rhs0 ⋆ (arrayPad i32 s.rhs1 rhs1 ⋆ (array (t := i32) s.olit olit ⋆
-       (region (s.w + s.top) (s.wlen.toNat - s.top.toNat) ⋆ R)))))) mJ) ?_ ?_
-    · intro J _ mJ hmJ; c0_hsplit
-      · c0_hsteps; exact hm_pre_fail s1 rfl rfl mJ hmJ
-      · have hh3_le : h3.toNat ≤ 0x3FFFFFFF := by
-          rw [hh3_I, hI_eq]; exact Nat.le_trans hrep.i_le_m (by omega)
-        have hnw10 : 10 ≤ s1.nw.toNat := by
-          dsimp only [s1]; dsimp only [s0] at hnw_gt9; exact hnw_gt9
-        have hpos_le : 10 + h5.toNat + h3.toNat + h4.toNat ≤ s1.nw.toNat := by
-          dsimp only [s1] at hc; exact art_pos_sum_le hnw10 hh5_le hh3_le hh4_le128 hc
-        clear hc
-        have hmJ0 : (arCtxMem cx s1 ⋆
-            (region (s.w + BitVec.ofNat 64 s.top.toNat) (s1.top.toNat - s.top.toNat) ⋆
-             (region (s.w + s1.top) (s.wlen.toNat - s1.top.toNat) ⋆ (bytes art artBytes ⋆
-              (arrayPad i32 s.rhs0 rhs0 ⋆ (arrayPad i32 s.rhs1 rhs1 ⋆
-               (array (t := i32) s.olit olit ⋆ R))))))) mJ := by
-          have h1 : (arCtxMem cx s1 ⋆ (region (s.w + s1.top) (s.wlen.toNat - s1.top.toNat) ⋆
-              (bytes art artBytes ⋆ (arrayPad i32 s.rhs0 rhs0 ⋆ (arrayPad i32 s.rhs1 rhs1 ⋆
-               (array (t := i32) s.olit olit ⋆ R)))))) mJ := by
-            simpa only [sep_assoc] using sep_mono_r (fun _ => sep_pull5r) hmJ
-          rwa [Nat.sub_self, region_zero, emp_sep]
-        have hm_mid_fail : ∀ (s' : ArCtxState) (top' : BitVec 64) (m' : Mem 64), s'.w = s.w →
-            s'.wlen = s.wlen → s.top.toNat ≤ top'.toNat → top'.toNat ≤ s.wlen.toNat →
-            (arCtxMem cx s' ⋆
-              (region (s.w + BitVec.ofNat 64 s.top.toNat) (top'.toNat - s.top.toNat) ⋆
-               (region (s.w + top') (s.wlen.toNat - top'.toNat) ⋆ (bytes art artBytes ⋆
+    refine wp_join_group (fun (v : Tup Val [i32]) mW => mW = m9 ∧
+      (h2 ≠ 2#32 → h3.toNat % 2 = 0 ∧ 2 ≤ h3.toNat) ∧ h3 = s.I ∧
+      (if h2 = 2#32 then h4.toNat % 2 = 0 ∧ 2 ≤ h4.toNat ∧ h4.toNat / 2 ≤ 128
+       else 1 ≤ h4.toNat ∧ h4.toNat ≤ 128) ∧ h4 = s.O ∧
+      v.1.toNat = (if h2 = 2#32 then h4.toNat / 2 else h4.toNat)) ?_ ?_
+    · rintro Jmw ⟨mw, ⟨⟩⟩ mW ⟨rfl, hh3_ev, hh3_I, hh4_bd, hh4_O, hmw_eq⟩
+      have hmw_ge1 : 1 ≤ mw.toNat := by
+        rw [hmw_eq]; by_cases hc2 : h2 = 2#32
+        · simp only [hc2, ↓reduceIte] at hh4_bd ⊢; omega
+        · simp only [hc2, ↓reduceIte] at hh4_bd ⊢; omega
+      have hmw_le128 : mw.toNat ≤ 128 := by
+        rw [hmw_eq]; by_cases hc2 : h2 = 2#32
+        · simp only [hc2, ↓reduceIte] at hh4_bd ⊢; omega
+        · simp only [hc2, ↓reduceIte] at hh4_bd ⊢; omega
+      art_hdr_chk hm_pre_fail s0 mW hm hc (skip)
+      art_hdr_chk hm_pre_fail s0 mW hm hc
+        (have hh5_le : h5.toNat ≤ 0x3FFFFFFF := bv32_le_of_not_ugt hc (by decide))
+      let mlo : BitVec 64 :=
+        if mw.toNat ≥ 64 then ~~~0#64 else (1#64 <<< mw.setWidth 64) - 1#64
+      let mhi : BitVec 64 := if mw.toNat ≥ 64 then
+          if mw = 128#32 then ~~~0#64 else (1#64 <<< (mw - 64#32).setWidth 64) - 1#64
+        else 0#64
+      have hmasks : MasksOk mw.toNat mlo mhi := MasksOk.of_set_masks mw hmw_ge1 hmw_le128
+      let s1 : ArCtxState :=
+        { s with
+          art := art, nw := art_len >>> 2, pos := 10#64, spec := h2, n_in := h3, n_out := h4,
+          n_nets := h5, n_gates := h6, n_cones := h7, n_main := h8, mlo := mlo, mhi := mhi }
+      have hmasks_s1 : MasksOk s1.modW s1.mlo s1.mhi := by
+        have hmod : s1.modW = mw.toNat := by
+          dsimp only [s1, ArCtxState.modW]; exact hmw_eq.symm
+        rw [hmod]; exact hmasks
+      c0_hsteps_nogrp
+      refine wp_join_group (fun _ mJ => (arCtxMem cx s1 ⋆ (bytes art artBytes ⋆
+        (arrayPad i32 s.rhs0 rhs0 ⋆ (arrayPad i32 s.rhs1 rhs1 ⋆ (array (t := i32) s.olit olit ⋆
+         (region (s.w + s.top) (s.wlen.toNat - s.top.toNat) ⋆ R)))))) mJ) ?_ ?_
+      · intro J _ mJ hmJ; c0_hsplit
+        · c0_hsteps; exact hm_pre_fail s1 rfl rfl mJ hmJ
+        · have hh3_le : h3.toNat ≤ 0x3FFFFFFF := by
+            rw [hh3_I, hI_eq]; exact Nat.le_trans hrep.i_le_m (by omega)
+          have hh4_le256 : h4.toNat ≤ 256 := by
+            by_cases hc2 : h2 = 2#32
+            · simp only [hc2, ↓reduceIte] at hh4_bd; omega
+            · simp only [hc2, ↓reduceIte] at hh4_bd; omega
+          have hnw10 : 10 ≤ s1.nw.toNat := by
+            dsimp only [s1]; dsimp only [s0] at hnw_gt9; exact hnw_gt9
+          have hpos_le : 10 + h5.toNat + h3.toNat + h4.toNat ≤ s1.nw.toNat := by
+            dsimp only [s1] at hc; exact art_pos_sum_le hnw10 hh5_le hh3_le hh4_le256 hc
+          clear hc
+          have hmJ0 : (arCtxMem cx s1 ⋆
+              (region (s.w + BitVec.ofNat 64 s.top.toNat) (s1.top.toNat - s.top.toNat) ⋆
+               (region (s.w + s1.top) (s.wlen.toNat - s1.top.toNat) ⋆ (bytes art artBytes ⋆
                 (arrayPad i32 s.rhs0 rhs0 ⋆ (arrayPad i32 s.rhs1 rhs1 ⋆
-                 (array (t := i32) s.olit olit ⋆ R))))))) m' → Q (false, ⟨⟩) m' :=
-          fun s' top' m' hw' hwl' hbt hle hm' => hQ false m' (Or.inl ⟨rfl, s', hw', hwl',
-            art_mid_collapse hfit htop_fn hbt hle hr0_ptr hr1_fn hol_fn hm'⟩)
-        have htop_self : s.top.toNat ≤ s1.top.toNat := Nat.le_refl _
-        art_alloc Γ hAlloc hmJ0 hwpos hfit htop_self htop_le pBind top1 hb1 ht1 hB
-          (fun t => { s1 with top := t })
-        art_alloc Γ hAlloc hm hwpos hfit hb1 ht1 pRoff top2 hb2 ht2 hRo
-          (fun t => { s1 with top := t, bind := pBind })
-        art_alloc Γ hAlloc hm hwpos hfit hb2 ht2 pRn top3 hb3 ht3 hRn
-          (fun t => { s1 with top := t, bind := pBind, rule_off := pRoff })
-        art_alloc Γ hAlloc hm hwpos hfit hb3 ht3 pPart top4 hb4 ht4 hP
-          (fun t => { s1 with top := t, bind := pBind, rule_off := pRoff, rule_n := pRn })
-        art_alloc Γ hAlloc hm hwpos hfit hb4 ht4 pFlip top5 hb5 ht5 hF (fun t =>
-          { s1 with
-            top := t, bind := pBind, rule_off := pRoff, rule_n := pRn, partner := pPart })
-        art_alloc Γ hAlloc hm hwpos hfit hb5 ht5 pIn top6 hb6 ht6 hIn (fun t =>
-          { s1 with
-            top := t, bind := pBind, rule_off := pRoff, rule_n := pRn, partner := pPart,
-            flipped := pFlip })
-        art_alloc Γ hAlloc hm hwpos hfit hb6 ht6 pOut top7 hb7 ht7 hOu (fun t =>
-          { s1 with
-            top := t, bind := pBind, rule_off := pRoff, rule_n := pRn, partner := pPart,
-            flipped := pFlip, in_net := pIn })
-        art_alloc Γ hAlloc hm hwpos hfit hb7 ht7 pStkN top8 hb8 ht8 hSn (fun t =>
-          { s1 with
-            top := t, bind := pBind, rule_off := pRoff, rule_n := pRn, partner := pPart,
-            flipped := pFlip, in_net := pIn, out_ref := pOut })
-        art_alloc Γ hAlloc hm hwpos hfit hb8 ht8 pStkP top9 hb9 ht9 hSp (fun t =>
-          { s1 with
-            top := t, bind := pBind, rule_off := pRoff, rule_n := pRn, partner := pPart,
-            flipped := pFlip, in_net := pIn, out_ref := pOut, stk_n := pStkN })
-        art_alloc Γ hAlloc hm hwpos hfit hb9 ht9 pMemN top10 hb10 ht10 hMn (fun t =>
-          { s1 with
-            top := t, bind := pBind, rule_off := pRoff, rule_n := pRn, partner := pPart,
-            flipped := pFlip, in_net := pIn, out_ref := pOut, stk_n := pStkN, stk_p := pStkP })
-        art_alloc Γ hAlloc hm hwpos hfit hb10 ht10 pMemV top11 hb11 ht11 hMv (fun t =>
-          { s1 with
-            top := t, bind := pBind, rule_off := pRoff, rule_n := pRn, partner := pPart,
-            flipped := pFlip, in_net := pIn, out_ref := pOut, stk_n := pStkN, stk_p := pStkP,
-            memo_n := pMemN })
-        art_alloc Γ hAlloc hm hwpos hfit hb11 ht11 pDense top12 hb12 ht12 hD (fun t =>
-          { s1 with
-            top := t, bind := pBind, rule_off := pRoff, rule_n := pRn, partner := pPart,
-            flipped := pFlip, in_net := pIn, out_ref := pOut, stk_n := pStkN, stk_p := pStkP,
-            memo_n := pMemN, memo_v := pMemV })
-        art_alloc Γ hAlloc hm hwpos hfit hb12 ht12 pGsy top13 hb13 ht13 hGy (fun t =>
-          { s1 with
-            top := t, bind := pBind, rule_off := pRoff, rule_n := pRn, partner := pPart,
-            flipped := pFlip, in_net := pIn, out_ref := pOut, stk_n := pStkN, stk_p := pStkP,
-            memo_n := pMemN, memo_v := pMemV, dense := pDense })
-        art_alloc Γ hAlloc hm hwpos hfit hb13 ht13 pGcl top14 hb14 ht14 hCl (fun t =>
-          { s1 with
-            top := t, bind := pBind, rule_off := pRoff, rule_n := pRn, partner := pPart,
-            flipped := pFlip, in_net := pIn, out_ref := pOut, stk_n := pStkN, stk_p := pStkP,
-            memo_n := pMemN, memo_v := pMemV, dense := pDense, gsy := pGsy })
-        art_alloc Γ hAlloc hm hwpos hfit hb14 ht14 pGch top15 hb15 ht15 hCh (fun t =>
-          { s1 with
-            top := t, bind := pBind, rule_off := pRoff, rule_n := pRn, partner := pPart,
-            flipped := pFlip, in_net := pIn, out_ref := pOut, stk_n := pStkN, stk_p := pStkP,
-            memo_n := pMemN, memo_v := pMemV, dense := pDense, gsy := pGsy, gcl := pGcl })
-        let s2Raw : ArCtxState :=
-          { s1 with
-            top := top15, bind := pBind, rule_off := pRoff, rule_n := pRn, partner := pPart,
-            flipped := pFlip, in_net := pIn, out_ref := pOut, stk_n := pStkN, stk_p := pStkP,
-            memo_n := pMemN, memo_v := pMemV, dense := pDense, gsy := pGsy, gcl := pGcl,
-            gch := pGch }
-        c0_hstraight; dsimp only at hm; change (arCtxMem cx s2Raw ⋆ _) m at hm
-        art_alloc_ok pBind hpB_eq htB_eq hB s2Raw top15 m hm hc hb15 ht15 hm_mid_fail
-        art_alloc_ok pRoff hpRo_eq htRo_eq hRo s2Raw top15 m hm hc hb15 ht15 hm_mid_fail
-        art_alloc_ok pRn hpRn_eq htRn_eq hRn s2Raw top15 m hm hc hb15 ht15 hm_mid_fail
-        art_alloc_ok pPart hpP_eq htP_eq hP s2Raw top15 m hm hc hb15 ht15 hm_mid_fail
-        art_alloc_ok pFlip hpF_eq htF_eq hF s2Raw top15 m hm hc hb15 ht15 hm_mid_fail
-        art_alloc_ok pIn hpIn_eq htIn_eq hIn s2Raw top15 m hm hc hb15 ht15 hm_mid_fail
-        art_alloc_ok pOut hpOu_eq htOu_eq hOu s2Raw top15 m hm hc hb15 ht15 hm_mid_fail
-        art_alloc_ok pStkN hpSn_eq htSn_eq hSn s2Raw top15 m hm hc hb15 ht15 hm_mid_fail
-        art_alloc_ok pStkP hpSp_eq htSp_eq hSp s2Raw top15 m hm hc hb15 ht15 hm_mid_fail
-        art_alloc_ok pMemN hpMn_eq htMn_eq hMn s2Raw top15 m hm hc hb15 ht15 hm_mid_fail
-        art_alloc_ok pMemV hpMv_eq htMv_eq hMv s2Raw top15 m hm hc hb15 ht15 hm_mid_fail
-        art_alloc_ok pDense hpD_eq htD_eq hD s2Raw top15 m hm hc hb15 ht15 hm_mid_fail
-        art_alloc_ok pGsy hpGy_eq htGy_eq hGy s2Raw top15 m hm hc hb15 ht15 hm_mid_fail
-        art_alloc_ok pGcl hpCl_eq htCl_eq hCl s2Raw top15 m hm hc hb15 ht15 hm_mid_fail
-        art_alloc_ok pGch hpCh_eq htCh_eq hCh s2Raw top15 m hm hc hb15 ht15 hm_mid_fail
-        have hh4_le3f : h4.toNat ≤ 0x3FFFFFFF := by omega
-        have hgeomRaw : TablesGeom s2Raw g.ands.length g.outs.length
-            h5.toNat h3.toNat h4.toNat top15.toNat := by
-          refine art_build_geom htop_pre rfl hpB_eq htB_eq hpRo_eq htRo_eq hpRn_eq htRn_eq
-            hpP_eq htP_eq hpF_eq htF_eq hpIn_eq htIn_eq hpOu_eq htOu_eq hpSn_eq htSn_eq
-            hpSp_eq htSp_eq hpMn_eq htMn_eq hpMv_eq htMv_eq hpD_eq htD_eq hpGy_eq htGy_eq
-            hpCl_eq htCl_eq hpCh_eq htCh_eq hr0_ptr hr1_ptr hol_ptr
-            (u64_mul4_toNat hh5_le) (u64_mul4_toNat hh5_le) (u64_mul4_toNat hh5_le)
-            (u64_mul4_toNat hh5_le) (u64_setWidth_toNat h5) (u64_mul4_toNat hh3_le)
-            (u64_mul4_toNat hh4_le3f) ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ <;>
-            (try simp only [arTTStk, arTTMaxAnd]) <;> decide
-        change (arCtxMem cx s2Raw ⋆ (region (s.w + BitVec.ofNat 64 s.top.toNat)
-          (top15.toNat - s.top.toNat) ⋆ (region (s.w + top15) (s.wlen.toNat - top15.toNat) ⋆
-          (bytes art artBytes ⋆ (arrayPad i32 s.rhs0 rhs0 ⋆ (arrayPad i32 s.rhs1 rhs1 ⋆
-          (array (t := i32) s.olit olit ⋆ R))))))) m at hm
-        rw [addr_add_toNat s.w s.top] at hm
-        obtain ⟨bindArr, ruleOff, ruleN, partnerArr, flippedArr, inNetArr, outRefArr, stkN, stkP,
-            memoN, memoV, dense, gsy, gcl, gch, hb_len, hro_len, hrn_len, hp_len, hf_len, hin_len,
-            hout_len, hsn_len, hsp_len, hmn_len, hmv_len, hd_len, hgy_len, hcl_len, hch_len,
-            hm_pop⟩ :=
-          art_tables_pop_alloc (s0 := s) (s := s2Raw) hgeomRaw (by omega) htop_pre rfl rfl rfl rfl
-            hol_ptr hrep.olit_len (art_pre_pop_shuffle hm)
-        have hm_unpRaw := art_unpack_tables hrep.olit_len hb_len hro_len hrn_len hp_len hf_len
-          hin_len hout_len (rfl : s2Raw.top.toNat = top15.toNat)
-          (by simpa only [sep_assoc] using hm_pop)
-        obtain ⟨s2, hs2_eq⟩ : ∃ x : ArCtxState, x = s2Raw := ⟨s2Raw, rfl⟩
-        have hm_unp0 : ArtLoopMem cx art s2 { s2 with pos := BitVec.ofNat 64 (10 + 0) }
-            bindArr ruleOff ruleN partnerArr flippedArr inNetArr outRefArr olit rhs0 rhs1
-            g.outs.length h5.toNat h3.toNat h4.toNat top15.toNat stkN stkP memoN memoV dense gsy
-            gcl gch artBytes R m := by
-          rw [show { s2 with pos := BitVec.ofNat 64 (10 + 0) } = s2 by rw [hs2_eq],
-            show top15.toNat = s2.top.toNat by rw [hs2_eq]]; exact hs2_eq ▸ hm_unpRaw
-        let C : ArtLoopCtx :=
-          ⟨cx, art, top15, s, s2, g, rhs0, rhs1, olit, stkN, stkP, memoN, memoV, dense, gsy, gcl,
-            gch, artBytes, R, Q, h2, h3, h4, h5, hQ, hrep, hs2_eq ▸ hgeomRaw,
-            ⟨by omega, ht15, hfit, hart_fit, by omega, hM_eq, hI_eq, hA_eq, hO_eq⟩,
-            ⟨by rw [hs2_eq], by rw [hs2_eq], by rw [hs2_eq], by rw [hs2_eq]; exact h4nw,
-             by rw [hs2_eq]; exact Nat.le_of_eq h4nw, by rw [hs2_eq]; exact hpos_le,
-             by rw [hs2_eq], by rw [hs2_eq], by rw [hs2_eq], by rw [hs2_eq], by rw [hs2_eq],
-             by rw [hs2_eq], by rw [hs2_eq], by rw [hs2_eq], by rw [hs2_eq]; exact hrn0,
-             by rw [hs2_eq]; exact hrpt0, by rw [hs2_eq]; exact hrc0, by rw [hs2_eq]; exact hrpc0,
-             by rw [hs2_eq], by rw [hs2_eq], by rw [hs2_eq],
-             by rw [hs2_eq], by rw [hs2_eq], by rw [hs2_eq],
-             by rw [hs2_eq], by rw [show s2.n_out = h4 by rw [hs2_eq],
-              show s2.mlo = mlo by rw [hs2_eq], show s2.mhi = mhi by rw [hs2_eq]]; exact hmasks⟩,
-            ⟨hspec, hh3_even, hh3_ge2, hh3_I, hh3_le, hh4_ge1, hh4_le128, hh4_O, hh5_le⟩,
-            ⟨hsn_len, hsp_len, hmn_len, hmv_len, hd_len, hgy_len, hcl_len, hch_len⟩⟩
-        c0_hstraight; change wp Γ C.Q X (artLoopExpr 0 C.cx ok9 0#32) m
-        exact art_loopA_wp Γ hNW C ok9 hb_len hro_len hrn_len hp_len hf_len hin_len hout_len hm_unp0
-    · intro J hJ; c0_hsplit
-      · have h64 : h4.toNat ≥ 64 := by simpa using hc
-        clear hc; c0_hsteps_nogrp
-        refine wp_join_group (fun (v : Tup Val [i64]) mI => v.1 = mhi ∧
-          (arCtxMem cx
-            { s with
-              art := art, nw := art_len >>> 2, pos := 10#64, spec := h2,
-              n_in := h3, n_out := h4, n_nets := h5, n_gates := h6, n_cones := h7, n_main := h8,
-              mlo := ~~~0#64 } ⋆
+                 (array (t := i32) s.olit olit ⋆ R))))))) mJ := by
+            have h1 : (arCtxMem cx s1 ⋆ (region (s.w + s1.top) (s.wlen.toNat - s1.top.toNat) ⋆
+                (bytes art artBytes ⋆ (arrayPad i32 s.rhs0 rhs0 ⋆ (arrayPad i32 s.rhs1 rhs1 ⋆
+                 (array (t := i32) s.olit olit ⋆ R)))))) mJ := by
+              simpa only [sep_assoc] using sep_mono_r (fun _ => sep_pull5r) hmJ
+            rwa [Nat.sub_self, region_zero, emp_sep]
+          have hm_mid_fail : ∀ (s' : ArCtxState) (top' : BitVec 64) (m' : Mem 64), s'.w = s.w →
+              s'.wlen = s.wlen → s.top.toNat ≤ top'.toNat → top'.toNat ≤ s.wlen.toNat →
+              (arCtxMem cx s' ⋆
+                (region (s.w + BitVec.ofNat 64 s.top.toNat) (top'.toNat - s.top.toNat) ⋆
+                 (region (s.w + top') (s.wlen.toNat - top'.toNat) ⋆ (bytes art artBytes ⋆
+                  (arrayPad i32 s.rhs0 rhs0 ⋆ (arrayPad i32 s.rhs1 rhs1 ⋆
+                   (array (t := i32) s.olit olit ⋆ R))))))) m' → Q (false, ⟨⟩) m' :=
+            fun s' top' m' hw' hwl' hbt hle hm' => hQ false m' (Or.inl ⟨rfl, s', hw', hwl',
+              art_mid_collapse hfit htop_fn hbt hle hr0_ptr hr1_fn hol_fn hm'⟩)
+          have htop_self : s.top.toNat ≤ s1.top.toNat := Nat.le_refl _
+          art_alloc Γ hAlloc hmJ0 hwpos hfit htop_self htop_le pBind top1 hb1 ht1 hB
+            (fun t => { s1 with top := t })
+          art_alloc Γ hAlloc hm hwpos hfit hb1 ht1 pRoff top2 hb2 ht2 hRo
+            (fun t => { s1 with top := t, bind := pBind })
+          art_alloc Γ hAlloc hm hwpos hfit hb2 ht2 pRn top3 hb3 ht3 hRn
+            (fun t => { s1 with top := t, bind := pBind, rule_off := pRoff })
+          art_alloc Γ hAlloc hm hwpos hfit hb3 ht3 pPart top4 hb4 ht4 hP
+            (fun t => { s1 with top := t, bind := pBind, rule_off := pRoff, rule_n := pRn })
+          art_alloc Γ hAlloc hm hwpos hfit hb4 ht4 pFlip top5 hb5 ht5 hF (fun t =>
+            { s1 with
+              top := t, bind := pBind, rule_off := pRoff, rule_n := pRn, partner := pPart })
+          art_alloc Γ hAlloc hm hwpos hfit hb5 ht5 pIn top6 hb6 ht6 hIn (fun t =>
+            { s1 with
+              top := t, bind := pBind, rule_off := pRoff, rule_n := pRn, partner := pPart,
+              flipped := pFlip })
+          art_alloc Γ hAlloc hm hwpos hfit hb6 ht6 pOut top7 hb7 ht7 hOu (fun t =>
+            { s1 with
+              top := t, bind := pBind, rule_off := pRoff, rule_n := pRn, partner := pPart,
+              flipped := pFlip, in_net := pIn })
+          art_alloc Γ hAlloc hm hwpos hfit hb7 ht7 pStkN top8 hb8 ht8 hSn (fun t =>
+            { s1 with
+              top := t, bind := pBind, rule_off := pRoff, rule_n := pRn, partner := pPart,
+              flipped := pFlip, in_net := pIn, out_ref := pOut })
+          art_alloc Γ hAlloc hm hwpos hfit hb8 ht8 pStkP top9 hb9 ht9 hSp (fun t =>
+            { s1 with
+              top := t, bind := pBind, rule_off := pRoff, rule_n := pRn, partner := pPart,
+              flipped := pFlip, in_net := pIn, out_ref := pOut, stk_n := pStkN })
+          art_alloc Γ hAlloc hm hwpos hfit hb9 ht9 pMemN top10 hb10 ht10 hMn (fun t =>
+            { s1 with
+              top := t, bind := pBind, rule_off := pRoff, rule_n := pRn, partner := pPart,
+              flipped := pFlip, in_net := pIn, out_ref := pOut, stk_n := pStkN, stk_p := pStkP })
+          art_alloc Γ hAlloc hm hwpos hfit hb10 ht10 pMemV top11 hb11 ht11 hMv (fun t =>
+            { s1 with
+              top := t, bind := pBind, rule_off := pRoff, rule_n := pRn, partner := pPart,
+              flipped := pFlip, in_net := pIn, out_ref := pOut, stk_n := pStkN, stk_p := pStkP,
+              memo_n := pMemN })
+          art_alloc Γ hAlloc hm hwpos hfit hb11 ht11 pDense top12 hb12 ht12 hD (fun t =>
+            { s1 with
+              top := t, bind := pBind, rule_off := pRoff, rule_n := pRn, partner := pPart,
+              flipped := pFlip, in_net := pIn, out_ref := pOut, stk_n := pStkN, stk_p := pStkP,
+              memo_n := pMemN, memo_v := pMemV })
+          art_alloc Γ hAlloc hm hwpos hfit hb12 ht12 pGsy top13 hb13 ht13 hGy (fun t =>
+            { s1 with
+              top := t, bind := pBind, rule_off := pRoff, rule_n := pRn, partner := pPart,
+              flipped := pFlip, in_net := pIn, out_ref := pOut, stk_n := pStkN, stk_p := pStkP,
+              memo_n := pMemN, memo_v := pMemV, dense := pDense })
+          art_alloc Γ hAlloc hm hwpos hfit hb13 ht13 pGcl top14 hb14 ht14 hCl (fun t =>
+            { s1 with
+              top := t, bind := pBind, rule_off := pRoff, rule_n := pRn, partner := pPart,
+              flipped := pFlip, in_net := pIn, out_ref := pOut, stk_n := pStkN, stk_p := pStkP,
+              memo_n := pMemN, memo_v := pMemV, dense := pDense, gsy := pGsy })
+          art_alloc Γ hAlloc hm hwpos hfit hb14 ht14 pGch top15 hb15 ht15 hCh (fun t =>
+            { s1 with
+              top := t, bind := pBind, rule_off := pRoff, rule_n := pRn, partner := pPart,
+              flipped := pFlip, in_net := pIn, out_ref := pOut, stk_n := pStkN, stk_p := pStkP,
+              memo_n := pMemN, memo_v := pMemV, dense := pDense, gsy := pGsy, gcl := pGcl })
+          let s2Raw : ArCtxState :=
+            { s1 with
+              top := top15, bind := pBind, rule_off := pRoff, rule_n := pRn, partner := pPart,
+              flipped := pFlip, in_net := pIn, out_ref := pOut, stk_n := pStkN, stk_p := pStkP,
+              memo_n := pMemN, memo_v := pMemV, dense := pDense, gsy := pGsy, gcl := pGcl,
+              gch := pGch }
+          c0_hstraight; dsimp only at hm; change (arCtxMem cx s2Raw ⋆ _) m at hm
+          art_alloc_ok pBind hpB_eq htB_eq hB s2Raw top15 m hm hc hb15 ht15 hm_mid_fail
+          art_alloc_ok pRoff hpRo_eq htRo_eq hRo s2Raw top15 m hm hc hb15 ht15 hm_mid_fail
+          art_alloc_ok pRn hpRn_eq htRn_eq hRn s2Raw top15 m hm hc hb15 ht15 hm_mid_fail
+          art_alloc_ok pPart hpP_eq htP_eq hP s2Raw top15 m hm hc hb15 ht15 hm_mid_fail
+          art_alloc_ok pFlip hpF_eq htF_eq hF s2Raw top15 m hm hc hb15 ht15 hm_mid_fail
+          art_alloc_ok pIn hpIn_eq htIn_eq hIn s2Raw top15 m hm hc hb15 ht15 hm_mid_fail
+          art_alloc_ok pOut hpOu_eq htOu_eq hOu s2Raw top15 m hm hc hb15 ht15 hm_mid_fail
+          art_alloc_ok pStkN hpSn_eq htSn_eq hSn s2Raw top15 m hm hc hb15 ht15 hm_mid_fail
+          art_alloc_ok pStkP hpSp_eq htSp_eq hSp s2Raw top15 m hm hc hb15 ht15 hm_mid_fail
+          art_alloc_ok pMemN hpMn_eq htMn_eq hMn s2Raw top15 m hm hc hb15 ht15 hm_mid_fail
+          art_alloc_ok pMemV hpMv_eq htMv_eq hMv s2Raw top15 m hm hc hb15 ht15 hm_mid_fail
+          art_alloc_ok pDense hpD_eq htD_eq hD s2Raw top15 m hm hc hb15 ht15 hm_mid_fail
+          art_alloc_ok pGsy hpGy_eq htGy_eq hGy s2Raw top15 m hm hc hb15 ht15 hm_mid_fail
+          art_alloc_ok pGcl hpCl_eq htCl_eq hCl s2Raw top15 m hm hc hb15 ht15 hm_mid_fail
+          art_alloc_ok pGch hpCh_eq htCh_eq hCh s2Raw top15 m hm hc hb15 ht15 hm_mid_fail
+          have hh4_le3f : h4.toNat ≤ 0x3FFFFFFF := by omega
+          have hgeomRaw : TablesGeom s2Raw g.ands.length g.outs.length
+              h5.toNat h3.toNat h4.toNat top15.toNat := by
+            refine art_build_geom htop_pre rfl hpB_eq htB_eq hpRo_eq htRo_eq hpRn_eq htRn_eq
+              hpP_eq htP_eq hpF_eq htF_eq hpIn_eq htIn_eq hpOu_eq htOu_eq hpSn_eq htSn_eq
+              hpSp_eq htSp_eq hpMn_eq htMn_eq hpMv_eq htMv_eq hpD_eq htD_eq hpGy_eq htGy_eq
+              hpCl_eq htCl_eq hpCh_eq htCh_eq hr0_ptr hr1_ptr hol_ptr
+              (u64_mul4_toNat hh5_le) (u64_mul4_toNat hh5_le) (u64_mul4_toNat hh5_le)
+              (u64_mul4_toNat hh5_le) (u64_setWidth_toNat h5) (u64_mul4_toNat hh3_le)
+              (u64_mul4_toNat hh4_le3f) ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ <;>
+              (try simp only [arTTStk, arTTMaxAnd]) <;> decide
+          change (arCtxMem cx s2Raw ⋆ (region (s.w + BitVec.ofNat 64 s.top.toNat)
+            (top15.toNat - s.top.toNat) ⋆ (region (s.w + top15) (s.wlen.toNat - top15.toNat) ⋆
             (bytes art artBytes ⋆ (arrayPad i32 s.rhs0 rhs0 ⋆ (arrayPad i32 s.rhs1 rhs1 ⋆
-             (array (t := i32) s.olit olit ⋆
-              (region (s.w + s.top) (s.wlen.toNat - s.top.toNat) ⋆ R)))))) mI) ?_ ?_
-        · intro JI v mI ⟨hv, _⟩; c0_hsteps_nogrp
-          have hm_mhi : (arCtxMem cx s1 ⋆ (bytes art artBytes ⋆ (arrayPad i32 s.rhs0 rhs0 ⋆
-              (arrayPad i32 s.rhs1 rhs1 ⋆ (array (t := i32) s.olit olit ⋆
-               (region (s.w + s.top) (s.wlen.toNat - s.top.toNat) ⋆ R)))))) m := by
-            try rw [hv] at hm
-            dsimp only [s1, mlo]; simp only [h64, ↓reduceIte]; exact hm
-          exact hJ () m hm_mhi
-        · intro JI hJI; c0_hsplit
-          · have h128 : h4 = 128#32 := hc; clear hc; c0_hsteps; refine hJI _ _ ⟨?_, hm⟩
-            dsimp only [mhi]
-            simp only [h128, show (128#32 : BitVec 32).toNat ≥ 64 from by decide, ↓reduceIte]; rfl
-          · have hne128 : h4 ≠ 128#32 := hc; clear hc; c0_hsteps; refine hJI _ _ ⟨?_, hm⟩
-            dsimp only [mhi]; simp only [h64, ↓reduceIte, hne128]
-            rw [bv64_shl_sub64_lt128 h64 hh4_le128 hne128]; rfl
-      · have hlt64 : h4.toNat < 64 := by have : ¬ 64 ≤ h4.toNat := (by simpa using hc); omega
-        clear hc; have hnot64 : ¬ h4.toNat ≥ 64 := by omega
-        c0_hsteps; rw [bv64_shl_setWidth_lt64 hlt64] at hm; dsimp only [s0] at hm
-        exact hJ () m (by dsimp only [s1, mlo, mhi]; simp only [hnot64, ↓reduceIte]; exact hm)
+            (array (t := i32) s.olit olit ⋆ R))))))) m at hm
+          rw [addr_add_toNat s.w s.top] at hm
+          obtain ⟨bindArr, ruleOff, ruleN, partnerArr, flippedArr, inNetArr, outRefArr, stkN, stkP,
+              memoN, memoV, dense, gsy, gcl, gch, hb_len, hro_len, hrn_len, hp_len, hf_len, hin_len,
+              hout_len, hsn_len, hsp_len, hmn_len, hmv_len, hd_len, hgy_len, hcl_len, hch_len,
+              hm_pop⟩ :=
+            art_tables_pop_alloc (s0 := s) (s := s2Raw) hgeomRaw (by omega) htop_pre rfl rfl rfl rfl
+              hol_ptr hrep.olit_len (art_pre_pop_shuffle hm)
+          have hm_unpRaw := art_unpack_tables hrep.olit_len hb_len hro_len hrn_len hp_len hf_len
+            hin_len hout_len (rfl : s2Raw.top.toNat = top15.toNat)
+            (by simpa only [sep_assoc] using hm_pop)
+          obtain ⟨s2, hs2_eq⟩ : ∃ x : ArCtxState, x = s2Raw := ⟨s2Raw, rfl⟩
+          have hm_unp0 : ArtLoopMem cx art s2 { s2 with pos := BitVec.ofNat 64 (10 + 0) }
+              bindArr ruleOff ruleN partnerArr flippedArr inNetArr outRefArr olit rhs0 rhs1
+              g.outs.length h5.toNat h3.toNat h4.toNat top15.toNat stkN stkP memoN memoV dense gsy
+              gcl gch artBytes R m := by
+            rw [show { s2 with pos := BitVec.ofNat 64 (10 + 0) } = s2 by rw [hs2_eq],
+              show top15.toNat = s2.top.toNat by rw [hs2_eq]]; exact hs2_eq ▸ hm_unpRaw
+          let C : ArtLoopCtx :=
+            ⟨cx, art, top15, s, s2, g, rhs0, rhs1, olit, stkN, stkP, memoN, memoV, dense, gsy, gcl,
+              gch, artBytes, R, Q, h2, h3, h4, h5, hQ, hrep, hs2_eq ▸ hgeomRaw,
+              ⟨by omega, ht15, hfit, hart_fit, by omega, hM_eq, hI_eq, hA_eq, hO_eq⟩,
+              ⟨by rw [hs2_eq], by rw [hs2_eq], by rw [hs2_eq], by rw [hs2_eq]; exact h4nw,
+               by rw [hs2_eq]; exact Nat.le_of_eq h4nw, by rw [hs2_eq]; exact hpos_le,
+               by rw [hs2_eq], by rw [hs2_eq], by rw [hs2_eq], by rw [hs2_eq], by rw [hs2_eq],
+               by rw [hs2_eq], by rw [hs2_eq], by rw [hs2_eq], by rw [hs2_eq]; exact hrn0,
+               by rw [hs2_eq]; exact hrpt0, by rw [hs2_eq]; exact hrc0, by rw [hs2_eq]; exact hrpc0,
+               by rw [hs2_eq], by rw [hs2_eq], by rw [hs2_eq],
+               by rw [hs2_eq], by rw [hs2_eq], by rw [hs2_eq],
+               by rw [hs2_eq], by rw [hs2_eq]; exact hmasks_s1⟩,
+              ⟨hh2_word, hspec, hh3_ev, hh3_I, hh3_le, hh4_bd, hh4_O, hh5_le⟩,
+              ⟨hsn_len, hsp_len, hmn_len, hmv_len, hd_len, hgy_len, hcl_len, hch_len⟩⟩
+          c0_hstraight; change wp Γ C.Q X (artLoopExpr 0 C.cx ok9 0#32) m
+          exact art_loopA_wp Γ hNW C ok9 hb_len hro_len hrn_len hp_len hf_len hin_len hout_len
+            hm_unp0
+      · intro J hJ; c0_hsteps_nogrp
+        c0_hsplit
+        · have h128 : mw = 128#32 := hc; clear hc; c0_hsteps; dsimp only [s0] at hm
+          exact hJ () m (by
+            dsimp only [s1, mlo, mhi]
+            simp only [h128, show (128#32 : BitVec 32).toNat ≥ 64 from by decide, ↓reduceIte]
+            exact hm)
+        · have hne128 : mw ≠ 128#32 := hc; clear hc
+          refine wp_unroll_group fun _ _ => ?_
+          c0_hsplit
+          · have hgt64 : 64 < mw.toNat := hc; clear hc
+            have hge64 : mw.toNat ≥ 64 := by omega
+            c0_hsteps; dsimp only [s0] at hm
+            rw [bv64_shl_sub64_lt128 hge64 hmw_le128 hne128] at hm
+            exact hJ () m (by
+              dsimp only [s1, mlo, mhi]
+              simp only [hge64, ↓reduceIte, hne128]; exact hm)
+          · have hle64 : mw.toNat ≤ 64 := Nat.not_lt.mp hc; clear hc
+            refine wp_unroll_group fun _ _ => ?_
+            c0_hsplit
+            · have heq64 : mw = 64#32 := hc; clear hc
+              have hge64 : mw.toNat ≥ 64 := by rw [heq64]; decide
+              c0_hsteps; dsimp only [s0] at hm
+              exact hJ () m (by
+                dsimp only [s1, mlo, mhi]
+                simp only [hge64, ↓reduceIte, show mw ≠ 128#32 by rw [heq64]; decide]
+                rw [heq64]; simpa using hm)
+            · have hne64 : mw ≠ 64#32 := hc; clear hc
+              have hlt64 : mw.toNat < 64 := by
+                have hne' : mw.toNat ≠ 64 := fun h =>
+                  hne64 (BitVec.eq_of_toNat_eq (by simpa using h))
+                omega
+              have hnot64 : ¬ mw.toNat ≥ 64 := by omega
+              c0_hsteps; dsimp only [s0] at hm
+              rw [bv64_shl_setWidth_lt64 hlt64] at hm
+              exact hJ () m (by
+                dsimp only [s1, mlo, mhi]; simp only [hnot64, ↓reduceIte]; exact hm)
+    · intro Jmw hJmw
+      c0_hsplit
+      · have h2eq : h2 = 2#32 := hc; clear hc
+        art_hdr_chk hm_pre_fail s0 m9 hm hc (have hh3_I : h3 = s.I := hc)
+        art_hdr_chk hm_pre_fail s0 m9 hm hc (have hh4_O : h4 = s.O := hc)
+        art_hdr_chk hm_pre_fail s0 m9 hm hc
+          (have hh4_ge2 : 2 ≤ h4.toNat := bv32_ge_of_not_ult hc (by decide))
+        art_hdr_chk hm_pre_fail s0 m9 hm hc (have hh4_even : h4.toNat % 2 = 0 := u32_and1_even hc)
+        art_hdr_chk hm_pre_fail s0 m9 hm hc
+          (have hh4_half_le : h4.toNat / 2 ≤ 128 := by
+            simp only [Nat.pow_one] at hc
+            change ¬ (128 : Nat) < h4.toNat / 2 at hc
+            omega)
+        c0_hsteps; refine hJmw (h4 >>> 1#32, ⟨⟩) m9 ⟨rfl, ?_⟩
+        refine ⟨fun h => absurd h2eq h, hh3_I, by simp [h2eq, hh4_even, hh4_ge2, hh4_half_le],
+          hh4_O, ?_⟩
+        simp only [h2eq, ↓reduceIte]; exact bv32_shr1_toNat h4
+      · have h2ne : h2 ≠ 2#32 := hc; clear hc
+        art_hdr_chk hm_pre_fail s0 m9 hm hc (have hh3_I : h3 = s.I := hc)
+        art_hdr_chk hm_pre_fail s0 m9 hm hc (have hh3_even : h3.toNat % 2 = 0 := u32_and1_even hc)
+        art_hdr_chk hm_pre_fail s0 m9 hm hc
+          (have hh3_ge2 : 2 ≤ h3.toNat := bv32_ge_of_not_ult hc (by decide))
+        art_hdr_chk hm_pre_fail s0 m9 hm hc (have hh4_O : h4 = s.O := hc)
+        art_hdr_chk hm_pre_fail s0 m9 hm hc
+          (have hh4_ge1 : 1 ≤ h4.toNat := bv32_ge_of_not_ult hc (by decide))
+        art_hdr_chk hm_pre_fail s0 m9 hm hc
+          (have hh4_le128 : h4.toNat ≤ 128 := bv32_le_of_not_ugt hc (by decide))
+        c0_hsteps; refine hJmw (h4, ⟨⟩) m9 ⟨rfl, ?_⟩
+        exact ⟨fun _ => ⟨hh3_even, hh3_ge2⟩, hh3_I, by simp [h2ne, hh4_ge1, hh4_le128],
+          hh4_O, by simp [h2ne]⟩
 
 end
 

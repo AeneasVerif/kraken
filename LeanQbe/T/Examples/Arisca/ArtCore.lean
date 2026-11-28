@@ -807,6 +807,123 @@ def checkArt (signed : Bool) (aigN aigLen artN artLen : Nat) : Bool :=
       (Nat.beq (Nat.land artLen 3) 0))
     (parseAig (toBytes aigN aigLen))
 
+/-! ## ART v1.5 Miter Mode (`spec = 2`) -/
+
+/-- One miter output term for half `neg` (`false` for `+outA`, `true` for `-outB`). -/
+def miterTerm (M : Nat) (neg : Bool) (rules : Tree Poly) (nd : Nat) (r a j : Nat) : Poly :=
+  let cw := Bool.rec (Nat.pow 2 j) (negC M (Nat.pow 2 j)) neg
+  Bool.rec
+    (scaleP M cw (litP M (Nat.beq (Nat.land r 1) 1) (Nat.mul 2 (Nat.shiftRight r 1))))
+    (Bool.rec Poly.nil (single M cw 0) (Nat.beq a 1))
+    (Bool.rec
+      (Bool.rec false (Option.rec true (fun _ => false) (rules.get nd (Nat.shiftRight r 1)))
+        (Nat.ble a 1))
+      true (Nat.beq r UNB))
+
+/-- Output-slice polynomial terms for ART v1.5 miter mode. -/
+def miterHalfTerms (M : Nat) (neg : Bool) (rules : Tree Poly) (nd : Nat)
+    (refs aouts : List Nat) : List Poly :=
+  List.rec (motive := fun _ => Nat → List Nat → List Poly) (fun _ _ => [])
+    (fun r _ ih j ao =>
+      List.rec [] (fun a ao' _ => miterTerm M neg rules nd r a j :: ih (Nat.succ j) ao') ao)
+    refs 0 aouts
+
+/-- Initial polynomial `W(outA) - W(outB) (mod 2^w)` for `SPEC_MITER`. -/
+def initPMiter (M : Nat) (pr : Pairs) (rules : Tree Poly) (nd w : Nat)
+    (outRef aouts : List Nat) : Poly :=
+  normP (van pr)
+    (sumB M (miterHalfTerms M false rules nd (takeN w outRef) (takeN w aouts) ++
+      miterHalfTerms M true rules nd (dropN w outRef) (dropN w aouts)))
+
+/-- `in_net` check for `SPEC_MITER`: allows `UNB` for unused primary inputs. -/
+def inOkMiter (e : Env) (nNets : Nat) (inNet : List Nat) : Bool :=
+  List.rec (motive := fun _ => Nat → Bool) (fun _ => true)
+    (fun x _ ih i =>
+      Bool.rec
+        (Bool.rec false
+          (Option.rec false
+            (fun b => Bool.rec false (ih (Nat.succ i)) (Nat.beq b (Nat.mul 2 (Nat.succ i))))
+            (e.bind.get e.nd x))
+          (Nat.ble (Nat.succ x) nNets))
+        (ih (Nat.succ i)) (Nat.beq x UNB))
+    inNet 0
+
+/-- `out_ref` check for `SPEC_MITER`: allows `UNB` when `olit[j] <= 1`. -/
+def outOkMiter (e : Env) (nNets : Nat) (outRef aouts : List Nat) : Bool :=
+  List.rec (motive := fun _ => List Nat → Bool) (fun _ => true)
+    (fun r _ ih ao => List.rec false
+      (fun a ao' _ =>
+        Bool.rec
+          (Bool.rec false
+            (Option.rec false
+              (fun b => Bool.rec false (ih ao') (Nat.beq (Nat.xor b (Nat.land r 1)) a))
+              (e.bind.get e.nd (Nat.shiftRight r 1)))
+            (Nat.ble (Nat.succ (Nat.shiftRight r 1)) nNets))
+          (Bool.rec false (ih ao') (Nat.ble a 1)) (Nat.beq r UNB))
+      ao)
+    outRef aouts
+
+/-- Phases after IN/OUT for `SPEC_MITER`. -/
+def runPhasesMiter (e : Env) (mw nNets nG nC nMain : Nat) (outRef aouts : List Nat)
+    (ws : List Nat) : Bool :=
+  gates e false
+    (fun st ws =>
+      cones e (fun st ws =>
+          mainLoop e st.pr st.rules nNets nMain
+            (initPMiter e.M st.pr st.rules e.nd mw outRef aouts) 0 ws)
+        nC st ws)
+    nG ⟨Tree.empty, ⟨e.nd, Tree.empty, 0⟩⟩ ws
+
+/-- ART v1.5 header check for `SPEC_MITER` (`spec = 2`, `O = 2*w`, `1 <= w <= 128`). -/
+def headerMiterOk (g : Aig) (h ws0 : List Nat) : Bool :=
+  Bool.rec false (Bool.rec false (Bool.rec false (Bool.rec false (Bool.rec false
+    (Bool.rec false (Bool.rec false (Bool.rec false
+      (Nat.beq (nthN h 9) (len ws0))
+      (Nat.ble (Nat.shiftRight (nthN h 4) 1) 128))
+      (Nat.beq (Nat.land (nthN h 4) 1) 0))
+      (Nat.ble 2 (nthN h 4)))
+      (Nat.beq (nthN h 4) (len g.outs)))
+      (Nat.beq (nthN h 3) g.I))
+      (Nat.beq (nthN h 2) 2))
+      (Nat.beq (nthN h 1) 1))
+      (Nat.beq (nthN h 0) 0x31545241)
+
+/-- Post-bind checker for `SPEC_MITER`. -/
+def afterBindMiter (g : Aig) (h : List Nat) (bt : Tree Nat) (ws : List Nat) : Bool :=
+  let mw := Nat.shiftRight (nthN h 4) 1
+  let e : Env := ⟨Nat.pow 2 mw, g.M, g.I, bitLen g.M, andTree (bitLen g.M) g.I g.ands,
+    bitLen (nthN h 5), bt⟩
+  rdN false (nthN h 3) (fun inNet ws => rdN false (nthN h 4) (fun outRef ws =>
+      Bool.rec false
+        (runPhasesMiter e mw (nthN h 5) (nthN h 6) (nthN h 7) (nthN h 8) outRef g.outs ws)
+        (Bool.rec false (outOkMiter e (nthN h 5) outRef g.outs) (inOkMiter e (nthN h 5) inNet)))
+    ws) ws
+
+/-- Word-level ART v1.5 `SPEC_MITER` checker on a parsed AIG. -/
+def checkWordsMiter (g : Aig) (ws0 : List Nat) : Bool :=
+  rdN false 10 (fun h ws =>
+    Bool.rec false
+      (rdN false (nthN h 5) (fun bindW ws =>
+          Option.rec false (fun bt => afterBindMiter g h bt ws)
+            (bindTree g.M (bitLen (nthN h 5)) (nthN h 5) bindW Tree.empty))
+        ws)
+      (headerMiterOk g h ws0))
+    ws0
+
+/-- **The ART v1.5 miter checker** (`spec == 2`: `W(outA) ≡ W(outB) mod 2^w`, `1 <= w <= 128`). -/
+def checkArtMiter (aigN aigLen artN artLen : Nat) : Bool :=
+  Option.rec false
+    (fun g => Bool.rec false (checkWordsMiter g (toWords artN (Nat.shiftRight artLen 2)))
+      (Nat.beq (Nat.land artLen 3) 0))
+    (parseAig (toBytes aigN aigLen))
+
+/-- Spec-indexed ART v1.5 dispatcher (`0` unsigned mul, `1` signed mul, `2` miter). -/
+def checkArtSpec (spec aigN aigLen artN artLen : Nat) : Bool :=
+  Bool.rec
+    (Bool.rec (Bool.rec false (checkArtMiter aigN aigLen artN artLen) (Nat.beq spec 2))
+      (checkArt true aigN aigLen artN artLen) (Nat.beq spec 1))
+    (checkArt false aigN aigLen artN artLen) (Nat.beq spec 0)
+
 end LeanQbe.T.Examples.Arisca
 
 end

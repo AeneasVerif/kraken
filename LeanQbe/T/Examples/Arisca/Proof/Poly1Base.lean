@@ -77,7 +77,7 @@ def arSortCombineSpec : Spec [i64] [i32] :=
       s.qcap.toNat ≤ qm.length ∧ s.qcap.toNat ≤ qs.length ∧
       s.qcap.toNat ≤ ql.length ∧ s.qcap.toNat ≤ qh.length ∧
       s.qcap.toNat ≤ ix.length ∧ s.qcap.toNat ≤ ix2.length ∧
-      MasksOk s.n_out.toNat s.mlo s.mhi ∧
+      MasksOk s.modW s.mlo s.mhi ∧
       (∀ i < s.qn.toNat,
         MonoSliceOk srcPool (qm.getD i 0#32).toNat srcPool.length ∧
         (srcPool.getD (qm.getD i 0#32).toNat 0#32).toNat + 1 < 2 ^ 32) ∧
@@ -96,8 +96,8 @@ def arSortCombineSpec : Spec [i64] [i32] :=
         (∀ p < k.toNat, (ix'.getD p 0#32).toNat < s.qn.toNat) →
         ((List.range k.toNat).map (fun p => (ix'.getD p 0#32).toNat)).Nodup →
         (∀ σ : Nat → Bool,
-          polyEvalIdxOf s.n_out.toNat σ srcPool qm ql' qh' ix' 0 k.toNat =
-            polyEval s.n_out.toNat σ srcPool qm ql qh s.qn.toNat) →
+          polyEvalIdxOf s.modW σ srcPool qm ql' qh' ix' 0 k.toNat =
+            polyEval s.modW σ srcPool qm ql qh s.qn.toNat) →
         (arCtxMem cx s' ⋆ tMem s' tm0 tm1 ts0 tl0 th0 ts1 tl1 th1 pool0 pool1 ⋆
           qMem s' qm qs ql' qh' ix' ix2' bx vqOff vq vqSkip ⋆ R) m' →
         Q (k, ⟨⟩) m')
@@ -141,7 +141,7 @@ def arMergeProductsSpec : Spec [i64, i32] [] :=
       s.qcap.toNat ≤ qm.length ∧ s.qcap.toNat ≤ qs.length ∧
       s.qcap.toNat ≤ ql.length ∧ s.qcap.toNat ≤ qh.length ∧
       s.qcap.toNat ≤ ix.length ∧ s.qcap.toNat ≤ ix2.length ∧
-      MasksOk s.n_out.toNat s.mlo s.mhi ∧
+      MasksOk s.modW s.mlo s.mhi ∧
       (∀ i < s.tn.toNat,
         MonoSliceOk srcPool (srcTm.getD i 0#32).toNat s.ptop.toNat ∧
         (srcPool.getD (srcTm.getD i 0#32).toNat 0#32).toNat + 1 < 2 ^ 32) ∧
@@ -188,9 +188,9 @@ def arMergeProductsSpec : Spec [i64, i32] [] :=
         (∀ bd : Nat, SymsBound srcPool srcTm s.tn.toNat bd →
           SymsBound srcPool qm s.qn.toNat bd → SymsBound srcPool dstTm s'.tn.toNat bd) →
         (∀ σ : Nat → Bool,
-          polyEval s.n_out.toNat σ srcPool dstTm dstTl dstTh s'.tn.toNat =
-            nonBxTermSum s.n_out.toNat σ srcPool srcTm srcTl srcTh bx nb.toNat s.tn.toNat +
-              polyEval s.n_out.toNat σ srcPool qm ql qh s.qn.toNat) →
+          polyEval s.modW σ srcPool dstTm dstTl dstTh s'.tn.toNat =
+            nonBxTermSum s.modW σ srcPool srcTm srcTl srcTh bx nb.toNat s.tn.toNat +
+              polyEval s.modW σ srcPool qm ql qh s.qn.toNat) →
         (arCtxMem cx s' ⋆ tMem s' tm0' tm1' ts0' tl0' th0' ts1' tl1' th1' pool0 pool1 ⋆
           qMem s' qm qs ql' qh' ix' ix2' bx vqOff vq vqSkip ⋆ R) m' →
         Q () m')

@@ -811,7 +811,7 @@ public theorem merge_products_copy_step (Γ : T.Env)
     (hrecC : ∀ (crem' : Nat) (ys : Tup Val [i32, i32, i32]) (m' : Mem 64),
       crem' < j.toNat - curC.toNat →
       (crem' = j.toNat - ys.2.1.toNat ∧ cur.toNat ≤ ys.2.1.toNat ∧ ys.2.1.toNat ≤ j.toNat ∧
-        MergeProdInv s.tn.toNat s.tn.toNat s.qn.toNat nb.toNat k.toNat s.n_out.toNat s.ptop.toNat
+        MergeProdInv s.tn.toNat s.tn.toNat s.qn.toNat nb.toNat k.toNat s.modW s.ptop.toNat
           srcPool srcTm qm ixS bx srcTl srcTh qlS qhS
           (s.tm.getD (1 - s.tc.toNat) 0#64) (s.ts.getD (1 - s.tc.toNat) 0#64)
           (s.tl.getD (1 - s.tc.toNat) 0#64) (s.th.getD (1 - s.tc.toNat) 0#64)
@@ -862,9 +862,9 @@ public theorem merge_products_copy_step (Γ : T.Env)
       (∃ idx < s.tn.toNat, dTmC.getD t 0#32 = srcTm.getD idx 0#32) ∨
       (∃ qidx < s.qn.toNat, dTmC.getD t 0#32 = qm.getD qidx 0#32))
     (hevalC : ∀ σ : Nat → Bool,
-      polyEval s.n_out.toNat σ srcPool dTmC dTlC dThC oC.toNat =
-        nonBxRangeSum s.n_out.toNat σ srcPool srcTm srcTl srcTh bx nb.toNat 0 curC.toNat +
-          polyEvalIdxOf s.n_out.toNat σ srcPool qm qlS qhS ixS 0 pi.toNat)
+      polyEval s.modW σ srcPool dTmC dTlC dThC oC.toNat =
+        nonBxRangeSum s.modW σ srcPool srcTm srcTl srcTh bx nb.toNat 0 curC.toNat +
+          polyEvalIdxOf s.modW σ srcPool qm qlS qhS ixS 0 pi.toNat)
     (hmC : (array (t := i32) (s.tm.getD (1 - s.tc.toNat) 0#64) dTmC ⋆
       array64 (s.ts.getD (1 - s.tc.toNat) 0#64) dTsC ⋆
       array64 (s.tl.getD (1 - s.tc.toNat) 0#64) dTlC ⋆
@@ -883,7 +883,7 @@ public theorem merge_products_copy_step (Γ : T.Env)
     refine wp_loop_group (fun irem (v : Tup Val [i32, i32]) mI =>
         let (oI, iI, _) := v
         irem = e.toNat - iI.toNat ∧ curC.toNat ≤ iI.toNat ∧ iI.toNat ≤ e.toNat ∧
-        MergeProdInv s.tn.toNat s.tn.toNat s.qn.toNat nb.toNat k.toNat s.n_out.toNat s.ptop.toNat
+        MergeProdInv s.tn.toNat s.tn.toNat s.qn.toNat nb.toNat k.toNat s.modW s.ptop.toNat
           srcPool srcTm qm ixS bx srcTl srcTh qlS qhS
           (s.tm.getD (1 - s.tc.toNat) 0#64) (s.ts.getD (1 - s.tc.toNat) 0#64)
           (s.tl.getD (1 - s.tc.toNat) 0#64) (s.th.getD (1 - s.tc.toNat) 0#64)
@@ -948,7 +948,7 @@ public theorem merge_products_copy_step (Γ : T.Env)
               exact sep_cast hm (by rw [hRro, ExtHashMap.sep_emp]; ac_rfl))
       · have hi_eq : iI = e := BitVec.eq_of_toNat_eq (by have := BitVec.not_lt.mp hc; omega)
         subst hi_eq; clear hc
-        have hminv : MergeProdInv s.tn.toNat s.tn.toNat s.qn.toNat nb.toNat k.toNat s.n_out.toNat
+        have hminv : MergeProdInv s.tn.toNat s.tn.toNat s.qn.toNat nb.toNat k.toNat s.modW
             s.ptop.toNat srcPool srcTm qm ixS bx srcTl srcTh qlS qhS
             (s.tm.getD (1 - s.tc.toNat) 0#64) (s.ts.getD (1 - s.tc.toNat) 0#64)
             (s.tl.getD (1 - s.tc.toNat) 0#64) (s.th.getD (1 - s.tc.toNat) 0#64)

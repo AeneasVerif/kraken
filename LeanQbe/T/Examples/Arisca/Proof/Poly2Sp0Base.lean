@@ -80,13 +80,28 @@ public theorem sp0_outSum_take_succ (w : Nat) (σ : Nat → Bool) (outRefArr : L
     List.length_map, List.length_take, Nat.min_eq_left (Nat.le_of_lt hj), Nat.zero_add,
     ← getD_eq_getElem outRefArr 0#32 hj]
 
-public theorem sp0_out_step_odd (w : Nat) (σ : Nat → Bool) (rf : BitVec 32) {j : Nat}
+private theorem sp0_outSliceL_append (g : Aig) (ρ : Nat → Bool) (off : Nat) :
+    ∀ (js : List Nat) (k : Nat),
+      outSliceL g ρ off (js ++ [k]) =
+        outSliceL g ρ off js + 2 ^ k * (g.litVal ρ (g.outs.getD (off + k) 0)).toNat
+  | [], k => by simp [outSliceL]
+  | j :: js, k => by
+    simp only [List.cons_append, outSliceL, sp0_outSliceL_append g ρ off js k, Nat.add_assoc]
+
+public theorem sp0_outSlice_succ (w : Nat) (g : Aig) (ρ : Nat → Bool) (off j : Nat) :
+    BitVec.ofNat w (outSlice g ρ off (j + 1)) =
+      BitVec.ofNat w (outSlice g ρ off j) +
+        BitVec.ofNat w (2 ^ j) * bv w (g.litVal ρ (g.outs.getD (off + j) 0)) := by
+  simp only [outSlice, List.range_succ, sp0_outSliceL_append, BitVec.ofNat_add]
+  congr 1
+  cases g.litVal ρ (g.outs.getD (off + j) 0) <;> simp [bv]
+
+public theorem sp0_out_step_odd_gen {w : Nat} (c : BitVec w) (σ : Nat → Bool) (rf : BitVec 32)
     (hodd : (rf &&& 1#32) ≠ 0#32) {l0 h0 l1 h1 : BitVec 64}
-    (hlh0 : coeff128 w l0 h0 = BitVec.ofNat w (2 ^ j))
-    (hlh1 : coeff128 w l1 h1 = -coeff128 w l0 h0) :
+    (hlh0 : coeff128 w l0 h0 = c) (hlh1 : coeff128 w l1 h1 = -c) :
     (if monoValL σ (addQSyms 0 0 0) then coeff128 w l0 h0 else 0#w) +
         (if monoValL σ (addQSyms 1 (2 * (rf >>> 1).toNat) 0) then coeff128 w l1 h1 else 0#w) =
-      BitVec.ofNat w (2 ^ j) * bv w (σ (2 * (rf.toNat / 2)) ^^ (rf.toNat % 2 == 1)) := by
+      c * bv w (σ (2 * (rf.toNat / 2)) ^^ (rf.toNat % 2 == 1)) := by
   have hrmod : rf.toNat % 2 = 1 := by
     have hand : (rf &&& 1#32).toNat = rf.toNat % 2 := by
       rw [BitVec.toNat_and, show (1#32 : BitVec 32).toNat = 1 from rfl, Nat.and_one_is_mod]
@@ -103,11 +118,10 @@ public theorem sp0_out_step_odd (w : Nat) (σ : Nat → Bool) (rf : BitVec 32) {
   rw [hm0, hm1]
   cases σ (2 * (rf.toNat / 2)) <;> simp [bv, ← BitVec.sub_eq_add_neg, BitVec.sub_self]
 
-public theorem sp0_out_step_even (w : Nat) (σ : Nat → Bool) (rf : BitVec 32) {j : Nat}
-    (heven : (rf &&& 1#32) = 0#32) {l0 h0 : BitVec 64}
-    (hlh0 : coeff128 w l0 h0 = BitVec.ofNat w (2 ^ j)) :
+public theorem sp0_out_step_even_gen {w : Nat} (c : BitVec w) (σ : Nat → Bool) (rf : BitVec 32)
+    (heven : (rf &&& 1#32) = 0#32) {l0 h0 : BitVec 64} (hlh0 : coeff128 w l0 h0 = c) :
     (if monoValL σ (addQSyms 1 (2 * (rf >>> 1).toNat) 0) then coeff128 w l0 h0 else 0#w) =
-      BitVec.ofNat w (2 ^ j) * bv w (σ (2 * (rf.toNat / 2)) ^^ (rf.toNat % 2 == 1)) := by
+      c * bv w (σ (2 * (rf.toNat / 2)) ^^ (rf.toNat % 2 == 1)) := by
   have hrmod : rf.toNat % 2 = 0 := by
     have hand : (rf &&& 1#32).toNat = rf.toNat % 2 := by
       rw [BitVec.toNat_and, show (1#32 : BitVec 32).toNat = 1 from rfl, Nat.and_one_is_mod]
@@ -121,6 +135,22 @@ public theorem sp0_out_step_even (w : Nat) (σ : Nat → Bool) (rf : BitVec 32) 
     show (σ (2 * (rf.toNat / 2)) && true) = _; simp
   rw [hm1]
   cases σ (2 * (rf.toNat / 2)) <;> simp [bv]
+
+public theorem sp0_out_step_odd (w : Nat) (σ : Nat → Bool) (rf : BitVec 32) {j : Nat}
+    (hodd : (rf &&& 1#32) ≠ 0#32) {l0 h0 l1 h1 : BitVec 64}
+    (hlh0 : coeff128 w l0 h0 = BitVec.ofNat w (2 ^ j))
+    (hlh1 : coeff128 w l1 h1 = -coeff128 w l0 h0) :
+    (if monoValL σ (addQSyms 0 0 0) then coeff128 w l0 h0 else 0#w) +
+        (if monoValL σ (addQSyms 1 (2 * (rf >>> 1).toNat) 0) then coeff128 w l1 h1 else 0#w) =
+      BitVec.ofNat w (2 ^ j) * bv w (σ (2 * (rf.toNat / 2)) ^^ (rf.toNat % 2 == 1)) :=
+  sp0_out_step_odd_gen (BitVec.ofNat w (2 ^ j)) σ rf hodd hlh0 (hlh0 ▸ hlh1)
+
+public theorem sp0_out_step_even (w : Nat) (σ : Nat → Bool) (rf : BitVec 32) {j : Nat}
+    (heven : (rf &&& 1#32) = 0#32) {l0 h0 : BitVec 64}
+    (hlh0 : coeff128 w l0 h0 = BitVec.ofNat w (2 ^ j)) :
+    (if monoValL σ (addQSyms 1 (2 * (rf >>> 1).toNat) 0) then coeff128 w l0 h0 else 0#w) =
+      BitVec.ofNat w (2 ^ j) * bv w (σ (2 * (rf.toNat / 2)) ^^ (rf.toNat % 2 == 1)) :=
+  sp0_out_step_even_gen (BitVec.ofNat w (2 ^ j)) σ rf heven hlh0
 
 public noncomputable def inTerm (w : Nat) (σ : Nat → Bool) (signed : Bool) (n x idx : Nat) :
     BitVec w :=
@@ -269,7 +299,7 @@ public theorem sp0_call_addQ_wp (Γ : T.Env)
     (hql_len : qlC.length = ql.length) (hqh_len : qhC.length = qh.length)
     (hs_qm : s.qcap.toNat ≤ qm.length) (hs_qs : s.qcap.toNat ≤ qs.length)
     (hs_ql : s.qcap.toNat ≤ ql.length) (hs_qh : s.qcap.toNat ≤ qh.length)
-    (hMasks : MasksOk s.n_out.toNat s.mlo s.mhi)
+    (hMasks : MasksOk s.modW s.mlo s.mhi)
     (hPart : ∀ ρ : Nat → Bool, PartnerRep (cSig g ρ bindArr) s.n_nets.toNat partnerArr)
     (hSlices : ∀ i < qn,
       MonoSliceOk (if s.pc.toNat = 0 then pool0C else pool1C) (qmC.getD i 0#32).toNat pt ∧
@@ -313,10 +343,10 @@ public theorem sp0_call_addQ_wp (Γ : T.Env)
       SigOk dstPool qm' qs' qn' →
       monoTotalWords dstPool qm' qn' ≤ pt' →
       (∀ ρ : Nat → Bool,
-        polyEval s.n_out.toNat (cSig g ρ bindArr) dstPool qm' ql' qh' qn' =
-          polyEval s.n_out.toNat (cSig g ρ bindArr) srcPool qmC qlC qhC qn +
+        polyEval s.modW (cSig g ρ bindArr) dstPool qm' ql' qh' qn' =
+          polyEval s.modW (cSig g ρ bindArr) srcPool qmC qlC qhC qn +
             (if monoValL (cSig g ρ bindArr) (addQSyms lenN s0N s1N)
-             then coeff128 s.n_out.toNat l h else 0#(s.n_out.toNat))) →
+             then coeff128 s.modW l h else 0#(s.modW))) →
       (arCtxMem cx (Sp0LoopState s pt' qn') ⋆ array (t := i32) s.bind bindArr ⋆
         array (t := i32) s.in_net inNetArr ⋆ array (t := i32) s.out_ref outRefArr ⋆
         array (t := i32) s.partner partnerArr ⋆
@@ -343,7 +373,7 @@ public theorem sp0_call_addQ_wp (Γ : T.Env)
       by simp [hsC, Sp0LoopState, hp0_len, hs_p0], by simp [hsC, Sp0LoopState, hp1_len, hs_p1],
       by simp [hsC, Sp0LoopState, hqm_len, hs_qm], by simp [hsC, Sp0LoopState, hqs_len, hs_qs],
       by simp [hsC, Sp0LoopState, hql_len, hs_ql], by simp [hsC, Sp0LoopState, hqh_len, hs_qh],
-      by simp [hsC, Sp0LoopState, hMasks],
+      by rw [hsC]; change MasksOk s.modW s.mlo s.mhi; exact hMasks,
       ⟨cSig g (fun _ => false) bindArr, ⟨fun _ => false, rfl⟩⟩,
       fun _ ⟨ρ, hρ⟩ => hρ ▸ by simpa [hsC, Sp0LoopState] using hPart ρ,
       by simpa [hsC, Sp0LoopState, hpt_toNat, hqn_toNat] using hSlices,
@@ -392,8 +422,8 @@ public theorem sp0_call_addQ_wp (Γ : T.Env)
       (by simpa [hsC, Sp0LoopState] using hW')
       (fun ρ => by
         have hEv'' := hEv' (cSig g ρ bindArr) ⟨ρ, rfl⟩
-        have hsC_nout : sC.n_out = s.n_out := by rw [hsC]; rfl
-        rw [hsC_nout] at hEv''
+        have hsC_modW : sC.modW = s.modW := by rw [hsC]; rfl
+        rw [hsC_modW] at hEv''
         simp only [Arg.val] at hEv''
         simp only [Arg.val] at halen has0 has1
         simp only [hsC, Sp0LoopState, hqn_toNat, halen, has0, has1] at hEv'' ⊢
@@ -434,23 +464,22 @@ public theorem sp0_loop2_row_done {w : Nat} (σ : Nat → Bool) (signed : Bool) 
   rw [hprev, sp0_inSum_take_succ w σ signed n inNetArr hi, BitVec.add_mul]
   simp only [BitVec.sub_eq_add_neg, BitVec.neg_add, BitVec.add_assoc]
 
-private theorem sp0_done_eval_eq {s : ArCtxState} {g : Aig}
+public theorem sp0_done_eval_eq {s : ArCtxState} {g : Aig}
     {bindArr inNetArr outRefArr : List (BitVec 32)}
-    (hBind : BindRep s g bindArr inNetArr outRefArr) (ρ : Nat → Bool) :
-    outSum s.n_out.toNat (cSig g ρ bindArr) ((outRefArr.take s.n_out.toNat).map BitVec.toNat) 0 -
-        inSum s.n_out.toNat (cSig g ρ bindArr) (decide (s.spec = 1#32)) (g.I / 2)
+    (hBind : BindRep s g bindArr inNetArr outRefArr) (hns : s.spec ≠ 2#32) (ρ : Nat → Bool) :
+    outSum s.modW (cSig g ρ bindArr) ((outRefArr.take s.modW).map BitVec.toNat) 0 -
+        inSum s.modW (cSig g ρ bindArr) (decide (s.spec = 1#32)) (g.I / 2)
           ((inNetArr.take (g.I / 2)).map BitVec.toNat) 0 *
-        inSum s.n_out.toNat (cSig g ρ bindArr) (decide (s.spec = 1#32)) (g.I / 2)
+        inSum s.modW (cSig g ρ bindArr) (decide (s.spec = 1#32)) (g.I / 2)
           (((inNetArr.drop (g.I / 2)).take (g.I / 2)).map BitVec.toNat) 0 =
-      BitVec.ofNat s.n_out.toNat (outWord g ρ) -
-        BitVec.ofInt s.n_out.toNat (inWord (decide (s.spec = 1#32)) (g.I / 2) ρ 0) *
-          BitVec.ofInt s.n_out.toNat (inWord (decide (s.spec = 1#32)) (g.I / 2) ρ (g.I / 2)) := by
-  have h1 := hBind.outSum_eq ρ
-  have h2 := hBind.inSum_eq ρ (decide (s.spec = 1#32)) 0 (Or.inl rfl)
-  have h3 := hBind.inSum_eq ρ (decide (s.spec = 1#32)) (g.I / 2) (Or.inr rfl)
+      sp0TargetEval s.spec s.modW g ρ := by
+  have h1 := hBind.outSum_eq hns ρ
+  have h2 := hBind.inSum_eq hns ρ (decide (s.spec = 1#32)) 0 (Or.inl rfl)
+  have h3 := hBind.inSum_eq hns ρ (decide (s.spec = 1#32)) (g.I / 2) (Or.inr rfl)
   dsimp only at h1 h2 h3
   rw [List.drop_zero] at h2
   rw [h1, h2, h3]
+  simp [sp0TargetEval, hns]
 
 private theorem sp0_isNeg_eq {spec : BitVec 32} {iV kV nV : BitVec 32} {n : Nat}
     (hn : nV.toNat = n) (hn_ge : 1 ≤ n) (hi : iV.toNat < n) (hk : kV.toNat < n) :
@@ -497,8 +526,9 @@ public theorem sp0_merge_exit_ok (Γ : T.Env)
     (hql_len : s.qcap.toNat ≤ ql.length) (hqh_len : s.qcap.toNat ≤ qh.length)
     (hix_len : s.qcap.toNat ≤ ix.length) (hix2_len : s.qcap.toNat ≤ ix2.length)
     (hix_eq : ix.length = ix2.length)
-    (hMasks : MasksOk s.n_out.toNat s.mlo s.mhi)
-    (hBind : BindRep s g bindArr inNetArr outRefArr)
+    (target : (Nat → Bool) → BitVec s.modW)
+    (hMasks : MasksOk s.modW s.mlo s.mhi)
+    (_hBind : BindRep s g bindArr inNetArr outRefArr)
     (hSl3 : ∀ i < qn3,
       MonoSliceOk (if s.pc.toNat = 0 then pool0_3 else pool1_3) (qm3.getD i 0#32).toNat pt3 ∧
       ((if s.pc.toNat = 0 then pool0_3 else pool1_3).getD
@@ -508,14 +538,8 @@ public theorem sp0_merge_exit_ok (Γ : T.Env)
     (hSig3 : SigOk (if s.pc.toNat = 0 then pool0_3 else pool1_3) qm3 qs3 qn3)
     (hW3 : monoTotalWords (if s.pc.toNat = 0 then pool0_3 else pool1_3) qm3 qn3 ≤ pt3)
     (hEv3 : ∀ ρ : Nat → Bool,
-      polyEval s.n_out.toNat (cSig g ρ bindArr)
-          (if s.pc.toNat = 0 then pool0_3 else pool1_3) qm3 ql3 qh3 qn3 =
-        outSum s.n_out.toNat (cSig g ρ bindArr)
-            ((outRefArr.take s.n_out.toNat).map BitVec.toNat) 0 -
-          inSum s.n_out.toNat (cSig g ρ bindArr) (decide (s.spec = 1#32)) (g.I / 2)
-            ((inNetArr.take (g.I / 2)).map BitVec.toNat) 0 *
-          inSum s.n_out.toNat (cSig g ρ bindArr) (decide (s.spec = 1#32)) (g.I / 2)
-            (((inNetArr.drop (g.I / 2)).take (g.I / 2)).map BitVec.toNat) 0)
+      polyEval s.modW (cSig g ρ bindArr)
+          (if s.pc.toNat = 0 then pool0_3 else pool1_3) qm3 ql3 qh3 qn3 = target ρ)
     (hqBack : ∀ s' qm' qs' ql' qh',
       s'.qm = s.qm → s'.qs = s.qs → s'.ql = s.ql → s'.qh = s.qh →
       s'.ix = s.ix → s'.ix2 = s.ix2 → s'.bx = s.bx →
@@ -563,16 +587,12 @@ public theorem sp0_merge_exit_ok (Γ : T.Env)
         monoTotalWords (if s'.pc.toNat = 0 then pool0' else pool1')
           (if s'.tc.toNat = 0 then tm0' else tm1') s'.tn.toNat ≤ s'.ptop.toNat ∧
         ∀ ρ : Nat → Bool,
-        polyEval s.n_out.toNat (cSig g ρ bindArr)
+        polyEval s.modW (cSig g ρ bindArr)
             (if s'.pc.toNat = 0 then pool0' else pool1')
             (if s'.tc.toNat = 0 then tm0' else tm1')
             (if s'.tc.toNat = 0 then tl0' else tl1')
             (if s'.tc.toNat = 0 then th0' else th1')
-            s'.tn.toNat =
-          BitVec.ofNat s.n_out.toNat (outWord g ρ) -
-            BitVec.ofInt s.n_out.toNat (inWord (decide (s.spec = 1#32)) (g.I / 2) ρ 0) *
-              BitVec.ofInt s.n_out.toNat
-                (inWord (decide (s.spec = 1#32)) (g.I / 2) ρ (g.I / 2))) →
+            s'.tn.toNat = target ρ) →
       (arCtxMem cx s' ⋆
         array (t := i32) s'.bind bindArr ⋆ array (t := i32) s'.in_net inNetArr ⋆
         array (t := i32) s'.out_ref outRefArr ⋆ array (t := i32) s'.partner partnerArr ⋆
@@ -611,7 +631,7 @@ public theorem sp0_merge_exit_ok (Γ : T.Env)
       by simp [Sp0LoopState, hqm3, hqm_len], by simp [Sp0LoopState, hqs3, hqs_len],
       by simp [Sp0LoopState, hql3, hql_len], by simp [Sp0LoopState, hqh3, hqh_len],
       by simp [Sp0LoopState, hix_len], by simp [Sp0LoopState, hix2_len],
-      by simp [Sp0LoopState, hMasks],
+      by change MasksOk s.modW s.mlo s.mhi; exact hMasks,
       fun _ h0 => absurd h0 (Nat.not_lt_zero _),
       fun i hi => by
         rw [hpt3_nat]
@@ -707,79 +727,80 @@ public theorem sp0_merge_exit_ok (Γ : T.Env)
           simp only [monoTotalWords, List.range_zero, List.foldl_nil, Nat.zero_add] at hW'
           exact le_trans hW' hW3
         refine ⟨hSl_res, hSorted_res, hSig_res, hW_res, fun ρ => ?_⟩
-        have hnb0 : nonBxTermSum s.n_out.toNat (cSig g ρ bindArr)
+        have hnb0 : nonBxTermSum s.modW (cSig g ρ bindArr)
             (if (Sp0LoopState s pt3 qn3).pc.toNat = 0 then pool0_3 else pool1_3)
             (if (Sp0LoopState s pt3 qn3).tc.toNat = 0 then tm0 else tm1)
             (if (Sp0LoopState s pt3 qn3).tc.toNat = 0 then tl0 else tl1)
             (if (Sp0LoopState s pt3 qn3).tc.toNat = 0 then th0 else th1) bx 0
-            (Sp0LoopState s pt3 qn3).tn.toNat = 0#(s.n_out.toNat) := by
+            (Sp0LoopState s pt3 qn3).tn.toNat = 0#(s.modW) := by
           simp [Sp0LoopState, nonBxTermSum, nonBxRangeSum]
-        have hEvT : polyEval s.n_out.toNat (cSig g ρ bindArr)
+        have hEvT : polyEval s.modW (cSig g ρ bindArr)
               (if s'.pc.toNat = 0 then pool0_3 else pool1_3)
               (if s'.tc.toNat = 0 then tm0' else tm1')
               (if s'.tc.toNat = 0 then tl0' else tl1')
               (if s'.tc.toNat = 0 then th0' else th1') s'.tn.toNat =
-            polyEval s.n_out.toNat (cSig g ρ bindArr)
+            polyEval s.modW (cSig g ρ bindArr)
               (if s.pc.toNat = 0 then pool0_3 else pool1_3) qm3 ql3 qh3 qn3 := by
           have hEvρ := hEv' (cSig g ρ bindArr)
-          change polyEval s.n_out.toNat (cSig g ρ bindArr)
+          change polyEval s.modW (cSig g ρ bindArr)
               (if (Sp0LoopState s pt3 qn3).pc.toNat = 0 then pool0_3 else pool1_3)
               (if (Sp0LoopState s pt3 qn3).tc.toNat = 0 then tm1' else tm0')
               (if (Sp0LoopState s pt3 qn3).tc.toNat = 0 then tl1' else tl0')
               (if (Sp0LoopState s pt3 qn3).tc.toNat = 0 then th1' else th0') s'.tn.toNat =
-            nonBxTermSum s.n_out.toNat (cSig g ρ bindArr)
+            nonBxTermSum s.modW (cSig g ρ bindArr)
               (if (Sp0LoopState s pt3 qn3).pc.toNat = 0 then pool0_3 else pool1_3)
               (if (Sp0LoopState s pt3 qn3).tc.toNat = 0 then tm0 else tm1)
               (if (Sp0LoopState s pt3 qn3).tc.toNat = 0 then tl0 else tl1)
               (if (Sp0LoopState s pt3 qn3).tc.toNat = 0 then th0 else th1) bx 0
               (Sp0LoopState s pt3 qn3).tn.toNat +
-            polyEval s.n_out.toNat (cSig g ρ bindArr)
+            polyEval s.modW (cSig g ρ bindArr)
               (if (Sp0LoopState s pt3 qn3).pc.toNat = 0 then pool0_3 else pool1_3)
               qm3 ql3 qh3 (Sp0LoopState s pt3 qn3).qn.toNat at hEvρ
           rw [hnb0, BitVec.zero_add, hqn3_nat,
             show (Sp0LoopState s pt3 qn3).pc.toNat = s.pc.toNat from rfl] at hEvρ
           rw [hs'_pc, htc_flip tm0' tm1', htc_flip tl0' tl1', htc_flip th0' th1']
           exact hEvρ
-        rw [hEvT, hEv3 ρ]
-        exact sp0_done_eval_eq hBind ρ⟩)
+        rw [hEvT, hEv3 ρ]⟩)
+
+@[expose] public def sp0StepStraight : Expr Val Cont [.bool] → Expr Val Cont [.bool]
+  | @Expr.let_ _ _ _ [.bits 64] _ k => k (0#64, ())
+  | @Expr.let_ _ _ _ [.bits 32] _ k => k (0#32, ())
+  | @Expr.let_ _ _ _ [.bool] _ k => k (false, ())
+  | @Expr.load _ _ _ (.bits 64) _ k => k 0#64
+  | @Expr.load _ _ _ (.bits 32) _ k => k 0#32
+  | .store _ _ k => k
+  | e => e
+
+@[expose] public def sp0FindElse : Nat → Expr Val Cont [.bool] → Expr Val Cont [.bool]
+  | 0, e => e
+  | _ + 1, .jnz _ _ eElse => eElse
+  | n + 1, e => sp0FindElse n (sp0StepStraight e)
 
 @[expose] public def sp0KBodyExpr (cx : Val i64) (nV iV kV : Val i32) (JJ : Cont []) :
     Expr Val Cont [.bool] :=
-  match ar_build_sp0_body Val Cont (cx, ()) with
+  match sp0FindElse 20 (ar_build_sp0_body Val Cont (cx, ())) with
   | @Expr.let_ _ _ _ [.bits 64] _ k1 => match k1 (cx + 640#64, ()) with
     | @Expr.load _ _ _ (.bits 32) _ k2 => match k2 nV with
       | @Expr.let_ _ _ _ [.bits 32] _ k3 => match k3 (nV, ()) with
-        | @Expr.let_ _ _ _ [.bits 64] _ k4 => match k4 (cx + 672#64, ()) with
-          | .store _ _ k5 => match k5 with
-            | @Expr.let_ _ _ _ [.bits 64] _ k6 => match k6 (cx + 424#64, ()) with
-              | .store _ _ k7 => match k7 with
-                | @Expr.let_ _ _ _ [.bits 64] _ k8 => match k8 (cx + 684#64, ()) with
-                  | .store _ _ k9 => match k9 with
-                    | @Expr.group _ _ _ [[.bits 32]] bsJ _ =>
-                      match bsJ (fun _ _ => False, ()) with
-                      | .cons bJ _ => match bJ (0#32, ()) with
-                        | @Expr.let_ _ _ _ [.bits 64] _ kj1 => match kj1 (cx + 616#64, ()) with
-                          | @Expr.load _ _ _ (.bits 32) _ kj2 => match kj2 0#32 with
-                            | @Expr.let_ _ _ _ [.bool] _ kj3 => match kj3 (false, ()) with
-                              | .jnz _ _ eI => match eI with
-                                | @Expr.group _ _ _ [[.bits 32]] bsI _ =>
-                                  match bsI (fun _ _ => False, ()) with
-                                  | .cons bI _ => match bI (iV, ()) with
-                                    | @Expr.let_ _ _ _ [.bool] _ ki1 => match ki1 (false, ()) with
-                                      | .jnz _ eK _ => match eK with
-                                        | @Expr.group _ _ _ [[.bits 32]] bsK _ =>
-                                          match bsK (fun _ _ => False, ()) with
-                                          | .cons bK _ => match bK (kV, ()) with
-                                            | @Expr.let_ _ _ _ [.bool] _ kk1 =>
-                                              match kk1 (false, ()) with
-                                              | .jnz _ eKG _ => match eKG with
-                                                | @Expr.group _ _ _ [[]] _ eBody => eBody (JJ, ())
-                                                | _ => .ret (Arg.imm false, ())
-                                              | _ => .ret (Arg.imm false, ())
-                                            | _ => .ret (Arg.imm false, ())
-                                          | _ => .ret (Arg.imm false, ())
-                                        | _ => .ret (Arg.imm false, ())
-                                      | _ => .ret (Arg.imm false, ())
+        | @Expr.group _ _ _ [[.bits 32]] bsJ _ =>
+          match bsJ (fun _ _ => False, ()) with
+          | .cons bJ _ => match bJ (0#32, ()) with
+            | @Expr.let_ _ _ _ [.bits 64] _ kj1 => match kj1 (cx + 616#64, ()) with
+              | @Expr.load _ _ _ (.bits 32) _ kj2 => match kj2 0#32 with
+                | @Expr.let_ _ _ _ [.bool] _ kj3 => match kj3 (false, ()) with
+                  | .jnz _ _ eI => match eI with
+                    | @Expr.group _ _ _ [[.bits 32]] bsI _ =>
+                      match bsI (fun _ _ => False, ()) with
+                      | .cons bI _ => match bI (iV, ()) with
+                        | @Expr.let_ _ _ _ [.bool] _ ki1 => match ki1 (false, ()) with
+                          | .jnz _ eK _ => match eK with
+                            | @Expr.group _ _ _ [[.bits 32]] bsK _ =>
+                              match bsK (fun _ _ => False, ()) with
+                              | .cons bK _ => match bK (kV, ()) with
+                                | @Expr.let_ _ _ _ [.bool] _ kk1 =>
+                                  match kk1 (false, ()) with
+                                  | .jnz _ eKG _ => match eKG with
+                                    | @Expr.group _ _ _ [[]] _ eBody => eBody (JJ, ())
                                     | _ => .ret (Arg.imm false, ())
                                   | _ => .ret (Arg.imm false, ())
                                 | _ => .ret (Arg.imm false, ())
@@ -837,7 +858,8 @@ public theorem sp0_k_body_wp (Γ : T.Env)
     (hqlK : qlK.length = ql.length) (hqhK : qhK.length = qh.length)
     (hs_qm : s.qcap.toNat ≤ qm.length) (hs_qs : s.qcap.toNat ≤ qs.length)
     (hs_ql : s.qcap.toNat ≤ ql.length) (hs_qh : s.qcap.toNat ≤ qh.length)
-    (hMasks : MasksOk s.n_out.toNat s.mlo s.mhi) (hBind : BindRep s g bindArr inNetArr outRefArr)
+    (hns : s.spec ≠ 2#32)
+    (hMasks : MasksOk s.modW s.mlo s.mhi) (hBind : BindRep s g bindArr inNetArr outRefArr)
     (hPart : ∀ ρ : Nat → Bool, PartnerRep (cSig g ρ bindArr) s.n_nets.toNat partnerArr)
     (h2n : 2 * n = g.I) (hi_in : iV.toNat < inNetArr.length)
     (hnk_in : n + kV.toNat < inNetArr.length)
@@ -850,17 +872,17 @@ public theorem sp0_k_body_wp (Γ : T.Env)
     (hSigK : SigOk (if s.pc.toNat = 0 then pool0K else pool1K) qmK qsK qnK)
     (hWK : monoTotalWords (if s.pc.toNat = 0 then pool0K else pool1K) qmK qnK ≤ ptK)
     (hEvK : ∀ ρ : Nat → Bool,
-      polyEval s.n_out.toNat (cSig g ρ bindArr)
+      polyEval s.modW (cSig g ρ bindArr)
           (if s.pc.toNat = 0 then pool0K else pool1K) qmK qlK qhK qnK =
-        outSum s.n_out.toNat (cSig g ρ bindArr)
-            ((outRefArr.take s.n_out.toNat).map BitVec.toNat) 0 -
-          inSum s.n_out.toNat (cSig g ρ bindArr) (decide (s.spec = 1#32)) n
+        outSum s.modW (cSig g ρ bindArr)
+            ((outRefArr.take s.modW).map BitVec.toNat) 0 -
+          inSum s.modW (cSig g ρ bindArr) (decide (s.spec = 1#32)) n
             ((inNetArr.take iV.toNat).map BitVec.toNat) 0 *
-          inSum s.n_out.toNat (cSig g ρ bindArr) (decide (s.spec = 1#32)) n
+          inSum s.modW (cSig g ρ bindArr) (decide (s.spec = 1#32)) n
             (((inNetArr.drop n).take n).map BitVec.toNat) 0 -
-          inTerm s.n_out.toNat (cSig g ρ bindArr) (decide (s.spec = 1#32)) n
+          inTerm s.modW (cSig g ρ bindArr) (decide (s.spec = 1#32)) n
             (inNetArr.getD iV.toNat 0#32).toNat iV.toNat *
-          inSum s.n_out.toNat (cSig g ρ bindArr) (decide (s.spec = 1#32)) n
+          inSum s.modW (cSig g ρ bindArr) (decide (s.spec = 1#32)) n
             (((inNetArr.drop n).take kV.toNat).map BitVec.toNat) 0)
     (hmK : (arCtxMem cx (Sp0LoopState s ptK qnK) ⋆ array (t := i32) s.bind bindArr ⋆
       array (t := i32) s.in_net inNetArr ⋆ array (t := i32) s.out_ref outRefArr ⋆
@@ -896,17 +918,17 @@ public theorem sp0_k_body_wp (Γ : T.Env)
         SigOk (if s.pc.toNat = 0 then pool0' else pool1') qm' qs' qn' ∧
         monoTotalWords (if s.pc.toNat = 0 then pool0' else pool1') qm' qn' ≤ pt' ∧
         (∀ ρ : Nat → Bool,
-          polyEval s.n_out.toNat (cSig g ρ bindArr)
+          polyEval s.modW (cSig g ρ bindArr)
               (if s.pc.toNat = 0 then pool0' else pool1') qm' ql' qh' qn' =
-            outSum s.n_out.toNat (cSig g ρ bindArr)
-                ((outRefArr.take s.n_out.toNat).map BitVec.toNat) 0 -
-              inSum s.n_out.toNat (cSig g ρ bindArr) (decide (s.spec = 1#32)) n
+            outSum s.modW (cSig g ρ bindArr)
+                ((outRefArr.take s.modW).map BitVec.toNat) 0 -
+              inSum s.modW (cSig g ρ bindArr) (decide (s.spec = 1#32)) n
                 ((inNetArr.take iV.toNat).map BitVec.toNat) 0 *
-              inSum s.n_out.toNat (cSig g ρ bindArr) (decide (s.spec = 1#32)) n
+              inSum s.modW (cSig g ρ bindArr) (decide (s.spec = 1#32)) n
                 (((inNetArr.drop n).take n).map BitVec.toNat) 0 -
-              inTerm s.n_out.toNat (cSig g ρ bindArr) (decide (s.spec = 1#32)) n
+              inTerm s.modW (cSig g ρ bindArr) (decide (s.spec = 1#32)) n
                 (inNetArr.getD iV.toNat 0#32).toNat iV.toNat *
-              inSum s.n_out.toNat (cSig g ρ bindArr) (decide (s.spec = 1#32)) n
+              inSum s.modW (cSig g ρ bindArr) (decide (s.spec = 1#32)) n
                 (((inNetArr.drop n).take (kV.toNat + 1)).map BitVec.toNat) 0) ∧
         (arCtxMem cx (Sp0LoopState s pt' qn') ⋆ array (t := i32) s.bind bindArr ⋆
           array (t := i32) s.in_net inNetArr ⋆ array (t := i32) s.out_ref outRefArr ⋆
@@ -919,16 +941,18 @@ public theorem sp0_k_body_wp (Γ : T.Env)
   subst nV
   have hout_bd := hBind.out_bounds
   have hnin_lt := hBind.in_eq
+  have hs_modW : s.modW = s.n_out.toNat := by simp [ArCtxState.modW, hns]
   dsimp only [sp0KBodyExpr]
   c0_hsteps_nogrp
   · have hik_32 : iV.toNat + kV.toNat < 2 ^ 32 := by have := s.n_in.isLt; have := hBind.in_eq; omega
     have hik_toNat : (iV + kV).toNat = iV.toNat + kV.toNat := by
       rw [BitVec.toNat_add, Nat.mod_eq_of_lt hik_32]
-    have hik_lt : iV.toNat + kV.toNat < s.n_out.toNat := by
+    have hik_lt : iV.toNat + kV.toNat < s.modW := by
       have hc' : (iV + kV).toNat < (Sp0LoopState s ptK qnK).n_out.toNat := hc
-      simpa [Sp0LoopState, hik_toNat] using hc'
-    have hnet_a := (hBind.in_ok iV.toNat (by omega)).1
-    have hnet_b := (hBind.in_ok (n + kV.toNat) (by omega)).1
+      simp only [Sp0LoopState, hik_toNat] at hc'
+      rw [hs_modW]; exact hc'
+    have hnet_a := ((hBind.in_ok iV.toNat (by omega)).resolve_left (fun h => hns h.1)).1
+    have hnet_b := ((hBind.in_ok (n + kV.toNat) (by omega)).resolve_left (fun h => hns h.1)).1
     let va := (inNetArr.getD iV.toNat 0#32).toNat
     let vb := (inNetArr.getD (n + kV.toNat) 0#32).toNat
     let Rcp2 := array (t := i32) s.bind bindArr ⋆
@@ -960,11 +984,15 @@ public theorem sp0_k_body_wp (Γ : T.Env)
     c0_hsteps_nogrp
     apply wp_call_of_spec
     refine hCpow2 _ _ _ _
-      ⟨Sp0LoopState s ptK qnK, Rcp2, by simpa [Sp0LoopState] using hMasks,
+      ⟨Sp0LoopState s ptK qnK, Rcp2, hMasks,
         sep_cast hmK (by dsimp only [Rcp2]; ac_rfl), fun l0 h0 hlh0 => ?_⟩
-    have hlh0' : coeff128 s.n_out.toNat l0 h0 =
-        BitVec.ofNat s.n_out.toNat (2 ^ (iV.toNat + kV.toNat)) := by
-      simpa [Sp0LoopState, hik_toNat, show iV.toNat + kV.toNat < 128 by omega] using hlh0
+    have hlh0' : coeff128 s.modW l0 h0 =
+        BitVec.ofNat s.modW (2 ^ (iV.toNat + kV.toNat)) := by
+      change coeff128 s.modW l0 h0 =
+        if (iV + kV).toNat < 128 then BitVec.ofNat s.modW (2 ^ (iV + kV).toNat)
+        else 0#(s.modW) at hlh0
+      simp only [hik_toNat, show iV.toNat + kV.toNat < 128 by omega, ite_true] at hlh0
+      exact hlh0
     let isNeg : Bool :=
       decide (s.spec = 1#32) && (decide (iV.toNat + 1 = n) != decide (kV.toNat + 1 = n))
     c0_hsteps_nogrp
@@ -973,13 +1001,13 @@ public theorem sp0_k_body_wp (Γ : T.Env)
       dsimp only at hbNeg; subst hbNeg
       c0_hsteps_nogrp
       refine wp_join_group (fun (v : Tup Val [i64, i64]) m' =>
-          m' = mK ∧ coeff128 s.n_out.toNat v.1 v.2.1 =
-            if isNeg then BitVec.ofNat s.n_out.toNat (2 ^ (iV.toNat + kV.toNat))
-            else -BitVec.ofNat s.n_out.toNat (2 ^ (iV.toNat + kV.toNat))) ?_ ?_
+          m' = mK ∧ coeff128 s.modW v.1 v.2.1 =
+            if isNeg then BitVec.ofNat s.modW (2 ^ (iV.toNat + kV.toNat))
+            else -BitVec.ofNat s.modW (2 ^ (iV.toNat + kV.toNat))) ?_ ?_
       · rintro Jlh ⟨l1, h1, ⟨⟩⟩ mLH ⟨hmLH, hlh1⟩; subst mLH
-        have hlh1' : coeff128 s.n_out.toNat l1 h1 =
-            if isNeg then BitVec.ofNat s.n_out.toNat (2 ^ (iV.toNat + kV.toNat))
-            else -BitVec.ofNat s.n_out.toNat (2 ^ (iV.toNat + kV.toNat)) := by simpa using hlh1
+        have hlh1' : coeff128 s.modW l1 h1 =
+            if isNeg then BitVec.ofNat s.modW (2 ^ (iV.toNat + kV.toNat))
+            else -BitVec.ofNat s.modW (2 ^ (iV.toNat + kV.toNat)) := by simpa using hlh1
         c0_hsteps_nogrp
         let xa := 2#32 * inNetArr[0 + iV.toNat]'(by simpa using hi_in)
         let xb := 2#32 * inNetArr[0 + (s.n_in >>> 1#32 + kV).toNat]'(by simpa using hnv_k_lt)
@@ -1024,7 +1052,7 @@ public theorem sp0_k_body_wp (Γ : T.Env)
                     hpt', hqn', hp0', hp1', hqm', hqs', hql', hqh', hSl', hSorted', hSig', hW',
                     ?_, hm'⟩
                   intro ρ
-                  rw [sp0_inSum_drop_take_succ s.n_out.toNat (cSig g ρ bindArr)
+                  rw [sp0_inSum_drop_take_succ s.modW (cSig g ρ bindArr)
                       (decide (s.spec = 1#32)) n inNetArr hnk_in]
                   exact sp0_loop2_step_lt hik_lt (by omega) (cSig g ρ bindArr)
                     (decide (s.spec = 1#32)) _ _ _ _ _ va vb (hEvK ρ) (hEv' ρ)
@@ -1065,11 +1093,11 @@ public theorem sp0_k_body_wp (Γ : T.Env)
             array (t := i32) s.qm qmK ⋆ array64 s.qs qsK ⋆ array64 s.ql qlK ⋆
             array64 s.qh qhK ⋆ restQ ⋆ R
           refine wp_call_of_spec _ _ (hCneg _ _ _ _
-            ⟨Sp0LoopState s ptK qnK, Rcn2, by simpa [Sp0LoopState] using hMasks,
+            ⟨Sp0LoopState s ptK qnK, Rcn2, hMasks,
               by exact sep_cast hmK (by dsimp only [Rcn2]; ac_rfl), fun l1 h1 hlh1 => ?_⟩)
           c0_hsteps
           have hc_neg : isNeg = false := Bool.eq_false_iff.mpr (by simpa using hc)
-          have hlh1' : coeff128 s.n_out.toNat l1 h1 = -coeff128 s.n_out.toNat l0 h0 := hlh1
+          have hlh1' : coeff128 s.modW l1 h1 = -coeff128 s.modW l0 h0 := hlh1
           refine hJlh (l1, h1, ⟨⟩) mK ⟨rfl, ?_⟩
           dsimp only; rw [ite_eq_right (by rw [hc_neg]; exact Bool.false_ne_true), hlh1', hlh0']
     · intro Jb hJb; c0_hsteps_nogrp
@@ -1093,14 +1121,15 @@ public theorem sp0_k_body_wp (Γ : T.Env)
   · have hik_32 : iV.toNat + kV.toNat < 2 ^ 32 := by have := s.n_in.isLt; have := hBind.in_eq; omega
     have hik_toNat : (iV + kV).toNat = iV.toNat + kV.toNat := by
       rw [BitVec.toNat_add, Nat.mod_eq_of_lt hik_32]
-    have hik_ge : s.n_out.toNat ≤ iV.toNat + kV.toNat := by
+    have hik_ge : s.modW ≤ iV.toNat + kV.toNat := by
       have hc' : ¬ (iV + kV).toNat < (Sp0LoopState s ptK qnK).n_out.toNat := hc
-      simpa [Sp0LoopState, hik_toNat] using hc'
+      simp only [Sp0LoopState, hik_toNat] at hc'
+      rw [hs_modW]; exact Nat.not_lt.mp hc'
     c0_hsteps
     refine hJJ ⟨⟩ mK ⟨ptK, qnK, pool0K, pool1K, qmK, qsK, qlK, qhK,
       hptK, hqnK, hp0K, hp1K, hqmK, hqsK, hqlK, hqhK, hSlK, hSortedK, hSigK, hWK, ?_, hmK⟩
     intro ρ
-    rw [sp0_inSum_drop_take_succ s.n_out.toNat (cSig g ρ bindArr)
+    rw [sp0_inSum_drop_take_succ s.modW (cSig g ρ bindArr)
       (decide (s.spec = 1#32)) n inNetArr hnk_in]
     exact sp0_loop2_step_ge hik_ge (cSig g ρ bindArr) (decide (s.spec = 1#32)) _ _ _ _ _ _ (hEvK ρ)
 

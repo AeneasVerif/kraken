@@ -16,7 +16,7 @@ meta import LeanQbe.T.Examples.Arisca.Build.Flat
 /-!
 # Exported Stack-Bound Prefix Table for `ariscaModule` (SysV x86-64)
 
-Materializes `ariscaX64AllExt : List (SigEntry × Nat)` via `eval_prefix_ext!` across all `44`
+Materializes `ariscaX64AllExt : List (SigEntry × Nat)` via `eval_prefix_ext!` across all `45`
 functions in `ariscaFlatMod.fns` on `x64Target` (`0` externs, `0` exits), allowing parallel
 compilation slices `AriscaCertS0`..`S4` to resolve callee stack bounds.
 -/
@@ -33,6 +33,6 @@ eval_prefix_ext! ariscaX64AllExt x64Target x64LegalTarget ariscaFlatMod.fns (fla
 
 /-- Pre-verified callee accumulator `(sig, stackBound)` covering `ariscaModule.fns.take k`. -/
 @[expose] def ariscaX64ExtBefore (k : Nat) : List (SigEntry × Nat) :=
-  ariscaX64AllExt.drop (44 - k)
+  ariscaX64AllExt.drop (45 - k)
 
 end LeanQbe.T.Amd64

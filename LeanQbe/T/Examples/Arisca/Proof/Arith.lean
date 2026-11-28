@@ -121,64 +121,64 @@ def u64Mul128Spec : Spec [i64, i64] [i64, i64] :=
 def arCmulSpec : Spec [i64, i64, i64, i64, i64] [i64, i64] :=
   fun ⟨cx, al, ah, bl, bh, ⟨⟩⟩ m Q _ =>
     ∃ (s : ArCtxState) (R : Mem 64 → Prop),
-      MasksOk s.n_out.toNat s.mlo s.mhi ∧
+      MasksOk s.modW s.mlo s.mhi ∧
       (arCtxMem cx s ⋆ R) m ∧
       (∀ lo hi : BitVec 64,
-        coeff128 s.n_out.toNat lo hi =
-          coeff128 s.n_out.toNat al ah * coeff128 s.n_out.toNat bl bh →
+        coeff128 s.modW lo hi =
+          coeff128 s.modW al ah * coeff128 s.modW bl bh →
         Q (lo, hi, ⟨⟩) m)
 
 /-- WP specification for `ar_cadd(cx, al, ah, bl, bh)`. -/
 def arCaddSpec : Spec [i64, i64, i64, i64, i64] [i64, i64] :=
   fun ⟨cx, al, ah, bl, bh, ⟨⟩⟩ m Q _ =>
     ∃ (s : ArCtxState) (R : Mem 64 → Prop),
-      MasksOk s.n_out.toNat s.mlo s.mhi ∧
+      MasksOk s.modW s.mlo s.mhi ∧
       (arCtxMem cx s ⋆ R) m ∧
       (∀ lo hi : BitVec 64,
-        coeff128 s.n_out.toNat lo hi =
-          coeff128 s.n_out.toNat al ah + coeff128 s.n_out.toNat bl bh →
+        coeff128 s.modW lo hi =
+          coeff128 s.modW al ah + coeff128 s.modW bl bh →
         Q (lo, hi, ⟨⟩) m)
 
 /-- WP specification for `ar_csub(cx, al, ah, bl, bh)`. -/
 def arCsubSpec : Spec [i64, i64, i64, i64, i64] [i64, i64] :=
   fun ⟨cx, al, ah, bl, bh, ⟨⟩⟩ m Q _ =>
     ∃ (s : ArCtxState) (R : Mem 64 → Prop),
-      MasksOk s.n_out.toNat s.mlo s.mhi ∧
+      MasksOk s.modW s.mlo s.mhi ∧
       (arCtxMem cx s ⋆ R) m ∧
       (∀ lo hi : BitVec 64,
-        coeff128 s.n_out.toNat lo hi =
-          coeff128 s.n_out.toNat al ah - coeff128 s.n_out.toNat bl bh →
+        coeff128 s.modW lo hi =
+          coeff128 s.modW al ah - coeff128 s.modW bl bh →
         Q (lo, hi, ⟨⟩) m)
 
 /-- WP specification for `ar_cneg(cx, al, ah)`. -/
 def arCnegSpec : Spec [i64, i64, i64] [i64, i64] :=
   fun ⟨cx, al, ah, ⟨⟩⟩ m Q _ =>
     ∃ (s : ArCtxState) (R : Mem 64 → Prop),
-      MasksOk s.n_out.toNat s.mlo s.mhi ∧
+      MasksOk s.modW s.mlo s.mhi ∧
       (arCtxMem cx s ⋆ R) m ∧
       (∀ lo hi : BitVec 64,
-        coeff128 s.n_out.toNat lo hi = -coeff128 s.n_out.toNat al ah →
+        coeff128 s.modW lo hi = -coeff128 s.modW al ah →
         Q (lo, hi, ⟨⟩) m)
 
 /-- WP specification for `ar_cfrom_small(cx, v)`. -/
 def arCfromSmallSpec : Spec [i64, i64] [i64, i64] :=
   fun ⟨cx, v, ⟨⟩⟩ m Q _ =>
     ∃ (s : ArCtxState) (R : Mem 64 → Prop),
-      MasksOk s.n_out.toNat s.mlo s.mhi ∧
+      MasksOk s.modW s.mlo s.mhi ∧
       (arCtxMem cx s ⋆ R) m ∧
       (∀ lo hi : BitVec 64,
-        coeff128 s.n_out.toNat lo hi = BitVec.ofInt s.n_out.toNat v.toInt →
+        coeff128 s.modW lo hi = BitVec.ofInt s.modW v.toInt →
         Q (lo, hi, ⟨⟩) m)
 
 /-- WP specification for `ar_cpow2(cx, e)`. -/
 def arCpow2Spec : Spec [i64, i32] [i64, i64] :=
   fun ⟨cx, e, ⟨⟩⟩ m Q _ =>
     ∃ (s : ArCtxState) (R : Mem 64 → Prop),
-      MasksOk s.n_out.toNat s.mlo s.mhi ∧
+      MasksOk s.modW s.mlo s.mhi ∧
       (arCtxMem cx s ⋆ R) m ∧
       (∀ lo hi : BitVec 64,
-        coeff128 s.n_out.toNat lo hi =
-          (if e.toNat < 128 then BitVec.ofNat s.n_out.toNat (2 ^ e.toNat) else 0#(s.n_out.toNat)) →
+        coeff128 s.modW lo hi =
+          (if e.toNat < 128 then BitVec.ofNat s.modW (2 ^ e.toNat) else 0#(s.modW)) →
         Q (lo, hi, ⟨⟩) m)
 
 end
@@ -644,10 +644,10 @@ theorem ar_cmul_wp (Γ : Env)
   c0_hsteps
   refine hQ _ _ ?_
   rw [coeff128_mask hmasks]
-  have hmul : coeff128 s.n_out.toNat l (h + al * bh + ah * bl) =
-      coeff128 s.n_out.toNat al ah * coeff128 s.n_out.toNat bl bh := by
-    have hmul_eq : coeff128 s.n_out.toNat al ah * coeff128 s.n_out.toNat bl bh =
-        BitVec.ofNat s.n_out.toNat
+  have hmul : coeff128 s.modW l (h + al * bh + ah * bl) =
+      coeff128 s.modW al ah * coeff128 s.modW bl bh := by
+    have hmul_eq : coeff128 s.modW al ah * coeff128 s.modW bl bh =
+        BitVec.ofNat s.modW
           ((al.toNat + 2 ^ 64 * ah.toNat) * (bl.toNat + 2 ^ 64 * bh.toNat)) := by
       apply BitVec.eq_of_toNat_eq
       simp only [coeff128, BitVec.toNat_mul, BitVec.toNat_ofNat, Nat.mul_mod_mod, Nat.mod_mul_mod]
@@ -921,14 +921,14 @@ theorem ar_cfrom_small_wp (Γ : Env) :
       have hnz : (v >>> (63 : Nat)).toNat ≠ 0 := fun h => hc (BitVec.eq_of_toNat_eq h)
       rw [BitVec.toNat_ushiftRight, Nat.shiftRight_eq_div_pow] at hnz
       omega
-    exact coeff128_from_small_neg s.n_out.toNat hmasks.2.1 v hmsb
+    exact coeff128_from_small_neg s.modW hmasks.2.1 v hmsb
   · refine hQ _ _ ?_
     rw [coeff128_mask hmasks]
     have hmsb : v.toNat < 2 ^ 63 := by
       have hz : (v >>> (63 : Nat)).toNat = 0 := congrArg BitVec.toNat hc
       rw [BitVec.toNat_ushiftRight, Nat.shiftRight_eq_div_pow] at hz
       omega
-    exact coeff128_from_small_pos s.n_out.toNat v hmsb
+    exact coeff128_from_small_pos s.modW v hmsb
 
 theorem ar_cpow2_wp (Γ : Env) :
     ∀ xs m Q X, arCpow2Spec xs m Q X → Func.wp Γ ar_cpow2_body xs m Q X := by
@@ -939,13 +939,13 @@ theorem ar_cpow2_wp (Γ : Env) :
     have hlt128 : e.toNat < 128 := by omega
     rw [coeff128_mask hmasks]
     simp only [hlt128, ↓reduceIte]
-    exact coeff128_pow2_lo s.n_out.toNat e hlt
+    exact coeff128_pow2_lo s.modW e hlt
   · refine hQ _ _ ?_
     have hge64 : 64 ≤ e.toNat := Nat.not_lt.mp (by simpa using ‹¬ e.toNat < BitVec.toNat 64›)
     have hlt128 : e.toNat < 128 := hc
     rw [coeff128_mask hmasks]
     simp only [hlt128, ↓reduceIte]
-    exact coeff128_pow2_hi s.n_out.toNat e hge64 hlt128
+    exact coeff128_pow2_hi s.modW e hge64 hlt128
   · refine hQ _ _ ?_
     have hge128 : ¬ e.toNat < 128 := hc
     rw [coeff128_mask hmasks]

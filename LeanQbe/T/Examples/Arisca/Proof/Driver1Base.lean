@@ -60,7 +60,7 @@ def arInstallRuleSpec : Spec [i64, i32, i32] [.bool] :=
       s.rs_cap.toNat ≤ rsM.length ∧ s.rs_cap.toNat ≤ rsL.length ∧ s.rs_cap.toNat ≤ rsH.length ∧
       s.rs_pcap.toNat ≤ rsPool.length ∧
       80 ≤ gsy.length ∧ 16 ≤ gcl.length ∧ 16 ≤ gch.length ∧
-      MasksOk s.n_out.toNat s.mlo s.mhi ∧
+      MasksOk s.modW s.mlo s.mhi ∧
       (∀ i < n.toNat,
         MonoSliceOk gsy (5 * i) 80 ∧ (gsy.getD (5 * i) 0#32).toNat + 1 < 2 ^ 32) ∧
       (∀ i < n.toNat, MonoSorted gsy (5 * i)) ∧
@@ -91,10 +91,10 @@ def arInstallRuleSpec : Spec [i64, i32, i32] [.bool] :=
           RulesSorted rsPool' rsM' s'.rs_n.toNat ∧
           (∀ σ : Nat → Bool,
             PartnerRep σ s.n_nets.toNat partnerArr →
-            RulesRep s.n_out.toNat σ s ruleOff ruleN rsM rsL rsH rsPool →
-            polyEval s.n_out.toNat σ gsy gsyMOff gcl gch n.toNat =
-              bv s.n_out.toNat (σ (2 * o.toNat)) →
-            RulesRep s'.n_out.toNat σ s' ruleOff' ruleN' rsM' rsL' rsH' rsPool')) →
+            RulesRep s.modW σ s ruleOff ruleN rsM rsL rsH rsPool →
+            polyEval s.modW σ gsy gsyMOff gcl gch n.toNat =
+              bv s.modW (σ (2 * o.toNat)) →
+            RulesRep s'.modW σ s' ruleOff' ruleN' rsM' rsL' rsH' rsPool')) →
         (arCtxMem cx s' ⋆ array (t := i32) s'.rule_off ruleOff' ⋆
           array (t := i32) s'.rule_n ruleN' ⋆ array (t := i32) s'.partner partnerArr ⋆
           array (t := i32) s'.gsy gsy ⋆ array64 s'.gcl gcl ⋆ array64 s'.gch gch ⋆
@@ -118,7 +118,7 @@ def arDoGateSpec : Spec [i64] [.bool] :=
       s.art.toNat + artBytes.length < 2 ^ 64 ∧ 4 * s.nw.toNat ≤ artBytes.length ∧
       160 ≤ stkN.length ∧ 160 ≤ stkP.length ∧ 64 ≤ memoN.length ∧ 64 ≤ memoV.length ∧
       128 ≤ dense.length ∧ 85 ≤ gsy.length ∧ 16 ≤ gcl.length ∧ 16 ≤ gch.length ∧
-      MasksOk s.n_out.toNat s.mlo s.mhi ∧
+      MasksOk s.modW s.mlo s.mhi ∧
       AigRep g rhs0 rhs1 olit ∧
       BindRep s g bindArr inNetArr outRefArr ∧
       monoTotalWords rsPool rsM s.rs_n.toNat ≤ s.rs_ptop.toNat ∧
@@ -126,7 +126,7 @@ def arDoGateSpec : Spec [i64] [.bool] :=
       RulesSorted rsPool rsM s.rs_n.toNat ∧
       (∀ ρ : Nat → Bool,
         PartnerRep (cSig g ρ bindArr) s.n_nets.toNat partnerArr ∧
-        RulesRep s.n_out.toNat (cSig g ρ bindArr) s ruleOff ruleN rsM rsL rsH rsPool) ∧
+        RulesRep s.modW (cSig g ρ bindArr) s ruleOff ruleN rsM rsL rsH rsPool) ∧
       (arCtxMem cx s ⋆ bytes s.art artBytes ⋆ aigArraysMem s rhs0 rhs1 olit ⋆
         netTablesMem s bindArr ruleOff ruleN partnerArr flippedArr inNetArr outRefArr ⋆
         gateScratchMem s stkN stkP memoN memoV dense gsy gcl gch ⋆
@@ -161,7 +161,7 @@ def arDoGateSpec : Spec [i64] [.bool] :=
           RulesSorted rsPool' rsM' s'.rs_n.toNat ∧
           (∀ ρ : Nat → Bool,
             PartnerRep (cSig g ρ bindArr) s.n_nets.toNat partnerArr' ∧
-            RulesRep s'.n_out.toNat (cSig g ρ bindArr) s'
+            RulesRep s'.modW (cSig g ρ bindArr) s'
               ruleOff' ruleN' rsM' rsL' rsH' rsPool')) →
         (arCtxMem cx s' ⋆ bytes s'.art artBytes ⋆ aigArraysMem s' rhs0 rhs1 olit ⋆
           netTablesMem s' bindArr ruleOff' ruleN' partnerArr' flippedArr inNetArr outRefArr ⋆
@@ -193,14 +193,14 @@ def arDoConeSpec : Spec [i64] [.bool] :=
       s.qcap.toNat ≤ ix.length ∧ s.qcap.toNat ≤ ix2.length ∧ ix.length = ix2.length ∧
       s.tcap.toNat ≤ bx.length ∧ s.qcap.toNat ≤ bx.length ∧ s.qcap.toNat + 1 ≤ vqOff.length ∧
       s.pcap.toNat ≤ vq.length ∧ s.qcap.toNat ≤ vqSkip.length ∧
-      MasksOk s.n_out.toNat s.mlo s.mhi ∧
+      MasksOk s.modW s.mlo s.mhi ∧
       monoTotalWords rsPool rsM s.rs_n.toNat ≤ s.rs_ptop.toNat ∧
       (∀ i < s.rs_n.toNat, (rsPool.getD (rsM.getD i 0#32).toNat 0#32).toNat + 1 < 2 ^ 32) ∧
       RulesSorted rsPool rsM s.rs_n.toNat ∧
       (∃ σ0 : Nat → Bool, Valid σ0) ∧
       (∀ σ : Nat → Bool, Valid σ →
         PartnerRep σ s.n_nets.toNat partnerArr ∧
-        RulesRep s.n_out.toNat σ s ruleOff ruleN rsM rsL rsH rsPool) ∧
+        RulesRep s.modW σ s ruleOff ruleN rsM rsL rsH rsPool) ∧
       (arCtxMem cx s ⋆ bytes s.art artBytes ⋆ array (t := i32) s.rule_off ruleOff ⋆
         array (t := i32) s.rule_n ruleN ⋆ array (t := i32) s.partner partnerArr ⋆
         rsMem s rsM rsL rsH rsPool ⋆
@@ -242,7 +242,7 @@ def arDoConeSpec : Spec [i64] [.bool] :=
             (rsPool'.getD (rsM'.getD i 0#32).toNat 0#32).toNat + 1 < 2 ^ 32) ∧
           RulesSorted rsPool' rsM' s'.rs_n.toNat ∧
           (∀ σ : Nat → Bool, Valid σ →
-            RulesRep s'.n_out.toNat σ s' ruleOff' ruleN' rsM' rsL' rsH' rsPool')) →
+            RulesRep s'.modW σ s' ruleOff' ruleN' rsM' rsL' rsH' rsPool')) →
         (arCtxMem cx s' ⋆ bytes s'.art artBytes ⋆ array (t := i32) s'.rule_off ruleOff' ⋆
           array (t := i32) s'.rule_n ruleN' ⋆ array (t := i32) s'.partner partnerArr ⋆
           rsMem s' rsM' rsL' rsH' rsPool' ⋆
@@ -769,8 +769,8 @@ private theorem ar_install_rule_step_inv
     (hGsySorted : MonoSorted gsy (5 * i.toNat))
     (hTotCur : monoTotalWords rsPoolCur rsMCur sCur.rs_n.toNat ≤ sCur.rs_ptop.toNat)
     (hPoly : ∀ σ : Nat → Bool, PartnerRep σ s.n_nets.toNat partnerArr →
-      polyEvalRange s.n_out.toNat σ rsPoolCur rsMCur rsLCur rsHCur s.rs_n.toNat cnt.toNat =
-        polyEval s.n_out.toNat σ gsy gsyMOff gcl gch i.toNat) :
+      polyEvalRange s.modW σ rsPoolCur rsMCur rsLCur rsHCur s.rs_n.toNat cnt.toNat =
+        polyEval s.modW σ gsy gsyMOff gcl gch i.toNat) :
     let rsM1 := rsMCur.set sCur.rs_n.toNat (sCur.rs_ptop.setWidth 32)
     let rsL1 := rsLCur.set sCur.rs_n.toNat (gcl.getD i.toNat 0#64)
     let rsH1 := rsHCur.set sCur.rs_n.toNat (gch.getD i.toNat 0#64)
@@ -785,8 +785,8 @@ private theorem ar_install_rule_step_inv
     RulesSorted rsPoolJ rsM1 newRsn ∧
     monoTotalWords rsPoolJ rsM1 newRsn ≤ newPtop ∧
     (∀ σ : Nat → Bool, PartnerRep σ s.n_nets.toNat partnerArr →
-      polyEvalRange s.n_out.toNat σ rsPoolJ rsM1 rsL1 rsH1 s.rs_n.toNat (cnt.toNat + 1) =
-        polyEval s.n_out.toNat σ gsy gsyMOff gcl gch (i.toNat + 1)) := by
+      polyEvalRange s.modW σ rsPoolJ rsM1 rsL1 rsH1 s.rs_n.toNat (cnt.toNat + 1) =
+        polyEval s.modW σ gsy gsyMOff gcl gch (i.toNat + 1)) := by
   intro rsM1 rsL1 rsH1 newPtop newRsn
   have hsym := symListAt_copy_slice (mlen := mlen.toNat)
     (by rw [← hmlen_eq]; simp) mlen.isLt (fun r hr => hpj_cp r (by omega))
@@ -830,8 +830,8 @@ private theorem ar_install_rule_step_inv
     rw [hprev, hm_last, h0_eq]
     dsimp only [newPtop]; omega
   · rw [polyEvalRange_succ, polyEval, polyEvalRange_succ, Nat.zero_add]
-    have hpe_pre : polyEvalRange s.n_out.toNat σ rsPoolJ rsM1 rsL1 rsH1 s.rs_n.toNat cnt.toNat =
-        polyEvalRange s.n_out.toNat σ rsPoolCur rsMCur rsLCur rsHCur s.rs_n.toNat cnt.toNat := by
+    have hpe_pre : polyEvalRange s.modW σ rsPoolJ rsM1 rsL1 rsH1 s.rs_n.toNat cnt.toNat =
+        polyEvalRange s.modW σ rsPoolCur rsMCur rsLCur rsHCur s.rs_n.toNat cnt.toNat := by
       refine polyEvalRange_congr_lt (fun k hk => (hSl (s.rs_n.toNat + k) (by omega)).1)
         (fun k hk => (hpj_pre k hk).symm) (fun k hk => ⟨?_, ?_, ?_⟩)
       · dsimp only [rsM1]; exact getD_set_ne rsMCur 0#32 _ (by omega)
@@ -890,9 +890,9 @@ theorem ar_install_rule_wp (Γ : LeanQbe.T.Env)
           ∃ idx < i.toNat, symListAt rsPoolCur (rsMCur.getD k 0#32).toNat =
             symListAt gsy (5 * idx)) ∧
         (∀ σ : Nat → Bool, PartnerRep σ s.n_nets.toNat partnerArr →
-          polyEvalRange s.n_out.toNat σ rsPoolCur rsMCur rsLCur rsHCur
+          polyEvalRange s.modW σ rsPoolCur rsMCur rsLCur rsHCur
               s.rs_n.toNat cnt.toNat =
-            polyEval s.n_out.toNat σ gsy gsyMOff gcl gch i.toNat) ∧
+            polyEval s.modW σ gsy gsyMOff gcl gch i.toNat) ∧
         (arCtxMem cx sCur ⋆ array (t := i32) s.rule_off ruleOff ⋆
           array (t := i32) s.rule_n ruleN ⋆ array (t := i32) s.partner partnerArr ⋆
           array (t := i32) s.gsy gsy ⋆ array64 s.gcl gcl ⋆ array64 s.gch gch ⋆
@@ -984,9 +984,9 @@ theorem ar_install_rule_wp (Γ : LeanQbe.T.Env)
               ∃ idx < i.toNat + 1, symListAt rsPoolNext (rsMNext.getD k 0#32).toNat =
                 symListAt gsy (5 * idx)) ∧
             (∀ σ : Nat → Bool, PartnerRep σ s.n_nets.toNat partnerArr →
-              polyEvalRange s.n_out.toNat σ rsPoolNext rsMNext rsLNext rsHNext
+              polyEvalRange s.modW σ rsPoolNext rsMNext rsLNext rsHNext
                   s.rs_n.toNat cnt'.toNat =
-                polyEval s.n_out.toNat σ gsy gsyMOff gcl gch (i.toNat + 1)) ∧
+                polyEval s.modW σ gsy gsyMOff gcl gch (i.toNat + 1)) ∧
             (arCtxMem cx sNext ⋆ array (t := i32) s.rule_off ruleOff ⋆
               array (t := i32) s.rule_n ruleN ⋆ array (t := i32) s.partner partnerArr ⋆
               array (t := i32) s.gsy gsy ⋆ array64 s.gcl gcl ⋆ array64 s.gch gch ⋆
@@ -1264,7 +1264,7 @@ theorem ar_install_rule_wp (Γ : LeanQbe.T.Env)
         · obtain ⟨idx, hidx, heq⟩ := hGsyMapCur k hk (Nat.le_of_not_lt hk_lt)
           rw [heq] at hx
           exact hSbGsy idx (by omega) x hx
-      have hnout_c : sCur.n_out = s.n_out := by rw [hsCur]
+      have hnout_c : sCur.modW = s.modW := by rw [hsCur]; rfl
       rw [hnout_c]
       refine rulesRep_install_done hsCur ho_lt hn16 (by simp [ruleOff']) (by simp [ruleN'])
         hm_l hl_l hh_l hp_l hsn_cap hspt_cap rfl hrsn_eq.symm (by omega)

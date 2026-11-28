@@ -624,7 +624,7 @@ private theorem sort_combine_j_exit (Γ : T.Env)
     {Rcmb Rcmb0 : Mem 64 → Prop} {JC : Cont [i32, i32]} {irem : Nat}
     {i k h0 j : BitVec 32} {l h : BitVec 64} {mC : Mem 64}
     (hrecC : ∀ (n' : Nat) (ys : Tup Val [i32, i32]) (m' : Mem 64), n' < irem →
-      CombineLoopInv s.n_out.toNat s.qn.toNat srcPool qm ql qh aArr
+      CombineLoopInv s.modW s.qn.toNat srcPool qm ql qh aArr
         s.ql s.qh { s with ix := aPtr, ix2 := bPtr }.ix Rcmb n' ys m' → JC ys m')
     (hirem : irem = s.qn.toNat - i.toNat) (hqlC_len : qlC.length = ql.length)
     (hqhC_len : qhC.length = qh.length) (haC_len : aC.length = aArr.length)
@@ -641,13 +641,13 @@ private theorem sort_combine_j_exit (Γ : T.Env)
       qlC.getD idx 0#64 = ql.getD idx 0#64 ∧ qhC.getD idx 0#64 = qh.getD idx 0#64)
     (hjSum : ∀ σ : Nat → Bool,
       (if monoValL σ (symListAt srcPool (qm.getD h0.toNat 0#32).toNat)
-        then coeff128 s.n_out.toNat l h else 0#s.n_out.toNat) +
-        polyEvalIdxOf s.n_out.toNat σ srcPool qm ql qh aArr j.toNat (s.qn.toNat - j.toNat) =
-      polyEvalIdxOf s.n_out.toNat σ srcPool qm ql qh aArr i.toNat (s.qn.toNat - i.toNat))
+        then coeff128 s.modW l h else 0#s.modW) +
+        polyEvalIdxOf s.modW σ srcPool qm ql qh aArr j.toNat (s.qn.toNat - j.toNat) =
+      polyEvalIdxOf s.modW σ srcPool qm ql qh aArr i.toNat (s.qn.toNat - i.toNat))
     (hevalC : ∀ σ : Nat → Bool,
-      polyEvalIdxOf s.n_out.toNat σ srcPool qm qlC qhC aC 0 k.toNat +
-        polyEvalIdxOf s.n_out.toNat σ srcPool qm ql qh aArr i.toNat (s.qn.toNat - i.toNat) =
-      polyEval s.n_out.toNat σ srcPool qm ql qh s.qn.toNat)
+      polyEvalIdxOf s.modW σ srcPool qm qlC qhC aC 0 k.toNat +
+        polyEvalIdxOf s.modW σ srcPool qm ql qh aArr i.toNat (s.qn.toNat - i.toNat) =
+      polyEval s.modW σ srcPool qm ql qh s.qn.toNat)
     (hql_eq : qlPtr = s.ql) (hqh_eq : qhPtr = s.qh)
     (hRcmb : Rcmb = arCtxMem cx { s with ix := aPtr, ix2 := bPtr } ⋆ Rcmb0)
     (hh0_ql : h0.toNat < qlC.length) (hh0_qh : h0.toNat < qhC.length)
@@ -660,7 +660,7 @@ private theorem sort_combine_j_exit (Γ : T.Env)
   dsimp only [sortCombineJExitExpr, sortCombineCombineExpr, sortCombineMergeExpr]
   c0_hfast_nogrp
   refine wp_join_group (fun (v : Tup Val [.bits 32]) mK =>
-      CombineLoopInv s.n_out.toNat s.qn.toNat srcPool qm ql qh aArr s.ql s.qh
+      CombineLoopInv s.modW s.qn.toNat srcPool qm ql qh aArr s.ql s.qh
         { s with ix := aPtr, ix2 := bPtr }.ix Rcmb (s.qn.toNat - j.toNat) (j, v.1, ⟨⟩) mK)
     ?_ ?_
   · rintro JK ⟨k', ⟨⟩⟩ mK hinvK
@@ -704,7 +704,7 @@ private theorem sort_combine_combine_phase (Γ : T.Env)
     (hqm_len : s.qcap.toNat ≤ qm.length) (hql_len : s.qcap.toNat ≤ ql.length)
     (hqh_len : s.qcap.toNat ≤ qh.length)
     (hix_len : s.qcap.toNat ≤ ix.length) (hix2_len : s.qcap.toNat ≤ ix2.length)
-    (hMasks : MasksOk s.n_out.toNat s.mlo s.mhi)
+    (hMasks : MasksOk s.modW s.mlo s.mhi)
     (hQmOk : ∀ i < s.qn.toNat,
       MonoSliceOk (if s.pc.toNat = 0 then pool0 else pool1) (qm.getD i 0#32).toNat
         (if s.pc.toNat = 0 then pool0 else pool1).length ∧
@@ -743,9 +743,9 @@ private theorem sort_combine_combine_phase (Γ : T.Env)
       (∀ p < k.toNat, (ix'.getD p 0#32).toNat < s.qn.toNat) →
       ((List.range k.toNat).map (fun p => (ix'.getD p 0#32).toNat)).Nodup →
       (∀ σ : Nat → Bool,
-        polyEvalIdxOf s.n_out.toNat σ (if s.pc.toNat = 0 then pool0 else pool1)
+        polyEvalIdxOf s.modW σ (if s.pc.toNat = 0 then pool0 else pool1)
           qm ql' qh' ix' 0 k.toNat =
-          polyEval s.n_out.toNat σ (if s.pc.toNat = 0 then pool0 else pool1)
+          polyEval s.modW σ (if s.pc.toNat = 0 then pool0 else pool1)
             qm ql qh s.qn.toNat) →
       (arCtxMem cx s' ⋆ tMem s' tm0 tm1 ts0 tl0 th0 ts1 tl1 th1 pool0 pool1 ⋆
         qMem s' qm qs ql' qh' ix' ix2' bx vqOff vq vqSkip ⋆ R) m' → Q (k, ⟨⟩) m') :
@@ -772,7 +772,7 @@ private theorem sort_combine_combine_phase (Γ : T.Env)
     array (t := i32) s.qm qm ⋆ array (t := i32) sMid.ix2 bArr ⋆ Rbase
   let Rcmb := arCtxMem cx sMid ⋆ Rcmb0
   have hRcmb : Rcmb = arCtxMem cx sMid ⋆ Rcmb0 := rfl
-  refine wp_loop_group (CombineLoopInv s.n_out.toNat s.qn.toNat srcPool qm ql qh
+  refine wp_loop_group (CombineLoopInv s.modW s.qn.toNat srcPool qm ql qh
       aArr s.ql s.qh sMid.ix Rcmb) ?_ ?_
   · intro JC irem ⟨i, k, ⟨⟩⟩ mC hrecC ⟨hirem, qlC, qhC, aC, hqlC_len, hqhC_len,
         haC_len, hk_i, hi_qn, hsrcA, hrestA, hndA, hltA, hqlUnmod, hevalC, hmC⟩
@@ -805,7 +805,7 @@ private theorem sort_combine_combine_phase (Γ : T.Env)
         dsimp only [Rcmb] at hmC; exact sep_cast hmC (by ac_rfl)
       c0_hfast_nogrp
       refine wp_loop_group
-        (CombineJInv s.n_out.toNat s.qn.toNat i.toNat srcPool qm ql qh aArr h0 mC) ?_ ?_
+        (CombineJInv s.modW s.qn.toNat i.toNat srcPool qm ql qh aArr h0 mC) ?_ ?_
       · intro JJ jrem ⟨l, h, j, ⟨⟩⟩ mJ hrecJ ⟨hmJ, hj_lo, hj_qn, hjrem, hjSum⟩
         subst mJ
         refine wp_join_group (fun (_ : Tup Val []) mE => mE = mC) ?_ ?_
@@ -867,8 +867,8 @@ private theorem sort_combine_combine_phase (Γ : T.Env)
     · have hi_eq : i.toNat = s.qn.toNat := by have := BitVec.not_lt.mp hc; omega
       clear hc
       have heval_done : ∀ σ : Nat → Bool,
-          polyEvalIdxOf s.n_out.toNat σ srcPool qm qlC qhC aC 0 k.toNat =
-            polyEval s.n_out.toNat σ srcPool qm ql qh s.qn.toNat := fun σ => by
+          polyEvalIdxOf s.modW σ srcPool qm qlC qhC aC 0 k.toNat =
+            polyEval s.modW σ srcPool qm ql qh s.qn.toNat := fun σ => by
         simpa [hi_eq, Nat.sub_self, polyEvalIdxOf_nil] using hevalC σ
       have hmC_base : (array64 s.ql qlC ⋆ array64 s.qh qhC ⋆ array (t := i32) sMid.ix aC ⋆
           (arCtxMem cx sMid ⋆ array (t := i32) (s.pool.getD s.pc.toNat 0#64) srcPool ⋆
@@ -897,7 +897,7 @@ private theorem sort_combine_merge_phase (Γ : T.Env)
     (hqm_len : s.qcap.toNat ≤ qm.length) (hql_len : s.qcap.toNat ≤ ql.length)
     (hqh_len : s.qcap.toNat ≤ qh.length)
     (hix_len : s.qcap.toNat ≤ ix.length) (hix2_len : s.qcap.toNat ≤ ix2.length)
-    (hMasks : MasksOk s.n_out.toNat s.mlo s.mhi)
+    (hMasks : MasksOk s.modW s.mlo s.mhi)
     (hQmOk : ∀ i < s.qn.toNat,
       MonoSliceOk (if s.pc.toNat = 0 then pool0 else pool1) (qm.getD i 0#32).toNat
         (if s.pc.toNat = 0 then pool0 else pool1).length ∧
@@ -934,9 +934,9 @@ private theorem sort_combine_merge_phase (Γ : T.Env)
       (∀ p < k.toNat, (ix'.getD p 0#32).toNat < s.qn.toNat) →
       ((List.range k.toNat).map (fun p => (ix'.getD p 0#32).toNat)).Nodup →
       (∀ σ : Nat → Bool,
-        polyEvalIdxOf s.n_out.toNat σ (if s.pc.toNat = 0 then pool0 else pool1)
+        polyEvalIdxOf s.modW σ (if s.pc.toNat = 0 then pool0 else pool1)
           qm ql' qh' ix' 0 k.toNat =
-          polyEval s.n_out.toNat σ (if s.pc.toNat = 0 then pool0 else pool1)
+          polyEval s.modW σ (if s.pc.toNat = 0 then pool0 else pool1)
             qm ql qh s.qn.toNat) →
       (arCtxMem cx s' ⋆ tMem s' tm0 tm1 ts0 tl0 th0 ts1 tl1 th1 pool0 pool1 ⋆
         qMem s' qm qs ql' qh' ix' ix2' bx vqOff vq vqSkip ⋆ R) m' → Q (k, ⟨⟩) m') :

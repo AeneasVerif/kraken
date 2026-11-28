@@ -53,7 +53,7 @@ def arAddQSpec : Spec [i64, i32, i32, i32, i64, i64] [.bool] :=
       s.pcap.toNat ≤ pool0.length ∧ s.pcap.toNat ≤ pool1.length ∧
       s.qcap.toNat ≤ qm.length ∧ s.qcap.toNat ≤ qs.length ∧
       s.qcap.toNat ≤ ql.length ∧ s.qcap.toNat ≤ qh.length ∧
-      MasksOk s.n_out.toNat s.mlo s.mhi ∧
+      MasksOk s.modW s.mlo s.mhi ∧
       (∃ σ₀, Valid σ₀) ∧
       (∀ σ, Valid σ → PartnerRep σ s.n_nets.toNat partnerArr) ∧
       (∀ i < s.qn.toNat,
@@ -87,10 +87,10 @@ def arAddQSpec : Spec [i64, i32, i32, i32, i64, i64] [.bool] :=
           SigOk dstPool qm' qs' s'.qn.toNat ∧
           monoTotalWords dstPool qm' s'.qn.toNat ≤ s'.ptop.toNat ∧
           (∀ σ, Valid σ →
-            polyEval s.n_out.toNat σ dstPool qm' ql' qh' s'.qn.toNat =
-              polyEval s.n_out.toNat σ srcPool qm ql qh s.qn.toNat +
+            polyEval s.modW σ dstPool qm' ql' qh' s'.qn.toNat =
+              polyEval s.modW σ srcPool qm ql qh s.qn.toNat +
                 (if monoValL σ (addQSyms len.toNat s0.toNat s1.toNat)
-                 then coeff128 s.n_out.toNat l h else 0#(s.n_out.toNat)))) →
+                 then coeff128 s.modW l h else 0#(s.modW)))) →
         (arCtxMem cx s' ⋆ array (t := i32) s'.partner partnerArr ⋆
           tMem s' tm0 tm1 ts0 tl0 th0 ts1 tl1 th1 pool0' pool1' ⋆
           array (t := i32) s'.qm qm' ⋆ array64 s'.qs qs' ⋆ array64 s'.ql ql' ⋆
@@ -100,7 +100,8 @@ def arAddQSpec : Spec [i64, i32, i32, i32, i64, i64] [.bool] :=
 /-- WP specification for `ar_build_sp0(cx)` (universal over AIG assignments `ρ`). -/
 def arBuildSp0Spec : Spec [i64] [.bool] :=
   fun ⟨cx, ⟨⟩⟩ m Q _ =>
-    ∃ (s : ArCtxState) (g : Aig) (bindArr inNetArr outRefArr partnerArr : List (BitVec 32))
+    ∃ (s : ArCtxState) (g : Aig)
+      (bindArr inNetArr outRefArr partnerArr olit ruleN : List (BitVec 32))
       (tm0 tm1 : List (BitVec 32)) (ts0 tl0 th0 ts1 tl1 th1 : List (BitVec 64))
       (pool0 pool1 qm : List (BitVec 32)) (qs ql qh : List (BitVec 64))
       (ix ix2 bx vqOff vq : List (BitVec 32)) (vqSkip : List (BitVec 8))
@@ -108,7 +109,10 @@ def arBuildSp0Spec : Spec [i64] [.bool] :=
       s.pc.toNat < 2 ∧ s.tc.toNat < 2 ∧
       s.tcap.toNat < 2 ^ 30 ∧ 16 ≤ s.qcap.toNat ∧ s.qcap.toNat + 16 < 2 ^ 32 ∧
       s.pcap.toNat < 2 ^ 32 ∧ s.n_nets.toNat ≤ 0x3FFFFFFF ∧ 2 * s.n_nets.toNat < 2 ^ 32 ∧
-      (s.spec = 0#32 ∨ s.spec = 1#32) ∧
+      (s.spec = 0#32 ∨ s.spec = 1#32 ∨ s.spec = 2#32) ∧
+      olit.length = g.outs.length ∧
+      (∀ j < g.outs.length, (olit.getD j 0#32).toNat = g.outs.getD j 0) ∧
+      s.n_nets.toNat ≤ ruleN.length ∧
       s.tcap.toNat ≤ tm0.length ∧ s.tcap.toNat ≤ tm1.length ∧
       s.tcap.toNat ≤ ts0.length ∧ s.tcap.toNat ≤ tl0.length ∧ s.tcap.toNat ≤ th0.length ∧
       s.tcap.toNat ≤ ts1.length ∧ s.tcap.toNat ≤ tl1.length ∧ s.tcap.toNat ≤ th1.length ∧
@@ -116,11 +120,12 @@ def arBuildSp0Spec : Spec [i64] [.bool] :=
       s.qcap.toNat ≤ qm.length ∧ s.qcap.toNat ≤ qs.length ∧
       s.qcap.toNat ≤ ql.length ∧ s.qcap.toNat ≤ qh.length ∧
       s.qcap.toNat ≤ ix.length ∧ s.qcap.toNat ≤ ix2.length ∧ ix.length = ix2.length ∧
-      MasksOk s.n_out.toNat s.mlo s.mhi ∧
+      MasksOk s.modW s.mlo s.mhi ∧
       BindRep s g bindArr inNetArr outRefArr ∧
       (∀ ρ : Nat → Bool, PartnerRep (cSig g ρ bindArr) s.n_nets.toNat partnerArr) ∧
       (arCtxMem cx s ⋆ array (t := i32) s.bind bindArr ⋆ array (t := i32) s.in_net inNetArr ⋆
         array (t := i32) s.out_ref outRefArr ⋆ array (t := i32) s.partner partnerArr ⋆
+        array (t := i32) s.olit olit ⋆ array (t := i32) s.rule_n ruleN ⋆
         tMem s tm0 tm1 ts0 tl0 th0 ts1 tl1 th1 pool0 pool1 ⋆
         qMem s qm qs ql qh ix ix2 bx vqOff vq vqSkip ⋆ R) m ∧
       (∀ (ok : Bool) (s' : ArCtxState) (tm0' tm1' : List (BitVec 32))
@@ -154,13 +159,11 @@ def arBuildSp0Spec : Spec [i64] [.bool] :=
           SigOk dstPool dstTm dstTs s'.tn.toNat ∧
           monoTotalWords dstPool dstTm s'.tn.toNat ≤ s'.ptop.toNat ∧
           (∀ ρ : Nat → Bool,
-            polyEval s.n_out.toNat (cSig g ρ bindArr) dstPool dstTm dstTl dstTh s'.tn.toNat =
-              BitVec.ofNat s.n_out.toNat (outWord g ρ) -
-                BitVec.ofInt s.n_out.toNat (inWord (decide (s.spec = 1#32)) (g.I / 2) ρ 0) *
-                  BitVec.ofInt s.n_out.toNat
-                    (inWord (decide (s.spec = 1#32)) (g.I / 2) ρ (g.I / 2)))) →
+            polyEval s.modW (cSig g ρ bindArr) dstPool dstTm dstTl dstTh s'.tn.toNat =
+              sp0TargetEval s.spec s.modW g ρ)) →
         (arCtxMem cx s' ⋆ array (t := i32) s'.bind bindArr ⋆ array (t := i32) s'.in_net inNetArr ⋆
           array (t := i32) s'.out_ref outRefArr ⋆ array (t := i32) s'.partner partnerArr ⋆
+          array (t := i32) s'.olit olit ⋆ array (t := i32) s'.rule_n ruleN ⋆
           tMem s' tm0' tm1' ts0' tl0' th0' ts1' tl1' th1' pool0' pool1' ⋆
           qMem s' qm' qs' ql' qh' ix' ix2' bx vqOff vq vqSkip ⋆ R) m' →
         Q (ok, ⟨⟩) m')
@@ -179,7 +182,7 @@ def arLoadRuleSpec : Spec [i64, i32] [.bool] :=
       s.tcap.toNat ≤ ts1.length ∧ s.tcap.toNat ≤ tl1.length ∧ s.tcap.toNat ≤ th1.length ∧
       s.pcap.toNat ≤ pool0.length ∧ s.pcap.toNat ≤ pool1.length ∧
       (∃ σ₀, Valid σ₀) ∧
-      (∀ σ, Valid σ → RulesRep s.n_out.toNat σ s ruleOff ruleN rsM rsL rsH rsPool) ∧
+      (∀ σ, Valid σ → RulesRep s.modW σ s ruleOff ruleN rsM rsL rsH rsPool) ∧
       RulesSorted rsPool rsM s.rs_n.toNat ∧
       (∀ i < s.rs_n.toNat, (rsPool.getD (rsM.getD i 0#32).toNat 0#32).toNat + 1 < 2 ^ 32) ∧
       (arCtxMem cx s ⋆ array (t := i32) s.rule_off ruleOff ⋆ array (t := i32) s.rule_n ruleN ⋆
@@ -208,8 +211,8 @@ def arLoadRuleSpec : Spec [i64, i32] [.bool] :=
           (∀ bd : Nat, SymsBound rsPool rsM s.rs_n.toNat bd →
             SymsBound dstPool dstTm s'.tn.toNat bd) ∧
           (∀ σ, Valid σ →
-            polyEval s.n_out.toNat σ dstPool dstTm dstTl dstTh s'.tn.toNat =
-              bv s.n_out.toNat (σ (2 * v.toNat)))) →
+            polyEval s.modW σ dstPool dstTm dstTl dstTh s'.tn.toNat =
+              bv s.modW (σ (2 * v.toNat)))) →
         (arCtxMem cx s' ⋆ array (t := i32) s'.rule_off ruleOff ⋆ array (t := i32) s'.rule_n ruleN ⋆
           rsMem s' rsM rsL rsH rsPool ⋆
           tMem s' tm0' tm1' ts0' tl0' th0' ts1' tl1' th1' pool0' pool1' ⋆ R) m' →
@@ -233,7 +236,7 @@ def arStoreRuleSpec : Spec [i64, i32] [.bool] :=
       s.tcap.toNat ≤ tl1.length ∧ s.tcap.toNat ≤ th1.length ∧
       s.pcap.toNat ≤ pool0.length ∧ s.pcap.toNat ≤ pool1.length ∧
       (∃ σ₀, Valid σ₀) ∧
-      (∀ σ, Valid σ → RulesRep s.n_out.toNat σ s ruleOff ruleN rsM rsL rsH rsPool) ∧
+      (∀ σ, Valid σ → RulesRep s.modW σ s ruleOff ruleN rsM rsL rsH rsPool) ∧
       RulesSorted rsPool rsM s.rs_n.toNat ∧
       monoTotalWords rsPool rsM s.rs_n.toNat ≤ s.rs_ptop.toNat ∧
       (∀ i < s.rs_n.toNat, (rsPool.getD (rsM.getD i 0#32).toNat 0#32).toNat + 1 < 2 ^ 32) ∧
@@ -243,8 +246,8 @@ def arStoreRuleSpec : Spec [i64, i32] [.bool] :=
       (∀ i < s.tn.toNat, MonoSorted srcPool (srcTm.getD i 0#32).toNat) ∧
       monoTotalWords srcPool srcTm s.tn.toNat ≤ s.pcap.toNat ∧
       (∀ σ, Valid σ →
-        polyEval s.n_out.toNat σ srcPool srcTm srcTl srcTh s.tn.toNat =
-          bv s.n_out.toNat (σ (2 * v.toNat))) ∧
+        polyEval s.modW σ srcPool srcTm srcTl srcTh s.tn.toNat =
+          bv s.modW (σ (2 * v.toNat))) ∧
       (arCtxMem cx s ⋆ array (t := i32) s.rule_off ruleOff ⋆ array (t := i32) s.rule_n ruleN ⋆
         rsMem s rsM rsL rsH rsPool ⋆ tMem s tm0 tm1 ts0 tl0 th0 ts1 tl1 th1 pool0 pool1 ⋆ R) m ∧
       (∀ (ok : Bool) (s' : ArCtxState) (ruleOff' ruleN' rsM' : List (BitVec 32))
@@ -255,7 +258,7 @@ def arStoreRuleSpec : Spec [i64, i32] [.bool] :=
         rsM'.length = rsM.length → rsL'.length = rsL.length →
         rsH'.length = rsH.length → rsPool'.length = rsPool.length →
         (ok = true →
-          (∀ σ, Valid σ → RulesRep s'.n_out.toNat σ s' ruleOff' ruleN' rsM' rsL' rsH' rsPool') ∧
+          (∀ σ, Valid σ → RulesRep s'.modW σ s' ruleOff' ruleN' rsM' rsL' rsH' rsPool') ∧
           RulesSorted rsPool' rsM' s'.rs_n.toNat ∧
           monoTotalWords rsPool' rsM' s'.rs_n.toNat ≤ s'.rs_ptop.toNat ∧
           (∀ bd : Nat, SymsBound rsPool rsM s.rs_n.toNat bd →
@@ -296,10 +299,10 @@ def arApplySpec : Spec [i64, i32] [.bool] :=
       s.qcap.toNat ≤ ix.length ∧ s.qcap.toNat ≤ ix2.length ∧
       s.tcap.toNat ≤ bx.length ∧ s.qcap.toNat ≤ bx.length ∧ s.qcap.toNat + 1 ≤ vqOff.length ∧
       s.pcap.toNat ≤ vq.length ∧ s.qcap.toNat ≤ vqSkip.length ∧
-      MasksOk s.n_out.toNat s.mlo s.mhi ∧
+      MasksOk s.modW s.mlo s.mhi ∧
       (∃ σ₀, Valid σ₀) ∧
       (∀ σ, Valid σ → PartnerRep σ s.n_nets.toNat partnerArr) ∧
-      (∀ σ, Valid σ → CurRRep s.n_out.toNat σ s.cur_nr.toNat sym.toNat curRm curRl curRh curRp) ∧
+      (∀ σ, Valid σ → CurRRep s.modW σ s.cur_nr.toNat sym.toNat curRm curRl curRh curRp) ∧
       (∀ r < s.cur_nr.toNat, MonoSorted curRp (curRm.getD r 0#32).toNat) ∧
       (∀ r < s.cur_nr.toNat, (curRp.getD (curRm.getD r 0#32).toNat 0#32).toNat + 1 < 2 ^ 32) ∧
       monoTotalWords curRp curRm s.cur_nr.toNat ≤ 4000000000 ∧
@@ -352,8 +355,8 @@ def arApplySpec : Spec [i64, i32] [.bool] :=
             SymsBound curRp curRm s.cur_nr.toNat bd →
             SymsBound dstPool dstTm s'.tn.toNat bd) ∧
           (∀ σ, Valid σ →
-            polyEval s.n_out.toNat σ dstPool dstTm dstTl dstTh s'.tn.toNat =
-              polyEval s.n_out.toNat σ srcPool srcTm srcTl srcTh s.tn.toNat)) →
+            polyEval s.modW σ dstPool dstTm dstTl dstTh s'.tn.toNat =
+              polyEval s.modW σ srcPool srcTm srcTl srcTh s.tn.toNat)) →
         (arCtxMem cx s' ⋆ array (t := i32) s'.partner partnerArr ⋆
           array (t := i32) s'.cur_rm curRm ⋆ array64 s'.cur_rl curRl ⋆
           array64 s'.cur_rh curRh ⋆ array (t := i32) s'.cur_rp curRp ⋆
@@ -378,11 +381,11 @@ def arBuildRSpec : Spec [i64, i32] [.bool] :=
       s.rcap.toNat ≤ rm2.length ∧ s.rcap.toNat ≤ rl2.length ∧ s.rcap.toNat ≤ rh2.length ∧
       s.rpcap.toNat ≤ rpool.length ∧ s.qcap.toNat ≤ ix.length ∧ s.qcap.toNat ≤ ix2.length ∧
       ix.length = ix2.length ∧
-      MasksOk s.n_out.toNat s.mlo s.mhi ∧
+      MasksOk s.modW s.mlo s.mhi ∧
       (∃ σ₀, Valid σ₀) ∧
       (∀ σ, Valid σ →
         (∀ w < s.n_nets.toNat, σ (2 * w + 1) = !(σ (2 * w))) ∧
-        RulesRep s.n_out.toNat σ s ruleOff ruleN rsM rsL rsH rsPool) ∧
+        RulesRep s.modW σ s ruleOff ruleN rsM rsL rsH rsPool) ∧
       RulesSorted rsPool rsM s.rs_n.toNat ∧
       (∀ i < s.rs_n.toNat, (rsPool.getD (rsM.getD i 0#32).toNat 0#32).toNat + 1 < 2 ^ 32) ∧
       monoTotalWords rsPool rsM s.rs_n.toNat ≤ s.rs_ptop.toNat ∧
@@ -412,7 +415,7 @@ def arBuildRSpec : Spec [i64, i32] [.bool] :=
           (s'.cur_rm = s.rm2 ∧ s'.cur_rl = s.rl2 ∧ s'.cur_rh = s.rh2 ∧
             s'.cur_rp = s.rpool ∧ s'.cur_nr.toNat ≤ s.rcap.toNat ∧
             (∀ σ, Valid σ →
-              CurRRep s.n_out.toNat σ s'.cur_nr.toNat sym rm2' rl2' rh2' rpool') ∧
+              CurRRep s.modW σ s'.cur_nr.toNat sym rm2' rl2' rh2' rpool') ∧
             (∀ r < s'.cur_nr.toNat, MonoSorted rpool' (rm2'.getD r 0#32).toNat) ∧
             (∀ r < s'.cur_nr.toNat,
               (rpool'.getD (rm2'.getD r 0#32).toNat 0#32).toNat + 1 < 2 ^ 32) ∧

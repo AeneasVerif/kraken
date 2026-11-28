@@ -551,7 +551,7 @@ private theorem buildR_pass2_S_wp (Γ : T.Env)
     {rpool rpoolC : List (BitVec 32)} {R : Mem 64 → Prop} {mC : Mem 64}
     {Q : Post [.bool]} {X : XPost}
     (hnn_bd : s.n_nets.toNat ≤ 0x3FFFFFFF) (hfl_len : s.n_nets.toNat ≤ flippedArr.length)
-    (hMasks : MasksOk s.n_out.toNat s.mlo s.mhi)
+    (hMasks : MasksOk s.modW s.mlo s.mhi)
     (hrmC : rmC.length = rm.length) (hrlC : rlC.length = rl.length)
     (hrhC : rhC.length = rh.length) (hrpoolC : rpoolC.length = rpool.length)
     (hrm_len : s.rcap.toNat ≤ rm.length) (hrl_len : s.rcap.toNat ≤ rl.length)
@@ -592,9 +592,9 @@ private theorem buildR_pass2_S_wp (Γ : T.Env)
       monoTotalWords rpoolS rmS nS_cur.toNat = rpS.toNat →
       SymsBound rpoolS rmS nS_cur.toNat s.n_nets.toNat →
       (∀ σ : Nat → Bool, (∀ w < s.n_nets.toNat, σ (2 * w + 1) = !(σ (2 * w))) →
-        polyEval s.n_out.toNat σ rpoolS rmS rlS rhS nS_cur.toNat =
-          polyEval s.n_out.toNat σ rpoolC rmC rlC rhC nC.toNat +
-            expandSum s.n_out.toNat σ flippedArr (coeff128 s.n_out.toNat cl ch) []
+        polyEval s.modW σ rpoolS rmS rlS rhS nS_cur.toNat =
+          polyEval s.modW σ rpoolC rmC rlC rhC nC.toNat +
+            expandSum s.modW σ flippedArr (coeff128 s.modW cl ch) []
               (if fv_b then 1 else 0) (symListAt rsPool mOffBv.toNat)) →
       (arCtxMem cx s ⋆ array (t := i32) s.rm rmS ⋆ array64 s.rl rlS ⋆ array64 s.rh rhS ⋆
         array (t := i32) s.rpool rpoolS ⋆
@@ -634,12 +634,12 @@ private theorem buildR_pass2_S_wp (Γ : T.Env)
         monoTotalWords rpoolS rmS nS_cur.toNat = rpS.toNat ∧
         SymsBound rpoolS rmS nS_cur.toNat s.n_nets.toNat ∧
         (∀ σ : Nat → Bool, (∀ w < s.n_nets.toNat, σ (2 * w + 1) = !(σ (2 * w))) →
-          polyEval s.n_out.toNat σ rpoolS rmS rlS rhS nS_cur.toNat =
-            polyEval s.n_out.toNat σ rpoolC rmC rlC rhC nC.toNat +
+          polyEval s.modW σ rpoolS rmS rlS rhS nS_cur.toNat =
+            polyEval s.modW σ rpoolC rmC rlC rhC nC.toNat +
               (List.range S.toNat).foldl (fun acc kS =>
-                acc + expandTermEval s.n_out.toNat σ flippedArr
-                  (coeff128 s.n_out.toNat cl ch) kS [] 0 (if fv_b then 1 else 0)
-                  (symListAt rsPool mOffBv.toNat)) 0#(s.n_out.toNat)) ∧
+                acc + expandTermEval s.modW σ flippedArr
+                  (coeff128 s.modW cl ch) kS [] 0 (if fv_b then 1 else 0)
+                  (symListAt rsPool mOffBv.toNat)) 0#(s.modW)) ∧
         (arCtxMem cx s ⋆ array (t := i32) s.rm rmS ⋆ array64 s.rl rlS ⋆
           array64 s.rh rhS ⋆ array (t := i32) s.rpool rpoolS ⋆ Rro) mS)
     ?_ ?_
@@ -692,10 +692,10 @@ private theorem buildR_pass2_S_wp (Γ : T.Env)
         cases hmFvu; cases hfvu
         c0_hsteps_nogrp
         refine wp_join_group (fun ⟨lFin, hFin, ⟨⟩⟩ mFin =>
-            mFin = m ∧ coeff128 s.n_out.toNat lFin hFin =
+            mFin = m ∧ coeff128 s.modW lFin hFin =
               if (stEnd.2.2 ^^^ (if fv_b then 1 else 0)) % 2 = 1 then
-                -coeff128 s.n_out.toNat cl ch
-              else coeff128 s.n_out.toNat cl ch)
+                -coeff128 s.modW cl ch
+              else coeff128 s.modW cl ch)
           ?_ ?_
         · rintro Jlh ⟨lFin, hFin, ⟨⟩⟩ mFin ⟨hmFin, hCoeff⟩
           cases hmFin
@@ -714,7 +714,7 @@ private theorem buildR_pass2_S_wp (Γ : T.Env)
             simpa only [ExtHashMap.sep_emp] using sep_cast hm0 (by ac_rfl)
           have hrpS_setW : rpS.setWidth 32 = BitVec.ofNat 32 rpS.toNat := by
             apply BitVec.eq_of_toNat_eq; simp [BitVec.toNat_setWidth]
-          have hdone := pass2_S_done_inv (nOut := s.n_out.toNat) (bd := s.n_nets.toNat)
+          have hdone := pass2_S_done_inv (nOut := s.modW) (bd := s.n_nets.toNat)
             flippedArr (rsPool := rsPool) (mOff := mOffBv.toNat) (mlen := mlenBv.toNat)
             (S := S.toNat) (fv_b := fv_b) (rpool0 := rpoolJ) (rpool1 := rpool1) (rmS := rmS)
             (rlS := rlS) (rhS := rhS) (rpS := rpS.toNat) (nS := nS_cur.toNat)
@@ -740,9 +740,9 @@ private theorem buildR_pass2_S_wp (Γ : T.Env)
             hstEnd_len haccJ_eq (by dsimp only [rpool1]; rw [hk1_sub]) hCoeff
           rw [← hrpS_setW] at hdone
           have hpe_eqS : ∀ σ, (∀ w < s.n_nets.toNat, σ (2 * w + 1) = !(σ (2 * w))) →
-              polyEval s.n_out.toNat σ rpoolJ rmS rlS rhS nS_cur.toNat =
-                polyEval s.n_out.toNat σ rpoolS rmS rlS rhS nS_cur.toNat :=
-            fun σ _ => polyEval_congr_prefix s.n_out.toNat σ (fun r hr => (hSlS r hr).1)
+              polyEval s.modW σ rpoolJ rmS rlS rhS nS_cur.toNat =
+                polyEval s.modW σ rpoolS rmS rlS rhS nS_cur.toNat :=
+            fun σ _ => polyEval_congr_prefix s.modW σ (fun r hr => (hSlS r hr).1)
               hprefJ (fun _ _ => ⟨rfl, rfl, rfl⟩)
           have hkJ_bd : kJ.toNat ≤ mlenBv.toNat + 1 := by omega
           have hrp_next : (rpS + kJ.setWidth 64).toNat = rpS.toNat + stEnd.1.length + 1 := by
@@ -862,7 +862,7 @@ theorem buildR_pass2_wp (Γ : T.Env)
     (_hrsp_32 : s.rs_pcap.toNat < 2 ^ 32)
     (hrm_len : s.rcap.toNat ≤ rm.length) (hrl_len : s.rcap.toNat ≤ rl.length)
     (hrh_len : s.rcap.toNat ≤ rh.length) (hrpool_len : s.rpcap.toNat ≤ rpool.length)
-    (hMasks : MasksOk s.n_out.toNat s.mlo s.mhi)
+    (hMasks : MasksOk s.modW s.mlo s.mhi)
     (hoff_cnt : off.toNat + cnt.toNat ≤ s.rs_n.toNat)
     (hrs_n_le : s.rs_n.toNat ≤ s.rs_cap.toNat) (hrs_cap_le : s.rs_cap.toNat ≤ rsM.length)
     (hrsL_len : s.rs_cap.toNat ≤ rsL.length) (hrsH_len : s.rs_cap.toNat ≤ rsH.length)
@@ -890,10 +890,10 @@ theorem buildR_pass2_wp (Γ : T.Env)
       monoTotalWords rpool' rm' nFinal.toNat ≤ s.rpcap.toNat →
       SymsBound rpool' rm' nFinal.toNat s.n_nets.toNat →
       (∀ σ : Nat → Bool, (∀ w < s.n_nets.toNat, σ (2 * w + 1) = !(σ (2 * w))) →
-        polyEval s.n_out.toNat σ rpool' rm' rl' rh' nFinal.toNat =
-          (if fv_b then (1#(s.n_out.toNat) : BitVec s.n_out.toNat) else 0#(s.n_out.toNat)) +
-            (if fv_b then -polyEvalRange s.n_out.toNat σ rsPool rsM rsL rsH off.toNat cnt.toNat
-             else polyEvalRange s.n_out.toNat σ rsPool rsM rsL rsH off.toNat cnt.toNat)) →
+        polyEval s.modW σ rpool' rm' rl' rh' nFinal.toNat =
+          (if fv_b then (1#(s.modW) : BitVec s.modW) else 0#(s.modW)) +
+            (if fv_b then -polyEvalRange s.modW σ rsPool rsM rsL rsH off.toNat cnt.toNat
+             else polyEvalRange s.modW σ rsPool rsM rsL rsH off.toNat cnt.toNat)) →
       (arCtxMem cx s ⋆ array (t := i32) s.rule_off ruleOff ⋆ array (t := i32) s.rule_n ruleN ⋆
         array (t := i8) s.flipped flippedArr ⋆ rsMem s rsM rsL rsH rsPool ⋆
         rMem s rm' rl' rh' rm2 rl2 rh2 rpool' ⋆ R) m' →
@@ -922,8 +922,8 @@ theorem buildR_pass2_wp (Γ : T.Env)
           monoTotalWords rpool0 rm0 n0.toNat = rp0.toNat ∧
           SymsBound rpool0 rm0 n0.toNat s.n_nets.toNat ∧
           (∀ σ : Nat → Bool,
-            polyEval s.n_out.toNat σ rpool0 rm0 rl0 rh0 n0.toNat =
-              if fv_b then (1#(s.n_out.toNat) : BitVec s.n_out.toNat) else 0#(s.n_out.toNat)) ∧
+            polyEval s.modW σ rpool0 rm0 rl0 rh0 n0.toNat =
+              if fv_b then (1#(s.modW) : BitVec s.modW) else 0#(s.modW)) ∧
           (arCtxMem cx s ⋆ array (t := i32) s.rm rm0 ⋆ array64 s.rl rl0 ⋆
             array64 s.rh rh0 ⋆ array (t := i32) s.rpool rpool0 ⋆ Rro) m1)
       ?_ ?_
@@ -943,10 +943,10 @@ theorem buildR_pass2_wp (Γ : T.Env)
             monoTotalWords rpoolC rmC nC.toNat = rpC.toNat ∧
             SymsBound rpoolC rmC nC.toNat s.n_nets.toNat ∧
             (∀ σ : Nat → Bool, (∀ w < s.n_nets.toNat, σ (2 * w + 1) = !(σ (2 * w))) →
-              polyEval s.n_out.toNat σ rpoolC rmC rlC rhC nC.toNat =
-                (if fv_b then (1#(s.n_out.toNat) : BitVec s.n_out.toNat) else 0#(s.n_out.toNat)) +
-                  (if fv_b then -polyEvalRange s.n_out.toNat σ rsPool rsM rsL rsH off.toNat iC.toNat
-                   else polyEvalRange s.n_out.toNat σ rsPool rsM rsL rsH off.toNat iC.toNat)) ∧
+              polyEval s.modW σ rpoolC rmC rlC rhC nC.toNat =
+                (if fv_b then (1#(s.modW) : BitVec s.modW) else 0#(s.modW)) +
+                  (if fv_b then -polyEvalRange s.modW σ rsPool rsM rsL rsH off.toNat iC.toNat
+                   else polyEvalRange s.modW σ rsPool rsM rsL rsH off.toNat iC.toNat)) ∧
             (arCtxMem cx s ⋆ array (t := i32) s.rm rmC ⋆ array64 s.rl rlC ⋆
               array64 s.rh rhC ⋆ array (t := i32) s.rpool rpoolC ⋆ Rro) mC)
         ?_ ?_
@@ -1278,7 +1278,7 @@ theorem buildR_pass2_wp (Γ : T.Env)
             List.range_zero, List.map_nil, monoValL_nil, ↓reduceIte,
             getD_set_eq rl 0#64 _ hrl_lt0, getD_set_eq rh 0#64 _ hrh_lt0,
             bv64_one_and_mlo hMasks]
-          exact coeff128_one s.n_out.toNat
+          exact coeff128_one s.modW
       · have hfv_eq : fv_b = false := Bool.eq_false_iff.mpr hfv
         subst hfv_eq
         dsimp only

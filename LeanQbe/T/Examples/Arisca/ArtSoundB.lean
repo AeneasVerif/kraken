@@ -368,6 +368,80 @@ theorem checkArtB_sound (signed : Bool) (aigN aigLen artN artLen : Nat)
   obtain ⟨-, h⟩ := band_true h
   exact ⟨g, hg, checkWordsB_sound signed g _ h⟩
 
+/-! ## Geobucket ART v1.5 Miter Soundness (`SPEC_MITER`, `spec = 2`) -/
+
+theorem checkWordsBMiter_sound (g : Aig) (ws0 : List Nat) (h : checkWordsBMiter g ws0 = true) :
+    g.outs.length % 2 = 0 ∧ 2 ≤ g.outs.length ∧ g.outs.length ≤ 256 ∧
+      ∀ ρ : Nat → Bool,
+        BitVec.ofNat (g.outs.length / 2) (outSlice g ρ 0 (g.outs.length / 2)) =
+          BitVec.ofNat (g.outs.length / 2)
+            (outSlice g ρ (g.outs.length / 2) (g.outs.length / 2)) := by
+  unfold checkWordsBMiter at h
+  obtain ⟨hd, ws1, -, h⟩ := rdN_true h
+  obtain ⟨hhdr, h⟩ := band_true h
+  obtain ⟨bindW, ws2, -, h⟩ := rdN_true h
+  obtain ⟨bt, -, h⟩ := orec_true h
+  unfold afterBindBMiter at h
+  obtain ⟨inNet, ws3, -, h⟩ := rdN_true h
+  obtain ⟨outRef, ws4, houtl, h⟩ := rdN_true h
+  obtain ⟨hio, h⟩ := band_true h
+  obtain ⟨-, hout⟩ := band_true hio
+  unfold headerMiterOk at hhdr
+  obtain ⟨-, hhdr⟩ := band_true hhdr
+  obtain ⟨-, hhdr⟩ := band_true hhdr
+  obtain ⟨-, hhdr⟩ := band_true hhdr
+  obtain ⟨-, hhdr⟩ := band_true hhdr
+  obtain ⟨hO, hhdr⟩ := band_true hhdr
+  obtain ⟨hge2, hhdr⟩ := band_true hhdr
+  obtain ⟨hevO, hhdr⟩ := band_true hhdr
+  obtain ⟨hle128, -⟩ := band_true hhdr
+  rw [beq_true] at hO hevO
+  rw [ble_true] at hge2 hle128
+  rw [len_eq] at hO
+  have hO_even : g.outs.length % 2 = 0 := by
+    rw [← hO, ← land_one]; exact hevO
+  have hO_ge2 : 2 ≤ g.outs.length := by rw [← hO]; exact hge2
+  have hO_le256 : g.outs.length ≤ 256 := by
+    have hshr : Nat.shiftRight (nthN hd 4) 1 = nthN hd 4 / 2 := shiftRight_one _
+    rw [hshr] at hle128; rw [← hO]; omega
+  refine ⟨hO_even, hO_ge2, hO_le256, fun ρ => ?_⟩
+  generalize hmw : g.outs.length / 2 = w
+  let e : Env := ⟨Nat.pow 2 (Nat.shiftRight (nthN hd 4) 1), g.M, g.I, bitLen g.M,
+    andTree (bitLen g.M) g.I g.ands, bitLen (nthN hd 5), bt⟩
+  have hmw' : Nat.shiftRight (nthN hd 4) 1 = w := by rw [shiftRight_one, hO, hmw]
+  have hM : e.M = 2 ^ w := by show Nat.pow 2 (Nat.shiftRight (nthN hd 4) 1) = 2 ^ w; rw [hmw']; rfl
+  have hT : e.andT = andTree e.ad g.I g.ands := rfl
+  unfold runPhasesBMiter at h
+  have hinit : GInv w (sig g ρ e) e ⟨Tree.empty, ⟨e.nd, Tree.empty, 0⟩⟩ :=
+    ⟨fun v Q hv => by simp [Tree.get_empty] at hv, fun c s hcs => by simp [Tree.get_empty] at hcs⟩
+  obtain ⟨st, ws5, hst, h⟩ := gates_ok g ρ e hM hT _ _ _ ws4 hinit h
+  obtain ⟨st', ws6, hst', h⟩ := cones_ok e hM _ _ st ws5 hst h
+  obtain ⟨t0, nz0, ht0, h⟩ := insRuns_ok (σ := sig g ρ e) e.M hM _ _ _ _ Tree.empty 0 _ h
+  have hP := mainLoopB_ok e hM (sig_flip g ρ e) st'.pr hst'.2 st'.rules hst'.1 _ _ _
+    (evalP w (sig g ρ e)
+      (initPMiter e.M st'.pr st'.rules e.nd (Nat.shiftRight (nthN hd 4) 1) outRef g.outs))
+    _ t0 nz0 0 ws6 (by rw [ht0]; exact BitVec.zero_add _) h
+  have hP' : evalP w (sig g ρ e) (initPMiter e.M st'.pr st'.rules e.nd w outRef g.outs) = 0 := by
+    simpa only [e, hmw'] using hP
+  rw [initPMiter_eval (nNets := nthN hd 5) g ρ e hM st'.pr (van_ok st'.pr hst'.2) st'.rules w
+    outRef (by rw [houtl, hO]; omega) (by omega) hout] at hP'
+  have := congrArg (· + BitVec.ofNat w (outSlice g ρ w w)) hP'
+  simp only [BitVec.sub_add_cancel] at this
+  rw [this]; exact BitVec.zero_add _
+
+theorem checkArtBMiter_sound (aigN aigLen artN artLen : Nat)
+    (h : checkArtBMiter aigN aigLen artN artLen = true) :
+    ∃ g, parseAig (toBytes aigN aigLen) = some g ∧
+      g.outs.length % 2 = 0 ∧ 2 ≤ g.outs.length ∧ g.outs.length ≤ 256 ∧
+      ∀ ρ : Nat → Bool,
+        BitVec.ofNat (g.outs.length / 2) (outSlice g ρ 0 (g.outs.length / 2)) =
+          BitVec.ofNat (g.outs.length / 2)
+            (outSlice g ρ (g.outs.length / 2) (g.outs.length / 2)) := by
+  unfold checkArtBMiter at h
+  obtain ⟨g, hg, h⟩ := orec_true h
+  obtain ⟨-, h⟩ := band_true h
+  exact ⟨g, hg, checkWordsBMiter_sound g _ h⟩
+
 end
 
 end LeanQbe.T.Examples.Arisca

@@ -248,7 +248,7 @@ theorem ar_do_gate_row_wp {Γ : LeanQbe.T.Env}
     {F : Mem 64 → Prop} {mC : Mem 64} {Q : Post [.bool]} {X : XPost} {Jt : Cont [i32, i32]}
     (hnout : nout = 1#32 ∨ nout = 2#32) (hnin : nin = 2#32 ∨ nin = 3#32)
     (ho_lt : o.toNat < nout.toNat) (ht64 : t.toNat < 64)
-    (hn16 : n.toNat ≤ 16) (hmasks : MasksOk s.n_out.toNat s.mlo s.mhi) (hnout1 : 1 ≤ s.n_out.toNat)
+    (hn16 : n.toNat ≤ 16) (hmasks : MasksOk s.modW s.mlo s.mhi) (hnout1 : 1 ≤ s.modW)
     (hsO_eq : sO = { s with rs_n := sO.rs_n, rs_ptop := sO.rs_ptop })
     (hgY1 : 85 ≤ gY1.length) (hgL1 : 16 ≤ gL1.length) (hgH1 : 16 ≤ gH1.length)
     (hMono1 : ∀ i < n.toNat, MonoSliceOk gY1 (5 * i) 80 ∧ (gY1.getD (5 * i) 0#32).toNat ≤ 4)
@@ -258,8 +258,8 @@ theorem ar_do_gate_row_wp {Γ : LeanQbe.T.Env}
     (hmC : (arCtxMem cx sO ⋆ arrayPad i32 s.gsy gY1 ⋆ array64 s.gcl gL1 ⋆ array64 s.gch gH1 ⋆ F) mC)
     (hFail : Q (false, ⟨⟩) mC)
     (hNext : (∀ ρ, GateRowOk g bindArr nin nout s ρ t.toNat →
-      polyEval s.n_out.toNat (cSig g ρ bindArr) gY1 gsyMOff gL1 gH1 n.toNat =
-        bv s.n_out.toNat (cSig g ρ bindArr (2 * (s.g_outs.getD o.toNat 0#32).toNat))) →
+      polyEval s.modW (cSig g ρ bindArr) gY1 gsyMOff gL1 gH1 n.toNat =
+        bv s.modW (cSig g ρ bindArr (2 * (s.g_outs.getD o.toNat 0#32).toNat))) →
       ∀ j', Jt (j', t + 1, ()) mC) :
     wp Γ Q X (gateRowExpr cx s.dense kraw nout nin nl j0 o t n Jt) mC := by
   have hn2 : nin.toNat ≤ 3 := by rcases hnin with rfl | rfl <;> decide
@@ -268,7 +268,7 @@ theorem ar_do_gate_row_wp {Γ : LeanQbe.T.Env}
   have hsO_gsy : sO.gsy = s.gsy := by rw [hsO_eq]
   have hsO_gcl : sO.gcl = s.gcl := by rw [hsO_eq]
   have hsO_gch : sO.gch = s.gch := by rw [hsO_eq]
-  have hsO_nout : sO.n_out = s.n_out := by rw [hsO_eq]
+  have hsO_nout : sO.modW = s.modW := by rw [hsO_eq]; rfl
   have hsO_mlo : sO.mlo = s.mlo := by rw [hsO_eq]
   have hsO_mhi : sO.mhi = s.mhi := by rw [hsO_eq]
   have hsO_innet : sO.g_innet = s.g_innet := by rw [hsO_eq]
@@ -281,8 +281,8 @@ theorem ar_do_gate_row_wp {Γ : LeanQbe.T.Env}
   refine wp_loop_group (fun ki ⟨_jI, sl, sh, i, _⟩ mI =>
     i.toNat ≤ n.toNat ∧ ki = n.toNat - i.toNat ∧ mC = mI ∧
     ∀ ρ, GateRowOk g bindArr nin nout s ρ t.toNat →
-      coeff128 s.n_out.toNat sl sh =
-        polyEval s.n_out.toNat (cSig g ρ bindArr) gY1 gsyMOff gL1 gH1 i.toNat)
+      coeff128 s.modW sl sh =
+        polyEval s.modW (cSig g ρ bindArr) gY1 gsyMOff gL1 gH1 i.toNat)
     ?_ (fun Ji hJi => by
       c0_hsteps
       refine hJi n.toNat (j0, 0#64, 0#64, 0#32, ()) mC
@@ -338,8 +338,8 @@ theorem ar_do_gate_row_wp {Γ : LeanQbe.T.Env}
         · rintro _ _ mA ⟨rfl, hend⟩
           c0_hsteps_nogrp
           refine wp_join_group (fun ⟨sl', sh', _⟩ mCadd => mC = mCadd ∧
-            ∀ ρ, GateRowOk g bindArr nin nout s ρ t.toNat → coeff128 s.n_out.toNat sl' sh' =
-              polyEval s.n_out.toNat (cSig g ρ bindArr) gY1 gsyMOff gL1 gH1
+            ∀ ρ, GateRowOk g bindArr nin nout s ρ t.toNat → coeff128 s.modW sl' sh' =
+              polyEval s.modW (cSig g ρ bindArr) gY1 gsyMOff gL1 gH1
                 (i.toNat + 1)) ?_ ?_
           · rintro _ ⟨sl', sh', _⟩ mCadd ⟨rfl, hN⟩
             c0_hsteps_nogrp
@@ -555,8 +555,8 @@ theorem ar_do_gate_eval_wp {Γ : LeanQbe.T.Env}
     (hnout : nout = 1#32 ∨ nout = 2#32) (hnin : nin = 2#32 ∨ nin = 3#32)
     (hnl1 : 1 ≤ nl.toNat) (hnl6 : nl.toNat ≤ 6)
     (hnn30 : s.n_nets.toNat ≤ 0x3FFFFFFF) (hrcap30 : s.rs_cap.toNat < 2 ^ 30)
-    (hrpcap32 : s.rs_pcap.toNat < 2 ^ 32) (hmasks : MasksOk s.n_out.toNat s.mlo s.mhi)
-    (hnout1 : 1 ≤ s.n_out.toNat)
+    (hrpcap32 : s.rs_pcap.toNat < 2 ^ 32) (hmasks : MasksOk s.modW s.mlo s.mhi)
+    (hnout1 : 1 ≤ s.modW)
     (hd6 : d6.length = 16) (hd7 : d7.length = 16)
     (hgsy : 85 ≤ gsy.length) (hgcl : 16 ≤ gcl.length) (hgch : 16 ≤ gch.length)
     (houts : ∀ o < nout.toNat, (s.g_outs.getD o 0#32).toNat < s.n_nets.toNat)
@@ -571,7 +571,7 @@ theorem ar_do_gate_eval_wp {Γ : LeanQbe.T.Env}
     (hRsSorted : RulesSorted rsPool rsM s.rs_n.toNat)
     (hRep : ∀ ρ : Nat → Bool,
       PartnerRep (cSig g ρ bindArr) s.n_nets.toNat partnerArr ∧
-      RulesRep s.n_out.toNat (cSig g ρ bindArr) s ruleOff ruleN rsM rsL rsH rsPool)
+      RulesRep s.modW (cSig g ρ bindArr) s ruleOff ruleN rsM rsL rsH rsPool)
     (hm : (arCtxMem cx s ⋆ array64 (s.dense + 768#64) d6 ⋆ array64 (s.dense + 896#64) d7 ⋆
       arrayPad i32 s.gsy gsy ⋆ array64 s.gcl gcl ⋆ array64 s.gch gch ⋆
       array (t := i32) s.rule_off ruleOff ⋆ array (t := i32) s.rule_n ruleN ⋆
@@ -592,7 +592,7 @@ theorem ar_do_gate_eval_wp {Γ : LeanQbe.T.Env}
           (rsPool'.getD (rsM'.getD r 0#32).toNat 0#32).toNat + 1 < 2 ^ 32) ∧
         RulesSorted rsPool' rsM' s'.rs_n.toNat ∧
         (∀ ρ, PartnerRep (cSig g ρ bindArr) s.n_nets.toNat partnerArr' ∧
-          RulesRep s'.n_out.toNat (cSig g ρ bindArr) s'
+          RulesRep s'.modW (cSig g ρ bindArr) s'
             ruleOff' ruleN' rsM' rsL' rsH' rsPool')) →
       (arCtxMem cx s' ⋆ array64 (s.dense + 768#64) d6 ⋆ array64 (s.dense + 896#64) d7 ⋆
         arrayPad i32 s.gsy gsy' ⋆ array64 s.gcl gcl' ⋆ array64 s.gch gch' ⋆
@@ -633,7 +633,7 @@ theorem ar_do_gate_eval_wp {Γ : LeanQbe.T.Env}
       (∀ r < sO.rs_n.toNat, MonoSliceOk rP (rM.getD r 0#32).toNat sO.rs_ptop.toNat ∧
         (rP.getD (rM.getD r 0#32).toNat 0#32).toNat + 1 < 2 ^ 32) ∧
       RulesSorted rP rM sO.rs_n.toNat ∧
-      (∀ ρ, RulesRep s.n_out.toNat (cSig g ρ bindArr) sO rO rN rM rL rH rP) ∧
+      (∀ ρ, RulesRep s.modW (cSig g ρ bindArr) sO rO rN rM rL rH rP) ∧
       (arCtxMem cx sO ⋆ array64 (s.dense + 768#64) d6 ⋆ array64 (s.dense + 896#64) d7 ⋆
         arrayPad i32 s.gsy gY ⋆ array64 s.gcl gL ⋆ array64 s.gch gH ⋆
         array (t := i32) s.rule_off rO ⋆ array (t := i32) s.rule_n rN ⋆
@@ -675,7 +675,7 @@ theorem ar_do_gate_eval_wp {Γ : LeanQbe.T.Env}
           (array64 pOther dOther ⋆ array (t := i32) s.rule_off rO ⋆
             array (t := i32) s.rule_n rN ⋆ array (t := i32) s.partner partnerArr ⋆
             rsMem sO rM rL rH rP ⋆ F),
-          by rw [show sO.n_out = s.n_out by rw [hsO_eq], show sO.mlo = s.mlo by rw [hsO_eq],
+          by rw [show sO.modW = s.modW by rw [hsO_eq]; rfl, show sO.mlo = s.mlo by rw [hsO_eq],
             show sO.mhi = s.mhi by rw [hsO_eq]]; exact hmasks,
           by by_cases ho0 : o = 0#32 <;> simp [dD, ho0, hd6, hd7],
           by omega, by omega, by omega, hmD,
@@ -694,8 +694,8 @@ theorem ar_do_gate_eval_wp {Γ : LeanQbe.T.Env}
         refine wp_loop_group (fun kt ⟨_jT, t, _⟩ mT =>
           t.toNat ≤ 2 ^ nl.toNat ∧ kt = 2 ^ nl.toNat - t.toNat ∧ mC = mT ∧
           ∀ t0 < t.toNat, ∀ ρ : Nat → Bool, GateRowOk g bindArr nin nout s ρ t0 →
-            polyEval s.n_out.toNat (cSig g ρ bindArr) gY1 gsyMOff gL1 gH1 n.toNat =
-              bv s.n_out.toNat (cSig g ρ bindArr (2 * (s.g_outs.getD o.toNat 0#32).toNat)))
+            polyEval s.modW (cSig g ρ bindArr) gY1 gsyMOff gL1 gH1 n.toNat =
+              bv s.modW (cSig g ρ bindArr (2 * (s.g_outs.getD o.toNat 0#32).toNat)))
           ?_ (fun Jt hJt => by
             c0_hsteps
             exact hJt (2 ^ nl.toNat) (jO, 0#32, ()) mC
@@ -732,8 +732,8 @@ theorem ar_do_gate_eval_wp {Γ : LeanQbe.T.Env}
               have hnot : ¬t.toNat < (1#32 <<< nl).toNat := by simpa [lift2] using hc
               rw [hntt_sh] at hnot; omega
             have hpoly_ok : ∀ ρ : Nat → Bool,
-                polyEval s.n_out.toNat (cSig g ρ bindArr) gY1 gsyMOff gL1 gH1 n.toNat =
-                  bv s.n_out.toNat (cSig g ρ bindArr (2 * (s.g_outs.getD o.toNat 0#32).toNat)) :=
+                polyEval s.modW (cSig g ρ bindArr) gY1 gsyMOff gL1 gH1 n.toNat =
+                  bv s.modW (cSig g ρ bindArr (2 * (s.g_outs.getD o.toNat 0#32).toNat)) :=
               fun ρ => by
                 obtain ⟨t0, ht0, _, hrowT⟩ := hrow ρ
                 exact hPrev t0 (by omega) ρ hrowT
@@ -774,7 +774,7 @@ theorem ar_do_gate_eval_wp {Γ : LeanQbe.T.Env}
               (hRepO (fun _ => false)).2.2.2.2.1, (hRepO (fun _ => false)).2.2.2.2.2.1,
               (hRepO (fun _ => false)).2.2.2.2.2.2.1, (hRepO (fun _ => false)).2.2.2.2.2.2.2.1,
               by omega, by omega, by omega,
-              by rw [show sO.n_out = s.n_out by rw [hsO_eq], show sO.mlo = s.mlo by rw [hsO_eq],
+              by rw [show sO.modW = s.modW by rw [hsO_eq]; rfl, show sO.mlo = s.mlo by rw [hsO_eq],
                 show sO.mhi = s.mhi by rw [hsO_eq]]; exact hmasks,
               fun ii hii => ⟨(hMono1 ii hii).1, by have := (hMono1 ii hii).2.1; omega⟩,
               hMonoSorted1, hSlO, hRsSortedO, hTotO,
@@ -827,17 +827,17 @@ theorem ar_do_gate_eval_wp {Γ : LeanQbe.T.Env}
                  hrM1.trans hrM_l, hrL1.trans hrL_l, hrH1.trans hrH_l, hrP1.trans hrP_l,
                  hTot1, fun hSb => hSy1 s.n_nets.toNat (hSyO hSb) hGsyBound, hSl1, hRsSorted1,
                  fun ρ => by
-                   rw [show s.n_out = s1.n_out by rw [hs1_base]]
+                   rw [show s.modW = s1.modW by rw [hs1_base]; rfl]
                    refine hRep1 (cSig g ρ bindArr)
                      (by rw [show sO.n_nets = s.n_nets by rw [hsO_eq]]; exact (hRep ρ).1) ?_ ?_
-                   · rw [show sO.n_out = s.n_out by rw [hsO_eq]]; exact hRepO ρ
+                   · rw [show sO.modW = s.modW by rw [hsO_eq]; rfl]; exact hRepO ρ
                    · have ho_eq : sO.g_outs[o.toNat]' (by rw [hsO_len.g_outs]; omega) =
                          s.g_outs.getD o.toNat 0#32 := by
                        rw [d_getD_eq_getElem s.g_outs 0#32
                          (by rw [← show sO.g_outs = s.g_outs by rw [hsO_eq], hsO_len.g_outs]
                              omega)]
                        simp only [show sO.g_outs = s.g_outs by rw [hsO_eq]]
-                     rw [show sO.n_out = s.n_out by rw [hsO_eq], ho_eq]
+                     rw [show sO.modW = s.modW by rw [hsO_eq]; rfl, ho_eq]
                      exact hpoly_ok ρ,
                  hm1'⟩
       · intro Js hJs
@@ -919,7 +919,7 @@ theorem ar_do_gate_eval_wp {Γ : LeanQbe.T.Env}
             rw [show (BitVec.toNat 4 / 4 : Nat) = 1 from by decide] at *
             rw [hgo0', hgo1', show sO.partner = s.partner by rw [hsO_eq]] at *
             exact sep_cast ‹_› (by ac_rfl)))
-        · refine ⟨?_, by rw [show sO.n_out = s.n_out by rw [hsO_eq]]; exact hRepO ρ⟩
+        · refine ⟨?_, by rw [show sO.modW = s.modW by rw [hsO_eq]; rfl]; exact hRepO ρ⟩
           obtain ⟨t, _, ht64, hrowT⟩ := hrow ρ
           have hno := gate_partner_no_both hand0 ht64
           rw [hrowT.2 0 (by omega), hrowT.2 1 (by omega)] at hno
@@ -929,7 +929,7 @@ theorem ar_do_gate_eval_wp {Γ : LeanQbe.T.Env}
           hsnO hsptO hsO_eq hrO_l hrN_l rfl hgY_l hgL_l hgH_l
           hrM_l hrL_l hrH_l hrP_l
           (fun _ => ⟨hTotO, hSyO, fun r hr => (hSlO r hr).2, hRsSortedO, fun ρ =>
-            ⟨(hRep ρ).1, by rw [show sO.n_out = s.n_out by rw [hsO_eq]]; exact hRepO ρ⟩⟩) hmO)
+            ⟨(hRep ρ).1, by rw [show sO.modW = s.modW by rw [hsO_eq]; rfl]; exact hRepO ρ⟩⟩) hmO)
   · intro J hJ
     c0_hsteps
     refine hJ nout.toNat (j0, 0#32, ()) m
@@ -958,8 +958,8 @@ theorem ar_do_gate_dense_wp {Γ : LeanQbe.T.Env}
     (hnout : nout = 1#32 ∨ nout = 2#32) (hnin : nin = 2#32 ∨ nin = 3#32)
     (hnl1 : 1 ≤ nl.toNat) (hnl6 : nl.toNat ≤ 6)
     (hnn30 : s.n_nets.toNat ≤ 0x3FFFFFFF) (hrcap30 : s.rs_cap.toNat < 2 ^ 30)
-    (hrpcap32 : s.rs_pcap.toNat < 2 ^ 32) (hmasks : MasksOk s.n_out.toNat s.mlo s.mhi)
-    (hnout1 : 1 ≤ s.n_out.toNat)
+    (hrpcap32 : s.rs_pcap.toNat < 2 ^ 32) (hmasks : MasksOk s.modW s.mlo s.mhi)
+    (hnout1 : 1 ≤ s.modW)
     (hd0 : d0.length = 16) (hd1 : d1.length = 16) (hd2 : d2.length = 16) (hd3 : d3.length = 16)
     (hd4 : d4.length = 16) (hd5 : d5.length = 16) (hd6 : d6.length = 16) (hd7 : d7.length = 16)
     (hgsy : 85 ≤ gsy.length) (hgcl : 16 ≤ gcl.length) (hgch : 16 ≤ gch.length)
@@ -975,7 +975,7 @@ theorem ar_do_gate_dense_wp {Γ : LeanQbe.T.Env}
     (hRsSorted : RulesSorted rsPool rsM s.rs_n.toNat)
     (hRep : ∀ ρ : Nat → Bool,
       PartnerRep (cSig g ρ bindArr) s.n_nets.toNat partnerArr ∧
-      RulesRep s.n_out.toNat (cSig g ρ bindArr) s ruleOff ruleN rsM rsL rsH rsPool)
+      RulesRep s.modW (cSig g ρ bindArr) s ruleOff ruleN rsM rsL rsH rsPool)
     (hm : (arCtxMem cx s ⋆ array64 s.dense d0 ⋆ array64 (s.dense + 128#64) d1 ⋆
       array64 (s.dense + 256#64) d2 ⋆ array64 (s.dense + 384#64) d3 ⋆
       array64 (s.dense + 512#64) d4 ⋆ array64 (s.dense + 640#64) d5 ⋆
@@ -1000,7 +1000,7 @@ theorem ar_do_gate_dense_wp {Γ : LeanQbe.T.Env}
           (rsPool'.getD (rsM'.getD r 0#32).toNat 0#32).toNat + 1 < 2 ^ 32) ∧
         RulesSorted rsPool' rsM' s'.rs_n.toNat ∧
         (∀ ρ, PartnerRep (cSig g ρ bindArr) s.n_nets.toNat partnerArr' ∧
-          RulesRep s'.n_out.toNat (cSig g ρ bindArr) s' ruleOff' ruleN' rsM' rsL' rsH' rsPool')) →
+          RulesRep s'.modW (cSig g ρ bindArr) s' ruleOff' ruleN' rsM' rsL' rsH' rsPool')) →
       (arCtxMem cx s' ⋆ array64 s.dense dense' ⋆ arrayPad i32 s.gsy gsy' ⋆
         array64 s.gcl gcl' ⋆ array64 s.gch gch' ⋆ array (t := i32) s.rule_off ruleOff' ⋆
         array (t := i32) s.rule_n ruleN' ⋆ array (t := i32) s.partner partnerArr' ⋆

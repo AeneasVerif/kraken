@@ -142,6 +142,10 @@ structure ArCtxState where
   g_vs : List (BitVec 32)
   pad_end : BitVec 32
 
+/-- Modulus bitwidth (`n_out / 2` in `SPEC_MITER` `spec = 2`, else `n_out`). -/
+def ArCtxState.modW (s : ArCtxState) : Nat :=
+  if s.spec = 2#32 then s.n_out.toNat / 2 else s.n_out.toNat
+
 /-- `26` leading `u64` words of `ArCtxState` (`+0 .. +200`). -/
 def ArCtxState.blk0 (s : ArCtxState) : List (BitVec 64) :=
   [ s.w, s.wlen, s.top, s.mlo, s.mhi, s.rhs0, s.rhs1, s.olit, s.art, s.nw, s.pos

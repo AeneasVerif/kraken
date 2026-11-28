@@ -374,10 +374,10 @@ structure ApplyLoopCtx (cx : BitVec 64) (sym : BitVec 32) (s0 s : ArCtxState)
   hcurNr_rm : s0.cur_nr.toNat ≤ curRm.length
   hcurNr_rl : s0.cur_nr.toNat ≤ curRl.length
   hcurNr_rh : s0.cur_nr.toNat ≤ curRh.length
-  hMasks : MasksOk s0.n_out.toNat s0.mlo s0.mhi
+  hMasks : MasksOk s0.modW s0.mlo s0.mhi
   hPart : ∀ σ, Valid σ → PartnerRep σ s0.n_nets.toNat partnerArr
   hCurR : ∀ σ, Valid σ →
-    CurRRep s0.n_out.toNat σ s0.cur_nr.toNat sym.toNat curRm curRl curRh curRp
+    CurRRep s0.modW σ s0.cur_nr.toNat sym.toNat curRm curRl curRh curRp
   hcurSl : ∀ r < s0.cur_nr.toNat, MonoSliceOk curRp (curRm.getD r 0#32).toNat curRp.length
   hcurSo : ∀ r < s0.cur_nr.toNat, MonoSorted curRp (curRm.getD r 0#32).toNat
   hcurMr32 : ∀ r < s0.cur_nr.toNat, (curRp.getD (curRm.getD r 0#32).toNat 0#32).toNat + 1 < 2 ^ 32
@@ -450,13 +450,13 @@ def ApplyInnerInv (cx : BitVec 64) (sym : BitVec 32) (s : ArCtxState)
       (∀ i < qnBase, ∀ x ∈ symListAt poolBase (qmBase.getD i 0#32).toNat, x / 2 < bd) →
       SymsBound poolL qmL qn.toNat bd) ∧
     (∀ σ, Valid σ →
-      polyEval s.n_out.toNat σ poolL qmL qlL qhL qn.toNat =
-        polyEval s.n_out.toNat σ poolBase qmBase qlBase qhBase qnBase +
+      polyEval s.modW σ poolL qmL qlL qhL qn.toNat =
+        polyEval s.modW σ poolBase qmBase qlBase qhBase qnBase +
           (List.range r.toNat).foldl (fun acc r0 =>
             acc + (if monoValL σ ((symListAt dstPool mOff).filter
                 (fun z => decide (z ≠ sym.toNat)))
-              then coeff128 s.n_out.toNat cl ch else 0#(s.n_out.toNat)) *
-              termEval s.n_out.toNat σ curRp curRm curRl curRh r0) 0#(s.n_out.toNat)) ∧
+              then coeff128 s.modW cl ch else 0#(s.modW)) *
+              termEval s.modW σ curRp curRm curRl curRh r0) 0#(s.modW)) ∧
     (arCtxMem cx s ⋆ array (t := i32) (s.pool.getD s.pc.toNat 0#64) poolL ⋆
       array (t := i32) s.qm qmL ⋆ array64 s.qs qsL ⋆
       array64 s.ql qlL ⋆ array64 s.qh qhL ⋆ Rloop4) m
@@ -490,8 +490,8 @@ def ApplyOuterInv (cx : BitVec 64) (s : ArCtxState)
     (∀ bd : Nat, SymsBound dstPool dstTm s.tn.toNat bd →
       SymsBound curRp curRm s.cur_nr.toNat bd → SymsBound poolL qmL qn.toNat bd) ∧
     (∀ σ, Valid σ →
-      polyEval s.n_out.toNat σ poolL qmL qlL qhL qn.toNat =
-        bxTermSum s.n_out.toNat σ dstPool dstTm srcTl srcTh bx b.toNat) ∧
+      polyEval s.modW σ poolL qmL qlL qhL qn.toNat =
+        bxTermSum s.modW σ dstPool dstTm srcTl srcTh bx b.toNat) ∧
     (arCtxMem cx s ⋆ array (t := i32) (s.pool.getD s.pc.toNat 0#64) poolL ⋆
       array (t := i32) s.qm qmL ⋆ array64 s.qs qsL ⋆
       array64 s.ql qlL ⋆ array64 s.qh qhL ⋆ Rloop4) m
@@ -515,8 +515,8 @@ theorem apply_inner_row_done {cx : BitVec 64} {sym : BitVec 32} {s : ArCtxState}
         s.cur_nr.toNat * bxSymLenSum (if s.pc.toNat = 0 then pool0 else pool1)
           (if s.tc.toNat = 0 then tm0 else tm1) bx b.toNat))
     (hOuterEval : ∀ σ, Valid σ →
-      polyEval s.n_out.toNat σ poolBase qmBase qlBase qhBase qnBase =
-        bxTermSum s.n_out.toNat σ (if s.pc.toNat = 0 then pool0 else pool1)
+      polyEval s.modW σ poolBase qmBase qlBase qhBase qnBase =
+        bxTermSum s.modW σ (if s.pc.toNat = 0 then pool0 else pool1)
           (if s.tc.toNat = 0 then tm0 else tm1) (if s.tc.toNat = 0 then tl0 else tl1)
           (if s.tc.toNat = 0 then th0 else th1) bx b.toNat)
     (hmOff : mOff = ((if s.tc.toNat = 0 then tm0 else tm1).getD
@@ -531,7 +531,7 @@ theorem apply_inner_row_done {cx : BitVec 64} {sym : BitVec 32} {s : ArCtxState}
       SymsBound curRp curRm s.cur_nr.toNat bd →
       ∀ i < qnBase, ∀ x ∈ symListAt poolBase (qmBase.getD i 0#32).toNat, x / 2 < bd)
     (hCurR : ∀ σ, Valid σ →
-      CurRRep s.n_out.toNat σ s.cur_nr.toNat sym.toNat curRm curRl curRh curRp)
+      CurRRep s.modW σ s.cur_nr.toNat sym.toNat curRm curRl curRh curRp)
     (hInner : ApplyInnerInv cx sym s pool0 pool1 qm qs ql qh curRm curRl curRh curRp
       Valid Rloop4 qnBase ptBase mOff cl ch poolBase qmBase qlBase qhBase qn pt s.cur_nr mL) :
     ApplyOuterInv cx s tm0 tm1 pool0 pool1 tl0 th0 tl1 th1 qm qs ql qh bx curRm curRp nb
@@ -567,8 +567,8 @@ theorem apply_inner_skip_step {cx : BitVec 64} {sym : BitVec 32} {s : ArCtxState
     (hZero : ∀ σ, Valid σ →
       (if monoValL σ ((symListAt (if s.pc.toNat = 0 then pool0 else pool1) mOff).filter
           (fun z => decide (z ≠ sym.toNat)))
-       then coeff128 s.n_out.toNat cl ch else 0#(s.n_out.toNat)) *
-        termEval s.n_out.toNat σ curRp curRm curRl curRh r.toNat = 0#(s.n_out.toNat))
+       then coeff128 s.modW cl ch else 0#(s.modW)) *
+        termEval s.modW σ curRp curRm curRl curRh r.toNat = 0#(s.modW))
     (hInner : ApplyInnerInv cx sym s pool0 pool1 qm qs ql qh curRm curRl curRh curRp
       Valid Rloop4 qnBase ptBase mOff cl ch poolBase qmBase qlBase qhBase qn pt r mL) :
     ApplyInnerInv cx sym s pool0 pool1 qm qs ql qh curRm curRl curRh curRp
@@ -621,8 +621,8 @@ theorem apply_outer_exit_wp (Γ : T.Env)
         (if s.tc.toNat = 0 then tm0_1 else tm1_1) s.tn.toNat bd →
       SymsBound curRp curRm s.cur_nr.toNat bd → SymsBound poolL qmL qn.toNat bd)
     (hEvq : ∀ σ, Valid σ →
-      polyEval s.n_out.toNat σ poolL qmL qlL qhL qn.toNat =
-        bxTermSum s.n_out.toNat σ (if s.pc.toNat = 0 then pool0_1 else pool1_1)
+      polyEval s.modW σ poolL qmL qlL qhL qn.toNat =
+        bxTermSum s.modW σ (if s.pc.toNat = 0 then pool0_1 else pool1_1)
           (if s.tc.toNat = 0 then tm0_1 else tm1_1) (if s.tc.toNat = 0 then tl0 else tl1)
           (if s.tc.toNat = 0 then th0 else th1) bx nb.toNat)
     (hmA : (arCtxMem cx { s with ptop := pt, qn := qn } ⋆
@@ -673,8 +673,8 @@ theorem apply_outer_exit_wp (Γ : T.Env)
         SymsBound curRp curRm s0.cur_nr.toNat bd →
         SymsBound dstPool dstTm s'.tn.toNat bd) →
       (∀ σ, Valid σ →
-        polyEval s0.n_out.toNat σ dstPool dstTm dstTl dstTh s'.tn.toNat =
-          polyEval s0.n_out.toNat σ srcPool0 srcTm0 srcTl0 srcTh0 s0.tn.toNat) →
+        polyEval s0.modW σ dstPool dstTm dstTl dstTh s'.tn.toNat =
+          polyEval s0.modW σ srcPool0 srcTm0 srcTl0 srcTh0 s0.tn.toNat) →
       (arCtxMem cx s' ⋆ array (t := i32) s'.partner partnerArr ⋆
         array (t := i32) s'.cur_rm curRm ⋆ array64 s'.cur_rl curRl ⋆
         array64 s'.cur_rh curRh ⋆ array (t := i32) s'.cur_rp curRp ⋆
@@ -691,7 +691,7 @@ theorem apply_outer_exit_wp (Γ : T.Env)
   have hs_tcap : s.tcap = s0.tcap := by conv => lhs; rw [hs1]
   have hs_qcap : s.qcap = s0.qcap := by conv => lhs; rw [hs1]
   have hs_pcap : s.pcap = s0.pcap := by conv => lhs; rw [hs1]
-  have hs_nout : s.n_out = s0.n_out := by conv => lhs; rw [hs1]
+  have hs_nout : s.modW = s0.modW := by rw [hs1]; rfl
   have hs_nr : s.cur_nr = s0.cur_nr := by conv => lhs; rw [hs1]
   have hs_mlo : s.mlo = s0.mlo := by conv => lhs; rw [hs1]
   have hs_mhi : s.mhi = s0.mhi := by conv => lhs; rw [hs1]
@@ -703,7 +703,7 @@ theorem apply_outer_exit_wp (Γ : T.Env)
   have hsA_tcap : sA.tcap.toNat = s0.tcap.toNat := by dsimp only [sA]; rw [hs_tcap]
   have hsA_qcap : sA.qcap.toNat = s0.qcap.toNat := by dsimp only [sA]; rw [hs_qcap]
   have hsA_pcap : sA.pcap.toNat = s0.pcap.toNat := by dsimp only [sA]; rw [hs_pcap]
-  have hsA_nout : sA.n_out.toNat = s0.n_out.toNat := by dsimp only [sA]; rw [hs_nout]
+  have hsA_nout : sA.modW = s0.modW := by rw [← hs_nout]; rfl
   have hsA_pt : sA.ptop.toNat = pt.toNat := rfl
   have hsA_qn : sA.qn.toNat = qn.toNat := rfl
   let pool0A := if s.pc.toNat = 0 then poolL else pool0_1
@@ -792,8 +792,9 @@ theorem apply_outer_exit_wp (Γ : T.Env)
       by rw [hsA_qcap, hl2]; exact hCtx.hqm_len, by rw [hsA_qcap, hl3]; exact hCtx.hqs_len,
       by rw [hsA_qcap, hl4]; exact hCtx.hql_len, by rw [hsA_qcap, hl5]; exact hCtx.hqh_len,
       by rw [hsA_qcap]; exact hCtx.hix_len, by rw [hsA_qcap]; exact hCtx.hix2_len,
-      by change MasksOk sA.n_out.toNat sA.mlo sA.mhi
-         dsimp only [sA]; rw [hs_nout, hs_mlo, hs_mhi]; exact hCtx.hMasks,
+      by change MasksOk sA.modW sA.mlo sA.mhi
+         rw [hsA_nout, show sA.mlo = s0.mlo from hs_mlo, show sA.mhi = s0.mhi from hs_mhi]
+         exact hCtx.hMasks,
       by rw [hpoolA_sel, hsA_tn, hsA_pt, hsA_tc]; exact hSlt,
       by rw [hpoolA_sel, hsA_qn, hsA_pt]; exact hSlq,
       by rw [hpoolA_sel, hsA_tn, hsA_tc]; exact hSot,
@@ -881,8 +882,8 @@ theorem apply_outer_exit_wp (Γ : T.Env)
           rw [hs_nout] at hEvq'
           rw [hev, hEvq']
           have hnbx_eq :
-              nonBxTermSum s0.n_out.toNat σ poolL dstTm1 dstTl1 dstTh1 bx nb.toNat s0.tn.toNat =
-              nonBxTermSum s0.n_out.toNat σ (if s0.pc.toNat = 0 then pool0 else pool1)
+              nonBxTermSum s0.modW σ poolL dstTm1 dstTl1 dstTh1 bx nb.toNat s0.tn.toNat =
+              nonBxTermSum s0.modW σ (if s0.pc.toNat = 0 then pool0 else pool1)
                 (if s0.tc.toNat = 0 then tm0 else tm1) (if s0.tc.toNat = 0 then tl0 else tl1)
                 (if s0.tc.toNat = 0 then th0 else th1) bx nb.toNat s0.tn.toNat := by
             apply nonBxRangeSum_congr hCtx.hnb_bx hCtx.hnb_bx (fun _ _ => rfl)
@@ -890,9 +891,9 @@ theorem apply_outer_exit_wp (Γ : T.Env)
               rw [Nat.zero_add, symListAt_congr_take (hCtx.hSl1 t ht).1 hpre]
               exact hCtx.hSym1 t ht
             · intro t _; dsimp only [dstTl1, dstTh1]; rw [hs_tc]; exact ⟨rfl, rfl⟩
-          have hbx_eq : bxTermSum s0.n_out.toNat σ (if s.pc.toNat = 0 then pool0_1 else pool1_1)
+          have hbx_eq : bxTermSum s0.modW σ (if s.pc.toNat = 0 then pool0_1 else pool1_1)
                 dstTm1 dstTl1 dstTh1 bx nb.toNat =
-              bxTermSum s0.n_out.toNat σ (if s0.pc.toNat = 0 then pool0 else pool1)
+              bxTermSum s0.modW σ (if s0.pc.toNat = 0 then pool0 else pool1)
                 (if s0.tc.toNat = 0 then tm0 else tm1) (if s0.tc.toNat = 0 then tl0 else tl1)
                 (if s0.tc.toNat = 0 then th0 else th1) bx nb.toNat := by
             apply bxTermSum_congr (fun _ _ => rfl)
@@ -900,7 +901,7 @@ theorem apply_outer_exit_wp (Γ : T.Env)
             · intro b _; dsimp only [dstTl1, dstTh1]; rw [hs_tc]; exact ⟨rfl, rfl⟩
           dsimp only [dstTm1, dstTl1, dstTh1] at hnbx_eq hbx_eq
           rw [hnbx_eq, hbx_eq]
-          exact (polyEval_eq_nonBxTermSum_add_bxTermSum s0.n_out.toNat σ
+          exact (polyEval_eq_nonBxTermSum_add_bxTermSum s0.modW σ
             (if s0.pc.toNat = 0 then pool0 else pool1) (if s0.tc.toNat = 0 then tm0 else tm1)
             (if s0.tc.toNat = 0 then tl0 else tl1) (if s0.tc.toNat = 0 then th0 else th1)
             bx hCtx.hinc hCtx.hnb_bx).symm

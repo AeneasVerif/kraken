@@ -50,8 +50,8 @@ def ariscaModule : LeanQbe.T.Module :=
 
 end
 
-#guard ariscaModule.fns.length == 44
-#guard (ariscaModule.fns.map Fn.name).eraseDups.length == 44
+#guard ariscaModule.fns.length == 45
+#guard (ariscaModule.fns.map Fn.name).eraseDups.length == 45
 #guard ariscaModule.checkAcyclic == true
 #guard ariscaModule.exits.isEmpty
 #guard ariscaModule.externs.isEmpty

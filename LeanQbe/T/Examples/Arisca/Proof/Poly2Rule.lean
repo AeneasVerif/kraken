@@ -157,10 +157,10 @@ private theorem storeRule_done_rulesRep {s : ArCtxState} {v : BitVec 32}
     (_hro_len : ruleOff.length = ruleOff.length) (_hrn_len : ruleN.length = ruleN.length)
     (hrsm_len : rsM'.length = rsM.length) (hrsl_len : rsL'.length = rsL.length)
     (hrsh_len : rsH'.length = rsH.length) (hrsp_len : rsPool'.length = rsPool.length)
-    (hRules : ∀ σ, Valid σ → RulesRep s.n_out.toNat σ s ruleOff ruleN rsM rsL rsH rsPool)
+    (hRules : ∀ σ, Valid σ → RulesRep s.modW σ s ruleOff ruleN rsM rsL rsH rsPool)
     (htEval : ∀ σ, Valid σ →
-      polyEval s.n_out.toNat σ srcPool srcTm srcTl srcTh s.tn.toNat =
-        bv s.n_out.toNat (σ (2 * v.toNat)))
+      polyEval s.modW σ srcPool srcTm srcTl srcTh s.tn.toNat =
+        bv s.modW (σ (2 * v.toNat)))
     (hPrefIdx : ∀ k < s.rs_n.toNat,
       rsM'.getD k 0#32 = rsM.getD k 0#32 ∧ rsL'.getD k 0#64 = rsL.getD k 0#64 ∧
       rsH'.getD k 0#64 = rsH.getD k 0#64)
@@ -174,7 +174,7 @@ private theorem storeRule_done_rulesRep {s : ArCtxState} {v : BitVec 32}
       rsH'.getD (s.rs_n.toNat + t) 0#64 = srcTh.getD t 0#64) :
     let s' : ArCtxState :=
       { s with rs_n := BitVec.ofNat 32 (s.rs_n.toNat + s.tn.toNat), rs_ptop := BitVec.ofNat 64 pt }
-    ∀ σ, Valid σ → RulesRep s'.n_out.toNat σ s' (ruleOff.set v.toNat s.rs_n)
+    ∀ σ, Valid σ → RulesRep s'.modW σ s' (ruleOff.set v.toNat s.rs_n)
       (ruleN.set v.toNat s.tn) rsM' rsL' rsH' rsPool' := by
   intro s' σ hV
   obtain ⟨h1, h2, h3, h4, h5, h6, h7, h8, h9, h10⟩ := hRules σ hV
@@ -184,6 +184,7 @@ private theorem storeRule_done_rulesRep {s : ArCtxState} {v : BitVec 32}
     dsimp only [s']; rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hrsN_32]
   have hs'pt : s'.rs_ptop.toNat = pt := by
     dsimp only [s']; rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]
+  have hs'mod : s'.modW = s.modW := by simp only [ArCtxState.modW, s']
   refine ⟨by dsimp only [s']; simp; omega, by dsimp only [s']; simp; omega,
     by rw [hs'n]; dsimp only [s']; exact hrsN_cap,
     by rw [hs'pt]; dsimp only [s']; exact hpt_cap,
@@ -198,8 +199,8 @@ private theorem storeRule_done_rulesRep {s : ArCtxState} {v : BitVec 32}
     rw [getD_set_eq ruleOff 0#32 s.rs_n (by omega), getD_set_eq ruleN 0#32 s.tn (by omega),
       ite_eq_left rfl, ite_eq_left rfl]
     refine ⟨le_refl _, ?_⟩
-    rw [← htEval σ hV]
-    exact polyEval_eq_polyEvalRange_of_prefix s.n_out.toNat σ
+    rw [hs'mod, ← htEval σ hV]
+    exact polyEval_eq_polyEvalRange_of_prefix s.modW σ
       (pool1 := srcPool) (tm1 := srcTm) (pool2 := rsPool') (mOff2 := rsM')
       (tl1 := srcTl) (th1 := srcTh) (cl2 := rsL') (ch2 := rsH')
       (off := s.rs_n.toNat) (n := s.tn.toNat)
@@ -209,7 +210,7 @@ private theorem storeRule_done_rulesRep {s : ArCtxState} {v : BitVec 32}
       ite_eq_right hwv, ite_eq_right hwv]
     obtain ⟨hoff_old, hev_old⟩ := h10 w hw0 hwn
     refine ⟨by omega, ?_⟩
-    rw [hev_old]
+    rw [hs'mod, hev_old]
     have h10' : ∀ t < (ruleN.getD w 0#32).toNat,
         MonoSliceOk rsPool' (rsM'.getD ((ruleOff.getD w 0#32).toNat + t) 0#32).toNat
           s.rs_ptop.toNat := by
@@ -220,7 +221,7 @@ private theorem storeRule_done_rulesRep {s : ArCtxState} {v : BitVec 32}
       have hms := h9 _ hlt
       rw [(hPrefIdx _ hlt).1]
       exact ⟨hms.1, by rw [hPrefPool _ hms.1]; exact hms.2⟩
-    exact polyEvalRange_congr_prefix s.n_out.toNat σ
+    exact polyEvalRange_congr_prefix s.modW σ
       (pool1 := rsPool') (pool2 := rsPool) (mOff1 := rsM') (mOff2 := rsM)
       (cl1 := rsL') (ch1 := rsH') (cl2 := rsL) (ch2 := rsH)
       (bd := s.rs_ptop.toNat) (lo := (ruleOff.getD w 0#32).toNat)

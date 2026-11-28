@@ -17,8 +17,8 @@ public import LeanQbe.T.FlatLemmas
 # Whole-Module SysV x86-64 `LinkedCert` for ARiSCA (`Amd64.AriscaCert`)
 
 Assembles the five verified x64 compilation slices (`AriscaCertS0`..`S4`) via balanced
-`LinkedCert.append` into `ariscaX64Cert` over all `44` functions of `ariscaModule` (`0` externs,
-`0` exits, max stack bound `656` bytes), and exports:
+`LinkedCert.append` into `ariscaX64Cert` over all `45` functions of `ariscaModule` (`0` externs,
+`0` exits, max stack bound `688` bytes), and exports:
 * standalone compiler-cert theorems (`ariscaX64_compileModule`, `ariscaX64_checkLit`,
   `ariscaX64_checkCompile`, `ariscaX64_legalSigAll`, `ariscaX64_bounds_len`,
   `ariscaX64_bounds_le`, `ariscaX64_entry_bound`);
@@ -40,7 +40,7 @@ open LeanQbe.T.Examples.Arisca.Build.CertCommon
 
 /-! ## 1. Whole-Module `LinkedCert` & `Compiled` Bundle -/
 
-/-- Full 44-function kernel-checked SysV x86-64 compilation certificate for `ariscaModule`. -/
+/-- Full 45-function kernel-checked SysV x86-64 compilation certificate for `ariscaModule`. -/
 @[expose] noncomputable def ariscaX64Cert :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean
       ariscaModule [] [] 0 2048 :=
@@ -82,23 +82,23 @@ private theorem ariscaX64_legalSig_check :
     checkLegalSigAll x64LegalTarget ariscaModule.fns = true := by
   t_kernel_rfl
 
-/-- Every function signature in `ariscaModule.fns` (`44` fns) is fixed by
+/-- Every function signature in `ariscaModule.fns` (`45` fns) is fixed by
 `x64LegalTarget.legalSig`. -/
 theorem ariscaX64_legalSigAll : LegalSigAll x64LegalTarget ariscaModule.fns :=
   legalSigAll_of_check ariscaX64_legalSig_check
 
-/-- `ariscaX64Cert.bounds` covers all `44` functions of `ariscaModule`. -/
-theorem ariscaX64_bounds_len : ariscaX64Cert.bounds.length = 44 :=
+/-- `ariscaX64Cert.bounds` covers all `45` functions of `ariscaModule`. -/
+theorem ariscaX64_bounds_len : ariscaX64Cert.bounds.length = 45 :=
   ariscaX64Cert.bounds_length.trans ariscaModule_fns_len
 
-/-- Every stack bound in `ariscaX64Cert.bounds` is at most `656` bytes. -/
+/-- Every stack bound in `ariscaX64Cert.bounds` is at most `688` bytes. -/
 theorem ariscaX64_bounds_le :
-    ariscaX64Cert.bounds.all (fun p => Nat.ble p.2 656) = true := by
+    ariscaX64Cert.bounds.all (fun p => Nat.ble p.2 688) = true := by
   t_kernel_rfl
 
-/-- Exact SysV x86-64 stack bound (`656` bytes) for top-level `"arisca_check_bytes"`. -/
+/-- Exact SysV x86-64 stack bound (`688` bytes) for top-level `"arisca_check_bytes"`. -/
 theorem ariscaX64_entry_bound :
-    ariscaX64Cert.bound "arisca_check_bytes" = 656 :=
+    ariscaX64Cert.bound "arisca_check_bytes" = 688 :=
   arisca_entry_bound_of_getElem x64BenchAbi ariscaX64Cert (by t_kernel_rfl)
 
 /-- Every function's stack bound in `ariscaX64Cert` is at most `2048` bytes. -/

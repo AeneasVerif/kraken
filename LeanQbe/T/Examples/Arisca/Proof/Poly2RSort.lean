@@ -312,7 +312,7 @@ theorem buildR_combine_wp (Γ : T.Env)
     (hptrs : (aPtr = s.ix ∧ bPtr = s.ix2 ∧ aArr.length = ix.length ∧ bArr.length = ix2.length) ∨
       (aPtr = s.ix2 ∧ bPtr = s.ix ∧ aArr.length = ix2.length ∧ bArr.length = ix.length))
     (hqcap_a : s.qcap.toNat ≤ aArr.length)
-    (hMasks : MasksOk s.n_out.toNat s.mlo s.mhi)
+    (hMasks : MasksOk s.modW s.mlo s.mhi)
     (hPerm : PermN aArr n.toNat)
     (hSl : ∀ r < n.toNat, MonoSliceOk rpool (rm.getD r 0#32).toNat rpool.length ∧
       (rpool.getD (rm.getD r 0#32).toNat 0#32).toNat + 1 < 2 ^ 32)
@@ -320,8 +320,8 @@ theorem buildR_combine_wp (Γ : T.Env)
     (hWords : monoTotalWords rpool rm n.toNat ≤ s.rpcap.toNat)
     (hSyms : SymsBound rpool rm n.toNat s.n_nets.toNat)
     (hEval : ∀ σ, Valid σ →
-      polyEval s.n_out.toNat σ rpool rm rl rh n.toNat =
-        bv s.n_out.toNat
+      polyEval s.modW σ rpool rm rl rh n.toNat =
+        bv s.modW
           (σ (if flippedArr.getD v.toNat 0#8 ≠ 0#8 then 2 * v.toNat + 1 else 2 * v.toNat)))
     (hm : (arCtxMem cx s ⋆ array (t := i32) s.rule_off ruleOff ⋆ array (t := i32) s.rule_n ruleN ⋆
       array (t := i8) s.flipped flippedArr ⋆ rsMem s rsM rsL rsH rsPool ⋆
@@ -337,7 +337,7 @@ theorem buildR_combine_wp (Γ : T.Env)
         cur_rp := s.rpool, cur_nr := k2 } →
       k2.toNat ≤ s.rcap.toNat → rm2'.length = rm2.length → rl2'.length = rl2.length →
       rh2'.length = rh2.length →
-      (∀ σ, Valid σ → CurRRep s.n_out.toNat σ k2.toNat
+      (∀ σ, Valid σ → CurRRep s.modW σ k2.toNat
         (if flippedArr.getD v.toNat 0#8 ≠ 0#8 then 2 * v.toNat + 1 else 2 * v.toNat)
         rm2' rl2' rh2' rpool) →
       (∀ r < k2.toNat, MonoSliceOk rpool (rm2'.getD r 0#32).toNat rpool.length ∧
@@ -368,7 +368,7 @@ theorem buildR_combine_wp (Γ : T.Env)
       array64 s.rh2 rh2 ⋆ Rcmb) m := sep_cast hm (by dsimp only [Rcmb, Rro]; ac_rfl)
   clear hm
   dsimp only [buildRPass4Expr]
-  refine wp_loop_group (CombineRAllInv s.n_out.toNat Valid rpool rm rl rh aArr n.toNat
+  refine wp_loop_group (CombineRAllInv s.modW Valid rpool rm rl rh aArr n.toNat
       s.rcap.toNat s.rm2 s.rl2 s.rh2 rm2 rl2 rh2 Rcmb) ?_ ?_
   · rintro JI irem ⟨i, k2, ⟨⟩⟩ mC hrecI
       ⟨rm2C, rl2C, rh2C, hrm2C_len, hrl2C_len, hrh2C_len, hrm2C_rc, hrl2C_rc, hrh2C_rc,
@@ -408,7 +408,7 @@ theorem buildR_combine_wp (Γ : T.Env)
       c0_hsteps_nogrp
       let l0 := rl[h0.toNat]'hh0_rl
       let h_init := rh[h0.toNat]'hh0_rh
-      refine wp_loop_group (CombineRJInv s.n_out.toNat n.toNat i.toNat Valid
+      refine wp_loop_group (CombineRJInv s.modW n.toNat i.toNat Valid
           rpool rm rl rh aArr h0 mC) ?_ ?_
       · rintro JJ jrem ⟨l, h, j, ⟨⟩⟩ mJ hrecJ ⟨hmJ, hj_lo, hj_le, hjrem, hwJ, hsumJ⟩
         subst mJ
@@ -418,7 +418,7 @@ theorem buildR_combine_wp (Γ : T.Env)
           c0_hsteps_nogrp
           refine wp_join_group (fun vK mK =>
               vK.1.toNat ≤ n.toNat ∧
-              CombineRAllInv s.n_out.toNat Valid rpool rm rl rh aArr n.toNat s.rcap.toNat
+              CombineRAllInv s.modW Valid rpool rm rl rh aArr n.toNat s.rcap.toNat
                 s.rm2 s.rl2 s.rh2 rm2 rl2 rh2 Rcmb (n.toNat - j.toNat) (j, vK.1, ⟨⟩) mK) ?_ ?_
           · rintro JK ⟨k2', ⟨⟩⟩ mK ⟨_, hinvK⟩
             c0_hsteps_nogrp
@@ -449,8 +449,8 @@ theorem buildR_combine_wp (Γ : T.Env)
               let rl2' := rl2C.set k2.toNat l
               let rh2' := rh2C.set k2.toNat h
               have hkeepE : ∀ σ t, t ≤ k2.toNat →
-                  polyEval s.n_out.toNat σ rpool rm2' rl2' rh2' t =
-                    polyEval s.n_out.toNat σ rpool rm2C rl2C rh2C t := by
+                  polyEval s.modW σ rpool rm2' rl2' rh2' t =
+                    polyEval s.modW σ rpool rm2C rl2C rh2C t := by
                 intro σ t ht
                 induction t with
                 | zero => rfl
@@ -461,9 +461,9 @@ theorem buildR_combine_wp (Γ : T.Env)
                   simp only [termEval, rm2', rl2', rh2', getD_set_eq _ 0#32 _ hk2_lt_rm,
                     getD_set_eq _ 0#64 _ hk2_lt_rl, getD_set_eq _ 0#64 _ hk2_lt_rh,
                     ite_eq_right hne]
-              have htermE : ∀ σ, termEval s.n_out.toNat σ rpool rm2' rl2' rh2' k2.toNat =
+              have htermE : ∀ σ, termEval s.modW σ rpool rm2' rl2' rh2' k2.toNat =
                   (if monoValL σ (symListAt rpool (rm.getD h0.toNat 0#32).toNat)
-                    then coeff128 s.n_out.toNat l h else 0#(s.n_out.toNat)) := by
+                    then coeff128 s.modW l h else 0#(s.modW)) := by
                 intro σ
                 simp only [termEval, rm2', rl2', rh2', getD_set_eq _ 0#32 _ hk2_lt_rm,
                   getD_set_eq _ 0#64 _ hk2_lt_rl, getD_set_eq _ 0#64 _ hk2_lt_rh, ↓reduceIte]
@@ -508,8 +508,8 @@ theorem buildR_combine_wp (Γ : T.Env)
                       (Nat.le_trans (Nat.le_add_left _ _) hwJ) _) hwC),
                     (fun σ hσ => by
                       have h0c : (if monoValL σ (symListAt rpool (rm.getD h0.toNat 0#32).toNat)
-                          then coeff128 s.n_out.toNat l h else 0#(s.n_out.toNat)) =
-                          0#(s.n_out.toNat) := by
+                          then coeff128 s.modW l h else 0#(s.modW)) =
+                          0#(s.modW) := by
                         subst hl0 hh0_0; simp [coeff128]
                       have hjS := hsumJ σ hσ
                       rw [h0c, BitVec.zero_add] at hjS
@@ -614,8 +614,8 @@ theorem buildR_combine_wp (Γ : T.Env)
           rfl
     · have hi_eq : i.toNat = n.toNat := by have := BitVec.not_lt.mp hc; omega
       have hcur_eq : ∀ σ, Valid σ →
-          polyEval s.n_out.toNat σ rpool rm2C rl2C rh2C k2.toNat =
-            polyEval s.n_out.toNat σ rpool rm rl rh n.toNat := by
+          polyEval s.modW σ rpool rm2C rl2C rh2C k2.toNat =
+            polyEval s.modW σ rpool rm rl rh n.toNat := by
         intro σ hσ
         have he := hevC σ hσ
         simpa [hi_eq, Nat.sub_self, polyEvalIdxOf_nil] using he
@@ -675,15 +675,15 @@ theorem buildR_combine_wp (Γ : T.Env)
       rw [tailRWords_init_perm hPerm]
       exact le_refl _
     · intro σ _
-      have h1 : polyEvalIdxOf s.n_out.toNat σ rpool rm rl rh aArr 0 n.toNat =
+      have h1 : polyEvalIdxOf s.modW σ rpool rm rl rh aArr 0 n.toNat =
           ((List.range n.toNat).map (fun k => (aArr.getD k 0#32).toNat)).foldl
-            (fun acc idx => acc + termEval s.n_out.toNat σ rpool rm rl rh idx)
-            0#(s.n_out.toNat) := by
+            (fun acc idx => acc + termEval s.modW σ rpool rm rl rh idx)
+            0#(s.modW) := by
         simp [polyEvalIdxOf, List.foldl_map]
-      have h2 : polyEval s.n_out.toNat σ rpool rm rl rh n.toNat =
+      have h2 : polyEval s.modW σ rpool rm rl rh n.toNat =
           (List.range n.toNat).foldl
-            (fun acc idx => acc + termEval s.n_out.toNat σ rpool rm rl rh idx)
-            0#(s.n_out.toNat) := by
+            (fun acc idx => acc + termEval s.modW σ rpool rm rl rh idx)
+            0#(s.modW) := by
         simp [polyEval, polyEvalRange]
       simp only [BitVec.toNat_ofNat, Nat.zero_mod, Nat.sub_zero, polyEval_zero, BitVec.zero_add]
       rw [h1, h2]; exact foldl_add_perm _ hPerm
@@ -724,15 +724,15 @@ private theorem buildR_merge_phase (Γ : T.Env)
     (hrl2_len : s.rcap.toNat ≤ rl2.length) (hrh2_len : s.rcap.toNat ≤ rh2.length)
     (hrpool_len : s.rpcap.toNat ≤ rpool.length) (hix_eq : ix.length = ix2.length)
     (hix_len : s.qcap.toNat ≤ ix.length) (ha1_len : a1.length = ix.length)
-    (hMasks : MasksOk s.n_out.toNat s.mlo s.mhi) (hPerm : PermN a1 n.toNat)
+    (hMasks : MasksOk s.modW s.mlo s.mhi) (hPerm : PermN a1 n.toNat)
     (hSl : ∀ r < n.toNat, MonoSliceOk rpool (rm.getD r 0#32).toNat rpool.length ∧
       (rpool.getD (rm.getD r 0#32).toNat 0#32).toNat + 1 < 2 ^ 32)
     (hSorted : ∀ r < n.toNat, MonoSorted rpool (rm.getD r 0#32).toNat)
     (hWords : monoTotalWords rpool rm n.toNat ≤ s.rpcap.toNat)
     (hSyms : SymsBound rpool rm n.toNat s.n_nets.toNat)
     (hEval : ∀ σ, Valid σ →
-      polyEval s.n_out.toNat σ rpool rm rl rh n.toNat =
-        bv s.n_out.toNat
+      polyEval s.modW σ rpool rm rl rh n.toNat =
+        bv s.modW
           (σ (if flippedArr.getD v.toNat 0#8 ≠ 0#8 then 2 * v.toNat + 1 else 2 * v.toNat)))
     (hm : (arCtxMem cx s ⋆ array (t := i32) s.rule_off ruleOff ⋆ array (t := i32) s.rule_n ruleN ⋆
       array (t := i8) s.flipped flippedArr ⋆ rsMem s rsM rsL rsH rsPool ⋆
@@ -749,7 +749,7 @@ private theorem buildR_merge_phase (Γ : T.Env)
         cur_rp := s.rpool, cur_nr := k2 } →
       k2.toNat ≤ s.rcap.toNat → rm2'.length = rm2.length → rl2'.length = rl2.length →
       rh2'.length = rh2.length → ix'.length = ix.length → ix2'.length = ix2.length →
-      (∀ σ, Valid σ → CurRRep s.n_out.toNat σ k2.toNat
+      (∀ σ, Valid σ → CurRRep s.modW σ k2.toNat
         (if flippedArr.getD v.toNat 0#8 ≠ 0#8 then 2 * v.toNat + 1 else 2 * v.toNat)
         rm2' rl2' rh2' rpool) →
       (∀ r < k2.toNat, MonoSliceOk rpool (rm2'.getD r 0#32).toNat rpool.length ∧
@@ -1035,15 +1035,15 @@ theorem buildR_sort_wp (Γ : T.Env)
     (hrh_len : s.rcap.toNat ≤ rh.length) (hrm2_len : s.rcap.toNat ≤ rm2.length)
     (hrl2_len : s.rcap.toNat ≤ rl2.length) (hrh2_len : s.rcap.toNat ≤ rh2.length)
     (hrpool_len : s.rpcap.toNat ≤ rpool.length) (hix_eq : ix.length = ix2.length)
-    (hix_len : s.qcap.toNat ≤ ix.length) (hMasks : MasksOk s.n_out.toNat s.mlo s.mhi)
+    (hix_len : s.qcap.toNat ≤ ix.length) (hMasks : MasksOk s.modW s.mlo s.mhi)
     (hSl : ∀ r < n.toNat, MonoSliceOk rpool (rm.getD r 0#32).toNat rpool.length ∧
       (rpool.getD (rm.getD r 0#32).toNat 0#32).toNat + 1 < 2 ^ 32)
     (hSorted : ∀ r < n.toNat, MonoSorted rpool (rm.getD r 0#32).toNat)
     (hWords : monoTotalWords rpool rm n.toNat ≤ s.rpcap.toNat)
     (hSyms : SymsBound rpool rm n.toNat s.n_nets.toNat)
     (hEval : ∀ σ, Valid σ →
-      polyEval s.n_out.toNat σ rpool rm rl rh n.toNat =
-        bv s.n_out.toNat
+      polyEval s.modW σ rpool rm rl rh n.toNat =
+        bv s.modW
           (σ (if flippedArr.getD v.toNat 0#8 ≠ 0#8 then 2 * v.toNat + 1 else 2 * v.toNat)))
     (hm : (arCtxMem cx s ⋆ array (t := i32) s.rule_off ruleOff ⋆ array (t := i32) s.rule_n ruleN ⋆
       array (t := i8) s.flipped flippedArr ⋆ rsMem s rsM rsL rsH rsPool ⋆
@@ -1057,7 +1057,7 @@ theorem buildR_sort_wp (Γ : T.Env)
         cur_rp := s.rpool, cur_nr := k2 } →
       k2.toNat ≤ s.rcap.toNat → rm2'.length = rm2.length → rl2'.length = rl2.length →
       rh2'.length = rh2.length → ix'.length = ix.length → ix2'.length = ix2.length →
-      (∀ σ, Valid σ → CurRRep s.n_out.toNat σ k2.toNat
+      (∀ σ, Valid σ → CurRRep s.modW σ k2.toNat
         (if flippedArr.getD v.toNat 0#8 ≠ 0#8 then 2 * v.toNat + 1 else 2 * v.toNat)
         rm2' rl2' rh2' rpool) →
       (∀ r < k2.toNat, MonoSliceOk rpool (rm2'.getD r 0#32).toNat rpool.length ∧

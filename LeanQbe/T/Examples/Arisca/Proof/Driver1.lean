@@ -143,7 +143,7 @@ private abbrev ConeQ (cx : Val i64) (s : ArCtxState) (artBytes : List UInt8)
       (∀ r < s'.rs_n.toNat,
         (rsPool'.getD (rsM'.getD r 0#32).toNat 0#32).toNat + 1 < 2 ^ 32) ∧
       RulesSorted rsPool' rsM' s'.rs_n.toNat ∧
-      (∀ σ, Valid σ → RulesRep s'.n_out.toNat σ s' ruleOff' ruleN' rsM' rsL' rsH' rsPool')) →
+      (∀ σ, Valid σ → RulesRep s'.modW σ s' ruleOff' ruleN' rsM' rsL' rsH' rsPool')) →
     (arCtxMem cx s' ⋆ bytes s'.art artBytes ⋆
       array (t := i32) s'.rule_off ruleOff' ⋆ array (t := i32) s'.rule_n ruleN' ⋆
       array (t := i32) s'.partner partnerArr ⋆ rsMem s' rsM' rsL' rsH' rsPool' ⋆
@@ -288,7 +288,7 @@ private theorem cone_store_step {Γ : LeanQbe.T.Env}
     (hValEx : ∃ σ0, Valid σ0)
     (hValRep : ∀ σ, Valid σ →
       PartnerRep σ s.n_nets.toNat partnerArr ∧
-      RulesRep s.n_out.toNat σ s ruleOff ruleN rsM rsL rsH rsPool)
+      RulesRep s.modW σ s ruleOff ruleN rsM rsL rsH rsPool)
     (hSlL : ∀ r < sL.tn.toNat,
       MonoSliceOk (if sL.pc.toNat = 0 then aL.pool0 else aL.pool1)
         ((if sL.tc.toNat = 0 then aL.tm0 else aL.tm1).getD r 0#32).toNat sL.ptop.toNat ∧
@@ -303,11 +303,11 @@ private theorem cone_store_step {Γ : LeanQbe.T.Env}
       SymsBound (if sL.pc.toNat = 0 then aL.pool0 else aL.pool1)
         (if sL.tc.toNat = 0 then aL.tm0 else aL.tm1) sL.tn.toNat s.n_nets.toNat)
     (hPolyL : ∀ σ, Valid σ →
-      polyEval s.n_out.toNat σ (if sL.pc.toNat = 0 then aL.pool0 else aL.pool1)
+      polyEval s.modW σ (if sL.pc.toNat = 0 then aL.pool0 else aL.pool1)
         (if sL.tc.toNat = 0 then aL.tm0 else aL.tm1)
         (if sL.tc.toNat = 0 then aL.tl0 else aL.tl1)
         (if sL.tc.toNat = 0 then aL.th0 else aL.th1) sL.tn.toNat =
-          bv s.n_out.toNat (σ (2 * root.toNat)))
+          bv s.modW (σ (2 * root.toNat)))
     (hmL : (arCtxMem cx sL ⋆ bytes sL.art artBytes ⋆
       array (t := i32) sL.rule_off ruleOff ⋆ array (t := i32) sL.rule_n ruleN ⋆
       array (t := i32) sL.partner partnerArr ⋆ rsMem sL rsM rsL rsH rsPool ⋆
@@ -341,7 +341,7 @@ private theorem cone_store_step {Γ : LeanQbe.T.Env}
     by rw [hsL]; dsimp only; omega, by rw [hsL]; dsimp only; omega,
     by rw [hsL]; dsimp only; omega, hValEx,
     fun σ hV => by
-      rw [show sL.n_out = s.n_out by rw [hsL]]
+      rw [show sL.modW = s.modW by rw [hsL]; rfl]
       exact cone_rulesRep_eq (by rw [hsL]) (by rw [hsL]) (by rw [hsL])
         (by rw [hsL]) (by rw [hsL]) (hValRep σ hV).2,
     by rw [hsL]; dsimp only; exact hRsSorted,
@@ -400,9 +400,9 @@ private theorem cone_apply_step {Γ : LeanQbe.T.Env}
     (hcur3 : sAp.cur_rh = s.rs_h + BitVec.ofNat 64 (8 * off))
     (hcur4 : sAp.cur_rp = s.rs_pool)
     (hcap0 : ConeArrs.CapOk s a0) (hlenL : ConeArrs.LenEq aL a0)
-    (hmasks : MasksOk s.n_out.toNat s.mlo s.mhi) (hValEx : ∃ σ0, Valid σ0)
+    (hmasks : MasksOk s.modW s.mlo s.mhi) (hValEx : ∃ σ0, Valid σ0)
     (hPartRep : ∀ σ, Valid σ → PartnerRep σ s.n_nets.toNat partnerArr)
-    (hcurR : ∀ σ, Valid σ → CurRRep sAp.n_out.toNat σ sAp.cur_nr.toNat sym.toNat
+    (hcurR : ∀ σ, Valid σ → CurRRep sAp.modW σ sAp.cur_nr.toNat sym.toNat
       (rsM.drop off) (rsL.drop off) (rsH.drop off) rsPool)
     (hcurSorted : ∀ r < sAp.cur_nr.toNat,
       MonoSorted rsPool ((rsM.drop off).getD r 0#32).toNat)
@@ -454,11 +454,11 @@ private theorem cone_apply_step {Γ : LeanQbe.T.Env}
         SymsBound (if sA.pc.toNat = 0 then aA.pool0 else aA.pool1)
           (if sA.tc.toNat = 0 then aA.tm0 else aA.tm1) sA.tn.toNat s.n_nets.toNat) →
       (∀ σ, Valid σ →
-        polyEval sAp.n_out.toNat σ (if sA.pc.toNat = 0 then aA.pool0 else aA.pool1)
+        polyEval sAp.modW σ (if sA.pc.toNat = 0 then aA.pool0 else aA.pool1)
           (if sA.tc.toNat = 0 then aA.tm0 else aA.tm1)
           (if sA.tc.toNat = 0 then aA.tl0 else aA.tl1)
           (if sA.tc.toNat = 0 then aA.th0 else aA.th1) sA.tn.toNat =
-        polyEval sAp.n_out.toNat σ (if sAp.pc.toNat = 0 then aL.pool0 else aL.pool1)
+        polyEval sAp.modW σ (if sAp.pc.toNat = 0 then aL.pool0 else aL.pool1)
           (if sAp.tc.toNat = 0 then aL.tm0 else aL.tm1)
           (if sAp.tc.toNat = 0 then aL.tl0 else aL.tl1)
           (if sAp.tc.toNat = 0 then aL.th0 else aL.th1) sAp.tn.toNat) →
@@ -487,7 +487,7 @@ private theorem cone_apply_step {Γ : LeanQbe.T.Env}
   have hs_qcap : sAp.qcap = s.qcap := by rw [hsAp_s]
   have hs_pcap : sAp.pcap = s.pcap := by rw [hsAp_s]
   have hs_nnets : sAp.n_nets = s.n_nets := by rw [hsAp_s]
-  have hs_nout : sAp.n_out = s.n_out := by rw [hsAp_s]
+  have hs_nout : sAp.modW = s.modW := by rw [hsAp_s]; rfl
   let Rapply : Mem 64 → Prop :=
     bytes s.art artBytes ⋆ array (t := i32) s.rule_off ruleOff ⋆ array (t := i32) s.rule_n ruleN ⋆
     array (t := i32) s.rs_m (rsM.take off) ⋆ array64 s.rs_l (rsL.take off) ⋆
@@ -594,7 +594,7 @@ private theorem ar_do_cone_loop_wp {Γ : LeanQbe.T.Env}
     (hs3_s : s3 = { s with pos := s3.pos, tn := s3.tn, ptop := s3.ptop, qn := 0#32 })
     (htn3 : s3.tn.toNat ≤ s.tcap.toNat) (hpt3 : s3.ptop.toNat ≤ s.pcap.toNat)
     (hcap0 : ConeArrs.CapOk s a0) (hlen3 : ConeArrs.LenEq a3 a0)
-    (hmasks : MasksOk s.n_out.toNat s.mlo s.mhi) (hrpcap4g : s.rs_pcap.toNat ≤ 4000000000)
+    (hmasks : MasksOk s.modW s.mlo s.mhi) (hrpcap4g : s.rs_pcap.toNat ≤ 4000000000)
     (hTotWords : monoTotalWords rsPool rsM s.rs_n.toNat ≤ s.rs_ptop.toNat)
     (hRsOk : ∀ r < s.rs_n.toNat,
       (rsPool.getD (rsM.getD r 0#32).toNat 0#32).toNat + 1 < 2 ^ 32)
@@ -602,7 +602,7 @@ private theorem ar_do_cone_loop_wp {Γ : LeanQbe.T.Env}
     (hValEx : ∃ σ0, Valid σ0)
     (hValRep : ∀ σ, Valid σ →
       PartnerRep σ s.n_nets.toNat partnerArr ∧
-      RulesRep s.n_out.toNat σ s ruleOff ruleN rsM rsL rsH rsPool)
+      RulesRep s.modW σ s ruleOff ruleN rsM rsL rsH rsPool)
     (hSl3 : ∀ r < s3.tn.toNat,
       MonoSliceOk (if s3.pc.toNat = 0 then a3.pool0 else a3.pool1)
         ((if s3.tc.toNat = 0 then a3.tm0 else a3.tm1).getD r 0#32).toNat s3.ptop.toNat ∧
@@ -620,11 +620,11 @@ private theorem ar_do_cone_loop_wp {Γ : LeanQbe.T.Env}
       SymsBound (if s3.pc.toNat = 0 then a3.pool0 else a3.pool1)
         (if s3.tc.toNat = 0 then a3.tm0 else a3.tm1) s3.tn.toNat s.n_nets.toNat)
     (hPoly3 : ∀ σ, Valid σ →
-      polyEval s.n_out.toNat σ (if s3.pc.toNat = 0 then a3.pool0 else a3.pool1)
+      polyEval s.modW σ (if s3.pc.toNat = 0 then a3.pool0 else a3.pool1)
         (if s3.tc.toNat = 0 then a3.tm0 else a3.tm1)
         (if s3.tc.toNat = 0 then a3.tl0 else a3.tl1)
         (if s3.tc.toNat = 0 then a3.th0 else a3.th1) s3.tn.toNat =
-          bv s.n_out.toNat (σ (2 * root.toNat)))
+          bv s.modW (σ (2 * root.toNat)))
     (hm3 : (arCtxMem cx s3 ⋆ bytes s3.art artBytes ⋆
       array (t := i32) s3.rule_off ruleOff ⋆ array (t := i32) s3.rule_n ruleN ⋆
       array (t := i32) s3.partner partnerArr ⋆ rsMem s3 rsM rsL rsH rsPool ⋆
@@ -660,8 +660,8 @@ private theorem ar_do_cone_loop_wp {Γ : LeanQbe.T.Env}
         (SymsBound rsPool rsM s.rs_n.toNat s.n_nets.toNat →
           SymsBound curPool curTm sL.tn.toNat s.n_nets.toNat) ∧
         (∀ σ, Valid σ →
-          polyEval s.n_out.toNat σ curPool curTm curTl curTh sL.tn.toNat =
-            bv s.n_out.toNat (σ (2 * root.toNat))) ∧
+          polyEval s.modW σ curPool curTm curTl curTh sL.tn.toNat =
+            bv s.modW (σ (2 * root.toNat))) ∧
         (arCtxMem cx sL ⋆ bytes sL.art artBytes ⋆
           array (t := i32) sL.rule_off ruleOff ⋆ array (t := i32) sL.rule_n ruleN ⋆
           array (t := i32) sL.partner partnerArr ⋆ rsMem sL rsM rsL rsH rsPool ⋆
@@ -805,11 +805,11 @@ private theorem ar_do_cone_loop_wp {Γ : LeanQbe.T.Env}
                 cur_rp := sAp.cur_rp, cur_nr := sAp.cur_nr } := by
               dsimp only [sAp]; rw [hsV_s]
             have hValRepV : ∀ σ, Valid σ →
-                RulesRep sV.n_out.toNat σ sV ruleOff ruleN rsM rsL rsH rsPool := fun σ hV => by
-              rw [show sV.n_out = s.n_out by rw [hsV_s]]
+                RulesRep sV.modW σ sV ruleOff ruleN rsM rsL rsH rsPool := fun σ hV => by
+              rw [show sV.modW = s.modW by rw [hsV_s]; rfl]
               exact cone_rulesRep_eq (s := s) (s' := sV) (by rw [hsV_s]) (by rw [hsV_s])
                 (by rw [hsV_s]) (by rw [hsV_s]) (by rw [hsV_s]) (hValRep σ hV).2
-            have hcurR : ∀ σ, Valid σ → CurRRep sAp.n_out.toNat σ sAp.cur_nr.toNat
+            have hcurR : ∀ σ, Valid σ → CurRRep sAp.modW σ sAp.cur_nr.toNat
                 (2#32 * v).toNat (rsM.drop off.toNat) (rsL.drop off.toNat)
                 (rsH.drop off.toNat) rsPool := fun σ hV => by
               dsimp only [sAp]; rw [h2v_toNat, hcnt_eq, hoff_eq]
@@ -891,7 +891,7 @@ private theorem ar_do_cone_loop_wp {Γ : LeanQbe.T.Env}
                   ⟨by omega, rfl, sA, aA, hpcA, htcA, htnA, hptA, hposA, hsA_s, hlenA, hixA_s,
                    hSlA, hSortedA, hSigA, hTotA, hSyA, fun σ hV => ?_, hmA⟩
                 have hP := hPolyA σ hV
-                rw [show sAp.n_out = s.n_out by rw [hsAp_s],
+                rw [show sAp.modW = s.modW by rw [hsAp_s]; rfl,
                   show sAp.pc = sL.pc by rw [hsAp_s], show sAp.tc = sL.tc by rw [hsAp_s],
                   show sAp.tn = sL.tn by rw [hsAp_s]] at hP
                 exact hP.trans (hPolyL σ hV)) hQ
@@ -1078,7 +1078,7 @@ theorem ar_do_cone_wp (Γ : LeanQbe.T.Env)
                fun i hi => by rw [show s2.rs_n = s.rs_n by rw [hs2_s]] at hi; exact hRsOk i hi,
                by rw [show s2.rs_n = s.rs_n by rw [hs2_s]]; exact hRsSorted,
                fun σ hV => by
-                 rw [show s2.n_out = s.n_out by rw [hs2_s]]
+                 rw [show s2.modW = s.modW by rw [hs2_s]; rfl]
                  exact cone_rulesRep_eq (s := s) (s' := s2) (by rw [hs2_s]) (by rw [hs2_s])
                    (by rw [hs2_s]) (by rw [hs2_s]) (by rw [hs2_s]) (hValRep σ hV).2⟩) hfail2
         · have hroot_ne : ruleN.getD root.toNat 0#32 ≠ cNone32 := by
@@ -1107,8 +1107,8 @@ theorem ar_do_cone_wp (Γ : LeanQbe.T.Env)
                 (by rw [hs2_s]) (by rw [hs2_s])]
             exact sep_cast hm2_s (by dsimp only [ConeArrs.tMemOf, ConeArrs.qMemOf]; ac_rfl)
           have hValRep2 : ∀ σ, Valid σ →
-              RulesRep s2.n_out.toNat σ s2 ruleOff ruleN rsM rsL rsH rsPool := fun σ hV => by
-            rw [show s2.n_out = s.n_out by rw [hs2_s]]
+              RulesRep s2.modW σ s2 ruleOff ruleN rsM rsL rsH rsPool := fun σ hV => by
+            rw [show s2.modW = s.modW by rw [hs2_s]; rfl]
             exact cone_rulesRep_eq (s := s) (s' := s2) (by rw [hs2_s]) (by rw [hs2_s])
               (by rw [hs2_s]) (by rw [hs2_s]) (by rw [hs2_s]) (hValRep σ hV).2
           apply wp_call_of_spec
@@ -1178,7 +1178,7 @@ theorem ar_do_cone_wp (Γ : LeanQbe.T.Env)
               hcap0 hlen3 hmasks hrpcap4g hTot hRsOk hRsSorted ⟨σ0, hV0⟩ hValRep
               hSl3 hSorted3 hSig3 hTot3 (fun hSb => hSy3 s.n_nets.toNat (by
                 rw [show s2.rs_n = s.rs_n by rw [hs2_s]]; exact hSb))
-              (fun σ hV => by rw [show s.n_out = s2.n_out by rw [hs2_s]]; exact hPoly3 σ hV)
+              (fun σ hV => by rw [show s.modW = s2.modW by rw [hs2_s]; rfl]; exact hPoly3 σ hV)
               hm3_norm hQ'
 
 end

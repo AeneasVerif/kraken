@@ -50,7 +50,7 @@ private theorem merge_products_emit_phase (Γ : T.Env)
     (hrecL : ∀ (prem' : Nat) (ys : Tup Val [i32, i32, i32, i32]) (m' : Mem 64),
       prem' < (k.toNat + 1) - pi.toNat →
       (prem' = (k.toNat + 1) - ys.2.2.2.1.toNat ∧
-        MergeProdInv s.tn.toNat s.tn.toNat s.qn.toNat nb.toNat k.toNat s.n_out.toNat s.ptop.toNat
+        MergeProdInv s.tn.toNat s.tn.toNat s.qn.toNat nb.toNat k.toNat s.modW s.ptop.toNat
           srcPool srcTm qm ixS bx srcTl srcTh qlS qhS
           (s.tm.getD (1 - s.tc.toNat) 0#64) (s.ts.getD (1 - s.tc.toNat) 0#64)
           (s.tl.getD (1 - s.tc.toNat) 0#64) (s.th.getD (1 - s.tc.toNat) 0#64)
@@ -67,7 +67,7 @@ private theorem merge_products_emit_phase (Γ : T.Env)
     (hn : n = s.tn)
     (hSort_qm : sSort.qm = s.qm) (hSort_qs : sSort.qs = s.qs)
     (hSort_ql : sSort.ql = s.ql) (hSort_qh : sSort.qh = s.qh)
-    (hSort_nout : sSort.n_out = s.n_out) (hSort_mlo : sSort.mlo = s.mlo)
+    (hSort_nout : sSort.modW = s.modW) (hSort_mlo : sSort.mlo = s.mlo)
     (hSort_mhi : sSort.mhi = s.mhi)
     (hRro : Rro = arCtxMem cx sSort ⋆ array (t := i32) (s.pool.getD s.pc.toNat 0#64) srcPool ⋆
       array (t := i32) (s.tm.getD s.tc.toNat 0#64) srcTm ⋆
@@ -84,7 +84,7 @@ private theorem merge_products_emit_phase (Γ : T.Env)
     (hsrcTl_len : s.tcap.toNat ≤ srcTl.length) (hsrcTh_len : s.tcap.toNat ≤ srcTh.length)
     (hqm_len : s.qcap.toNat ≤ qm.length) (hqs_len : s.qcap.toNat ≤ qs.length)
     (hqlS_len : s.qcap.toNat ≤ qlS.length) (hqhS_len : s.qcap.toNat ≤ qhS.length)
-    (hMasks : MasksOk s.n_out.toNat s.mlo s.mhi)
+    (hMasks : MasksOk s.modW s.mlo s.mhi)
     (hTmOk : ∀ t < s.tn.toNat, MonoSliceOk srcPool (srcTm.getD t 0#32).toNat s.ptop.toNat ∧
       (srcPool.getD (srcTm.getD t 0#32).toNat 0#32).toNat + 1 < 2 ^ 32)
     (hQmOk : ∀ t < s.qn.toNat, MonoSliceOk srcPool (qm.getD t 0#32).toNat s.ptop.toNat ∧
@@ -117,9 +117,9 @@ private theorem merge_products_emit_phase (Γ : T.Env)
       (∃ idx < s.tn.toNat, dTmC.getD t 0#32 = srcTm.getD idx 0#32) ∨
       (∃ qidx < s.qn.toNat, dTmC.getD t 0#32 = qm.getD qidx 0#32))
     (hevalC : ∀ σ : Nat → Bool,
-      polyEval s.n_out.toNat σ srcPool dTmC dTlC dThC oC.toNat =
-        nonBxRangeSum s.n_out.toNat σ srcPool srcTm srcTl srcTh bx nb.toNat 0 curC.toNat +
-          polyEvalIdxOf s.n_out.toNat σ srcPool qm qlS qhS ixS 0 pi.toNat)
+      polyEval s.modW σ srcPool dTmC dTlC dThC oC.toNat =
+        nonBxRangeSum s.modW σ srcPool srcTm srcTl srcTh bx nb.toNat 0 curC.toNat +
+          polyEvalIdxOf s.modW σ srcPool qm qlS qhS ixS 0 pi.toNat)
     (hmC : (array (t := i32) (s.tm.getD (1 - s.tc.toNat) 0#64) dTmC ⋆
       array64 (s.ts.getD (1 - s.tc.toNat) 0#64) dTsC ⋆
       array64 (s.tl.getD (1 - s.tc.toNat) 0#64) dTlC ⋆
@@ -131,7 +131,7 @@ private theorem merge_products_emit_phase (Γ : T.Env)
     mergeOuterExpr, skip4L64]
   have hpip1 : (pi + 1#32).toNat = pi.toNat + 1 := bv32_succ_toNat (by omega)
   refine wp_join_group (fun (v : Tup Val [i32, i32]) mN =>
-      MergeProdInv s.tn.toNat s.tn.toNat s.qn.toNat nb.toNat k.toNat s.n_out.toNat s.ptop.toNat
+      MergeProdInv s.tn.toNat s.tn.toNat s.qn.toNat nb.toNat k.toNat s.modW s.ptop.toNat
         srcPool srcTm qm ixS bx srcTl srcTh qlS qhS
         (s.tm.getD (1 - s.tc.toNat) 0#64) (s.ts.getD (1 - s.tc.toNat) 0#64)
         (s.tl.getD (1 - s.tc.toNat) 0#64) (s.th.getD (1 - s.tc.toNat) 0#64)
@@ -243,10 +243,10 @@ private theorem merge_products_emit_phase (Γ : T.Env)
                 fun nl nh hcadd => ?_⟩
               have ha64 : (BitVec.setWidth 64 a).toNat = a.toNat := by c0_bv_omega
               have hoC64 : (BitVec.setWidth 64 oC).toNat = oC.toNat := by c0_bv_omega
-              have hcadd' : coeff128 s.n_out.toNat nl nh =
-                  coeff128 s.n_out.toNat (srcTl.getD curC.toNat 0#64)
+              have hcadd' : coeff128 s.modW nl nh =
+                  coeff128 s.modW (srcTl.getD curC.toNat 0#64)
                     (srcTh.getD curC.toNat 0#64) +
-                  coeff128 s.n_out.toNat (qlS.getD (ixS.getD pi.toNat 0#32).toNat 0#64)
+                  coeff128 s.modW (qlS.getD (ixS.getD pi.toNat 0#32).toNat 0#64)
                     (qhS.getD (ixS.getD pi.toNat 0#32).toNat 0#64) := by
                 have ha_ql : a.toNat < qlS.length := by omega
                 have ha_qh : a.toNat < qhS.length := by omega
@@ -338,7 +338,7 @@ private theorem merge_products_outer_loop (Γ : T.Env)
     {JExit : Cont [i32, i32, i32, i32]} {mS : Mem 64}
     (hExit : ∀ (ys : Tup Val [i32, i32, i32, i32]) (mE : Mem 64),
       (ys.2.2.2.1 = k ∧ ys.2.1 = s.tn ∧
-        MergeProdInv s.tn.toNat s.tn.toNat s.qn.toNat nb.toNat k.toNat s.n_out.toNat s.ptop.toNat
+        MergeProdInv s.tn.toNat s.tn.toNat s.qn.toNat nb.toNat k.toNat s.modW s.ptop.toNat
           srcPool srcTm qm ixS bx srcTl srcTh qlS qhS
           (s.tm.getD (1 - s.tc.toNat) 0#64) (s.ts.getD (1 - s.tc.toNat) 0#64)
           (s.tl.getD (1 - s.tc.toNat) 0#64) (s.th.getD (1 - s.tc.toNat) 0#64)
@@ -356,7 +356,7 @@ private theorem merge_products_outer_loop (Γ : T.Env)
     (_hSort_tn : sSort.tn = s.tn) (_hSort_bx : sSort.bx = s.bx)
     (hSort_qm : sSort.qm = s.qm) (hSort_qs : sSort.qs = s.qs)
     (hSort_ql : sSort.ql = s.ql) (hSort_qh : sSort.qh = s.qh)
-    (hSort_nout : sSort.n_out = s.n_out) (hSort_mlo : sSort.mlo = s.mlo)
+    (hSort_nout : sSort.modW = s.modW) (hSort_mlo : sSort.mlo = s.mlo)
     (hSort_mhi : sSort.mhi = s.mhi)
     (hRro : Rro = arCtxMem cx sSort ⋆ array (t := i32) (s.pool.getD s.pc.toNat 0#64) srcPool ⋆
       array (t := i32) (s.tm.getD s.tc.toNat 0#64) srcTm ⋆
@@ -375,7 +375,7 @@ private theorem merge_products_outer_loop (Γ : T.Env)
     (hqlS_len : s.qcap.toNat ≤ qlS.length) (hqhS_len : s.qcap.toNat ≤ qhS.length)
     (hdstTm_len : s.tcap.toNat ≤ dstTm0.length) (hdstTs_len : s.tcap.toNat ≤ dstTs0.length)
     (hdstTl_len : s.tcap.toNat ≤ dstTl0.length) (hdstTh_len : s.tcap.toNat ≤ dstTh0.length)
-    (hMasks : MasksOk s.n_out.toNat s.mlo s.mhi)
+    (hMasks : MasksOk s.modW s.mlo s.mhi)
     (hTmOk : ∀ t < s.tn.toNat, MonoSliceOk srcPool (srcTm.getD t 0#32).toNat s.ptop.toNat ∧
       (srcPool.getD (srcTm.getD t 0#32).toNat 0#32).toNat + 1 < 2 ^ 32)
     (hQmOk : ∀ t < s.qn.toNat, MonoSliceOk srcPool (qm.getD t 0#32).toNat s.ptop.toNat ∧
@@ -402,7 +402,7 @@ private theorem merge_products_outer_loop (Γ : T.Env)
   refine wp_loop_group (fun prem (v : Tup Val [i32, i32, i32, i32]) mL =>
       let (o, cur, bp, pi, _) := v
       prem = (k.toNat + 1) - pi.toNat ∧
-      MergeProdInv s.tn.toNat s.tn.toNat s.qn.toNat nb.toNat k.toNat s.n_out.toNat s.ptop.toNat
+      MergeProdInv s.tn.toNat s.tn.toNat s.qn.toNat nb.toNat k.toNat s.modW s.ptop.toNat
         srcPool srcTm qm ixS bx srcTl srcTh qlS qhS
         (s.tm.getD (1 - s.tc.toNat) 0#64) (s.ts.getD (1 - s.tc.toNat) 0#64)
         (s.tl.getD (1 - s.tc.toNat) 0#64) (s.th.getD (1 - s.tc.toNat) 0#64)
@@ -426,7 +426,7 @@ private theorem merge_products_outer_loop (Γ : T.Env)
         refine wp_loop_group (fun crem (v : Tup Val [i32, i32, i32]) mC =>
             let (oC, curC, bpC, _) := v
             crem = j.toNat - curC.toNat ∧ cur.toNat ≤ curC.toNat ∧ curC.toNat ≤ j.toNat ∧
-            MergeProdInv s.tn.toNat s.tn.toNat s.qn.toNat nb.toNat k.toNat s.n_out.toNat
+            MergeProdInv s.tn.toNat s.tn.toNat s.qn.toNat nb.toNat k.toNat s.modW
               s.ptop.toNat srcPool srcTm qm ixS bx srcTl srcTh qlS qhS
               (s.tm.getD (1 - s.tc.toNat) 0#64) (s.ts.getD (1 - s.tc.toNat) 0#64)
               (s.tl.getD (1 - s.tc.toNat) 0#64) (s.th.getD (1 - s.tc.toNat) 0#64)
@@ -442,7 +442,7 @@ private theorem merge_products_outer_loop (Γ : T.Env)
                 crem' < j.toNat - curC.toNat →
                 crem' = j.toNat - ys.2.1.toNat ∧ cur.toNat ≤ ys.2.1.toNat ∧
                   ys.2.1.toNat ≤ j.toNat ∧
-                  MergeProdInv s.tn.toNat s.tn.toNat s.qn.toNat nb.toNat k.toNat s.n_out.toNat
+                  MergeProdInv s.tn.toNat s.tn.toNat s.qn.toNat nb.toNat k.toNat s.modW
                     s.ptop.toNat srcPool srcTm qm ixS bx srcTl srcTh qlS qhS
                     (s.tm.getD (1 - s.tc.toNat) 0#64) (s.ts.getD (1 - s.tc.toNat) 0#64)
                     (s.tl.getD (1 - s.tc.toNat) 0#64) (s.th.getD (1 - s.tc.toNat) 0#64)
@@ -478,7 +478,7 @@ private theorem merge_products_outer_loop (Γ : T.Env)
               have hrecL' : ∀ (prem' : Nat) (ys : Tup Val [i32, i32, i32, i32]) (m' : Mem 64),
                   prem' < k.toNat + 1 - pi.toNat →
                   prem' = k.toNat + 1 - ys.2.2.2.1.toNat ∧
-                  MergeProdInv s.tn.toNat s.tn.toNat s.qn.toNat nb.toNat k.toNat s.n_out.toNat
+                  MergeProdInv s.tn.toNat s.tn.toNat s.qn.toNat nb.toNat k.toNat s.modW
                     s.ptop.toNat srcPool srcTm qm ixS bx srcTl srcTh qlS qhS
                     (s.tm.getD (1 - s.tc.toNat) 0#64) (s.ts.getD (1 - s.tc.toNat) 0#64)
                     (s.tl.getD (1 - s.tc.toNat) 0#64) (s.th.getD (1 - s.tc.toNat) 0#64)
@@ -671,7 +671,7 @@ public theorem ar_merge_products_wp (Γ : T.Env)
   refine wp_join_group (fun (v : Tup Val [i32, i32, i32, i32]) mE =>
       let (o, cur, bp, pi, _) := v
       pi = k ∧ cur = s.tn ∧
-      MergeProdInv s.tn.toNat s.tn.toNat s.qn.toNat nb.toNat k.toNat s.n_out.toNat s.ptop.toNat
+      MergeProdInv s.tn.toNat s.tn.toNat s.qn.toNat nb.toNat k.toNat s.modW s.ptop.toNat
         srcPool srcTm qm ixS bx srcTl srcTh qlS qhS
         (s.tm.getD (1 - s.tc.toNat) 0#64) (s.ts.getD (1 - s.tc.toNat) 0#64)
         (s.tl.getD (1 - s.tc.toNat) 0#64) (s.th.getD (1 - s.tc.toNat) 0#64)
@@ -737,9 +737,9 @@ public theorem ar_merge_products_wp (Γ : T.Env)
       · rw [heq] at hx; exact hSbT idx hidx x hx
       · rw [heq] at hx; exact hSbQ qidx hqidx x hx
     have heval_done : ∀ σ : Nat → Bool,
-        polyEval s.n_out.toNat σ srcPool dTm dTl dTh o.toNat =
-          nonBxTermSum s.n_out.toNat σ srcPool srcTm srcTl srcTh bx nb.toNat s.tn.toNat +
-            polyEval s.n_out.toNat σ srcPool qm ql qh s.qn.toNat := fun σ => by
+        polyEval s.modW σ srcPool dTm dTl dTh o.toNat =
+          nonBxTermSum s.modW σ srcPool srcTm srcTl srcTh bx nb.toNat s.tn.toNat +
+            polyEval s.modW σ srcPool qm ql qh s.qn.toNat := fun σ => by
       rw [heval σ, hq_eval σ]; rfl
     have hsF_tc : sF.tc.toNat = 1 - s.tc.toNat := by dsimp only [sF]; rw [hSort_tc]; exact hdidx
     have hsF_eq : sF = { s with tc := sF.tc, tn := sF.tn, ix := sF.ix, ix2 := sF.ix2 } := by
@@ -784,7 +784,7 @@ public theorem ar_merge_products_wp (Γ : T.Env)
     have hSort_qs : sSort.qs = s.qs := by rw [hsSort]
     have hSort_ql : sSort.ql = s.ql := by rw [hsSort]
     have hSort_qh : sSort.qh = s.qh := by rw [hsSort]
-    have hSort_nout : sSort.n_out = s.n_out := by rw [hsSort]
+    have hSort_nout : sSort.modW = s.modW := by rw [hsSort]; rfl
     have hSort_mlo : sSort.mlo = s.mlo := by rw [hsSort]
     have hSort_mhi : sSort.mhi = s.mhi := by rw [hsSort]
     have hSort_bx : sSort.bx = s.bx := by rw [hsSort]

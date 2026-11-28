@@ -508,10 +508,57 @@ bool ar_add_q(ArCtx *cx, u32 len, u32 s0, u32 s1, u64 l, u64 h) {
 }
 
 bool ar_build_sp0(ArCtx *cx) {
-  u32 n = cx->n_in >> 1;
   cx->tn = 0u;
   cx->ptop = 0ULL;
   cx->qn = 0u;
+  if (cx->spec == 2u) {
+    u32 w = cx->n_out >> 1;
+    u32 j = 0u;
+    while (j < w) {
+      u64 l = 0ULL;
+      u64 h = 0ULL;
+      u64 nl = 0ULL;
+      u64 nh = 0ULL;
+      C0_TIE2(l, h, ar_cpow2(cx, j));
+      C0_TIE2(nl, nh, ar_cneg(cx, l, h));
+      u32 rfA = cx->out_ref[j];
+      if (rfA == AR_NONE || (cx->olit[j] <= 1u && cx->rule_n[rfA >> 1] == AR_NONE)) {
+        if (cx->olit[j] == 1u) {
+          if (!ar_add_q(cx, 0u, 0u, 0u, l, h)) { return false; }
+        }
+      } else {
+        u32 syA = 2u * (rfA >> 1);
+        if ((rfA & 1u) != 0u) {
+          if (!ar_add_q(cx, 0u, 0u, 0u, l, h)) { return false; }
+          if (!ar_add_q(cx, 1u, syA, 0u, nl, nh)) { return false; }
+        } else {
+          if (!ar_add_q(cx, 1u, syA, 0u, l, h)) { return false; }
+        }
+      }
+      u32 bj = w + j;
+      u32 rfB = cx->out_ref[bj];
+      if (rfB == AR_NONE || (cx->olit[bj] <= 1u && cx->rule_n[rfB >> 1] == AR_NONE)) {
+        if (cx->olit[bj] == 1u) {
+          if (!ar_add_q(cx, 0u, 0u, 0u, nl, nh)) { return false; }
+        }
+      } else {
+        u32 syB = 2u * (rfB >> 1);
+        if ((rfB & 1u) != 0u) {
+          if (!ar_add_q(cx, 0u, 0u, 0u, nl, nh)) { return false; }
+          if (!ar_add_q(cx, 1u, syB, 0u, l, h)) { return false; }
+        } else {
+          if (!ar_add_q(cx, 1u, syB, 0u, nl, nh)) { return false; }
+        }
+      }
+      j = j + 1u;
+    }
+    if (cx->qn > cx->tcap) {
+      return false;
+    }
+    ar_merge_products(cx, 0u);
+    return true;
+  }
+  u32 n = cx->n_in >> 1;
   u32 j = 0u;
   while (j < cx->n_out) {
     u32 rf = cx->out_ref[j];

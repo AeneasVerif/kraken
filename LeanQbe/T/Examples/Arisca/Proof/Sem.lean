@@ -60,6 +60,15 @@ def arWRatio : Nat := 12
 /-- Byte list converted to `List Nat` matching `ArtCore.parseAig`. -/
 def toNatBytes (bs : List UInt8) : List Nat := bs.map UInt8.toNat
 
+/-- Partial AIG array correspondence before `arisca_check_aig`'s runtime well-formedness checks. -/
+structure AigArraysRep (g : Aig) (rhs0 rhs1 olit : List (BitVec 32)) : Prop where
+  rhs0_len : rhs0.length = g.ands.length
+  rhs1_len : rhs1.length = g.ands.length
+  olit_len : olit.length = g.outs.length
+  rhs0_eq : ∀ j, j < g.ands.length → (rhs0.getD j 0#32).toNat = (g.ands.getD j (0, 0)).1
+  rhs1_eq : ∀ j, j < g.ands.length → (rhs1.getD j 0#32).toNat = (g.ands.getD j (0, 0)).2
+  olit_eq : ∀ j, j < g.outs.length → (olit.getD j 0#32).toNat = g.outs.getD j 0
+
 /-- Soundness invariant linking parsed `Aig` to C0's `(rhs0, rhs1, olit)` arrays. -/
 structure AigRep (g : Aig) (rhs0 rhs1 olit : List (BitVec 32)) : Prop where
   i_le_m : g.I ≤ g.M
@@ -74,27 +83,65 @@ structure AigRep (g : Aig) (rhs0 rhs1 olit : List (BitVec 32)) : Prop where
     (g.ands.getD j (0, 0)).1 / 2 < g.I + 1 + j ∧ (g.ands.getD j (0, 0)).2 / 2 < g.I + 1 + j
   outs_wf : ∀ j, j < g.outs.length → g.outs.getD j 0 / 2 ≤ g.M
 
+/-- Construct an `Aig` directly from C0's `rhs0`, `rhs1`, `olit` arrays (`M`, `I`). -/
+def aigOfArrays (M I : Nat) (rhs0 rhs1 olit : List (BitVec 32)) : Aig :=
+  ⟨M, I, olit.map BitVec.toNat, List.zipWith (fun a b => (a.toNat, b.toNat)) rhs0 rhs1⟩
+
 /-- C0 polynomial signal assignment induced by AIG input valuation `ρ` and `bind` array. -/
 def cSig (g : Aig) (ρ : Nat → Bool) (bindArr : List (BitVec 32)) (x : Nat) : Bool :=
   g.litVal ρ (bindArr.getD (x / 2) 0#32).toNat ^^ (x % 2 == 1)
 
+/-- Specification checked by ARiSCA v1.5 for circuit `g`:
+- `spec = 0` / `1`: unsigned / signed multiplier (`outWord = inWord * inWord mod 2^O`)
+- `spec = 2`: `w`-bit miter (`SPEC_MITER`, `O = 2*w`, `1 ≤ w ≤ 128`,
+  `W(outA) ≡ W(outB) mod 2^w`). -/
+def ariscaCircuitProp (spec : BitVec 32) (g : Aig) : Prop :=
+  if spec = 2#32 then
+    g.outs.length % 2 = 0 ∧ 2 ≤ g.outs.length ∧ g.outs.length ≤ 256 ∧
+      ∀ ρ : Nat → Bool,
+        BitVec.ofNat (g.outs.length / 2) (outSlice g ρ 0 (g.outs.length / 2)) =
+          BitVec.ofNat (g.outs.length / 2)
+            (outSlice g ρ (g.outs.length / 2) (g.outs.length / 2))
+  else
+    (spec = 0#32 ∨ spec = 1#32) ∧
+    ∀ ρ : Nat → Bool,
+      BitVec.ofNat g.outs.length (outWord g ρ) =
+        BitVec.ofInt g.outs.length (inWord (decide (spec = 1#32)) (g.I / 2) ρ 0) *
+          BitVec.ofInt g.outs.length (inWord (decide (spec = 1#32)) (g.I / 2) ρ (g.I / 2))
+
+/-- Target polynomial value `SP0` evaluated under valuation `cSig g ρ bindArr` (`mod 2^w`). -/
+def sp0TargetEval (spec : BitVec 32) (w : Nat) (g : Aig) (ρ : Nat → Bool) : BitVec w :=
+  if spec = 2#32 then
+    BitVec.ofNat w (outSlice g ρ 0 w) - BitVec.ofNat w (outSlice g ρ w w)
+  else
+    BitVec.ofNat w (outWord g ρ) -
+      BitVec.ofInt w (inWord (decide (spec = 1#32)) (g.I / 2) ρ 0) *
+        BitVec.ofInt w (inWord (decide (spec = 1#32)) (g.I / 2) ρ (g.I / 2))
+
 /-- Soundness invariant on C0's `bind`, `in_net`, and `out_ref` tables. -/
 structure BindRep (s : ArCtxState) (g : Aig)
     (bindArr inNetArr outRefArr : List (BitVec 32)) : Prop where
+  nets_le : s.n_nets.toNat ≤ 0x3FFFFFFF
   bind_len : s.n_nets.toNat ≤ bindArr.length
   bind_bound : ∀ v < s.n_nets.toNat, bindArr.getD v 0#32 ≠ cNone32 →
     (bindArr.getD v 0#32).toNat ≤ 2 * g.M + 1
+  spec_bd : s.spec = 0#32 ∨ s.spec = 1#32 ∨ s.spec = 2#32
   in_len : s.n_in.toNat ≤ inNetArr.length
   in_eq : s.n_in.toNat = g.I
-  i_even : g.I % 2 = 0 ∧ 2 ≤ g.I
-  in_ok : ∀ i < s.n_in.toNat, (inNetArr.getD i 0#32).toNat < s.n_nets.toNat ∧
-    (bindArr.getD (inNetArr.getD i 0#32).toNat 0#32).toNat = 2 * (i + 1)
+  i_even : s.spec ≠ 2#32 → g.I % 2 = 0 ∧ 2 ≤ g.I
+  in_ok : ∀ i < s.n_in.toNat,
+    (s.spec = 2#32 ∧ inNetArr.getD i 0#32 = cNone32) ∨
+    ((inNetArr.getD i 0#32).toNat < s.n_nets.toNat ∧
+     (bindArr.getD (inNetArr.getD i 0#32).toNat 0#32).toNat = 2 * (i + 1))
   out_len : s.n_out.toNat ≤ outRefArr.length
   out_eq : s.n_out.toNat = g.outs.length
-  out_bounds : 1 ≤ s.n_out.toNat ∧ s.n_out.toNat ≤ 128
-  out_ok : ∀ j < s.n_out.toNat, ((outRefArr.getD j 0#32) >>> 1).toNat < s.n_nets.toNat ∧
-    let b := bindArr.getD ((outRefArr.getD j 0#32) >>> 1).toNat 0#32
-    b ≠ cNone32 ∧ (b ^^^ ((outRefArr.getD j 0#32) &&& 1#32)).toNat = g.outs.getD j 0
+  out_even : s.spec = 2#32 → g.outs.length % 2 = 0
+  out_bounds : 1 ≤ s.modW ∧ s.modW ≤ 128
+  out_ok : ∀ j < s.n_out.toNat,
+    (s.spec = 2#32 ∧ outRefArr.getD j 0#32 = cNone32 ∧ g.outs.getD j 0 ≤ 1) ∨
+    (((outRefArr.getD j 0#32) >>> 1).toNat < s.n_nets.toNat ∧
+     let b := bindArr.getD ((outRefArr.getD j 0#32) >>> 1).toNat 0#32
+     b ≠ cNone32 ∧ (b ^^^ ((outRefArr.getD j 0#32) &&& 1#32)).toNat = g.outs.getD j 0)
 
 /-! ## 2. Monomials, Polynomials, Vanishing Pairs & Rules -/
 
@@ -306,17 +353,47 @@ theorem cSig_half_mod (g : Aig) (ρ : Nat → Bool) (bindArr : List (BitVec 32))
     cSig g ρ bindArr x = (cSig g ρ bindArr (2 * (x / 2)) ^^ (x % 2 == 1)) := by
   rw [cSig_even]; rfl
 
+theorem AigRep.toArrays {g : Aig} {rhs0 rhs1 olit : List (BitVec 32)}
+    (ha : AigRep g rhs0 rhs1 olit) : AigArraysRep g rhs0 rhs1 olit :=
+  { rhs0_len := ha.rhs0_len, rhs1_len := ha.rhs1_len, olit_len := ha.olit_len,
+    rhs0_eq := ha.rhs0_eq, rhs1_eq := ha.rhs1_eq, olit_eq := ha.olit_eq }
+
+theorem aigOfArrays_rep {M I : Nat} {rhs0 rhs1 olit : List (BitVec 32)}
+    (hlen : rhs0.length = rhs1.length) :
+    AigArraysRep (aigOfArrays M I rhs0 rhs1 olit) rhs0 rhs1 olit := by
+  refine { rhs0_len := ?_, rhs1_len := ?_, olit_len := ?_,
+           rhs0_eq := ?_, rhs1_eq := ?_, olit_eq := ?_ }
+  · simp [aigOfArrays, hlen]
+  · simp [aigOfArrays, hlen]
+  · simp [aigOfArrays]
+  · intro j hj
+    simp only [aigOfArrays, List.length_zipWith, hlen, min_self] at hj
+    simp only [aigOfArrays, List.getD_eq_getElem?_getD, List.getElem?_zipWith,
+      List.getElem?_eq_getElem hj, List.getElem?_eq_getElem (hlen ▸ hj)]
+    simp
+  · intro j hj
+    simp only [aigOfArrays, List.length_zipWith, hlen, min_self] at hj
+    simp only [aigOfArrays, List.getD_eq_getElem?_getD, List.getElem?_zipWith,
+      List.getElem?_eq_getElem hj, List.getElem?_eq_getElem (hlen ▸ hj)]
+    simp
+  · intro j hj
+    simp only [aigOfArrays, List.length_map] at hj
+    simp only [aigOfArrays, List.getD_eq_getElem?_getD, List.getElem?_map,
+      List.getElem?_eq_getElem hj]
+    simp
+
 theorem BindRep.in_sig {s : ArCtxState} {g : Aig} {bindArr inNetArr outRefArr : List (BitVec 32)}
-    (hb : BindRep s g bindArr inNetArr outRefArr) (ρ : Nat → Bool)
+    (hb : BindRep s g bindArr inNetArr outRefArr) (hns : s.spec ≠ 2#32) (ρ : Nat → Bool)
     {i : Nat} (hi : i < s.n_in.toNat) :
     cSig g ρ bindArr (2 * (inNetArr.getD i 0#32).toNat) = ρ i := by
   have hiI : i < g.I := by rw [← hb.in_eq]; exact hi
-  have hin := hb.in_ok i hi
-  rw [cSig_even, hin.2]
-  show (g.nodeVal ρ ((2 * (i + 1)) / 2) ^^ ((2 * (i + 1)) % 2 == 1)) = ρ i
-  rw [show (2 * (i + 1)) / 2 = i + 1 by omega, show (2 * (i + 1)) % 2 = 0 by omega,
-    LeanQbe.T.Examples.Arisca.Aig.nodeVal_pi g ρ (i + 1) (by omega) (by omega)]
-  simp
+  rcases hb.in_ok i hi with ⟨h2, _⟩ | hin
+  · exact absurd h2 hns
+  · rw [cSig_even, hin.2]
+    show (g.nodeVal ρ ((2 * (i + 1)) / 2) ^^ ((2 * (i + 1)) % 2 == 1)) = ρ i
+    rw [show (2 * (i + 1)) / 2 = i + 1 by omega, show (2 * (i + 1)) % 2 = 0 by omega,
+      LeanQbe.T.Examples.Arisca.Aig.nodeVal_pi g ρ (i + 1) (by omega) (by omega)]
+    simp
 
 private theorem nat_xor_one_div_mod (x : Nat) :
     (x ^^^ 1) / 2 = x / 2 ∧ (x ^^^ 1) % 2 = 1 - x % 2 := by
@@ -367,38 +444,41 @@ private theorem bv32_xor_bit0 (b r : BitVec 32) :
 
 theorem BindRep.out_sig {s : ArCtxState} {g : Aig} {bindArr inNetArr outRefArr : List (BitVec 32)}
     (hb : BindRep s g bindArr inNetArr outRefArr) (ρ : Nat → Bool)
-    {j : Nat} (hj : j < s.n_out.toNat) :
+    {j : Nat} (hj : j < s.n_out.toNat) (hne : outRefArr.getD j 0#32 ≠ cNone32) :
     let r := (outRefArr.getD j 0#32).toNat
     (cSig g ρ bindArr (2 * (r / 2)) ^^ (r % 2 == 1)) = g.litVal ρ (g.outs.getD j 0) := by
   dsimp only
-  have hout := hb.out_ok j hj
-  let r32 := outRefArr.getD j 0#32
-  let b := bindArr.getD (r32 >>> 1).toNat 0#32
-  have hsh : (r32 >>> (1 : Nat)).toNat = r32.toNat / 2 := by
-    rw [BitVec.toNat_ushiftRight, Nat.shiftRight_eq_div_pow, Nat.pow_one]
-  rw [cSig_even, ← hsh]
-  show (g.litVal ρ b.toNat ^^ (r32.toNat % 2 == 1)) = _
-  have hxb := bv32_xor_bit0 b r32
-  have hlit_xor : (g.litVal ρ b.toNat ^^ (r32.toNat % 2 == 1)) =
-      g.litVal ρ (b ^^^ (r32 &&& 1#32)).toNat := by
-    show (g.nodeVal ρ (b.toNat / 2) ^^ (b.toNat % 2 == 1) ^^ (r32.toNat % 2 == 1)) =
-      (g.nodeVal ρ ((b ^^^ (r32 &&& 1#32)).toNat / 2) ^^
-        ((b ^^^ (r32 &&& 1#32)).toNat % 2 == 1))
-    rw [hxb.1, hxb.2]
-    rcases Nat.mod_two_eq_zero_or_one b.toNat with hb0 | hb1 <;>
-      rcases Nat.mod_two_eq_zero_or_one r32.toNat with hr0 | hr1 <;>
-      cases g.nodeVal ρ (b.toNat / 2)
-    all_goals simp_all
-  rw [hlit_xor, hout.2.2]
+  rcases hb.out_ok j hj with ⟨_, hr_eq, _⟩ | hout
+  · exact absurd hr_eq hne
+  · let r32 := outRefArr.getD j 0#32
+    let b := bindArr.getD (r32 >>> 1).toNat 0#32
+    have hsh : (r32 >>> (1 : Nat)).toNat = r32.toNat / 2 := by
+      rw [BitVec.toNat_ushiftRight, Nat.shiftRight_eq_div_pow, Nat.pow_one]
+    rw [cSig_even, ← hsh]
+    show (g.litVal ρ b.toNat ^^ (r32.toNat % 2 == 1)) = _
+    have hxb := bv32_xor_bit0 b r32
+    have hlit_xor : (g.litVal ρ b.toNat ^^ (r32.toNat % 2 == 1)) =
+        g.litVal ρ (b ^^^ (r32 &&& 1#32)).toNat := by
+      show (g.nodeVal ρ (b.toNat / 2) ^^ (b.toNat % 2 == 1) ^^ (r32.toNat % 2 == 1)) =
+        (g.nodeVal ρ ((b ^^^ (r32 &&& 1#32)).toNat / 2) ^^
+          ((b ^^^ (r32 &&& 1#32)).toNat % 2 == 1))
+      rw [hxb.1, hxb.2]
+      rcases Nat.mod_two_eq_zero_or_one b.toNat with hb0 | hb1 <;>
+        rcases Nat.mod_two_eq_zero_or_one r32.toNat with hr0 | hr1 <;>
+        cases g.nodeVal ρ (b.toNat / 2)
+      all_goals simp_all
+    rw [hlit_xor, hout.2.2]
 
-/-- Word-level output identity connecting C0 `out_ref` polynomial to `outWord g ρ`. -/
+/-- Word-level output identity connecting C0 `out_ref` polynomial to `outWord g ρ` (`spec ≠ 2`). -/
 theorem BindRep.outSum_eq {s : ArCtxState} {g : Aig}
     {bindArr inNetArr outRefArr : List (BitVec 32)}
-    (hb : BindRep s g bindArr inNetArr outRefArr) (ρ : Nat → Bool) :
-    let w := s.n_out.toNat
+    (hb : BindRep s g bindArr inNetArr outRefArr) (hns : s.spec ≠ 2#32) (ρ : Nat → Bool) :
+    let w := s.modW
     let refs := (outRefArr.take w).map BitVec.toNat
     outSum w (cSig g ρ bindArr) refs 0 = BitVec.ofNat w (outWord g ρ) := by
+  have hw_eq : s.modW = s.n_out.toNat := by simp [ArCtxState.modW, hns]
   dsimp only
+  rw [hw_eq]
   have hout_len := hb.out_len
   have hout_eq := hb.out_eq
   have hlen : ((outRefArr.take s.n_out.toNat).map BitVec.toNat).length = g.outs.length := by
@@ -411,25 +491,37 @@ theorem BindRep.outSum_eq {s : ArCtxState} {g : Aig}
     simp only [List.length_map, List.length_take] at hk
     have hk_out : k < s.n_out.toNat := by omega
     have hk_arr : k < outRefArr.length := by omega
+    have hne : outRefArr.getD k 0#32 ≠ cNone32 := by
+      rcases hb.out_ok k hk_out with ⟨h2, _⟩ | hok
+      · exact absurd h2 hns
+      · intro hnone
+        have hlt : ((outRefArr.getD k 0#32) >>> 1).toNat < s.n_nets.toNat := hok.1
+        rw [hnone] at hlt
+        have hc : (cNone32 >>> 1).toNat = 0x7FFFFFFF := by decide
+        have hle := hb.nets_le
+        omega
     have hnth : nthN ((outRefArr.take s.n_out.toNat).map BitVec.toNat) k =
         (outRefArr.getD k 0#32).toNat := by
       rw [nthN_eq_getD]
       simp only [List.getD_eq_getElem?_getD, List.getElem?_map, List.getElem?_take,
         hk_out, ↓reduceIte, List.getElem?_eq_getElem hk_arr, Option.map_some, Option.getD_some]
     rw [hnth, Nat.zero_add]
-    exact hb.out_sig ρ hk_out
+    exact hb.out_sig ρ hk_out hne
 
-/-- Word-level input identity connecting half of C0 `in_net` (`0` or `n`) to `inWord`. -/
+/-- Word-level input identity connecting half of C0 `in_net` (`0` or `n`) to `inWord`
+(`spec ≠ 2`). -/
 theorem BindRep.inSum_eq {s : ArCtxState} {g : Aig}
     {bindArr inNetArr outRefArr : List (BitVec 32)}
-    (hb : BindRep s g bindArr inNetArr outRefArr) (ρ : Nat → Bool)
+    (hb : BindRep s g bindArr inNetArr outRefArr) (hns : s.spec ≠ 2#32) (ρ : Nat → Bool)
     (signed : Bool) (off : Nat) (hoff : off = 0 ∨ off = g.I / 2) :
-    let w := s.n_out.toNat
+    let w := s.modW
     let n := g.I / 2
     let xs := ((inNetArr.drop off).take n).map BitVec.toNat
     inSum w (cSig g ρ bindArr) signed n xs 0 = BitVec.ofInt w (inWord signed n ρ off) := by
+  have hw_eq : s.modW = s.n_out.toNat := by simp [ArCtxState.modW, hns]
   dsimp only
-  have heven := hb.i_even.1
+  rw [hw_eq]
+  have heven := (hb.i_even hns).1
   have hin_eq := hb.in_eq
   have hin_len := hb.in_len
   have hn_add : off + g.I / 2 ≤ s.n_in.toNat := by
@@ -451,7 +543,71 @@ theorem BindRep.inSum_eq {s : ArCtxState} {g : Aig}
         hk', ↓reduceIte, List.getElem?_drop, List.getElem?_eq_getElem hok,
         Option.map_some, Option.getD_some]
     rw [hnth, Nat.zero_add]
-    exact hb.in_sig ρ (by omega)
+    exact hb.in_sig hns ρ (by omega)
+
+/-- Output bit agreement for `SPEC_MITER` (`spec = 2`), covering both `AR_NONE` const outputs
+and bound outputs (`outA` / `outB`). -/
+theorem BindRep.miterOut_bit {s : ArCtxState} {g : Aig}
+    {bindArr inNetArr outRefArr : List (BitVec 32)}
+    (hb : BindRep s g bindArr inNetArr outRefArr) (ρ : Nat → Bool)
+    {j : Nat} (hj : j < s.n_out.toNat)
+    (hconst : outRefArr.getD j 0#32 = cNone32 ∨ g.outs.getD j 0 ≤ 1) :
+    g.litVal ρ (g.outs.getD j 0) = decide (g.outs.getD j 0 = 1) := by
+  have ha1 : g.outs.getD j 0 ≤ 1 := by
+    rcases hconst with hnone | hle
+    · rcases hb.out_ok j hj with ⟨_, _, ha⟩ | hok
+      · exact ha
+      · have hlt : ((outRefArr.getD j 0#32) >>> 1).toNat < s.n_nets.toNat := hok.1
+        rw [hnone] at hlt
+        have hc : (cNone32 >>> 1).toNat = 0x7FFFFFFF := by decide
+        have hle := hb.nets_le
+        omega
+    · exact hle
+  rw [litVal_const g ρ _ ha1]
+  have h01 : g.outs.getD j 0 = 0 ∨ g.outs.getD j 0 = 1 := by omega
+  rcases h01 with h0 | h0 <;> rw [h0] <;> decide
+
+theorem sp0TargetEval_zero_iff {s : ArCtxState} {g : Aig}
+    {bindArr inNetArr outRefArr : List (BitVec 32)}
+    (hb : BindRep s g bindArr inNetArr outRefArr)
+    (h : ∀ ρ : Nat → Bool, 0#(s.modW) = sp0TargetEval s.spec s.modW g ρ) :
+    ariscaCircuitProp s.spec g := by
+  by_cases hs2 : s.spec = 2#32
+  · have hmod : s.modW = g.outs.length / 2 := by simp [ArCtxState.modW, hs2, hb.out_eq]
+    have hev := hb.out_even hs2
+    have hbd := hb.out_bounds
+    unfold ariscaCircuitProp
+    simp only [hs2, ↓reduceIte]
+    refine ⟨hev, by omega, by omega, fun ρ => ?_⟩
+    have hρ := h ρ
+    unfold sp0TargetEval at hρ
+    simp only [hs2, ↓reduceIte] at hρ
+    have h0 : 0#(s.modW) = BitVec.ofNat s.modW (outSlice g ρ 0 s.modW) -
+        BitVec.ofNat s.modW (outSlice g ρ s.modW s.modW) := hρ
+    have h1 := congrArg (· + BitVec.ofNat s.modW (outSlice g ρ s.modW s.modW)) h0
+    simp only [BitVec.zero_add, BitVec.sub_add_cancel] at h1
+    rw [hmod] at h1
+    exact h1.symm
+  · have hmod : s.modW = g.outs.length := by simp [ArCtxState.modW, hs2, hb.out_eq]
+    have hs01 : s.spec = 0#32 ∨ s.spec = 1#32 := by
+      rcases hb.spec_bd with h0 | h1 | h2
+      · exact Or.inl h0
+      · exact Or.inr h1
+      · exact absurd h2 hs2
+    unfold ariscaCircuitProp
+    simp only [hs2, ↓reduceIte]
+    refine ⟨hs01, fun ρ => ?_⟩
+    have hρ := h ρ
+    unfold sp0TargetEval at hρ
+    simp only [hs2, ↓reduceIte] at hρ
+    have h0 : 0#(s.modW) = BitVec.ofNat s.modW (outWord g ρ) -
+        BitVec.ofInt s.modW (inWord (decide (s.spec = 1#32)) (g.I / 2) ρ 0) *
+          BitVec.ofInt s.modW (inWord (decide (s.spec = 1#32)) (g.I / 2) ρ (g.I / 2)) := hρ
+    have h1 := congrArg (· + BitVec.ofInt s.modW (inWord (decide (s.spec = 1#32)) (g.I / 2) ρ 0) *
+        BitVec.ofInt s.modW (inWord (decide (s.spec = 1#32)) (g.I / 2) ρ (g.I / 2))) h0
+    simp only [BitVec.zero_add, BitVec.sub_add_cancel] at h1
+    rw [hmod] at h1
+    exact h1.symm
 
 /-! ## 5. Monomial, Polynomial & Permutation Lemmas -/
 

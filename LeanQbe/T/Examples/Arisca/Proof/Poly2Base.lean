@@ -387,9 +387,9 @@ theorem ar_add_q_wp (Γ : T.Env)
             rw [monoTotalWords_congr_prefix (fun i hi => (hQmOk i hi).1) hpref2 (fun _ _ => rfl)]
             exact hQwords
           have hEval2 : ∀ σ, Valid σ →
-              polyEval s.n_out.toNat σ pB qm ql qh s.qn.toNat =
-                polyEval s.n_out.toNat σ srcPool qm ql qh s.qn.toNat := fun σ _ =>
-            polyEval_congr_prefix s.n_out.toNat σ (fun i hi => (hQmOk i hi).1) hpref2
+              polyEval s.modW σ pB qm ql qh s.qn.toNat =
+                polyEval s.modW σ srcPool qm ql qh s.qn.toNat := fun σ _ =>
+            polyEval_congr_prefix s.modW σ (fun i hi => (hQmOk i hi).1) hpref2
               (fun _ _ => ⟨rfl, rfl, rfl⟩)
           refine wp_call_of_spec _ _ ?_
           refine arMvanish_forall_of_spec Γ hMvan houtPtr hmo2 (by rw [hp2_0]; omega)
@@ -517,10 +517,10 @@ theorem ar_add_q_wp (Γ : T.Env)
               omega
             · dsimp only [s']
               rw [hqn_add, polyEval_succ]
-              have hprev : polyEval s.n_out.toNat σ pB qm' ql' qh' s.qn.toNat =
-                  polyEval s.n_out.toNat σ srcPool qm ql qh s.qn.toNat := by
+              have hprev : polyEval s.modW σ pB qm' ql' qh' s.qn.toNat =
+                  polyEval s.modW σ srcPool qm ql qh s.qn.toNat := by
                 rw [← hEval2 σ hV]
-                refine polyEval_congr_prefix s.n_out.toNat σ (fun i hi => (hQm2 i hi).1)
+                refine polyEval_congr_prefix s.modW σ (fun i hi => (hQm2 i hi).1)
                   (fun _ _ => rfl) fun i hi => ?_
                 exact ⟨by
                     dsimp only [qm']
@@ -925,7 +925,7 @@ private theorem loadRule_done_inv {s : ArCtxState} {v cnt : BitVec 32}
       thC.getD k 0#64 = rsH.getD ((ruleOff.getD v.toNat 0#32).toNat + k) 0#64)
     (hSigC : SigOk poolC tmC tsC iV.toNat) (hWords : monoTotalWords poolC tmC iV.toNat ≤ pt)
     (hRules : ∀ σ : Nat → Bool, Valid σ →
-      RulesRep s.n_out.toNat σ s ruleOff ruleN rsM rsL rsH rsPool)
+      RulesRep s.modW σ s ruleOff ruleN rsM rsL rsH rsPool)
     (hRulesSorted : RulesSorted rsPool rsM s.rs_n.toNat) :
     let s' : ArCtxState := { s with tn := cnt, ptop := BitVec.ofNat 64 pt, qn := 0#32 }
     let dstPool := if s'.pc.toNat = 0 then (if s.pc.toNat = 0 then poolC else pool0)
@@ -947,8 +947,8 @@ private theorem loadRule_done_inv {s : ArCtxState} {v cnt : BitVec 32}
     (∀ (bd : Nat), SymsBound rsPool rsM s.rs_n.toNat bd →
       SymsBound dstPool dstTm s'.tn.toNat bd) ∧
     (∀ σ : Nat → Bool, Valid σ →
-      polyEval s'.n_out.toNat σ dstPool dstTm dstTl dstTh s'.tn.toNat =
-        bv s'.n_out.toNat (σ (2 * v.toNat))) := by
+      polyEval s'.modW σ dstPool dstTm dstTl dstTh s'.tn.toNat =
+        bv s'.modW (σ (2 * v.toNat))) := by
   intro s' dstPool dstTm dstTs dstTl dstTh
   have hdst_p : dstPool = poolC := by dsimp only [dstPool, s']; split <;> rfl
   have hdst_m : dstTm = tmC := by dsimp only [dstTm, s']; split <;> rfl
@@ -968,7 +968,8 @@ private theorem loadRule_done_inv {s : ArCtxState} {v cnt : BitVec 32}
       exact hSb ((ruleOff.getD v.toNat 0#32).toNat + k)
         (Nat.lt_of_lt_of_le (Nat.add_lt_add_left hk_lt _) hoff_cnt) x hx,
     fun σ hV => ?_⟩
-  rw [polyEval_eq_polyEvalRange_of_prefix s.n_out.toNat σ (fun k hk =>
+  have hs'_modW : s'.modW = s.modW := rfl
+  rw [hs'_modW, polyEval_eq_polyEvalRange_of_prefix s.modW σ (fun k hk =>
     ⟨(hPrev k (by omega)).2.2.1, (hPrev k (by omega)).2.2.2.1, (hPrev k (by omega)).2.2.2.2⟩),
     hcnt_def]
   exact ((hRules σ hV).2.2.2.2.2.2.2.2.2 v.toNat hv_lt hvn_ne).2.symm

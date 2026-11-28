@@ -144,7 +144,7 @@ def arDaxpySpec : Spec [i64, i64, i64] [] :=
 def arDcanonSpec : Spec [i64, i64] [i32] :=
   fun ⟨cx, dPtr, ⟨⟩⟩ m Q _ =>
     ∃ (s : ArCtxState) (d gcl gch : List (BitVec 64)) (gsy : List (BitVec 32))
-      (R : Mem 64 → Prop), MasksOk s.n_out.toNat s.mlo s.mhi ∧
+      (R : Mem 64 → Prop), MasksOk s.modW s.mlo s.mhi ∧
       16 ≤ d.length ∧ 85 ≤ gsy.length ∧ 16 ≤ gcl.length ∧ 16 ≤ gch.length ∧
       (arCtxMem cx s ⋆ array64 dPtr d ⋆ arrayPad i32 s.gsy gsy ⋆
        array64 s.gcl gcl ⋆ array64 s.gch gch ⋆ R) m ∧
@@ -154,8 +154,8 @@ def arDcanonSpec : Spec [i64, i64] [i32] :=
          (∀ i < k.toNat, MonoSliceOk gsy' (5 * i) 80 ∧ (gsy'.getD (5 * i) 0#32).toNat ≤ 4 ∧
            ∀ sym ∈ symListAt gsy' (5 * i), ∃ j < 4, sym = (s.g_vs.getD j 0#32).toNat) →
          (∀ i < k.toNat, MonoSorted gsy' (5 * i)) →
-         (∀ σ : Nat → Bool, polyEval s.n_out.toNat σ gsy' gsyMOff gcl' gch' k.toNat =
-             denseEvalNOut s.n_out.toNat σ s.g_vs d) →
+         (∀ σ : Nat → Bool, polyEval s.modW σ gsy' gsyMOff gcl' gch' k.toNat =
+             denseEvalNOut s.modW σ s.g_vs d) →
          (arCtxMem cx s ⋆ array64 dPtr d ⋆ arrayPad i32 s.gsy gsy' ⋆
           array64 s.gcl gcl' ⋆ array64 s.gch gch' ⋆ R) m' →
          Q (k, ⟨⟩) m')
@@ -813,15 +813,15 @@ private theorem range_map_swap_perm {α : Type _} (f g : Nat → α) (n j : Nat)
 @[expose] def Phase1MaskInv (s : ArCtxState) (d : List (BitVec 64))
     (gsy0 gsy : List (BitVec 32)) (gcl0 gcl gch0 gch : List (BitVec 64)) (n mask : Nat) : Prop :=
   n ≤ mask ∧ gsy.length = gsy0.length ∧ gcl.length = gcl0.length ∧ gch.length = gch0.length ∧
-  DcanonTermInv s gsy n ∧ ∀ σ : Nat → Bool, polyEval s.n_out.toNat σ gsy gsyMOff gcl gch n =
+  DcanonTermInv s gsy n ∧ ∀ σ : Nat → Bool, polyEval s.modW σ gsy gsyMOff gcl gch n =
     (List.range mask).foldl (fun acc msk =>
       acc + if denseMono (fun j => σ (s.g_vs.getD j 0#32).toNat) msk then
-        BitVec.ofInt s.n_out.toNat (d.getD msk 0#64).toInt else 0#(s.n_out.toNat))
-      0#(s.n_out.toNat)
+        BitVec.ofInt s.modW (d.getD msk 0#64).toInt else 0#(s.modW))
+      0#(s.modW)
 theorem phase1MaskInv_step_zero {s : ArCtxState} {d : List (BitVec 64)}
     {gsy0 gsy : List (BitVec 32)} {gcl0 gcl gch0 gch : List (BitVec 64)} {n mask : Nat}
     (h : Phase1MaskInv s d gsy0 gsy gcl0 gcl gch0 gch n mask)
-    (hz : BitVec.ofInt s.n_out.toNat (d.getD mask 0#64).toInt = 0#(s.n_out.toNat)) :
+    (hz : BitVec.ofInt s.modW (d.getD mask 0#64).toInt = 0#(s.modW)) :
     Phase1MaskInv s d gsy0 gsy gcl0 gcl gch0 gch n (mask + 1) := by
   rcases h with ⟨hn, h1, h2, h3, hinv, hev⟩; refine ⟨by omega, h1, h2, h3, hinv, fun σ => ?_⟩
   rw [List.range_succ, List.foldl_append, List.foldl_cons, List.foldl_nil, hev σ, hz]
@@ -864,7 +864,7 @@ theorem phase1MaskInv_step_nonzero {s : ArCtxState} {d : List (BitVec 64)}
     (hm1 : Phase1MaskInv s d gsy0 gsy1 gcl0 gcl1 gch0 gch1 n mask) (hm16 : mask < 16)
     (hj : Phase1JInv s gsy0 gsy1 gsyJ n mask 4 lenV.toNat)
     (h5 : 5 * n + 5 ≤ gsy0.length) (hnl : n < gcl0.length) (hnh : n < gch0.length)
-    (hlh : coeff128 s.n_out.toNat l h = BitVec.ofInt s.n_out.toNat (d.getD mask 0#64).toInt) :
+    (hlh : coeff128 s.modW l h = BitVec.ofInt s.modW (d.getD mask 0#64).toInt) :
     Phase1MaskInv s d gsy0 (gsyJ.set (5 * n) lenV) gcl0 (gcl1.set n l) gch0 (gch1.set n h)
       (n + 1) (mask + 1) := by
   rcases hm1 with ⟨hn_le, hgsy1, hgcl1, hgch1, ⟨_, hinv1, hsort1⟩, heval1⟩
@@ -904,9 +904,9 @@ theorem phase1MaskInv_step_nonzero {s : ArCtxState} {d : List (BitVec 64)}
     · exact monoSorted_congr (hterm_old i hilt).symm (hsort1 i hilt)
   · rw [polyEval_succ, List.range_succ, List.foldl_append, List.foldl_cons, List.foldl_nil,
       ← heval1 σ]
-    have hp_old : polyEval s.n_out.toNat σ (gsyJ.set (5 * n) lenV) gsyMOff
-        (gcl1.set n l) (gch1.set n h) n = polyEval s.n_out.toNat σ gsy1 gsyMOff gcl1 gch1 n := by
-      refine polyEval_eq_of_perm s.n_out.toNat σ _ _ _ _ _ _ n (by omega) ?_
+    have hp_old : polyEval s.modW σ (gsyJ.set (5 * n) lenV) gsyMOff
+        (gcl1.set n l) (gch1.set n h) n = polyEval s.modW σ gsy1 gsyMOff gcl1 gch1 n := by
+      refine polyEval_eq_of_perm s.modW σ _ _ _ _ _ _ n (by omega) ?_
       apply List.Perm.of_eq; apply List.map_congr_left; intro t ht; rw [List.mem_range] at ht
       rw [hterm_old t ht, getD_set_ne gcl1 0#64 l (by omega), getD_set_ne gch1 0#64 h (by omega)]
     rw [hp_old]; congr 1
@@ -1045,17 +1045,17 @@ theorem phase2_finish_j {s : ArCtxState} {gsy0 gsy1 gsy_s gsy gsy' : List (BitVe
   k ≤ i ∧ i ≤ n ∧ gsy.length = gsy0.length ∧ gcl.length = gcl2.length ∧ gch.length = gch2.length ∧
   DcanonTermInv s gsy k ∧ (∀ t, i ≤ t → t < n → slice5 gsy (5 * t) = slice5 gsy2 (5 * t) ∧
     gcl.getD t 0#64 = gcl2.getD t 0#64 ∧ gch.getD t 0#64 = gch2.getD t 0#64) ∧
-  ∀ σ : Nat → Bool, polyEval s.n_out.toNat σ gsy gsyMOff gcl gch k +
-    polyEvalRange s.n_out.toNat σ gsy2 gsyMOff gcl2 gch2 i (n - i) =
-    polyEval s.n_out.toNat σ gsy2 gsyMOff gcl2 gch2 n
+  ∀ σ : Nat → Bool, polyEval s.modW σ gsy gsyMOff gcl gch k +
+    polyEvalRange s.modW σ gsy2 gsyMOff gcl2 gch2 i (n - i) =
+    polyEval s.modW σ gsy2 gsyMOff gcl2 gch2 n
 theorem phase3_step_zero {s : ArCtxState} {gsy0 gsy2 gsy : List (BitVec 32)}
     {gcl2 gcl gch2 gch : List (BitVec 64)} {n k i j : Nat}
     (hp : Phase3IInv s gsy0 gsy2 gsy gcl2 gcl gch2 gch n k i)
     (hinv2 : DcanonTermInv s gsy2 n) (hij : i < j) (hjn : j ≤ n)
     (hsym : ∀ d < j - i, symListAt gsy2 (5 * (i + d)) = symListAt gsy2 (5 * i))
     (hlh0 : (List.range (j - i)).foldl (fun acc d =>
-      acc + coeff128 s.n_out.toNat (gcl2.getD (i + d) 0#64) (gch2.getD (i + d) 0#64))
-      0#(s.n_out.toNat) = 0#(s.n_out.toNat)) :
+      acc + coeff128 s.modW (gcl2.getD (i + d) 0#64) (gch2.getD (i + d) 0#64))
+      0#(s.modW) = 0#(s.modW)) :
     Phase3IInv s gsy0 gsy2 gsy gcl2 gcl gch2 gch n k j := by
   rcases hp with ⟨hki, _, hgsy, hgcl, hgch, hinvk, htail, heval⟩
   refine ⟨by omega, hjn, hgsy, hgcl, hgch, hinvk, fun t ht1 ht2 => htail t (by omega) ht2,
@@ -1063,9 +1063,9 @@ theorem phase3_step_zero {s : ArCtxState} {gsy0 gsy2 gsy : List (BitVec 32)}
   rw [← heval σ]; congr 1
   rw [show n - i = (j - i) + (n - j) by omega, polyEvalRange_add, show i + (j - i) = j by omega]
   have hzero :
-      polyEvalRange s.n_out.toNat σ gsy2 gsyMOff gcl2 gch2 i (j - i) = 0#(s.n_out.toNat) := by
+      polyEvalRange s.modW σ gsy2 gsyMOff gcl2 gch2 i (j - i) = 0#(s.modW) := by
     have := hinv2.1
-    rw [polyEvalRange_combine_raw s.n_out.toNat σ gsy2 gcl2 gch2 i (j - i) (by omega) hsym, hlh0]
+    rw [polyEvalRange_combine_raw s.modW σ gsy2 gcl2 gch2 i (j - i) (by omega) hsym, hlh0]
     cases monoValL σ (symListAt gsy2 (5 * i)) <;> rfl
   rw [hzero, BitVec.zero_add]
 theorem phase3_step_nonzero {s : ArCtxState} {gsy0 gsy2 gsy gsy' : List (BitVec 32)}
@@ -1074,9 +1074,9 @@ theorem phase3_step_nonzero {s : ArCtxState} {gsy0 gsy2 gsy gsy' : List (BitVec 
     (hinv2 : DcanonTermInv s gsy2 n) (hij : i < j) (hjn : j ≤ n)
     (hcp : Copy5Inv gsy gsy' (5 * k) (5 * i) 5) (hkl : k < gcl.length) (hkh : k < gch.length)
     (hsym : ∀ d < j - i, symListAt gsy2 (5 * (i + d)) = symListAt gsy2 (5 * i))
-    (hlh : coeff128 s.n_out.toNat l h = (List.range (j - i)).foldl (fun acc d =>
-      acc + coeff128 s.n_out.toNat (gcl2.getD (i + d) 0#64) (gch2.getD (i + d) 0#64))
-      0#(s.n_out.toNat)) :
+    (hlh : coeff128 s.modW l h = (List.range (j - i)).foldl (fun acc d =>
+      acc + coeff128 s.modW (gcl2.getD (i + d) 0#64) (gch2.getD (i + d) 0#64))
+      0#(s.modW)) :
     Phase3IInv s gsy0 gsy2 gsy' gcl2 (gcl.set k l) gch2 (gch.set k h) n (k + 1) j := by
   rcases hp with ⟨hki, _, hgsy, hgcl, hgch, ⟨_, hinvk, hsortk⟩, htail, heval⟩
   have hn16 := hinv2.1
@@ -1112,16 +1112,16 @@ theorem phase3_step_nonzero {s : ArCtxState} {gsy0 gsy2 gsy gsy' : List (BitVec 
     have := congrArg (fun x => x.getD r 0#32) (htail t (by omega) ht2).1
     rwa [slice5_getD _ _ r hr, slice5_getD _ _ r hr] at this
   · rw [← heval σ, polyEval_succ]
-    have hp_old : polyEval s.n_out.toNat σ gsy' gsyMOff (gcl.set k l) (gch.set k h) k =
-        polyEval s.n_out.toNat σ gsy gsyMOff gcl gch k := by
-      refine polyEval_eq_of_perm s.n_out.toNat σ _ _ _ _ _ _ k (by omega) ?_
+    have hp_old : polyEval s.modW σ gsy' gsyMOff (gcl.set k l) (gch.set k h) k =
+        polyEval s.modW σ gsy gsyMOff gcl gch k := by
+      refine polyEval_eq_of_perm s.modW σ _ _ _ _ _ _ k (by omega) ?_
       apply List.Perm.of_eq; apply List.map_congr_left; intro t ht; rw [List.mem_range] at ht
       rw [hslot_old t ht, getD_set_ne gcl 0#64 l (by omega), getD_set_ne gch 0#64 h (by omega)]
     rw [hp_old, show n - i = (j - i) + (n - j) by omega, polyEvalRange_add,
       show i + (j - i) = j by omega, BitVec.add_assoc]
     congr 1; congr 1
     rw [termEval, gsyMOff_getD k (by omega), hslot_k, d_getD_set_eq gcl 0#64 l hkl,
-      d_getD_set_eq gch 0#64 h hkh, polyEvalRange_combine_raw s.n_out.toNat σ gsy2 gcl2 gch2 i
+      d_getD_set_eq gch 0#64 h hkh, polyEvalRange_combine_raw s.modW σ gsy2 gcl2 gch2 i
       (j - i) (by omega) hsym, hlh]
 
 @[expose] def Phase1KInv (_s : ArCtxState) (gsy0 gsy1 gsy_j gsy : List (BitVec 32))
