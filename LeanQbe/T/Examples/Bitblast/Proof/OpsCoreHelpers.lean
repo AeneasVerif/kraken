@@ -51,26 +51,8 @@ def SliceAigWf (aigLen : Nat) (litsPool : List (BitVec 32)) (off w : Nat) : Prop
   ∀ j < w, (litsPool.getD (off + j) 0#32 >>> 1).toNat < aigLen
 
 /-- Header frame preserving every `BVHdrState` field except `aig_len`, `lits_len`, and `oom`. -/
-structure BVHdrState.BlastFrame (h1 h2 : BVHdrState) : Prop where
-  work_base : h2.work_base = h1.work_base
-  work_end : h2.work_end = h1.work_end
-  prog_ptr : h2.prog_ptr = h1.prog_ptr
-  aig_ptr : h2.aig_ptr = h1.aig_ptr
-  ht_ptr : h2.ht_ptr = h1.ht_ptr
-  atom_base_ptr : h2.atom_base_ptr = h1.atom_base_ptr
-  slice_off_ptr : h2.slice_off_ptr = h1.slice_off_ptr
-  lits_ptr : h2.lits_ptr = h1.lits_ptr
-  marks_ptr : h2.marks_ptr = h1.marks_ptr
-  dimacs_start : h2.dimacs_start = h1.dimacs_start
-  n_vars : h2.n_vars = h1.n_vars
-  n_nodes : h2.n_nodes = h1.n_nodes
-  n_cwords : h2.n_cwords = h1.n_cwords
-  root_node : h2.root_node = h1.root_node
-  num_atoms : h2.num_atoms = h1.num_atoms
-  aig_cap : h2.aig_cap = h1.aig_cap
-  ht_mask : h2.ht_mask = h1.ht_mask
-  lits_cap : h2.lits_cap = h1.lits_cap
-  dimacs_len : h2.dimacs_len = h1.dimacs_len
+abbrev BVHdrState.BlastFrame (h1 h2 : BVHdrState) : Prop :=
+  Modifies [.aig_len, .lits_len, .oom] h1 h2
 
 /-- Opcode semantics for `bv_blast_bin_bitwise`. -/
 def bitwiseOpFn (op : BitVec 32) : Bool → Bool → Bool :=
@@ -448,52 +430,7 @@ theorem bvBlastEqSpec_xfree : bvBlastEqSpec.XFree := by xfree
 theorem bvBlastUltSpec_xfree : bvBlastUltSpec.XFree := by xfree
 theorem bvBlastGetLsbDSpec_xfree : bvBlastGetLsbDSpec.XFree := by xfree
 
-/-! ## Frame & Invariant Preservation Lemmas -/
-
-theorem BVHdrState.BlastFrame.refl (h : BVHdrState) : h.BlastFrame h :=
-  ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
-
-theorem BVHdrState.BlastFrame.trans {h1 h2 h3 : BVHdrState}
-    (h12 : h1.BlastFrame h2) (h23 : h2.BlastFrame h3) : h1.BlastFrame h3 :=
-  { work_base := h23.work_base.trans h12.work_base
-    work_end := h23.work_end.trans h12.work_end
-    prog_ptr := h23.prog_ptr.trans h12.prog_ptr
-    aig_ptr := h23.aig_ptr.trans h12.aig_ptr
-    ht_ptr := h23.ht_ptr.trans h12.ht_ptr
-    atom_base_ptr := h23.atom_base_ptr.trans h12.atom_base_ptr
-    slice_off_ptr := h23.slice_off_ptr.trans h12.slice_off_ptr
-    lits_ptr := h23.lits_ptr.trans h12.lits_ptr
-    marks_ptr := h23.marks_ptr.trans h12.marks_ptr
-    dimacs_start := h23.dimacs_start.trans h12.dimacs_start
-    n_vars := h23.n_vars.trans h12.n_vars
-    n_nodes := h23.n_nodes.trans h12.n_nodes
-    n_cwords := h23.n_cwords.trans h12.n_cwords
-    root_node := h23.root_node.trans h12.root_node
-    num_atoms := h23.num_atoms.trans h12.num_atoms
-    aig_cap := h23.aig_cap.trans h12.aig_cap
-    ht_mask := h23.ht_mask.trans h12.ht_mask
-    lits_cap := h23.lits_cap.trans h12.lits_cap
-    dimacs_len := h23.dimacs_len.trans h12.dimacs_len }
-
-theorem BVHdrState.AigFrame.toBlastFrame {h1 h2 : BVHdrState}
-    (h : h1.AigFrame h2) : h1.BlastFrame h2 :=
-  { work_base := h.work_base, work_end := h.work_end, prog_ptr := h.prog_ptr
-    aig_ptr := h.aig_ptr, ht_ptr := h.ht_ptr, atom_base_ptr := h.atom_base_ptr
-    slice_off_ptr := h.slice_off_ptr, lits_ptr := h.lits_ptr, marks_ptr := h.marks_ptr
-    dimacs_start := h.dimacs_start, n_vars := h.n_vars, n_nodes := h.n_nodes
-    n_cwords := h.n_cwords, root_node := h.root_node, num_atoms := h.num_atoms
-    aig_cap := h.aig_cap, ht_mask := h.ht_mask, lits_cap := h.lits_cap
-    dimacs_len := h.dimacs_len }
-
-theorem BVHdrState.BlastFrame.toAigFrame {h1 h2 : BVHdrState}
-    (h : h1.BlastFrame h2) (hlen : h2.lits_len = h1.lits_len) : h1.AigFrame h2 :=
-  { work_base := h.work_base, work_end := h.work_end, prog_ptr := h.prog_ptr
-    aig_ptr := h.aig_ptr, ht_ptr := h.ht_ptr, atom_base_ptr := h.atom_base_ptr
-    slice_off_ptr := h.slice_off_ptr, lits_ptr := h.lits_ptr, marks_ptr := h.marks_ptr
-    dimacs_start := h.dimacs_start, n_vars := h.n_vars, n_nodes := h.n_nodes
-    n_cwords := h.n_cwords, root_node := h.root_node, num_atoms := h.num_atoms
-    aig_cap := h.aig_cap, ht_mask := h.ht_mask, lits_len := hlen,
-    lits_cap := h.lits_cap, dimacs_len := h.dimacs_len }
+/-! ## Invariant Preservation Lemmas -/
 
 theorem aigInv_zero_lt_aigLen {hdr : BVHdrState} {g : Ref.Aig}
     {aigWords : List (BitVec 64)} {htSlots : List (BitVec 32)}

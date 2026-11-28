@@ -55,10 +55,6 @@ open LeanQbe.T.Examples.Bitblast.Src.OpsCore
 private theorem oc2_aig_le_refl (g : Ref.Aig) : g ≤ g :=
   ⟨rfl, Nat.le_refl _, fun _ hi => Array.getElem?_eq_getElem hi⟩
 
-private theorem oc2_aigFrame_refl (h : BVHdrState) : h.AigFrame h :=
-  ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-    rfl⟩
-
 private theorem oc2_sep5_emp_all {A B C D R : Mem 64 → Prop} {m : Mem 64}
     (h : (A ⋆ (B ⋆ (C ⋆ (D ⋆ (R ⋆ Std.ExtHashMap.emp))))) m) : (A ⋆ B ⋆ C ⋆ D ⋆ R) m :=
   (by simp only [Std.ExtHashMap.sep_emp]; ac_rfl :
@@ -306,9 +302,7 @@ theorem bv_blast_add_wp (Γ : Env)
       subst hml
       c0_hstraight
       let hdr' : BVHdrState := { hdr with oom := (1 : BitVec 32) }
-      have hfr : hdr.BlastFrame hdr' :=
-        ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-          rfl, rfl, rfl, rfl, rfl, rfl⟩
+      have hfr : hdr.BlastFrame hdr' := Modifies.set_oom _ hdr 1#32
       exact hQ 0xFFFFFFFF#32 hdr' g aigW htS lits0 _ hfr (oc2_aig_le_refl g)
         (Nat.le_add_right _ _) (aigInv_set_oom (1 : BitVec 32) hinv0) rfl (fun _ _ => rfl)
         (Nat.le_refl _) (Nat.le_add_right _ _) id (fun _ => by simp [hdr'])
@@ -354,9 +348,7 @@ theorem bv_blast_add_wp (Γ : Env)
                     c0_hsplit
                     · exfalso; exact hc h0
                     · c0_hstraight
-                      have hfr1 : hdr.BlastFrame hdr1 :=
-                        ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-                          rfl, rfl, rfl, rfl, rfl, rfl⟩
+                      have hfr1 : hdr.BlastFrame hdr1 := Modifies.set_lits_len _ hdr _
                       have hinv1 := aigInv_set_litsLen (hdr.lits_len + w) hinv0
                       refine wp_while_record
                         (proj := fun st : AddSt => (st.cin, st.j, ⟨⟩))
@@ -436,7 +428,7 @@ theorem bv_blast_add_wp (Γ : Env)
                               c0_hsplit
                               · c0_hstraight
                                 exact add_oom_exit (k := 3) hlt (by decide) hroom'
-                                  (hinv.2.1.trans hfr_x.toBlastFrame)
+                                  (hinv.2.1.trans hfr_x.mono)
                                   (hfr_x.lits_len.trans hinv.2.2.1) hinv.2.2.2.2.1 hinv.2.1
                                   hinv.2.2.2.1 hinv.2.2.2.2.2.1 hgg_x hsz_x hinv_x
                                   hinv.2.2.2.2.2.2.2.1 hinv.2.2.2.2.2.2.2.2.1 hc
@@ -460,8 +452,8 @@ theorem bv_blast_add_wp (Γ : Env)
                                   c0_hsplit
                                   · c0_hstraight
                                     exact add_oom_exit (k := 6) hlt (by decide) hroom'
-                                      ((hinv.2.1.trans hfr_x.toBlastFrame).trans
-                                        hfr2.toBlastFrame)
+                                      ((hinv.2.1.trans hfr_x.mono).trans
+                                        hfr2.mono)
                                       (hfr2.lits_len.trans (hfr_x.lits_len.trans hinv.2.2.1))
                                       hinv.2.2.2.2.1 hinv.2.1 hinv.2.2.2.1 hinv.2.2.2.2.2.1
                                       (Ref.Aig.extends_trans hgg_x hgg2) (by omega) hinv2
@@ -474,8 +466,8 @@ theorem bv_blast_add_wp (Γ : Env)
                                   · have ho2 : hdr2.oom = 0#32 := by bv_omega
                                     clear hc
                                     obtain ⟨hs2_lt, hs2_ev⟩ := hpost2 ho2
-                                    have hfr02 := (hinv.2.1.trans hfr_x.toBlastFrame).trans
-                                      hfr2.toBlastFrame
+                                    have hfr02 := (hinv.2.1.trans hfr_x.mono).trans
+                                      hfr2.mono
                                     have hlen02 : hdr2.lits_len = hdr.lits_len + w :=
                                       hfr2.lits_len.trans (hfr_x.lits_len.trans hinv.2.2.1)
                                     have hgg_s2 := Ref.Aig.extends_trans hgg_x hgg2
@@ -563,7 +555,7 @@ theorem bv_blast_add_wp (Γ : Env)
                                             c0_hsplit
                                             · c0_hstraight
                                               refine add_oom_exit (k := 12) hlt (by decide) hroom'
-                                                (hfr02.trans hfr3.toBlastFrame)
+                                                (hfr02.trans hfr3.mono)
                                                 (hfr3.lits_len.trans hlen02) hinv.2.2.2.2.1
                                                 hinv.2.1 hinv.2.2.2.1 hinv.2.2.2.2.2.1
                                                 (Ref.Aig.extends_trans hgg_s2 hgg23) (by omega)
@@ -584,7 +576,7 @@ theorem bv_blast_add_wp (Γ : Env)
                                               c0_hstraight
                                               obtain ⟨_, hnc_lt, hnc_ev⟩ := hpost3 ho3
                                               refine hJc (nc, ⟨⟩) mlc ⟨hdr3, g3, aig3, ht3,
-                                                hfr02.trans hfr3.toBlastFrame,
+                                                hfr02.trans hfr3.mono,
                                                 hfr3.lits_len.trans hlen02, ho3, hgg23,
                                                 by omega, hinv3, hnc_lt, ?_, hmlc'⟩
                                               intro _ ρ vA vB hdA hdB
@@ -660,9 +652,7 @@ theorem bv_blast_add_wp (Γ : Env)
                     let hdr1 : BVHdrState :=
                       { hdr with oom := if hdr.oom ≠ 0#32 then hdr.oom else 1#32 }
                     have hoom1 : hdr1.oom = 1#32 := by simp [hdr1, h0]
-                    have hfr1 : hdr.BlastFrame hdr1 :=
-                      ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-                        rfl, rfl, rfl, rfl, rfl, rfl⟩
+                    have hfr1 : hdr.BlastFrame hdr1 := Modifies.set_oom _ hdr _
                     c0_hstraight
                     c0_hsplit
                     · c0_hstraight
@@ -807,9 +797,7 @@ theorem bv_blast_eq_wp (Γ : Env)
       subst hml
       c0_hstraight
       let hdr' : BVHdrState := { hdr with oom := (1 : BitVec 32) }
-      have hfr : hdr.AigFrame hdr' :=
-        ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-          rfl, rfl, rfl, rfl, rfl, rfl⟩
+      have hfr : hdr.AigFrame hdr' := Modifies.set_oom _ hdr 1#32
       exact hQ 0#32 hdr' g aigW htS _ hfr (oc2_aig_le_refl g) (Nat.le_add_right _ _)
         (aigInv_set_oom (1 : BitVec 32) hinv0) (fun _ => by simp [hdr'])
         (fun h0 h1 h2 _ _ => False.elim (hfail ⟨h0, h1, h2⟩))
@@ -850,7 +838,7 @@ theorem bv_blast_eq_wp (Γ : Env)
                     c0_hstraight
                     have hz : (0#32 : BitVec 32).toNat = 0 := rfl
                     refine hJw ⟨1#32, 0#32, hdr, g, aigW, htS⟩ m ?_ hm
-                    refine ⟨by dsimp only; rw [hz]; omega, oc2_aigFrame_refl hdr, h0,
+                    refine ⟨by dsimp only; rw [hz]; omega, Modifies.refl _ hdr, h0,
                       oc2_aig_le_refl g, by dsimp only; rw [hz]; omega, hinv0,
                       by dsimp only; exact aigInv_true_lit_bound hinv0, ?_⟩
                     intro ρ; dsimp only; rw [hz, evalLit_one]; simp)
@@ -1072,9 +1060,7 @@ theorem bv_blast_ult_wp (Γ : Env)
       subst hml
       c0_hstraight
       let hdr' : BVHdrState := { hdr with oom := (1 : BitVec 32) }
-      have hfr : hdr.AigFrame hdr' :=
-        ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-          rfl, rfl, rfl, rfl, rfl, rfl⟩
+      have hfr : hdr.AigFrame hdr' := Modifies.set_oom _ hdr 1#32
       exact hQ 0#32 hdr' g aigW htS _ hfr (oc2_aig_le_refl g) (Nat.le_add_right _ _)
         (aigInv_set_oom (1 : BitVec 32) hinv0) (fun _ => by simp [hdr'])
         (fun h0 h1 h2 _ _ => False.elim (hfail ⟨h0, h1, h2⟩))
@@ -1115,7 +1101,7 @@ theorem bv_blast_ult_wp (Γ : Env)
                     c0_hstraight
                     have hz : (0#32 : BitVec 32).toNat = 0 := rfl
                     refine hJw ⟨1#32, 0#32, hdr, g, aigW, htS⟩ m ?_ hm
-                    refine ⟨by dsimp only; rw [hz]; omega, oc2_aigFrame_refl hdr, h0,
+                    refine ⟨by dsimp only; rw [hz]; omega, Modifies.refl _ hdr, h0,
                       oc2_aig_le_refl g, by dsimp only; rw [hz]; omega, hinv0,
                       by dsimp only; exact aigInv_true_lit_bound hinv0, ?_⟩
                     intro ρ vA vB _ _; dsimp only; rw [hz, evalLit_one, oc2_bv_carry_zero])

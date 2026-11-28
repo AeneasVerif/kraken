@@ -474,11 +474,11 @@ theorem clz_inner_wp {Γ : Env} {Q : Post [i32]} {X : XPost} {mC : Mem 64}
             by rw [hout_ag, haigJ.aig_len_eq]; exact hwf_sJ j hj_lt⟩,
           sep_ac hmJ,
           fun ret hdrN gN awN htN mN hfrN hextN _ haigN hoomN _ hevN hmN => ?_⟩
-        have hfr0N := hfrJ.trans hfrN.toOpsFrame
+        have hfr0N := hfrJ.trans hfrN.mono
         have hext0N := Aig.extends_trans hextJ hextN
         have hlenN : hdrN.lits_len = hdr0.lits_len + w := hfrN.lits_len.trans hlenJ
         rw [← hfrJ.lits_ptr] at hmN
-        have hmN' := ops_aig_frame_unfocus hfrN.toOpsFrame hmN
+        have hmN' := ops_aig_frame_unfocus hfrN.mono hmN
         rw [hfr0N.lits_ptr] at hmN'
         c0_hstraight
         rw [houtj_sw] at hm
@@ -609,11 +609,11 @@ theorem mul_ite_wp {Γ : Env} {Q : Post [i32]} {X : XPost} {mA : Mem 64}
           by rw [hout_ag, haigJ.aig_len_eq]; exact hwf_outJ j hj_lt⟩,
         sep_ac hmJ,
         fun ret hdrN gN awN htN mN hfrN hextN _ haigN hoomN _ hevN hmN => ?_⟩
-      have hfr0N := hfrJ.trans hfrN.toOpsFrame
+      have hfr0N := hfrJ.trans hfrN.mono
       have hext0N := Aig.extends_trans hextJ hextN
       have hlenN : hdrN.lits_len = hdr0.lits_len + w + w + w := hfrN.lits_len.trans hlenJ
       rw [← hfrJ.lits_ptr] at hmN
-      have hmN' := ops_aig_frame_unfocus hfrN.toOpsFrame hmN
+      have hmN' := ops_aig_frame_unfocus hfrN.mono hmN
       rw [hfr0N.lits_ptr] at hmN'
       c0_hstraight
       rw [houtj_sw] at hm

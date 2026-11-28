@@ -41,28 +41,53 @@ open LeanQbe.T.Examples.Bitblast.Src
 /-- Exact C0 gate-count cap matching `BV_MAX_GATES` (`89478485`). -/
 def bvMaxGates : Nat := 89478485
 
+/-- Field tags of `BVHdrState` (`22` fields: `10 × u64` + `12 × u32`). -/
+inductive HdrField
+  | work_base | work_end | prog_ptr | aig_ptr | ht_ptr
+  | atom_base_ptr | slice_off_ptr | lits_ptr | marks_ptr | dimacs_start
+  | n_vars | n_nodes | n_cwords | root_node | num_atoms
+  | aig_len | aig_cap | ht_mask | lits_len | lits_cap | oom | dimacs_len
+  deriving DecidableEq
+
+/-- Bitvector type (`BitVec 64` or `BitVec 32`) of a `BVHdrState` field. -/
+def HdrField.ty : HdrField → Type
+  | .work_base | .work_end | .prog_ptr | .aig_ptr | .ht_ptr
+  | .atom_base_ptr | .slice_off_ptr | .lits_ptr | .marks_ptr | .dimacs_start => BitVec 64
+  | _ => BitVec 32
+
+/-- Field projection `h.get f : f.ty` for `BVHdrState`. -/
+def BVHdrState.get (h : BVHdrState) (f : HdrField) : f.ty :=
+  match f with
+  | .work_base => h.work_base
+  | .work_end => h.work_end
+  | .prog_ptr => h.prog_ptr
+  | .aig_ptr => h.aig_ptr
+  | .ht_ptr => h.ht_ptr
+  | .atom_base_ptr => h.atom_base_ptr
+  | .slice_off_ptr => h.slice_off_ptr
+  | .lits_ptr => h.lits_ptr
+  | .marks_ptr => h.marks_ptr
+  | .dimacs_start => h.dimacs_start
+  | .n_vars => h.n_vars
+  | .n_nodes => h.n_nodes
+  | .n_cwords => h.n_cwords
+  | .root_node => h.root_node
+  | .num_atoms => h.num_atoms
+  | .aig_len => h.aig_len
+  | .aig_cap => h.aig_cap
+  | .ht_mask => h.ht_mask
+  | .lits_len => h.lits_len
+  | .lits_cap => h.lits_cap
+  | .oom => h.oom
+  | .dimacs_len => h.dimacs_len
+
+/-- Framing predicate: `h2` agrees with `h1` on every `BVHdrState` field not in `S`. -/
+def Modifies (S : List HdrField) (h1 h2 : BVHdrState) : Prop :=
+  ∀ f : HdrField, f ∉ S → h2.get f = h1.get f
+
 /-- Framing predicate: `h2` agrees with `h1` on every `BVHdr` field except `aig_len` and `oom`. -/
-structure BVHdrState.AigFrame (h1 h2 : BVHdrState) : Prop where
-  work_base : h2.work_base = h1.work_base
-  work_end : h2.work_end = h1.work_end
-  prog_ptr : h2.prog_ptr = h1.prog_ptr
-  aig_ptr : h2.aig_ptr = h1.aig_ptr
-  ht_ptr : h2.ht_ptr = h1.ht_ptr
-  atom_base_ptr : h2.atom_base_ptr = h1.atom_base_ptr
-  slice_off_ptr : h2.slice_off_ptr = h1.slice_off_ptr
-  lits_ptr : h2.lits_ptr = h1.lits_ptr
-  marks_ptr : h2.marks_ptr = h1.marks_ptr
-  dimacs_start : h2.dimacs_start = h1.dimacs_start
-  n_vars : h2.n_vars = h1.n_vars
-  n_nodes : h2.n_nodes = h1.n_nodes
-  n_cwords : h2.n_cwords = h1.n_cwords
-  root_node : h2.root_node = h1.root_node
-  num_atoms : h2.num_atoms = h1.num_atoms
-  aig_cap : h2.aig_cap = h1.aig_cap
-  ht_mask : h2.ht_mask = h1.ht_mask
-  lits_len : h2.lits_len = h1.lits_len
-  lits_cap : h2.lits_cap = h1.lits_cap
-  dimacs_len : h2.dimacs_len = h1.dimacs_len
+abbrev BVHdrState.AigFrame (h1 h2 : BVHdrState) : Prop :=
+  Modifies [.aig_len, .oom] h1 h2
 
 /-- Runtime AIG + untrusted HT invariant (zero `Cache.WF` invariant on `htSlots`!). -/
 structure AigInv (hdr : BVHdrState) (g : Aig)
@@ -619,23 +644,216 @@ end
 
 public section
 
-theorem BVHdrState.AigFrame.rfl (h : BVHdrState) : h.AigFrame h :=
-  ⟨_root_.rfl, _root_.rfl, _root_.rfl, _root_.rfl, _root_.rfl, _root_.rfl, _root_.rfl,
-    _root_.rfl, _root_.rfl, _root_.rfl, _root_.rfl, _root_.rfl, _root_.rfl, _root_.rfl,
-    _root_.rfl, _root_.rfl, _root_.rfl, _root_.rfl, _root_.rfl, _root_.rfl⟩
+theorem Modifies.refl (S : List HdrField) (h : BVHdrState) : Modifies S h h :=
+  fun _ _ => rfl
 
-theorem BVHdrState.AigFrame.trans {h1 h2 h3 : BVHdrState}
-    (h12 : h1.AigFrame h2) (h23 : h2.AigFrame h3) : h1.AigFrame h3 :=
-  ⟨h23.work_base.trans h12.work_base, h23.work_end.trans h12.work_end,
-   h23.prog_ptr.trans h12.prog_ptr, h23.aig_ptr.trans h12.aig_ptr,
-   h23.ht_ptr.trans h12.ht_ptr, h23.atom_base_ptr.trans h12.atom_base_ptr,
-   h23.slice_off_ptr.trans h12.slice_off_ptr, h23.lits_ptr.trans h12.lits_ptr,
-   h23.marks_ptr.trans h12.marks_ptr, h23.dimacs_start.trans h12.dimacs_start,
-   h23.n_vars.trans h12.n_vars, h23.n_nodes.trans h12.n_nodes,
-   h23.n_cwords.trans h12.n_cwords, h23.root_node.trans h12.root_node,
-   h23.num_atoms.trans h12.num_atoms, h23.aig_cap.trans h12.aig_cap,
-   h23.ht_mask.trans h12.ht_mask, h23.lits_len.trans h12.lits_len,
-   h23.lits_cap.trans h12.lits_cap, h23.dimacs_len.trans h12.dimacs_len⟩
+theorem Modifies.trans {S : List HdrField} {h1 h2 h3 : BVHdrState}
+    (h12 : Modifies S h1 h2) (h23 : Modifies S h2 h3) : Modifies S h1 h3 :=
+  fun f hf => (h23 f hf).trans (h12 f hf)
+
+theorem Modifies.trans_append {S T : List HdrField} {h1 h2 h3 : BVHdrState}
+    (h12 : Modifies S h1 h2) (h23 : Modifies T h2 h3) : Modifies (S ++ T) h1 h3 :=
+  fun f hf =>
+    (h23 f fun h => hf (List.mem_append_right S h)).trans
+      (h12 f fun h => hf (List.mem_append_left T h))
+
+theorem Modifies.mono {S T : List HdrField} {h1 h2 : BVHdrState}
+    (h : Modifies S h1 h2) (hsub : S ⊆ T := by decide) : Modifies T h1 h2 :=
+  fun f hf => h f (fun hmem => hf (hsub hmem))
+
+theorem Modifies.get_eq {S : List HdrField} {h1 h2 : BVHdrState}
+    (h : Modifies S h1 h2) (f : HdrField) (hf : f ∉ S := by decide) :
+    h2.get f = h1.get f :=
+  h f hf
+
+theorem Modifies.erase_of_eq {S : List HdrField} {x : HdrField} {h1 h2 : BVHdrState}
+    (h : Modifies (x :: S) h1 h2) (heq : h2.get x = h1.get x) :
+    Modifies S h1 h2 :=
+  fun f hf => if hfx : f = x then hfx ▸ heq else h f fun hm =>
+    match hm with
+    | .head _ => hfx rfl
+    | .tail _ hm' => hf hm'
+
+theorem Modifies.drop_lits_len {h1 h2 : BVHdrState}
+    (h : Modifies [.aig_len, .lits_len, .oom] h1 h2) (hlen : h2.lits_len = h1.lits_len) :
+    Modifies [.aig_len, .oom] h1 h2 :=
+  (h.mono (T := [.lits_len, .aig_len, .oom]) (by decide)).erase_of_eq hlen
+
+theorem Modifies.work_base {S : List HdrField} {h1 h2 : BVHdrState}
+    (h : Modifies S h1 h2) (hf : .work_base ∉ S := by decide) :
+    h2.work_base = h1.work_base := h .work_base hf
+theorem Modifies.work_end {S : List HdrField} {h1 h2 : BVHdrState}
+    (h : Modifies S h1 h2) (hf : .work_end ∉ S := by decide) :
+    h2.work_end = h1.work_end := h .work_end hf
+theorem Modifies.prog_ptr {S : List HdrField} {h1 h2 : BVHdrState}
+    (h : Modifies S h1 h2) (hf : .prog_ptr ∉ S := by decide) :
+    h2.prog_ptr = h1.prog_ptr := h .prog_ptr hf
+theorem Modifies.aig_ptr {S : List HdrField} {h1 h2 : BVHdrState}
+    (h : Modifies S h1 h2) (hf : .aig_ptr ∉ S := by decide) :
+    h2.aig_ptr = h1.aig_ptr := h .aig_ptr hf
+theorem Modifies.ht_ptr {S : List HdrField} {h1 h2 : BVHdrState}
+    (h : Modifies S h1 h2) (hf : .ht_ptr ∉ S := by decide) :
+    h2.ht_ptr = h1.ht_ptr := h .ht_ptr hf
+theorem Modifies.atom_base_ptr {S : List HdrField} {h1 h2 : BVHdrState}
+    (h : Modifies S h1 h2) (hf : .atom_base_ptr ∉ S := by decide) :
+    h2.atom_base_ptr = h1.atom_base_ptr := h .atom_base_ptr hf
+theorem Modifies.slice_off_ptr {S : List HdrField} {h1 h2 : BVHdrState}
+    (h : Modifies S h1 h2) (hf : .slice_off_ptr ∉ S := by decide) :
+    h2.slice_off_ptr = h1.slice_off_ptr := h .slice_off_ptr hf
+theorem Modifies.lits_ptr {S : List HdrField} {h1 h2 : BVHdrState}
+    (h : Modifies S h1 h2) (hf : .lits_ptr ∉ S := by decide) :
+    h2.lits_ptr = h1.lits_ptr := h .lits_ptr hf
+theorem Modifies.marks_ptr {S : List HdrField} {h1 h2 : BVHdrState}
+    (h : Modifies S h1 h2) (hf : .marks_ptr ∉ S := by decide) :
+    h2.marks_ptr = h1.marks_ptr := h .marks_ptr hf
+theorem Modifies.dimacs_start {S : List HdrField} {h1 h2 : BVHdrState}
+    (h : Modifies S h1 h2) (hf : .dimacs_start ∉ S := by decide) :
+    h2.dimacs_start = h1.dimacs_start := h .dimacs_start hf
+theorem Modifies.n_vars {S : List HdrField} {h1 h2 : BVHdrState}
+    (h : Modifies S h1 h2) (hf : .n_vars ∉ S := by decide) :
+    h2.n_vars = h1.n_vars := h .n_vars hf
+theorem Modifies.n_nodes {S : List HdrField} {h1 h2 : BVHdrState}
+    (h : Modifies S h1 h2) (hf : .n_nodes ∉ S := by decide) :
+    h2.n_nodes = h1.n_nodes := h .n_nodes hf
+theorem Modifies.n_cwords {S : List HdrField} {h1 h2 : BVHdrState}
+    (h : Modifies S h1 h2) (hf : .n_cwords ∉ S := by decide) :
+    h2.n_cwords = h1.n_cwords := h .n_cwords hf
+theorem Modifies.root_node {S : List HdrField} {h1 h2 : BVHdrState}
+    (h : Modifies S h1 h2) (hf : .root_node ∉ S := by decide) :
+    h2.root_node = h1.root_node := h .root_node hf
+theorem Modifies.num_atoms {S : List HdrField} {h1 h2 : BVHdrState}
+    (h : Modifies S h1 h2) (hf : .num_atoms ∉ S := by decide) :
+    h2.num_atoms = h1.num_atoms := h .num_atoms hf
+theorem Modifies.aig_len {S : List HdrField} {h1 h2 : BVHdrState}
+    (h : Modifies S h1 h2) (hf : .aig_len ∉ S := by decide) :
+    h2.aig_len = h1.aig_len := h .aig_len hf
+theorem Modifies.aig_cap {S : List HdrField} {h1 h2 : BVHdrState}
+    (h : Modifies S h1 h2) (hf : .aig_cap ∉ S := by decide) :
+    h2.aig_cap = h1.aig_cap := h .aig_cap hf
+theorem Modifies.ht_mask {S : List HdrField} {h1 h2 : BVHdrState}
+    (h : Modifies S h1 h2) (hf : .ht_mask ∉ S := by decide) :
+    h2.ht_mask = h1.ht_mask := h .ht_mask hf
+theorem Modifies.lits_len {S : List HdrField} {h1 h2 : BVHdrState}
+    (h : Modifies S h1 h2) (hf : .lits_len ∉ S := by decide) :
+    h2.lits_len = h1.lits_len := h .lits_len hf
+theorem Modifies.lits_cap {S : List HdrField} {h1 h2 : BVHdrState}
+    (h : Modifies S h1 h2) (hf : .lits_cap ∉ S := by decide) :
+    h2.lits_cap = h1.lits_cap := h .lits_cap hf
+theorem Modifies.oom {S : List HdrField} {h1 h2 : BVHdrState}
+    (h : Modifies S h1 h2) (hf : .oom ∉ S := by decide) :
+    h2.oom = h1.oom := h .oom hf
+theorem Modifies.dimacs_len {S : List HdrField} {h1 h2 : BVHdrState}
+    (h : Modifies S h1 h2) (hf : .dimacs_len ∉ S := by decide) :
+    h2.dimacs_len = h1.dimacs_len := h .dimacs_len hf
+
+theorem BVHdrState.get_with_aig_len (h : BVHdrState) (v : BitVec 32) {f : HdrField}
+    (hf : f ≠ .aig_len) : ({ h with aig_len := v } : BVHdrState).get f = h.get f := by
+  cases f <;> first | exact absurd rfl hf | rfl
+
+theorem BVHdrState.get_with_lits_len (h : BVHdrState) (v : BitVec 32) {f : HdrField}
+    (hf : f ≠ .lits_len) : ({ h with lits_len := v } : BVHdrState).get f = h.get f := by
+  cases f <;> first | exact absurd rfl hf | rfl
+
+theorem BVHdrState.get_with_oom (h : BVHdrState) (v : BitVec 32) {f : HdrField}
+    (hf : f ≠ .oom) : ({ h with oom := v } : BVHdrState).get f = h.get f := by
+  cases f <;> first | exact absurd rfl hf | rfl
+
+theorem Modifies.with_aig_len {S : List HdrField} {h0 h1 : BVHdrState}
+    (h : Modifies S h0 h1) (v : BitVec 32) (hf : .aig_len ∈ S := by decide) :
+    Modifies S h0 { h1 with aig_len := v } :=
+  fun f hfn => (h1.get_with_aig_len v (fun he : f = .aig_len => hfn (he ▸ hf))).trans (h f hfn)
+
+theorem Modifies.with_lits_len {S : List HdrField} {h0 h1 : BVHdrState}
+    (h : Modifies S h0 h1) (v : BitVec 32) (hf : .lits_len ∈ S := by decide) :
+    Modifies S h0 { h1 with lits_len := v } :=
+  fun f hfn => (h1.get_with_lits_len v (fun he : f = .lits_len => hfn (he ▸ hf))).trans (h f hfn)
+
+theorem Modifies.with_oom {S : List HdrField} {h0 h1 : BVHdrState}
+    (h : Modifies S h0 h1) (v : BitVec 32) (hf : .oom ∈ S := by decide) :
+    Modifies S h0 { h1 with oom := v } :=
+  fun f hfn => (h1.get_with_oom v (fun he : f = .oom => hfn (he ▸ hf))).trans (h f hfn)
+
+theorem Modifies.set_aig_len (S : List HdrField) (h : BVHdrState) (v : BitVec 32)
+    (hf : .aig_len ∈ S := by decide) : Modifies S h { h with aig_len := v } :=
+  (Modifies.refl S h).with_aig_len v hf
+
+theorem Modifies.set_lits_len (S : List HdrField) (h : BVHdrState) (v : BitVec 32)
+    (hf : .lits_len ∈ S := by decide) : Modifies S h { h with lits_len := v } :=
+  (Modifies.refl S h).with_lits_len v hf
+
+theorem Modifies.set_oom (S : List HdrField) (h : BVHdrState) (v : BitVec 32)
+    (hf : .oom ∈ S := by decide) : Modifies S h { h with oom := v } :=
+  (Modifies.refl S h).with_oom v hf
+
+theorem Modifies.with_lits_len_oom {S : List HdrField} {h0 h1 : BVHdrState}
+    (h : Modifies S h0 h1) (l o : BitVec 32)
+    (hl : .lits_len ∈ S := by decide) (ho : .oom ∈ S := by decide) :
+    Modifies S h0 { h1 with lits_len := l, oom := o } :=
+  (h.with_lits_len l hl).with_oom o ho
+
+theorem Modifies.set_lits_len_oom (S : List HdrField) (h : BVHdrState) (l o : BitVec 32)
+    (hl : .lits_len ∈ S := by decide) (ho : .oom ∈ S := by decide) :
+    Modifies S h { h with lits_len := l, oom := o } :=
+  (Modifies.refl S h).with_lits_len_oom l o hl ho
+
+theorem AigInv.of_modifies {hdr hdr' : BVHdrState} {g : Aig}
+    {aigWords : List (BitVec 64)} {htSlots : List (BitVec 32)} {S : List HdrField}
+    (hinv : AigInv hdr g aigWords htSlots) (hfr : Modifies S hdr hdr')
+    (hal : hdr'.aig_len = hdr.aig_len)
+    (hsub : S ⊆ [.aig_len, .lits_len, .oom] := by decide) :
+    AigInv hdr' g aigWords htSlots :=
+  have h := hfr.mono hsub
+  { hinv with
+    num_atoms_eq := by rw [h.num_atoms]; exact hinv.num_atoms_eq
+    aig_len_eq := by rw [hal]; exact hinv.aig_len_eq
+    aig_cap_eq := by rw [h.aig_cap]; exact hinv.aig_cap_eq
+    ht_len := by rw [h.ht_mask]; exact hinv.ht_len
+    ht_mask_lt := fun x => by rw [h.ht_mask]; exact hinv.ht_mask_lt x }
+
+theorem BVWorkspaceOk.of_modifies {cfg : BVWorkspaceCfg} {hdr hdr' : BVHdrState}
+    {atomBases sliceOffs : List (BitVec 32)} {aigWords aigWords' : List (BitVec 64)}
+    {htSlots htSlots' litsPool litsPool' : List (BitVec 32)} {S : List HdrField}
+    (hok : BVWorkspaceOk cfg hdr atomBases sliceOffs aigWords htSlots litsPool)
+    (hfr : Modifies S hdr hdr')
+    (haig' : aigWords'.length = cfg.aig_cap) (hht' : htSlots'.length = cfg.ht_slots)
+    (hlits' : litsPool'.length = cfg.lits_cap)
+    (hsub : S ⊆ [.aig_len, .lits_len, .oom] := by decide) :
+    BVWorkspaceOk cfg hdr' atomBases sliceOffs aigWords' htSlots' litsPool' :=
+  have h := hfr.mono hsub
+  { hok with
+    hdr_wb := h.work_base.trans hok.hdr_wb
+    hdr_we := h.work_end.trans hok.hdr_we
+    hdr_ab := h.atom_base_ptr.trans hok.hdr_ab
+    hdr_so := h.slice_off_ptr.trans hok.hdr_so
+    hdr_aig := h.aig_ptr.trans hok.hdr_aig
+    hdr_ht := h.ht_ptr.trans hok.hdr_ht
+    hdr_lits := h.lits_ptr.trans hok.hdr_lits
+    hdr_nv := h.n_vars.trans hok.hdr_nv
+    hdr_nn := h.n_nodes.trans hok.hdr_nn
+    hdr_acap := h.aig_cap.trans hok.hdr_acap
+    hdr_htmask := h.ht_mask.trans hok.hdr_htmask
+    hdr_lcap := h.lits_cap.trans hok.hdr_lcap
+    aig_len_eq := haig'
+    ht_len := hht'
+    lits_len := hlits' }
+
+theorem BVWorkspaceOk.of_modifies_aigInv {cfg : BVWorkspaceCfg} {hdr hdr' : BVHdrState} {g' : Aig}
+    {atomBases sliceOffs : List (BitVec 32)} {aigWords aigWords' : List (BitVec 64)}
+    {htSlots htSlots' litsPool litsPool' : List (BitVec 32)} {S : List HdrField}
+    (hok : BVWorkspaceOk cfg hdr atomBases sliceOffs aigWords htSlots litsPool)
+    (hfr : Modifies S hdr hdr') (haig' : AigInv hdr' g' aigWords' htSlots')
+    (hlp : litsPool'.length = litsPool.length)
+    (hsub : S ⊆ [.aig_len, .lits_len, .oom] := by decide) :
+    BVWorkspaceOk cfg hdr' atomBases sliceOffs aigWords' htSlots' litsPool' :=
+  have h := hfr.mono hsub
+  hok.of_modifies hfr
+    (by rw [← haig'.aig_cap_eq, h.aig_cap, hok.hdr_acap, BitVec.toNat_ofNat]
+        exact Nat.mod_eq_of_lt (by have := hok.acap_lt; omega))
+    (by rw [haig'.ht_len, h.ht_mask, hok.hdr_htmask, BitVec.toNat_ofNat,
+          Nat.mod_eq_of_lt (by have := hok.ht_lt; omega)]
+        have := hok.ht_pos; omega)
+    (hlp.trans hok.lits_len)
+    hsub
 
 theorem BVWorkspaceOk.of_aigFrame {cfg : BVWorkspaceCfg} {hdr hdr' : BVHdrState}
     {atomBases sliceOffs : List (BitVec 32)} {aigWords aigWords' : List (BitVec 64)}
@@ -644,21 +862,7 @@ theorem BVWorkspaceOk.of_aigFrame {cfg : BVWorkspaceCfg} {hdr hdr' : BVHdrState}
     (hfr : hdr.AigFrame hdr')
     (haig' : aigWords'.length = cfg.aig_cap) (hht' : htSlots'.length = cfg.ht_slots) :
     BVWorkspaceOk cfg hdr' atomBases sliceOffs aigWords' htSlots' litsPool :=
-  { hok with
-    hdr_wb := hfr.work_base.trans hok.hdr_wb
-    hdr_we := hfr.work_end.trans hok.hdr_we
-    hdr_ab := hfr.atom_base_ptr.trans hok.hdr_ab
-    hdr_so := hfr.slice_off_ptr.trans hok.hdr_so
-    hdr_aig := hfr.aig_ptr.trans hok.hdr_aig
-    hdr_ht := hfr.ht_ptr.trans hok.hdr_ht
-    hdr_lits := hfr.lits_ptr.trans hok.hdr_lits
-    hdr_nv := hfr.n_vars.trans hok.hdr_nv
-    hdr_nn := hfr.n_nodes.trans hok.hdr_nn
-    hdr_acap := hfr.aig_cap.trans hok.hdr_acap
-    hdr_htmask := hfr.ht_mask.trans hok.hdr_htmask
-    hdr_lcap := hfr.lits_cap.trans hok.hdr_lcap
-    aig_len_eq := haig'
-    ht_len := hht' }
+  hok.of_modifies hfr haig' hht' hok.lits_len
 
 theorem litsSlice_length {litsPool : List (BitVec 32)} {off w : Nat}
     (hle : off + w ≤ litsPool.length) :

@@ -149,7 +149,7 @@ theorem bv_blast_clz_wp (Γ : Env)
               have hw_n : w.toNat = 0 := by rw [hw0]; rfl
               c0_hsteps
               exact clz_ok_close hoom0 hsla
-                (mul2_opsFrame_with_lits_len (BVHdrState.OpsFrame.rfl hdr0) (hdr0.lits_len + w))
+                (mul2_opsFrame_with_lits_len (Modifies.refl _ hdr0) (hdr0.lits_len + w))
                 (mul2_aig_le_self g0)
                 (mul2_aigInv_with_lits_len haig0 (hdr0.lits_len + w)) rfl
                 (by dsimp only; rw [hl1_eq]; omega) (by dsimp only; rw [hl1_eq]; omega)
@@ -220,7 +220,7 @@ theorem bv_blast_clz_wp (Γ : Env)
                     refine hJ_c (BitVec.ofNat 32 w.toNat, 0,
                         { hdr0 with lits_len := hdr0.lits_len + w }, g0, aw0, ht0, lpJ) mJ
                       ⟨Nat.zero_le _,
-                        mul2_opsFrame_with_lits_len (BVHdrState.OpsFrame.rfl hdr0)
+                        mul2_opsFrame_with_lits_len (Modifies.refl _ hdr0)
                           (hdr0.lits_len + w),
                         mul2_aig_le_self g0,
                         mul2_aigInv_with_lits_len haig0 (hdr0.lits_len + w), hoom0, rfl,
@@ -376,7 +376,7 @@ theorem bv_blast_mul_wp (Γ : Env)
                 have hw_n : w.toNat = 0 := by rw [hw0]; rfl
                 c0_hsteps
                 exact mul_ok_close hoom0 hsla hslb
-                  (mul2_opsFrame_with_lits_len (BVHdrState.OpsFrame.rfl hdr0) (hdr0.lits_len + w))
+                  (mul2_opsFrame_with_lits_len (Modifies.refl _ hdr0) (hdr0.lits_len + w))
                   (mul2_aig_le_self g0)
                   (mul2_aigInv_with_lits_len haig0 (hdr0.lits_len + w)) rfl
                   (by dsimp only; rw [hl1_eq]; omega) (by dsimp only; rw [hl1_eq]; omega)
@@ -403,7 +403,7 @@ theorem bv_blast_mul_wp (Γ : Env)
                   exact hJ_i (0, { hdr0 with lits_len := hdr0.lits_len + w }, g0, aw0, ht0, lp0)
                     mA
                     ⟨Nat.zero_le _,
-                      mul2_opsFrame_with_lits_len (BVHdrState.OpsFrame.rfl hdr0)
+                      mul2_opsFrame_with_lits_len (Modifies.refl _ hdr0)
                         (hdr0.lits_len + w),
                       mul2_aig_le_self g0,
                       mul2_aigInv_with_lits_len haig0 (hdr0.lits_len + w), hoom0, rfl, rfl,
@@ -447,11 +447,11 @@ theorem bv_blast_mul_wp (Γ : Env)
                         by rw [haj_ag, haigJ.aig_len_eq]; exact hwf_aj⟩,
                       sep_ac hmJ,
                       fun ret hdrN gN awN htN mN hfrN hextN _ haigN hoomN _ hevN hmN => ?_⟩
-                    have hfr0N := hfrJ.trans hfrN.toOpsFrame
+                    have hfr0N := hfrJ.trans hfrN.mono
                     have hext0N := Aig.extends_trans hextJ hextN
                     have hlenN : hdrN.lits_len = hdr0.lits_len + w := hfrN.lits_len.trans hlenJ
                     rw [← hfrJ.lits_ptr] at hmN
-                    have hmN' := ops_aig_frame_unfocus hfrN.toOpsFrame hmN
+                    have hmN' := ops_aig_frame_unfocus hfrN.mono hmN
                     rw [hfr0N.lits_ptr] at hmN'
                     c0_hstraight; rw [houtj_sw] at hm; c0_hsplit
                     · have hoom_ne : hdrN.oom ≠ 0#32 := by c0_bv_omega [hc]

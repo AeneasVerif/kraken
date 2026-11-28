@@ -294,9 +294,7 @@ theorem bv_blast_get_lsb_d_wp (Γ : Env)
       dsimp only [Blocks.get_here]
       c0_hstraight
       let hdr' : BVHdrState := { hdr with oom := 1#32 }
-      have hfr : hdr.AigFrame hdr' :=
-        ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-          rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+      have hfr : hdr.AigFrame hdr' := Modifies.set_oom _ hdr 1#32
       exact hQ 0#32 hdr' _ hfr rfl (fun _ => by simp [hdr'])
         (fun h0 hs => False.elim (hfail ⟨h0, hs⟩))
         (fun h0 => False.elim (by simp [hdr'] at h0)) (fun _ => rfl) (ops_sep_emp3 hm))
@@ -322,9 +320,7 @@ theorem bv_blast_get_lsb_d_wp (Γ : Env)
               have hm_arr : (array (t := i32) hdr.lits_ptr litsPool ⋆ (bvHdrMem h hdr ⋆ R)) m :=
                 ops_sep_swap12_r hm
               c0_hstraight
-              have hfr : hdr.AigFrame hdr :=
-                ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-                  rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+              have hfr : hdr.AigFrame hdr := Modifies.refl _ hdr
               have hget : litsPool[a_off.toNat + idx.toNat]'hlt_len =
                   litsPool.getD (a_off.toNat + idx.toNat) 0#32 :=
                 list_getD_eq_getElem litsPool 0#32 hlt_len
@@ -336,9 +332,7 @@ theorem bv_blast_get_lsb_d_wp (Γ : Env)
             · have hge : ¬ idx < aw := hc
               clear hc
               c0_hstraight
-              have hfr : hdr.AigFrame hdr :=
-                ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-                  rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+              have hfr : hdr.AigFrame hdr := Modifies.refl _ hdr
               refine hQ 0#32 hdr m hfr rfl (fun hne => absurd h0 hne) (fun _ _ => h0) ?_
                 (fun hne => absurd h0 hne) hm
               intro _
@@ -364,9 +358,7 @@ theorem bv_blast_not_wp (Γ : Env)
       dsimp only [Blocks.get_here]
       c0_hstraight
       let hdr' : BVHdrState := { hdr with oom := 1#32 }
-      have hfr : hdr.BlastFrame hdr' :=
-        ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-          rfl, rfl, rfl, rfl, rfl, rfl⟩
+      have hfr : hdr.BlastFrame hdr' := Modifies.set_oom _ hdr 1#32
       exact hQ 0xFFFFFFFF#32 hdr' litsPool _ hfr rfl rfl (fun _ _ => rfl)
         (fun _ => by simp [hdr']) (fun h0 hs _ => False.elim (hfail ⟨h0, hs⟩))
         (fun h0 => False.elim (by simp [hdr'] at h0)) (fun _ => ⟨rfl, rfl, rfl⟩) (ops_sep_emp3 hm))
@@ -397,9 +389,7 @@ theorem bv_blast_not_wp (Γ : Env)
                 c0_hsplit
                 · exfalso; exact hc h0
                 · c0_hstraight
-                  have hfr : hdr.BlastFrame hdr1 :=
-                    ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-                      rfl, rfl, rfl, rfl, rfl, rfl⟩
+                  have hfr : hdr.BlastFrame hdr1 := Modifies.set_lits_len _ hdr _
                   refine wp_while_record
                     (proj := fun st : BitVec 32 × List (BitVec 32) => (st.1, ⟨⟩))
                     (μ := fun st => w.toNat - st.1.toNat)
@@ -450,9 +440,7 @@ theorem bv_blast_not_wp (Γ : Env)
                 let hdr1 : BVHdrState :=
                   { hdr with oom := if hdr.oom ≠ 0#32 then hdr.oom else 1#32 }
                 have hoom1 : hdr1.oom = 1#32 := by simp [hdr1, h0]
-                have hfr1 : hdr.BlastFrame hdr1 :=
-                  ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-                    rfl, rfl, rfl, rfl, rfl, rfl⟩
+                have hfr1 : hdr.BlastFrame hdr1 := Modifies.set_oom _ hdr _
                 c0_hstraight
                 c0_hsplit
                 · c0_hstraight
@@ -481,9 +469,7 @@ theorem bv_blast_extract_wp (Γ : Env)
       dsimp only [Blocks.get_here]
       c0_hstraight
       let hdr' : BVHdrState := { hdr with oom := 1#32 }
-      have hfr : hdr.BlastFrame hdr' :=
-        ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-          rfl, rfl, rfl, rfl, rfl, rfl⟩
+      have hfr : hdr.BlastFrame hdr' := Modifies.set_oom _ hdr 1#32
       exact hQ 0xFFFFFFFF#32 hdr' litsPool _ hfr rfl rfl (fun _ _ => rfl)
         (fun _ => by simp [hdr'])
         (fun h0 hex _ => False.elim (hfail ⟨h0, (Bool.and_eq_true _ _ ▸ hex).1⟩))
@@ -521,9 +507,7 @@ theorem bv_blast_extract_wp (Γ : Env)
                     c0_hsplit
                     · exfalso; exact hc h0
                     · c0_hstraight
-                      have hfr : hdr.BlastFrame hdr1 :=
-                        ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-                          rfl, rfl, rfl, rfl, rfl, rfl⟩
+                      have hfr : hdr.BlastFrame hdr1 := Modifies.set_lits_len _ hdr _
                       refine wp_while_record
                         (proj := fun st : BitVec 32 × List (BitVec 32) => (st.1, ⟨⟩))
                         (μ := fun st => len.toNat - st.1.toNat)
@@ -616,9 +600,7 @@ theorem bv_blast_extract_wp (Γ : Env)
                     let hdr1 : BVHdrState :=
                       { hdr with oom := if hdr.oom ≠ 0#32 then hdr.oom else 1#32 }
                     have hoom1 : hdr1.oom = 1#32 := by simp [hdr1, h0]
-                    have hfr1 : hdr.BlastFrame hdr1 :=
-                      ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-                        rfl, rfl, rfl, rfl, rfl, rfl⟩
+                    have hfr1 : hdr.BlastFrame hdr1 := Modifies.set_oom _ hdr _
                     c0_hstraight
                     c0_hsplit
                     · c0_hstraight
@@ -637,9 +619,7 @@ theorem bv_blast_extract_wp (Γ : Env)
                   c0_hsplit
                   · c0_hstraight
                     let hdr' : BVHdrState := { hdr with oom := 1#32 }
-                    have hfr : hdr.BlastFrame hdr' :=
-                      ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-                        rfl, rfl, rfl, rfl, rfl, rfl⟩
+                    have hfr : hdr.BlastFrame hdr' := Modifies.set_oom _ hdr 1#32
                     have hne_ex : extractValidOk hdr a_off aw len = false := by
                       simp only [extractValidOk, hsok, Bool.true_and, decide_eq_false_iff_not]
                       intro hcon; exact hcon hlen_pos hc
@@ -677,9 +657,7 @@ theorem bv_blast_append_wp (Γ : Env)
       dsimp only [Blocks.get_here]
       c0_hstraight
       let hdr' : BVHdrState := { hdr with oom := 1#32 }
-      have hfr : hdr.BlastFrame hdr' :=
-        ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-          rfl, rfl, rfl, rfl, rfl, rfl⟩
+      have hfr : hdr.BlastFrame hdr' := Modifies.set_oom _ hdr 1#32
       exact hQ 0xFFFFFFFF#32 hdr' litsPool _ hfr rfl rfl (fun _ _ => rfl)
         (fun _ => by simp [hdr']) (fun h0 h1 h2 _ => False.elim (hfail ⟨h0, h1, h2⟩))
         (fun h0 => False.elim (by simp [hdr'] at h0)) (fun _ => ⟨rfl, rfl, rfl⟩) (ops_sep_emp3 hm))
@@ -716,9 +694,7 @@ theorem bv_blast_append_wp (Γ : Env)
                     simpa [BitVec.ult, htot64] using hc
                   c0_hstraight
                   let hdr' : BVHdrState := { hdr with oom := 1#32 }
-                  have hfr : hdr.BlastFrame hdr' :=
-                    ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-                      rfl, rfl, rfl, rfl, rfl, rfl⟩
+                  have hfr : hdr.BlastFrame hdr' := Modifies.set_oom _ hdr 1#32
                   exact hQ 0xFFFFFFFF#32 hdr' litsPool _ hfr rfl rfl (fun _ _ => rfl)
                     (fun hne => absurd h0 hne)
                     (fun _ _ _ hroom => False.elim (by have := hdr.lits_cap.isLt; omega))
@@ -758,9 +734,7 @@ theorem bv_blast_append_wp (Γ : Env)
                       c0_hsplit
                       · exfalso; exact hc h0
                       · c0_hstraight
-                        have hfr : hdr.BlastFrame hdr1 :=
-                          ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-                            rfl, rfl, rfl, rfl, rfl, rfl⟩
+                        have hfr : hdr.BlastFrame hdr1 := Modifies.set_lits_len _ hdr _
                         refine wp_while_record
                           (proj := fun st : BitVec 32 × List (BitVec 32) => (st.1, ⟨⟩))
                           (μ := fun st => rw.toNat - st.1.toNat)
@@ -855,9 +829,7 @@ theorem bv_blast_append_wp (Γ : Env)
                       let hdr1 : BVHdrState :=
                         { hdr with oom := if hdr.oom ≠ 0#32 then hdr.oom else 1#32 }
                       have hoom1 : hdr1.oom = 1#32 := by simp [hdr1, h0]
-                      have hfr1 : hdr.BlastFrame hdr1 :=
-                        ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-                          rfl, rfl, rfl, rfl, rfl, rfl⟩
+                      have hfr1 : hdr.BlastFrame hdr1 := Modifies.set_oom _ hdr _
                       c0_hstraight
                       c0_hsplit
                       · c0_hstraight

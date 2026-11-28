@@ -33,26 +33,8 @@ open LeanQbe.T.Examples.Bitblast.Src.OpsShiftMul
 
 /-- Framing predicate: `h2` agrees with `h1` on every `BVHdr` field except `aig_len`,
 `lits_len`, and `oom`. -/
-structure BVHdrState.OpsFrame (h1 h2 : BVHdrState) : Prop where
-  work_base : h2.work_base = h1.work_base
-  work_end : h2.work_end = h1.work_end
-  prog_ptr : h2.prog_ptr = h1.prog_ptr
-  aig_ptr : h2.aig_ptr = h1.aig_ptr
-  ht_ptr : h2.ht_ptr = h1.ht_ptr
-  atom_base_ptr : h2.atom_base_ptr = h1.atom_base_ptr
-  slice_off_ptr : h2.slice_off_ptr = h1.slice_off_ptr
-  lits_ptr : h2.lits_ptr = h1.lits_ptr
-  marks_ptr : h2.marks_ptr = h1.marks_ptr
-  dimacs_start : h2.dimacs_start = h1.dimacs_start
-  n_vars : h2.n_vars = h1.n_vars
-  n_nodes : h2.n_nodes = h1.n_nodes
-  n_cwords : h2.n_cwords = h1.n_cwords
-  root_node : h2.root_node = h1.root_node
-  num_atoms : h2.num_atoms = h1.num_atoms
-  aig_cap : h2.aig_cap = h1.aig_cap
-  ht_mask : h2.ht_mask = h1.ht_mask
-  lits_cap : h2.lits_cap = h1.lits_cap
-  dimacs_len : h2.dimacs_len = h1.dimacs_len
+abbrev BVHdrState.OpsFrame (h1 h2 : BVHdrState) : Prop :=
+  Modifies [.aig_len, .lits_len, .oom] h1 h2
 
 /-- Exact runtime slice validity check matching `OpsCore.bv_slice_ok(h, off, w)`. -/
 def sliceOkBool (hdr : BVHdrState) (off w : BitVec 32) : Bool :=
@@ -354,30 +336,6 @@ theorem bvBlastAshrSpec_xfree : bvBlastAshrSpec.XFree := by xfree
 theorem bvBlastMulSpec_xfree : bvBlastMulSpec.XFree := by xfree
 theorem bvBlastClzSpec_xfree : bvBlastClzSpec.XFree := by xfree
 
-theorem BVHdrState.OpsFrame.rfl (h : BVHdrState) : h.OpsFrame h :=
-  ⟨_root_.rfl, _root_.rfl, _root_.rfl, _root_.rfl, _root_.rfl, _root_.rfl, _root_.rfl,
-    _root_.rfl, _root_.rfl, _root_.rfl, _root_.rfl, _root_.rfl, _root_.rfl, _root_.rfl,
-    _root_.rfl, _root_.rfl, _root_.rfl, _root_.rfl, _root_.rfl⟩
-
-theorem BVHdrState.OpsFrame.trans {h1 h2 h3 : BVHdrState}
-    (h12 : h1.OpsFrame h2) (h23 : h2.OpsFrame h3) : h1.OpsFrame h3 :=
-  ⟨h23.work_base.trans h12.work_base, h23.work_end.trans h12.work_end,
-   h23.prog_ptr.trans h12.prog_ptr, h23.aig_ptr.trans h12.aig_ptr,
-   h23.ht_ptr.trans h12.ht_ptr, h23.atom_base_ptr.trans h12.atom_base_ptr,
-   h23.slice_off_ptr.trans h12.slice_off_ptr, h23.lits_ptr.trans h12.lits_ptr,
-   h23.marks_ptr.trans h12.marks_ptr, h23.dimacs_start.trans h12.dimacs_start,
-   h23.n_vars.trans h12.n_vars, h23.n_nodes.trans h12.n_nodes,
-   h23.n_cwords.trans h12.n_cwords, h23.root_node.trans h12.root_node,
-   h23.num_atoms.trans h12.num_atoms, h23.aig_cap.trans h12.aig_cap,
-   h23.ht_mask.trans h12.ht_mask, h23.lits_cap.trans h12.lits_cap,
-   h23.dimacs_len.trans h12.dimacs_len⟩
-
-theorem BVHdrState.AigFrame.toOpsFrame {h1 h2 : BVHdrState} (h : h1.AigFrame h2) :
-    h1.OpsFrame h2 :=
-  ⟨h.work_base, h.work_end, h.prog_ptr, h.aig_ptr, h.ht_ptr, h.atom_base_ptr,
-   h.slice_off_ptr, h.lits_ptr, h.marks_ptr, h.dimacs_start, h.n_vars, h.n_nodes,
-   h.n_cwords, h.root_node, h.num_atoms, h.aig_cap, h.ht_mask, h.lits_cap, h.dimacs_len⟩
-
 theorem BVWorkspaceOk.of_opsFrame {cfg : BVWorkspaceCfg} {hdr hdr' : BVHdrState}
     {atomBases sliceOffs : List (BitVec 32)} {aigWords aigWords' : List (BitVec 64)}
     {htSlots htSlots' litsPool litsPool' : List (BitVec 32)}
@@ -386,22 +344,7 @@ theorem BVWorkspaceOk.of_opsFrame {cfg : BVWorkspaceCfg} {hdr hdr' : BVHdrState}
     (haig' : aigWords'.length = cfg.aig_cap) (hht' : htSlots'.length = cfg.ht_slots)
     (hlits' : litsPool'.length = cfg.lits_cap) :
     BVWorkspaceOk cfg hdr' atomBases sliceOffs aigWords' htSlots' litsPool' :=
-  { hok with
-    hdr_wb := hfr.work_base.trans hok.hdr_wb
-    hdr_we := hfr.work_end.trans hok.hdr_we
-    hdr_ab := hfr.atom_base_ptr.trans hok.hdr_ab
-    hdr_so := hfr.slice_off_ptr.trans hok.hdr_so
-    hdr_aig := hfr.aig_ptr.trans hok.hdr_aig
-    hdr_ht := hfr.ht_ptr.trans hok.hdr_ht
-    hdr_lits := hfr.lits_ptr.trans hok.hdr_lits
-    hdr_nv := hfr.n_vars.trans hok.hdr_nv
-    hdr_nn := hfr.n_nodes.trans hok.hdr_nn
-    hdr_acap := hfr.aig_cap.trans hok.hdr_acap
-    hdr_htmask := hfr.ht_mask.trans hok.hdr_htmask
-    hdr_lcap := hfr.lits_cap.trans hok.hdr_lcap
-    aig_len_eq := haig'
-    ht_len := hht'
-    lits_len := hlits' }
+  hok.of_modifies hfr haig' hht' hlits'
 
 theorem opsShiftMulSpecTable_nodup : (opsShiftMulSpecTable.map SpecEntry.name).Nodup := by
   show ([ "bv_copy_lits", "bv_blast_replicate", "bv_blast_rotl", "bv_blast_rotr"

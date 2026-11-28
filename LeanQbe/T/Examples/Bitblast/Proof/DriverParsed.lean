@@ -122,27 +122,7 @@ theorem bvWorkspaceOk_of_ocBlastFrame {cfg : BVWorkspaceCfg} {hdr hdr' : BVHdrSt
     (hfr : hdr.BlastFrame hdr') (haig' : AigInv hdr' g' aigWords' htSlots')
     (hlp : litsPool'.length = litsPool.length) :
     BVWorkspaceOk cfg hdr' atomBases sliceOffs aigWords' htSlots' litsPool' :=
-  { hok with
-    hdr_wb := hfr.work_base.trans hok.hdr_wb
-    hdr_we := hfr.work_end.trans hok.hdr_we
-    hdr_ab := hfr.atom_base_ptr.trans hok.hdr_ab
-    hdr_so := hfr.slice_off_ptr.trans hok.hdr_so
-    hdr_aig := hfr.aig_ptr.trans hok.hdr_aig
-    hdr_ht := hfr.ht_ptr.trans hok.hdr_ht
-    hdr_lits := hfr.lits_ptr.trans hok.hdr_lits
-    hdr_nv := hfr.n_vars.trans hok.hdr_nv
-    hdr_nn := hfr.n_nodes.trans hok.hdr_nn
-    hdr_acap := hfr.aig_cap.trans hok.hdr_acap
-    hdr_htmask := hfr.ht_mask.trans hok.hdr_htmask
-    hdr_lcap := hfr.lits_cap.trans hok.hdr_lcap
-    aig_len_eq := by
-      rw [← haig'.aig_cap_eq, hfr.aig_cap, hok.hdr_acap, BitVec.toNat_ofNat]
-      exact Nat.mod_eq_of_lt (by have := hok.acap_lt; omega)
-    ht_len := by
-      rw [haig'.ht_len, hfr.ht_mask, hok.hdr_htmask, BitVec.toNat_ofNat,
-        Nat.mod_eq_of_lt (by have := hok.ht_lt; omega)]
-      have := hok.ht_pos; omega
-    lits_len := hlp.trans hok.lits_len }
+  hok.of_modifies_aigInv hfr haig' hlp
 
 theorem bvWorkspaceOk_of_smOpsFrame {cfg : BVWorkspaceCfg} {hdr hdr' : BVHdrState} {g' : Aig}
     {atomBases sliceOffs : List (BitVec 32)} {aigWords aigWords' : List (BitVec 64)}
@@ -151,49 +131,19 @@ theorem bvWorkspaceOk_of_smOpsFrame {cfg : BVWorkspaceCfg} {hdr hdr' : BVHdrStat
     (hfr : hdr.OpsFrame hdr') (haig' : AigInv hdr' g' aigWords' htSlots')
     (hlp : litsPool'.length = litsPool.length) :
     BVWorkspaceOk cfg hdr' atomBases sliceOffs aigWords' htSlots' litsPool' :=
-  { hok with
-    hdr_wb := hfr.work_base.trans hok.hdr_wb
-    hdr_we := hfr.work_end.trans hok.hdr_we
-    hdr_ab := hfr.atom_base_ptr.trans hok.hdr_ab
-    hdr_so := hfr.slice_off_ptr.trans hok.hdr_so
-    hdr_aig := hfr.aig_ptr.trans hok.hdr_aig
-    hdr_ht := hfr.ht_ptr.trans hok.hdr_ht
-    hdr_lits := hfr.lits_ptr.trans hok.hdr_lits
-    hdr_nv := hfr.n_vars.trans hok.hdr_nv
-    hdr_nn := hfr.n_nodes.trans hok.hdr_nn
-    hdr_acap := hfr.aig_cap.trans hok.hdr_acap
-    hdr_htmask := hfr.ht_mask.trans hok.hdr_htmask
-    hdr_lcap := hfr.lits_cap.trans hok.hdr_lcap
-    aig_len_eq := by
-      rw [← haig'.aig_cap_eq, hfr.aig_cap, hok.hdr_acap, BitVec.toNat_ofNat]
-      exact Nat.mod_eq_of_lt (by have := hok.acap_lt; omega)
-    ht_len := by
-      rw [haig'.ht_len, hfr.ht_mask, hok.hdr_htmask, BitVec.toNat_ofNat,
-        Nat.mod_eq_of_lt (by have := hok.ht_lt; omega)]
-      have := hok.ht_pos; omega
-    lits_len := hlp.trans hok.lits_len }
+  hok.of_modifies_aigInv hfr haig' hlp
 
 theorem aigInv_of_ocBlastFrame {hdr hdr' : BVHdrState} {g : Aig} {aw : List (BitVec 64)}
     {ht : List (BitVec 32)} (hinv : AigInv hdr g aw ht)
     (hfr : hdr.BlastFrame hdr') (hal : hdr'.aig_len = hdr.aig_len) :
     AigInv hdr' g aw ht :=
-  { hinv with
-    num_atoms_eq := by rw [hfr.num_atoms]; exact hinv.num_atoms_eq
-    aig_len_eq := by rw [hal]; exact hinv.aig_len_eq
-    aig_cap_eq := by rw [hfr.aig_cap]; exact hinv.aig_cap_eq
-    ht_len := by rw [hfr.ht_mask]; exact hinv.ht_len
-    ht_mask_lt := fun x => by rw [hfr.ht_mask]; exact hinv.ht_mask_lt x }
+  hinv.of_modifies hfr hal
 
 theorem aigInv_of_smOpsFrame {hdr hdr' : BVHdrState} {g : Aig} {aw : List (BitVec 64)}
     {ht : List (BitVec 32)} (hinv : AigInv hdr g aw ht)
     (hfr : hdr.OpsFrame hdr') (hal : hdr'.aig_len = hdr.aig_len) :
     AigInv hdr' g aw ht :=
-  { hinv with
-    num_atoms_eq := by rw [hfr.num_atoms]; exact hinv.num_atoms_eq
-    aig_len_eq := by rw [hal]; exact hinv.aig_len_eq
-    aig_cap_eq := by rw [hfr.aig_cap]; exact hinv.aig_cap_eq
-    ht_len := by rw [hfr.ht_mask]; exact hinv.ht_len
-    ht_mask_lt := fun x => by rw [hfr.ht_mask]; exact hinv.ht_mask_lt x }
+  hinv.of_modifies hfr hal
 
 theorem bvWorkspaceOk_litsCap_eq {cfg : BVWorkspaceCfg} {hdr : BVHdrState}
     {ab so : List (BitVec 32)} {aw : List (BitVec 64)} {ht lp : List (BitVec 32)}

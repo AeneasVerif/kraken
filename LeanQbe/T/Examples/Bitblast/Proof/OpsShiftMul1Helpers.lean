@@ -754,7 +754,7 @@ theorem shiftOrInv_or_step {aOff w bOff nw op : BitVec 32}
       array (t := i32) hdrN.ht_ptr htN ⋆ array (t := i32) hdr0.lits_ptr lpS ⋆ R) mN) :
     ShiftOrInv aOff w bOff nw op hdr0 g0 lp0 R p0
       (k + 1, ret, hdrN, gN, awN, htN) mN hptr lpS := by
-  refine ⟨by omega, hk_lt, fun _ => by omega, hfrK.trans hfrN.toOpsFrame,
+  refine ⟨by omega, hk_lt, fun _ => by omega, hfrK.trans hfrN.mono,
     Aig.extends_trans hextK hextN, haigN, hoomN0, hfrN.lits_len.trans hlenK, hret_bd,
     hwf_sK.extend hextN, ?_, ?_, hmN⟩
   · intro ρ vb hvb
@@ -833,9 +833,7 @@ theorem shiftStageInv_of_rel {aOff w bOff nw op : BitVec 32}
       (p, { hdrR with lits_len := hdr0.lits_len + w }, gR, awR, htR, lpR) mS hptr := by
   rcases hinv with ⟨hp_nwR, hp_32R, hfrR, hextR, haigR, hoomR, _, hlpR_len, hpreR, hwfR, hevR, _⟩
   have hfrS : hdr0.OpsFrame { hdrR with lits_len := hdr0.lits_len + w } :=
-    hfrR.trans (ops_lits_alloc_ok_frame hdrR 0#32 |> fun _ =>
-      ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-       rfl, rfl, rfl, rfl, rfl, rfl⟩)
+    hfrR.with_lits_len (hdr0.lits_len + w)
   exact ⟨hp_nwR, by omega, hpwR, hfrS, hextR, shift1_aigInv_with_lits_len haigR _,
     hoomR, rfl, hlpR_len, hpreR, hwfR, hevR, sep_ac hmS⟩
 

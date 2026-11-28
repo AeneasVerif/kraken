@@ -412,7 +412,7 @@ public theorem bv_add_loop_wp (Γ : Env)
     (fun st => w.toNat - st.1) Inv ?_ ?_
   · intro J hJ
     refine hJ (0, 0#32, hdr, g, aigWords, htSlots, litsPool) m
-      ⟨BVHdrState.AigFrame.rfl _, Aig.extends_rfl g, by dsimp; omega, hinv, rfl,
+      ⟨Modifies.refl _ _, Aig.extends_rfl g, by dsimp; omega, hinv, rfl,
         Nat.zero_le _, ho,
         fun _ => ⟨by rw [hinv.aig_len_eq]; simp; omega,
           fun ρ => by rw [evalLit_zero, BitVec.carry_zero]⟩,
@@ -855,7 +855,7 @@ public theorem bv_cpop_layer_loop_wp (Γ : Env)
       (proj := fun st : Nat × BVHdrState × Aig × List (BitVec 64) × List (BitVec 32) ×
           List (BitVec 32) => (BitVec.ofNat 32 st.1, ()))
       (0, hdr0, g0, aw0, ht0, lp0) (by simp)
-      (hJ (0, hdr0, g0, aw0, ht0, lp0) m0 ⟨Nat.zero_le _, BVHdrState.AigFrame.rfl _,
+      (hJ (0, hdr0, g0, aw0, ht0, lp0) m0 ⟨Nat.zero_le _, Modifies.refl _ _,
         Aig.extends_rfl g0, by simp, hinv0, rfl, ho0, fun _ _ => rfl,
         (by simpa using sliceLitsWf_zero out_off.toNat (by omega)),
         fun _ hk => False.elim (Nat.not_lt_zero _ hk), hmem⟩)

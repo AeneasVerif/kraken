@@ -47,11 +47,8 @@ theorem mul2_aigInv_with_lits_len {hdr : BVHdrState} {g : Aig} {aw : List (BitVe
   { haig with }
 
 theorem mul2_opsFrame_with_lits_len {h0 h1 : BVHdrState} (hfr : h0.OpsFrame h1) (v : BitVec 32) :
-    h0.OpsFrame { h1 with lits_len := v } := by
-  rcases hfr with ⟨f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13,
-    f14, f15, f16, f17, f18, f19⟩
-  exact ⟨f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13,
-    f14, f15, f16, f17, f18, f19⟩
+    h0.OpsFrame { h1 with lits_len := v } :=
+  hfr.with_lits_len v
 
 theorem mul2_bv32_succ_add {j : Nat} (hj : j + 1 < 2 ^ 32) :
     BitVec.ofNat 32 j + (1 : BitVec 32) = BitVec.ofNat 32 (j + 1) := by

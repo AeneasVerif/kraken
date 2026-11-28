@@ -102,11 +102,7 @@ public theorem getD_set_ne {α : Type _} (xs : List α) (i j : Nat) (v d : α)
 
 public theorem blastFrame_with_lits_len (hdr : BVHdrState) (len : BitVec 32) :
     hdr.DcBlastFrame { hdr with lits_len := len } :=
-  { work_base := rfl, work_end := rfl, prog_ptr := rfl, aig_ptr := rfl,
-    ht_ptr := rfl, atom_base_ptr := rfl, slice_off_ptr := rfl, lits_ptr := rfl,
-    marks_ptr := rfl, dimacs_start := rfl, n_vars := rfl, n_nodes := rfl,
-    n_cwords := rfl, root_node := rfl, num_atoms := rfl, aig_cap := rfl,
-    ht_mask := rfl, lits_cap := rfl, dimacs_len := rfl }
+  Modifies.set_lits_len _ hdr len
 
 private theorem step_mul_12_add {base step w k : Nat}
     (h : k ≤ base + step * (12 * w) + 9 * w + 3 * w) :
@@ -1047,7 +1043,7 @@ private theorem bv_udiv_step_iter_wp (Γ : Env)
   · intro b_lit hdr1 g1 aw1 ht1 lp3 m3 hf1 hle1 hnodes1 hinv1 hlen3 hpres3 _ hbound1
       hoom1val hok1 hmem3
     have hlen3_init : lp3.length = lpInit.length := hlen3.trans hlen2_init
-    have hf1_blast : hdr.DcBlastFrame hdr1 := hf1.toDcBlastFrame
+    have hf1_blast : hdr.DcBlastFrame hdr1 := hf1.mono
     have hframe01 : hdr0.DcBlastFrame hdr1 := hframe0.trans (hframe.trans hf1_blast)
     have hle01 : g0 ≤ g1 := Aig.extends_trans hle0 (Aig.extends_trans hle hle1)
     have hpres_lt_diff : ∀ p, p < diff_off.toNat → lp3.getD p 0#32 = lp2.getD p 0#32 :=
@@ -1074,7 +1070,7 @@ private theorem bv_udiv_step_iter_wp (Γ : Env)
         · intro ite_ok hdr2 g2 aw2 ht2 lp4 m4 hf2 hle2 hnodes2 hinv2 hlen4 hpres4 _
             hoom2_iff hbound2 hite_val hmem4
           have hlen4_init : lp4.length = lpInit.length := hlen4.trans hlen3_init
-          have hf2_blast : hdr1.DcBlastFrame hdr2 := hf2.toDcBlastFrame
+          have hf2_blast : hdr1.DcBlastFrame hdr2 := hf2.mono
           have hle_init2 : gInit ≤ g2 := Aig.extends_trans hle (Aig.extends_trans hle1 hle2)
           have hle02 : g0 ≤ g2 := Aig.extends_trans hle0 hle_init2
           have hpres_lt_q4 : ∀ p, p < q_off.toNat → lp4.getD p 0#32 = lpInit.getD p 0#32 := by
@@ -1319,7 +1315,7 @@ public theorem bv_udiv_step_loop_wp (Γ : Env)
     refine wp_jump_state
       (proj := fun st : UdivStepState => (st.dum, BitVec.ofNat 32 st.step, ()))
       (UdivStepState.mk dummy0 0 hdrInit gInit awInit htInit lpInit) (by simp) ?_
-    refine hJ _ m ⟨Nat.zero_le _, BVHdrState.DcBlastFrame.refl hdrInit,
+    refine hJ _ m ⟨Nat.zero_le _, Modifies.refl _ hdrInit,
       Aig.extends_rfl (g := gInit), by simp, hinv0, hoom0, rfl, rfl, fun _ _ => rfl,
       hwfq, hwfr, ?_, hmem⟩
     intro ρ; simp only [BitVec.divRec_zero, BitVec.DivModState.init]; exact ⟨hqz ρ, hrz ρ⟩

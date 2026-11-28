@@ -19,77 +19,8 @@ open LeanQbe.T.Examples.Bitblast.Src.OpsDivCpop
 @[expose] public section
 
 /-- Header frame preserved by bitblast ops that may allocate literals, gates, or set `oom`. -/
-structure BVHdrState.DcBlastFrame (h1 h2 : BVHdrState) : Prop where
-  work_base : h2.work_base = h1.work_base
-  work_end : h2.work_end = h1.work_end
-  prog_ptr : h2.prog_ptr = h1.prog_ptr
-  aig_ptr : h2.aig_ptr = h1.aig_ptr
-  ht_ptr : h2.ht_ptr = h1.ht_ptr
-  atom_base_ptr : h2.atom_base_ptr = h1.atom_base_ptr
-  slice_off_ptr : h2.slice_off_ptr = h1.slice_off_ptr
-  lits_ptr : h2.lits_ptr = h1.lits_ptr
-  marks_ptr : h2.marks_ptr = h1.marks_ptr
-  dimacs_start : h2.dimacs_start = h1.dimacs_start
-  n_vars : h2.n_vars = h1.n_vars
-  n_nodes : h2.n_nodes = h1.n_nodes
-  n_cwords : h2.n_cwords = h1.n_cwords
-  root_node : h2.root_node = h1.root_node
-  num_atoms : h2.num_atoms = h1.num_atoms
-  aig_cap : h2.aig_cap = h1.aig_cap
-  ht_mask : h2.ht_mask = h1.ht_mask
-  lits_cap : h2.lits_cap = h1.lits_cap
-  dimacs_len : h2.dimacs_len = h1.dimacs_len
-
-end
-
-public section
-
-theorem BVHdrState.DcBlastFrame.refl (h : BVHdrState) : h.DcBlastFrame h :=
-  ⟨_root_.rfl, _root_.rfl, _root_.rfl, _root_.rfl, _root_.rfl, _root_.rfl, _root_.rfl, _root_.rfl,
-    _root_.rfl, _root_.rfl, _root_.rfl, _root_.rfl, _root_.rfl, _root_.rfl, _root_.rfl, _root_.rfl,
-    _root_.rfl, _root_.rfl, _root_.rfl⟩
-
-theorem BVHdrState.DcBlastFrame.trans {h1 h2 h3 : BVHdrState}
-    (h12 : h1.DcBlastFrame h2) (h23 : h2.DcBlastFrame h3) : h1.DcBlastFrame h3 :=
-  { work_base := h23.work_base.trans h12.work_base
-    work_end := h23.work_end.trans h12.work_end
-    prog_ptr := h23.prog_ptr.trans h12.prog_ptr
-    aig_ptr := h23.aig_ptr.trans h12.aig_ptr
-    ht_ptr := h23.ht_ptr.trans h12.ht_ptr
-    atom_base_ptr := h23.atom_base_ptr.trans h12.atom_base_ptr
-    slice_off_ptr := h23.slice_off_ptr.trans h12.slice_off_ptr
-    lits_ptr := h23.lits_ptr.trans h12.lits_ptr
-    marks_ptr := h23.marks_ptr.trans h12.marks_ptr
-    dimacs_start := h23.dimacs_start.trans h12.dimacs_start
-    n_vars := h23.n_vars.trans h12.n_vars
-    n_nodes := h23.n_nodes.trans h12.n_nodes
-    n_cwords := h23.n_cwords.trans h12.n_cwords
-    root_node := h23.root_node.trans h12.root_node
-    num_atoms := h23.num_atoms.trans h12.num_atoms
-    aig_cap := h23.aig_cap.trans h12.aig_cap
-    ht_mask := h23.ht_mask.trans h12.ht_mask
-    lits_cap := h23.lits_cap.trans h12.lits_cap
-    dimacs_len := h23.dimacs_len.trans h12.dimacs_len }
-
-theorem BVHdrState.AigFrame.toDcBlastFrame {h1 h2 : BVHdrState} (hf : h1.AigFrame h2) :
-    h1.DcBlastFrame h2 :=
-  { work_base := hf.work_base, work_end := hf.work_end, prog_ptr := hf.prog_ptr
-    aig_ptr := hf.aig_ptr, ht_ptr := hf.ht_ptr, atom_base_ptr := hf.atom_base_ptr
-    slice_off_ptr := hf.slice_off_ptr, lits_ptr := hf.lits_ptr, marks_ptr := hf.marks_ptr
-    dimacs_start := hf.dimacs_start, n_vars := hf.n_vars, n_nodes := hf.n_nodes
-    n_cwords := hf.n_cwords, root_node := hf.root_node, num_atoms := hf.num_atoms
-    aig_cap := hf.aig_cap, ht_mask := hf.ht_mask, lits_cap := hf.lits_cap
-    dimacs_len := hf.dimacs_len }
-
-theorem BVHdrState.DcBlastFrame.toAigFrame {h1 h2 : BVHdrState} (hf : h1.DcBlastFrame h2)
-    (hlen : h2.lits_len = h1.lits_len) : h1.AigFrame h2 :=
-  { work_base := hf.work_base, work_end := hf.work_end, prog_ptr := hf.prog_ptr
-    aig_ptr := hf.aig_ptr, ht_ptr := hf.ht_ptr, atom_base_ptr := hf.atom_base_ptr
-    slice_off_ptr := hf.slice_off_ptr, lits_ptr := hf.lits_ptr, marks_ptr := hf.marks_ptr
-    dimacs_start := hf.dimacs_start, n_vars := hf.n_vars, n_nodes := hf.n_nodes
-    n_cwords := hf.n_cwords, root_node := hf.root_node, num_atoms := hf.num_atoms
-    aig_cap := hf.aig_cap, ht_mask := hf.ht_mask, lits_len := hlen
-    lits_cap := hf.lits_cap, dimacs_len := hf.dimacs_len }
+abbrev BVHdrState.DcBlastFrame (h1 h2 : BVHdrState) : Prop :=
+  Modifies [.aig_len, .lits_len, .oom] h1 h2
 
 end
 
@@ -552,18 +483,7 @@ theorem aigInv_blastFrame {hdr hdr' : BVHdrState} {g : Aig}
     {aigWords : List (BitVec 64)} {htSlots : List (BitVec 32)}
     (hinv : AigInv hdr g aigWords htSlots) (hf : hdr.DcBlastFrame hdr')
     (haig : hdr'.aig_len = hdr.aig_len) : AigInv hdr' g aigWords htSlots :=
-  { wf := hinv.wf
-    num_atoms_eq := by rw [hf.num_atoms]; exact hinv.num_atoms_eq
-    aig_len_eq := by rw [haig]; exact hinv.aig_len_eq
-    aig_len_le_cap := hinv.aig_len_le_cap
-    aig_cap_eq := by rw [hf.aig_cap]; exact hinv.aig_cap_eq
-    aig_cap_lt := hinv.aig_cap_lt
-    gates_bound := hinv.gates_bound
-    words_match := hinv.words_match
-    ht_len := by rw [hf.ht_mask]; exact hinv.ht_len
-    ht_mask_lt := by intro x; rw [hf.ht_mask]; exact hinv.ht_mask_lt x
-    ht_pos := hinv.ht_pos
-    ht_bound := hinv.ht_bound }
+  hinv.of_modifies hf haig
 
 theorem bvWorkspaceOk_of_blastFrame {cfg : BVWorkspaceCfg} {hdr hdr' : BVHdrState}
     {g' : Aig} {atomBases sliceOffs : List (BitVec 32)}
@@ -572,45 +492,7 @@ theorem bvWorkspaceOk_of_blastFrame {cfg : BVWorkspaceCfg} {hdr hdr' : BVHdrStat
     (hf : hdr.DcBlastFrame hdr') (hinv : AigInv hdr' g' aigWords' htSlots')
     (hlp : litsPool'.length = litsPool.length) :
     BVWorkspaceOk cfg hdr' atomBases sliceOffs aigWords' htSlots' litsPool' :=
-  { fit := hws.fit
-    hdr_wb := hf.work_base.trans hws.hdr_wb
-    hdr_we := hf.work_end.trans hws.hdr_we
-    hdr_ab := hf.atom_base_ptr.trans hws.hdr_ab
-    hdr_so := hf.slice_off_ptr.trans hws.hdr_so
-    hdr_aig := hf.aig_ptr.trans hws.hdr_aig
-    hdr_ht := hf.ht_ptr.trans hws.hdr_ht
-    hdr_lits := hf.lits_ptr.trans hws.hdr_lits
-    hdr_nv := hf.n_vars.trans hws.hdr_nv
-    hdr_nn := hf.n_nodes.trans hws.hdr_nn
-    hdr_acap := hf.aig_cap.trans hws.hdr_acap
-    hdr_htmask := hf.ht_mask.trans hws.hdr_htmask
-    hdr_lcap := hf.lits_cap.trans hws.hdr_lcap
-    atom_align := hws.atom_align
-    slice_align := hws.slice_align
-    aig_ptr_eq := hws.aig_ptr_eq
-    ht_ptr_eq := hws.ht_ptr_eq
-    lits_ptr_eq := hws.lits_ptr_eq
-    lits_fit := hws.lits_fit
-    total_eq := hws.total_eq
-    nv_lt := hws.nv_lt
-    nn_lt := hws.nn_lt
-    acap_lt := hws.acap_lt
-    ht_pos := hws.ht_pos
-    ht_lt := hws.ht_lt
-    ht_mask_lt := hws.ht_mask_lt
-    lcap_lt := hws.lcap_lt
-    ab_len := hws.ab_len
-    so_len := hws.so_len
-    aig_len_eq := by
-      rw [← hinv.aig_cap_eq, hf.aig_cap, hws.hdr_acap, BitVec.toNat_ofNat, Nat.mod_eq_of_lt]
-      exact Nat.lt_trans hws.acap_lt (by decide)
-    ht_len := by
-      have hh := hws.ht_pos
-      have hlt := hws.ht_lt
-      have : BitVec.toNat (BitVec.ofNat 32 (cfg.ht_slots - 1)) = cfg.ht_slots - 1 := by
-        rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt]; omega
-      rw [hinv.ht_len, hf.ht_mask, hws.hdr_htmask, this]; omega
-    lits_len := hlp.trans hws.lits_len }
+  hws.of_modifies_aigInv hf hinv hlp
 
 /-! ## `SliceLitsWf`, `DisjointSlice`, and `sliceVal` lemmas -/
 
@@ -964,8 +846,7 @@ theorem hdr_with_oom_with_oom (hdr : BVHdrState) (a b : BitVec 32) :
 
 theorem hdr_with_oom_aigFrame {hdr : BVHdrState} {noom : BitVec 32} :
     hdr.AigFrame { hdr with oom := noom } :=
-  ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-    rfl, rfl, rfl, rfl⟩
+  Modifies.set_oom _ hdr noom
 
 theorem opMem_to_hdr {h : BitVec 64} {hdr : BVHdrState} {aigWords : List (BitVec 64)}
     {htSlots litsPool : List (BitVec 32)} {R : Mem 64 → Prop} {m : Mem 64}

@@ -380,8 +380,7 @@ private theorem bv_cpop_body_high_wp (Γ : Env)
     simp only [hmark0_le, ↓reduceIte] at hm''
     let hdr' : BVHdrState := { hdr1 with lits_len := mark0, oom := 1#32 }
     have hoom' : hdr'.oom ≠ 0#32 := by dsimp [hdr']; decide
-    have hf0' : hdr.DcBlastFrame hdr' := hf01.trans ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-      rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+    have hf0' : hdr.DcBlastFrame hdr' := hf01.with_lits_len_oom mark0 1#32
     c0_hfast_nogrp
     refine hpost 4294967295#32 hdr' g aw ht lp m'' hf0' (Aig.extends_rfl g) (by omega)
       (aigInv_with_lits_len_oom hinv1 mark0 1#32) rfl (fun _ _ => rfl) (fun _ => hoom')
@@ -443,8 +442,7 @@ private theorem bv_cpop_body_high_wp (Γ : Env)
             rw [htr2, Nat.mod_eq_of_lt (by have := hdr1.lits_cap.isLt; omega)]
           have hl2_cap : hdr2.lits_len.toNat ≤ hdr2.lits_cap.toNat := by
             dsimp [hdr2]; omega
-          have hf02 : hdr.DcBlastFrame hdr2 := hf01.trans ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-            rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+          have hf02 : hdr.DcBlastFrame hdr2 := hf01.with_lits_len_oom _ 0#32
           have hm2' : (bvHdrMem h hdr2 ⋆ array64 hdr2.aig_ptr aw ⋆
               array (t := i32) hdr2.ht_ptr ht ⋆ array (t := i32) hdr2.lits_ptr lp ⋆ R) m2 := by
             simpa only [← Std.ExtHashMap.sep_assoc, hdr2, hf01.aig_ptr, hf01.ht_ptr,
@@ -470,8 +468,7 @@ private theorem bv_cpop_body_high_wp (Γ : Env)
                   hdr2.lits_len.toNat + (w.toNat + 1) / 2 * w.toNat := by
                 dsimp [hdr3]
                 rw [htrh, Nat.mod_eq_of_lt (by have := hdr2.lits_cap.isLt; omega)]
-              have hf03 : hdr.DcBlastFrame hdr3 := hf02.trans ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-                rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+              have hf03 : hdr.DcBlastFrame hdr3 := hf02.with_lits_len_oom _ 0#32
               have hinv3 : AigInv hdr3 g aw ht := aigInv_of_dcBlastFrame hinv hf03 haig01
               have hm3' : (bvHdrMem h hdr3 ⋆ array64 hdr3.aig_ptr aw ⋆
                   array (t := i32) hdr3.ht_ptr ht ⋆ array (t := i32) hdr3.lits_ptr lp ⋆ R) m3 := by
@@ -531,8 +528,7 @@ private theorem bv_cpop_body_high_wp (Γ : Env)
                 simp only [hmark0_le, ↓reduceIte] at hm''
                 let hdr' : BVHdrState := { hdr2 with lits_len := mark0, oom := 1#32 }
                 have hoom' : hdr'.oom ≠ 0#32 := by dsimp [hdr']; decide
-                have hf' : hdr.DcBlastFrame hdr' := hf02.trans ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-                  rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+                have hf' : hdr.DcBlastFrame hdr' := hf02.with_lits_len_oom mark0 1#32
                 c0_hfast_nogrp
                 refine hpost 4294967295#32 hdr' g aw ht lp m'' hf' (Aig.extends_rfl g) (by omega)
                   (aigInv_with_lits_len_oom (aigInv_of_dcBlastFrame hinv hf02 haig01) mark0 1#32)
@@ -561,8 +557,7 @@ private theorem bv_cpop_body_high_wp (Γ : Env)
             simp only [hmark0_le, ↓reduceIte] at hm''
             let hdr' : BVHdrState := { hdr1 with lits_len := mark0, oom := 1#32 }
             have hoom' : hdr'.oom ≠ 0#32 := by dsimp [hdr']; decide
-            have hf' : hdr.DcBlastFrame hdr' := hf01.trans ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-              rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+            have hf' : hdr.DcBlastFrame hdr' := hf01.with_lits_len_oom mark0 1#32
             c0_hfast_nogrp
             refine hpost 4294967295#32 hdr' g aw ht lp m'' hf' (Aig.extends_rfl g) (by omega)
               (aigInv_with_lits_len_oom hinv1 mark0 1#32) rfl (fun _ _ => rfl) (fun _ => hoom')
@@ -598,7 +593,7 @@ public theorem bv_blast_cpop_wp (Γ : Env)
     let hdr' : BVHdrState := { hdr with oom := 1#32 }
     have hoom' : hdr'.oom ≠ 0#32 := by dsimp [hdr']; decide
     refine hpost 4294967295#32 hdr' g aw ht lp m
-      (hdr_with_oom_aigFrame (hdr := hdr) (noom := 1#32)).toDcBlastFrame
+      (Modifies.set_oom _ hdr 1#32)
       (Aig.extends_rfl g) (by omega) (aigInv_with_lits_len_oom hinv hdr.lits_len 1#32) rfl
       (fun _ _ => rfl) (fun _ => hoom')
       (fun ho hl hp ha _ _ _ _ _ => by
@@ -641,8 +636,7 @@ public theorem bv_blast_cpop_wp (Γ : Env)
             dsimp [hdr1]
             rw [Nat.mod_eq_of_lt (by have := hdr.lits_cap.isLt; omega)]
           have hl1_cap : hdr1.lits_len.toNat ≤ hdr1.lits_cap.toNat := by dsimp [hdr1]; omega
-          have hf01 : hdr.DcBlastFrame hdr1 := ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-            rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+          have hf01 : hdr.DcBlastFrame hdr1 := Modifies.set_lits_len_oom _ hdr _ 0#32
           have hinv1 : AigInv hdr1 g aw ht := aigInv_of_dcBlastFrame hinv hf01 rfl
           have hm1' : (bvHdrMem h hdr1 ⋆ array64 hdr1.aig_ptr aw ⋆
               array (t := i32) hdr1.ht_ptr ht ⋆ array (t := i32) hdr1.lits_ptr lp ⋆ R) m1 := by
@@ -731,8 +725,7 @@ public theorem bv_blast_cpop_wp (Γ : Env)
           · c0_hfast_nogrp
             let hdr' : BVHdrState := { hdr with oom := 1#32 }
             have hoom' : hdr'.oom ≠ 0#32 := by dsimp [hdr']; decide
-            have hf' : hdr.DcBlastFrame hdr' := ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-              rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+            have hf' : hdr.DcBlastFrame hdr' := Modifies.set_oom _ hdr 1#32
             refine hpost 4294967295#32 hdr' g aw ht lp m1 hf' (Aig.extends_rfl g) (by omega)
               (aigInv_with_lits_len_oom hinv hdr.lits_len 1#32) rfl (fun _ _ => rfl)
               (fun hne => absurd ho hne)

@@ -744,8 +744,8 @@ theorem call_bv_mk_and {Γ : Env} (hAnd : Γ.Has "bv_mk_and" bvMkAndSpec)
   refine hAnd (h, lhs, rhs, ⟨⟩) m Q X ⟨hdr, g, aigWords, htSlots,
     array (t := i32) hdr.lits_ptr litsPool ⋆ R, haig, hbd, sep_ac hm,
     fun ret hdr' g' aw' ht' m' hfr hext _ haig' hoom _ heval hm' => ?_⟩
-  exact hQ ret hdr' g' aw' ht' m' hfr.toOpsFrame hfr.lits_len hext haig' hoom heval
-    (ops_aig_frame_unfocus hfr.toOpsFrame hm')
+  exact hQ ret hdr' g' aw' ht' m' hfr.mono hfr.lits_len hext haig' hoom heval
+    (ops_aig_frame_unfocus hfr.mono hm')
 
 theorem call_bv_aig_or {Γ : Env} (hOr : Γ.Has "bv_aig_or" bvAigOrSpec)
     {h : BitVec 64} {lhs rhs : BitVec 32} {hdr : BVHdrState} {g : Aig}
@@ -774,8 +774,8 @@ theorem call_bv_aig_or {Γ : Env} (hOr : Γ.Has "bv_aig_or" bvAigOrSpec)
   refine hOr (h, lhs, rhs, ⟨⟩) m Q X ⟨hdr, g, aigWords, htSlots,
     array (t := i32) hdr.lits_ptr litsPool ⋆ R, haig, hbd, sep_ac hm,
     fun ret hdr' g' aw' ht' m' hfr hext _ haig' hoom _ heval hm' => ?_⟩
-  exact hQ ret hdr' g' aw' ht' m' hfr.toOpsFrame hfr.lits_len hext haig' hoom heval
-    (ops_aig_frame_unfocus hfr.toOpsFrame hm')
+  exact hQ ret hdr' g' aw' ht' m' hfr.mono hfr.lits_len hext haig' hoom heval
+    (ops_aig_frame_unfocus hfr.mono hm')
 
 theorem call_bv_aig_ite {Γ : Env} (hIte : Γ.Has "bv_aig_ite" bvAigIteSpec)
     {h : BitVec 64} {c t f : BitVec 32} {hdr : BVHdrState} {g : Aig}
@@ -808,8 +808,8 @@ theorem call_bv_aig_ite {Γ : Env} (hIte : Γ.Has "bv_aig_ite" bvAigIteSpec)
   refine hIte (h, c, t, f, ⟨⟩) m Q X ⟨hdr, g, aigWords, htSlots,
     array (t := i32) hdr.lits_ptr litsPool ⋆ R, haig, hbd, sep_ac hm,
     fun ret hdr' g' aw' ht' m' hfr hext _ haig' hoom _ heval hm' => ?_⟩
-  exact hQ ret hdr' g' aw' ht' m' hfr.toOpsFrame hfr.lits_len hext haig' hoom heval
-    (ops_aig_frame_unfocus hfr.toOpsFrame hm')
+  exact hQ ret hdr' g' aw' ht' m' hfr.mono hfr.lits_len hext haig' hoom heval
+    (ops_aig_frame_unfocus hfr.mono hm')
 
 theorem call_bv_copy_lits {Γ : Env} (hCopy : Γ.Has "bv_copy_lits" bvCopyLitsSpec)
     {h : BitVec 64} {dstOff srcOff w : BitVec 32} {hdr : BVHdrState}
@@ -835,12 +835,11 @@ theorem ops_lits_pure_guard_oom (hdr : BVHdrState) :
     { hdr with oom := 1#32 }.lits_len = hdr.lits_len ∧
     { hdr with oom := 1#32 }.oom = 1#32 ∧
     hdr.OpsFrame { hdr with oom := 1#32 } :=
-  ⟨rfl, rfl, rfl,
-   ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩⟩
+  ⟨rfl, rfl, rfl, Modifies.set_oom _ hdr 1#32⟩
 
 theorem ops_lits_alloc_ok_frame (hdr : BVHdrState) (cnt : BitVec 32) :
     hdr.OpsFrame { hdr with lits_len := hdr.lits_len + cnt } :=
-  ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+  Modifies.set_lits_len _ hdr _
 
 end
 

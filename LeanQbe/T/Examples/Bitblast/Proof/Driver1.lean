@@ -537,7 +537,7 @@ theorem bv_eval_node_wp (Γ : Env)
       have hsw : (BitVec.setWidth 64 (BitVec.ofNat 32 a)).toNat = (BitVec.ofNat 32 a).toNat := by
         simp [BitVec.toNat_setWidth]
       refine drv1_gate_ok hoom0 hinv hni_lt hok hok haig
-        (by constructor <;> rfl) (Aig.extends_rfl g)
+        (Modifies.refl _ _) (Aig.extends_rfl g)
         hoom0 hno_ne25 hnd_bn ?_ (fun assign => ?_) (by assumption) hQ
       · rw [bv32_xor1_lsr1]; simp only [hsw]
         rw [list_getD_eq_getElem _ 0#32]

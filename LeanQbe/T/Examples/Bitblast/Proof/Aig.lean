@@ -363,8 +363,7 @@ private theorem bv_mk_and_push_post {Q : Post [i32]} {h : Val i64} {lhs rhs l r 
   have hinv' := aigInv_pushNode hinv wslot hl_lt hr_lt hcap_ok hng_max
   refine hQ (hdr.aig_len <<< 1) { hdr with aig_len := hdr.aig_len + 1#32 } res.1
     (aigWords.set hdr.aig_len.toNat key) (htSlots.set wslot.toNat hdr.aig_len) m
-    ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-      rfl, rfl, rfl⟩
+    (Modifies.set_aig_len _ hdr _)
     (Aig.pushNode_extends g (UInt32.ofBitVec l) (UInt32.ofBitVec r))
     (by simp [res, Aig.pushNode]) hinv' (fun h => absurd hoom0 h)
     (fun _ _ _ => hoom0) (fun _ => ⟨?_, fun ρ => ?_⟩) ?_
@@ -405,8 +404,7 @@ private theorem bv_mk_and_oom_post {Q : Post [i32]} {h : Val i64} {lhs rhs : Bit
       Q (ret, ()) m') :
     Q (0#32, ()) m := by
   refine hQ 0#32 { hdr with oom := 1#32 } g aigWords htSlots m
-    ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-      rfl, rfl, rfl⟩
+    (Modifies.set_oom _ hdr 1#32)
     (Aig.extends_rfl g) (Nat.le_succ _) { hinv with } (fun h => absurd hoom0 h) ?_
     (fun h => by cases h) ?_
   · intro _ hcap_ok hmax_ok
@@ -454,7 +452,7 @@ private theorem bv_mk_and_hit_post {Q : Post [i32]} {h : Val i64} {lhs rhs l r i
   have hidx_31 : idx.toNat < 2 ^ 31 := by
     have := hinv.aig_cap_lt; unfold bvDimacsBound at this; omega
   refine hQ (idx <<< 1) hdr g aigWords htSlots m
-    (BVHdrState.AigFrame.rfl hdr) (Aig.extends_rfl g) (Nat.le_succ _) hinv
+    (Modifies.refl _ hdr) (Aig.extends_rfl g) (Nat.le_succ _) hinv
     (fun h => absurd hoom0 h) (fun _ _ _ => hoom0) (fun _ => ⟨?_, fun ρ => ?_⟩) hm
   · have hshr := bv32_shl1_shr1_toNat hidx_31
     c0_bv_omega [hshr, hidx_lt]
@@ -469,7 +467,7 @@ theorem bv_mk_and_wp (Γ : Env)
   c0_hstraight; c0_hsplit
   · have hoom_ne : hdr.oom ≠ 0#32 := by c0_bv_omega [hc]
     c0_hsteps
-    exact hQ 0#32 hdr g aigWords htSlots m (BVHdrState.AigFrame.rfl hdr) (Aig.extends_rfl g)
+    exact hQ 0#32 hdr g aigWords htSlots m (Modifies.refl _ hdr) (Aig.extends_rfl g)
       (Nat.le_succ _) hinv (fun _ => hoom_ne)
       (fun h0 => absurd h0 hoom_ne) (fun h0 => absurd h0 hoom_ne) hm
   have hoom0 : hdr.oom = 0#32 := by c0_bv_omega [hc]
@@ -480,37 +478,37 @@ theorem bv_mk_and_wp (Γ : Env)
   c0_hstraight; c0_hsplit
   · have hl0 : lhs = 0#32 := by c0_bv_omega [hc]
     subst hl0; c0_hsteps
-    exact hQ 0#32 hdr g aigWords htSlots m (BVHdrState.AigFrame.rfl hdr) (Aig.extends_rfl g)
+    exact hQ 0#32 hdr g aigWords htSlots m (Modifies.refl _ hdr) (Aig.extends_rfl g)
       (Nat.le_succ _) hinv (fun h => absurd hoom0 h) (fun _ _ _ => hoom0)
       (fun _ => ⟨by simpa using hlen_pos, fun ρ => by simp⟩) hm
   clear hc; c0_hstraight; c0_hsplit
   · have hr0 : rhs = 0#32 := by c0_bv_omega [hc]
     subst hr0; c0_hsteps
-    exact hQ 0#32 hdr g aigWords htSlots m (BVHdrState.AigFrame.rfl hdr) (Aig.extends_rfl g)
+    exact hQ 0#32 hdr g aigWords htSlots m (Modifies.refl _ hdr) (Aig.extends_rfl g)
       (Nat.le_succ _) hinv (fun h => absurd hoom0 h) (fun _ _ _ => hoom0)
       (fun _ => ⟨by simpa using hlen_pos, fun ρ => by simp⟩) hm
   clear hc; c0_hstraight; c0_hsplit
   · have hl1 : lhs = 1#32 := by c0_bv_omega [hc]
     subst hl1; c0_hsteps
-    exact hQ rhs hdr g aigWords htSlots m (BVHdrState.AigFrame.rfl hdr) (Aig.extends_rfl g)
+    exact hQ rhs hdr g aigWords htSlots m (Modifies.refl _ hdr) (Aig.extends_rfl g)
       (Nat.le_succ _) hinv (fun h => absurd hoom0 h) (fun _ _ _ => hoom0)
       (fun _ => ⟨hr_bd, fun ρ => by simp⟩) hm
   clear hc; c0_hstraight; c0_hsplit
   · have hr1 : rhs = 1#32 := by c0_bv_omega [hc]
     subst hr1; c0_hsteps
-    exact hQ lhs hdr g aigWords htSlots m (BVHdrState.AigFrame.rfl hdr) (Aig.extends_rfl g)
+    exact hQ lhs hdr g aigWords htSlots m (Modifies.refl _ hdr) (Aig.extends_rfl g)
       (Nat.le_succ _) hinv (fun h => absurd hoom0 h) (fun _ _ _ => hoom0)
       (fun _ => ⟨hl_bd, fun ρ => by simp⟩) hm
   clear hc; c0_hstraight; c0_hsplit
   · have hlr : lhs = rhs := by c0_bv_omega [hc]
     subst hlr; c0_hsteps
-    exact hQ lhs hdr g aigWords htSlots m (BVHdrState.AigFrame.rfl hdr) (Aig.extends_rfl g)
+    exact hQ lhs hdr g aigWords htSlots m (Modifies.refl _ hdr) (Aig.extends_rfl g)
       (Nat.le_succ _) hinv (fun h => absurd hoom0 h) (fun _ _ _ => hoom0)
       (fun _ => ⟨hl_bd, fun ρ => by simp⟩) hm
   clear hc; c0_hstraight; c0_hsplit
   · have hcomp : lhs = rhs ^^^ 1#32 := by simpa [beq_iff_eq] using hc
     subst hcomp; c0_hsteps
-    refine hQ 0#32 hdr g aigWords htSlots m (BVHdrState.AigFrame.rfl hdr) (Aig.extends_rfl g)
+    refine hQ 0#32 hdr g aigWords htSlots m (Modifies.refl _ hdr) (Aig.extends_rfl g)
       (Nat.le_succ _) hinv (fun h => absurd hoom0 h) (fun _ _ _ => hoom0)
       (fun _ => ⟨by simpa using hlen_pos, fun ρ => ?_⟩) hm
     rw [evalLit_ofBv_xor1]
@@ -791,19 +789,19 @@ theorem bv_aig_ite_wp (Γ : Env)
   c0_hstraight; c0_hsplit
   · have hc1 : c = 1#32 := by c0_bv_omega [hc]
     subst hc1; c0_hsteps
-    exact hQ t hdr g aw ht m (BVHdrState.AigFrame.rfl hdr) (Aig.extends_rfl g) (by omega)
+    exact hQ t hdr g aw ht m (Modifies.refl _ hdr) (Aig.extends_rfl g) (by omega)
       hinv (fun h => h) (fun h0 _ _ => h0)
       (fun h0 => ⟨(hbd h0).2.1, fun ρ => by simp⟩) hm
   clear hc; c0_hstraight; c0_hsplit
   · have hc0 : c = 0#32 := by c0_bv_omega [hc]
     subst hc0; c0_hsteps
-    exact hQ f hdr g aw ht m (BVHdrState.AigFrame.rfl hdr) (Aig.extends_rfl g) (by omega)
+    exact hQ f hdr g aw ht m (Modifies.refl _ hdr) (Aig.extends_rfl g) (by omega)
       hinv (fun h => h) (fun h0 _ _ => h0)
       (fun h0 => ⟨(hbd h0).2.2, fun ρ => by simp⟩) hm
   clear hc; c0_hstraight; c0_hsplit
   · have htf : t = f := by c0_bv_omega [hc]
     subst htf; c0_hsteps
-    refine hQ t hdr g aw ht m (BVHdrState.AigFrame.rfl hdr) (Aig.extends_rfl g) (by omega)
+    refine hQ t hdr g aw ht m (Modifies.refl _ hdr) (Aig.extends_rfl g) (by omega)
       hinv (fun h => h) (fun h0 _ _ => h0) (fun h0 => ⟨(hbd h0).2.1, fun ρ => ?_⟩) hm
     cases g.evalLit ρ (UInt32.ofBitVec c) <;> rfl
   clear hc; c0_hstraight

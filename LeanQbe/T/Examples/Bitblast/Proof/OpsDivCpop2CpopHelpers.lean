@@ -133,10 +133,7 @@ public theorem aigInv_of_dcBlastFrame {hdr hdr' : BVHdrState} {g : Aig}
     {aw : List (BitVec 64)} {ht : List (BitVec 32)}
     (hinv : AigInv hdr g aw ht) (hf : hdr.DcBlastFrame hdr') (hlen : hdr'.aig_len = hdr.aig_len) :
     AigInv hdr' g aw ht :=
-  ⟨hinv.wf, by rw [hf.num_atoms]; exact hinv.num_atoms_eq, by rw [hlen]; exact hinv.aig_len_eq,
-   hinv.aig_len_le_cap, by rw [hf.aig_cap]; exact hinv.aig_cap_eq, hinv.aig_cap_lt,
-   hinv.gates_bound, hinv.words_match, by rw [hf.ht_mask]; exact hinv.ht_len,
-   fun x => by rw [hf.ht_mask]; exact hinv.ht_mask_lt x, hinv.ht_pos, hinv.ht_bound⟩
+  hinv.of_modifies hf hlen
 
 private theorem bv_cpop_init_inner_wp {Γ : Env} {h : Val i64} {buf0 w : BitVec 32}
     {i : Nat} {row_off : BitVec 32} {ld : Val i64} {outerJ : Cont [i32]}
@@ -527,8 +524,8 @@ public theorem bv_cpop_copy_out_wp {Γ : Env}
           rw [hmark1, ← hout_eq, BitVec.toNat_add,
             Nat.mod_eq_of_lt (by have := hdr.lits_len.isLt; omega)]
         c0_hfast_nogrp
-        refine hpost hdr' lp m' ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-          rfl, rfl, rfl, rfl, rfl, rfl⟩ ho rfl hmark1 (by dsimp [hdr']; omega) hlen hpres
+        refine hpost hdr' lp m' (Modifies.set_lits_len _ hdr mark1)
+          ho rfl hmark1 (by dsimp [hdr']; omega) hlen hpres
           ⟨by dsimp [hdr']; omega, fun j hj => by rw [hcp j hj]; exact hwf_cur.2 j hj⟩
           (fun ρ => by
             apply BitVec.eq_of_getLsbD_eq; intro k hk
@@ -608,7 +605,7 @@ public theorem bv_cpop_halve_loop_wp {Γ : Env}
         (st.1, st.2.1, BitVec.ofNat 32 st.2.2.1, ()))
       (buf0, buf1, w.toNat, hdrInit, gInit, awInit, htInit, lpInit) (by simp)
       (hJ (buf0, buf1, w.toNat, hdrInit, gInit, awInit, htInit, lpInit) mInit
-        ⟨h1w, Nat.le_refl _, BVHdrState.AigFrame.rfl _, Aig.extends_rfl gInit, Nat.le_refl _,
+        ⟨h1w, Nat.le_refl _, Modifies.refl _ _, Aig.extends_rfl gInit, Nat.le_refl _,
           hinvInit, hlenInit, ho, hagreeOrig, Or.inl ⟨rfl, rfl⟩, hwfInit, fun _ => rfl, hmemInit⟩)
   · intro J st ml ⟨hge1, hlew, hf, hg, hsz, hinv, hlen, ho_cur, hpres, hbufs, hwf, hsum, hml⟩ hIH
     rcases st with ⟨curIn, curOut, curLen, hdr, g, aw, ht, lp⟩
@@ -734,8 +731,7 @@ public theorem bv_cpop_halve_loop_wp {Γ : Env}
             let hdr'' : BVHdrState := { hdr' with lits_len := mark0 }
             c0_hfast_nogrp
             have hf0'' : hdrInit.DcBlastFrame hdr'' :=
-              hf0'.toDcBlastFrame.trans ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-                rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+              hf0'.mono.with_lits_len mark0
             have hinv'' : AigInv hdr'' g' aw' ht' :=
               aigInv_with_lits_len_oom hinv' mark0 hdr'.oom
             refine hpost 4294967295#32 hdr'' g' aw' ht' lp' m'' hf0'' hg0' (by omega) hinv''
@@ -778,7 +774,7 @@ public theorem bv_cpop_halve_loop_wp {Γ : Env}
             rw [hpres' p (Or.inl (by rw [hout_eq]; exact hp))]
             exact hpres p hp
         have hframe_tot : hdrInit.DcBlastFrame hdr' :=
-          hf.toDcBlastFrame.trans hf'
+          hf.mono.trans hf'
         have hinv' : AigInv hdr' g aw ht := aigInv_of_dcBlastFrame hinv hf' haig'
         refine hpost out_off hdr' g aw ht lp' m' hframe_tot hg (by simpa using hsz) hinv'
           (hlp_len.trans hlen) hpres0' (fun _ => ⟨hout_eq, hlen_eq, hcap', hwf', fun ρ => by

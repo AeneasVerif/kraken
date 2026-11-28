@@ -646,11 +646,11 @@ theorem shiftVar_inner_wp {Γ : Env} {Q : Post [i32]} {X : XPost} {mP : Mem 64}
             by rw [haigJ.aig_len_eq]; exact hsbit_bd,
             by rw [hout_ag, haigJ.aig_len_eq]; exact hwf_outJ j hj_lt⟩,
           sep_ac hmJ, fun ret hdrN gN awN htN mN hfrN hextN _ haigN hoomN _ hevN hmN => ?_⟩
-        have hfr0N := hfrJ.trans hfrN.toOpsFrame
+        have hfr0N := hfrJ.trans hfrN.mono
         have hext0N := Aig.extends_trans hextJ hextN
         have hlenN : hdrN.lits_len = hdr0.lits_len + w + w := hfrN.lits_len.trans hlenJ
         rw [← hfrJ.lits_ptr] at hmN
-        have hmN' := ops_aig_frame_unfocus hfrN.toOpsFrame hmN
+        have hmN' := ops_aig_frame_unfocus hfrN.mono hmN
         rw [hfr0N.lits_ptr] at hmN'
         c0_hstraight
         rw [htmpj_sw] at hm
@@ -664,9 +664,8 @@ theorem shiftVar_inner_wp {Γ : Env} {Q : Post [i32]} {X : XPost} {mP : Mem 64}
             array (t := i32) hdr0.lits_ptr _ ⋆ R, sep_ac hm, fun mO hmO => ?_⟩
           rw [ite_eq_left (by rw [hl1_eq, hlenN_n]; omega)] at hmO
           c0_hsteps
-          have hfrO : hdr0.OpsFrame { hdrN with lits_len := hdr0.lits_len + w } := by
-            rcases hfr0N with ⟨f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13,f14,f15,f16,f17,f18,f19⟩
-            exact ⟨f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13,f14,f15,f16,f17,f18,f19⟩
+          have hfrO : hdr0.OpsFrame { hdrN with lits_len := hdr0.lits_len + w } :=
+            hfr0N.with_lits_len (hdr0.lits_len + w)
           have haigO := shift1_aigInv_with_lits_len haigN (hdr0.lits_len + w)
           rw [← hfr0N.lits_ptr] at hmO
           exact shiftVar_oom_close (hdr' := { hdrN with lits_len := hdr0.lits_len + w })
@@ -1012,11 +1011,11 @@ theorem shiftVar_fill_wp {Γ : Env} {Q : Post [i32]} {X : XPost} {mK : Mem 64}
             by rw [hout_ag, haigL.aig_len_eq]; exact hwf_sL j hj_lt⟩,
           sep_ac hmL,
           fun ret hdrN gN awN htN mN hfrN hextN _ haigN hoomN _ hevN hmN => ?_⟩
-        have hfr0N := hfrL.trans hfrN.toOpsFrame
+        have hfr0N := hfrL.trans hfrN.mono
         have hext0N := Aig.extends_trans hextL hextN
         have hlenN : hdrN.lits_len = hdr0.lits_len + w := hfrN.lits_len.trans hlenL
         rw [← hfrL.lits_ptr] at hmN
-        have hmN' := ops_aig_frame_unfocus hfrN.toOpsFrame hmN
+        have hmN' := ops_aig_frame_unfocus hfrN.mono hmN
         rw [hfr0N.lits_ptr] at hmN'
         c0_hstraight
         rw [houtj_sw] at hm
@@ -1202,11 +1201,11 @@ theorem shiftVar_tail_wp {Γ : Env} {Q : Post [i32]} {X : XPost} {mS : Mem 64}
                 fun _ => ⟨by rw [haigK.aig_len_eq]; exact hwf_ah,
                   by rw [hlp_bk, haigK.aig_len_eq]; exact hwf_bk⟩,
                 sep_ac hmK, fun ret hdrN gN awN htN mN hfrN hextN _ haigN hoomN _ hevN hmN => ?_⟩
-              have hfr0N := hfrK.trans hfrN.toOpsFrame
+              have hfr0N := hfrK.trans hfrN.mono
               have hext0N := Aig.extends_trans hextK hextN
               have hlenN : hdrN.lits_len = hdr0.lits_len + w := hfrN.lits_len.trans hlenK
               rw [← hfrK.lits_ptr] at hmN
-              have hmN' := ops_aig_frame_unfocus hfrN.toOpsFrame hmN
+              have hmN' := ops_aig_frame_unfocus hfrN.mono hmN
               rw [hfr0N.lits_ptr] at hmN'
               c0_hstraight; c0_hsplit
               · have hoom_ne : hdrN.oom ≠ 0#32 := by c0_bv_omega [hc]

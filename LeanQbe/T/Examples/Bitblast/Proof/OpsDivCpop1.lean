@@ -102,10 +102,7 @@ private theorem bv_udiv_oom_ret_q
 
 private theorem udiv_hdr0_oom_frame (hdr0 : BVHdrState) :
     hdr0.DcBlastFrame { hdr0 with oom := 1#32 } :=
-  { work_base := rfl, work_end := rfl, prog_ptr := rfl, aig_ptr := rfl, ht_ptr := rfl,
-    atom_base_ptr := rfl, slice_off_ptr := rfl, lits_ptr := rfl, marks_ptr := rfl,
-    dimacs_start := rfl, n_vars := rfl, n_nodes := rfl, n_cwords := rfl, root_node := rfl,
-    num_atoms := rfl, aig_cap := rfl, ht_mask := rfl, lits_cap := rfl, dimacs_len := rfl }
+  Modifies.set_oom _ hdr0 1#32
 
 private theorem bv_udiv_finish_wp (Γ : Env)
     (hite : Γ.Has "bv_blast_ite_into" bvBlastIteIntoSpec)
@@ -238,7 +235,7 @@ private theorem bv_udiv_finish_wp (Γ : Env)
             by unfold DisjointSlice; omega, by unfold DisjointSlice; omega⟩
         · intro ite_ok hdrF gF awF htF lpF mF hfF hleF hnodesF hinvF hlenF hpresF _
             hoomF_iff hboundF hite_valF hmemF
-          have hframe0F : hdr0.DcBlastFrame hdrF := hframe0W.trans hfF.toDcBlastFrame
+          have hframe0F : hdr0.DcBlastFrame hdrF := hframe0W.trans hfF.mono
           have hle0F : g0 ≤ gF := Aig.extends_trans hle0W hleF
           have hlenF_0 : lpF.length = lp0.length := hlenF.trans hlen_lp
           have hpresF_0 : ∀ p, p < hdr0.lits_len.toNat → lpF.getD p 0#32 = lp0.getD p 0#32 :=
@@ -288,7 +285,7 @@ private theorem bv_udiv_finish_wp (Γ : Env)
             by unfold DisjointSlice; omega, by unfold DisjointSlice; omega⟩
         · intro ite_ok hdrF gF awF htF lpF mF hfF hleF hnodesF hinvF hlenF hpresF _
             hoomF_iff hboundF hite_valF hmemF
-          have hframe0F : hdr0.DcBlastFrame hdrF := hframe0W.trans hfF.toDcBlastFrame
+          have hframe0F : hdr0.DcBlastFrame hdrF := hframe0W.trans hfF.mono
           have hle0F : g0 ≤ gF := Aig.extends_trans hle0W hleF
           have hlenF_0 : lpF.length = lp0.length := hlenF.trans hlenZ_0
           have hpresF_0 : ∀ p, p < hdr0.lits_len.toNat → lpF.getD p 0#32 = lp0.getD p 0#32 :=
@@ -414,7 +411,7 @@ private theorem bv_udiv_post_alloc_wp (Γ : Env)
     exact ⟨hwf_dZ, hwf_qZ⟩
   · intro d_is_zero hdrEq gEq awEq htEq mEq hfEq hleEq hnodesEq hinvEq _ hboundEq
       hoomEq_val hokEq hmemEq
-    have hfEq_blast : hdrInit.DcBlastFrame hdrEq := hfEq.toDcBlastFrame
+    have hfEq_blast : hdrInit.DcBlastFrame hdrEq := hfEq.mono
     have hframe0Eq : hdr0.DcBlastFrame hdrEq := hframe0.trans hfEq_blast
     apply wp_load_hdr_oom hmemEq
     by_cases hoomEq : hdrEq.oom = 0#32

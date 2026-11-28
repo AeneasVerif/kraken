@@ -439,12 +439,7 @@ theorem aigInv_aigFrame {hdr hdr' : BVHdrState} {g : Aig} {aigWords : List (BitV
     {htSlots : List (BitVec 32)} (hinv : AigInv hdr g aigWords htSlots)
     (hfr : hdr.AigFrame hdr') (hal : hdr'.aig_len = hdr.aig_len) :
     AigInv hdr' g aigWords htSlots :=
-  { hinv with
-    num_atoms_eq := by rw [hfr.num_atoms]; exact hinv.num_atoms_eq
-    aig_len_eq := by rw [hal]; exact hinv.aig_len_eq
-    aig_cap_eq := by rw [hfr.aig_cap]; exact hinv.aig_cap_eq
-    ht_len := by rw [hfr.ht_mask]; exact hinv.ht_len
-    ht_mask_lt := fun x => by rw [hfr.ht_mask]; exact hinv.ht_mask_lt x }
+  hinv.of_modifies hfr hal
 
 theorem nodes_words_fit {cfg : BVWorkspaceCfg} {progBytes : List UInt8}
     {vars : BinTree VarEntry} {cwords : BinTree Nat} {nodes : BinTree ProgNode}
@@ -766,26 +761,7 @@ theorem bvWorkspaceOk_of_aigFrame {cfg : BVWorkspaceCfg} {hdr hdr' : BVHdrState}
     (hok : BVWorkspaceOk cfg hdr atomBases sliceOffs aigWords htSlots litsPool)
     (hfr : hdr.AigFrame hdr') (haig' : AigInv hdr' g' aigWords' htSlots') :
     BVWorkspaceOk cfg hdr' atomBases sliceOffs aigWords' htSlots' litsPool :=
-  { hok with
-    hdr_wb := hfr.work_base.trans hok.hdr_wb
-    hdr_we := hfr.work_end.trans hok.hdr_we
-    hdr_ab := hfr.atom_base_ptr.trans hok.hdr_ab
-    hdr_so := hfr.slice_off_ptr.trans hok.hdr_so
-    hdr_aig := hfr.aig_ptr.trans hok.hdr_aig
-    hdr_ht := hfr.ht_ptr.trans hok.hdr_ht
-    hdr_lits := hfr.lits_ptr.trans hok.hdr_lits
-    hdr_nv := hfr.n_vars.trans hok.hdr_nv
-    hdr_nn := hfr.n_nodes.trans hok.hdr_nn
-    hdr_acap := hfr.aig_cap.trans hok.hdr_acap
-    hdr_htmask := hfr.ht_mask.trans hok.hdr_htmask
-    hdr_lcap := hfr.lits_cap.trans hok.hdr_lcap
-    aig_len_eq := by
-      rw [← haig'.aig_cap_eq, hfr.aig_cap, hok.hdr_acap, BitVec.toNat_ofNat]
-      exact Nat.mod_eq_of_lt (by have := hok.acap_lt; omega)
-    ht_len := by
-      rw [haig'.ht_len, hfr.ht_mask, hok.hdr_htmask, BitVec.toNat_ofNat,
-        Nat.mod_eq_of_lt (by have := hok.ht_lt; omega)]
-      have := hok.ht_pos; omega }
+  hok.of_modifies_aigInv hfr haig' rfl
 
 theorem bv32_xor1_lsr1 (l : BitVec 32) :
     ((l ^^^ 1#32) >>> (1 : Nat)).toNat = (l >>> (1 : Nat)).toNat := by

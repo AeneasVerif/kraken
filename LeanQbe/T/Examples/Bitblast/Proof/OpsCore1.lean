@@ -62,10 +62,6 @@ private theorem ops_sep5_emp_all {A B C D R : Mem 64 → Prop} {m : Mem 64}
   (by simp only [Std.ExtHashMap.sep_emp]; ac_rfl :
     (A ⋆ (B ⋆ (C ⋆ (D ⋆ (R ⋆ Std.ExtHashMap.emp))))) = (A ⋆ B ⋆ C ⋆ D ⋆ R)) ▸ h
 
-private theorem aigFrame_refl (h : BVHdrState) : h.AigFrame h :=
-  ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-    rfl⟩
-
 private structure BitwiseSt where
   j : BitVec 32
   hdr : BVHdrState
@@ -154,7 +150,7 @@ private theorem bitwise_gate_branch {Γ : Env} {Q : Post [i32]} {X : XPost} {J :
     intro ret hdr' g' aigW' htS' m' hfr hgg' hsz' hinv' hoom' hok' hpost' hm'
     dsimp only [Arg.val]
     c0_hstraight
-    refine hJ (ret, ⟨⟩) m' ⟨hdr', g', aigW', htS', hinv.2.1.trans hfr.toBlastFrame,
+    refine hJ (ret, ⟨⟩) m' ⟨hdr', g', aigW', htS', hinv.2.1.trans hfr.mono,
       hfr.lits_len.trans rfl, hgg', by omega, hinv', hoom', ?_, ?_, ?_⟩
     · intro ho hcap hgmax
       exact hok' ho (by omega) (by omega)
@@ -253,9 +249,7 @@ theorem bv_blast_bin_bitwise_wp (Γ : Env)
           subst hml2; dsimp only [Blocks.get_here]
           c0_hstraight
           let hdr' : BVHdrState := { hdr with oom := (1 : BitVec 32) }
-          have hfr : hdr.BlastFrame hdr' :=
-            ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-              rfl, rfl, rfl, rfl, rfl, rfl⟩
+          have hfr : hdr.BlastFrame hdr' := Modifies.set_oom _ hdr 1#32
           exact hQ 0xFFFFFFFF#32 hdr' g aigW htS lits0 _ hfr (aig_le_refl g)
             (Nat.le_add_right _ _) (aigInv_set_oom (1 : BitVec 32) hinv0) rfl (fun _ _ => rfl)
             (Nat.le_refl _) (Nat.le_add_right _ _) (fun _ => by simp [hdr'])
@@ -302,9 +296,7 @@ theorem bv_blast_bin_bitwise_wp (Γ : Env)
                         c0_hsplit
                         · exfalso; exact hc h0
                         · c0_hstraight
-                          have hfr1 : hdr.BlastFrame hdr1 :=
-                            ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-                              rfl, rfl, rfl, rfl, rfl, rfl⟩
+                          have hfr1 : hdr.BlastFrame hdr1 := Modifies.set_lits_len _ hdr _
                           have hinv1 := aigInv_set_litsLen (hdr.lits_len + w) hinv0
                           refine wp_while_record
                             (proj := fun st : BitwiseSt => (st.j, ⟨⟩))
@@ -473,9 +465,7 @@ theorem bv_blast_bin_bitwise_wp (Γ : Env)
                         let hdr1 : BVHdrState :=
                           { hdr with oom := if hdr.oom ≠ 0#32 then hdr.oom else 1#32 }
                         have hoom1 : hdr1.oom = 1#32 := by simp [hdr1, h0]
-                        have hfr1 : hdr.BlastFrame hdr1 :=
-                          ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-                            rfl, rfl, rfl, rfl, rfl, rfl⟩
+                        have hfr1 : hdr.BlastFrame hdr1 := Modifies.set_oom _ hdr _
                         c0_hstraight
                         c0_hsplit
                         · c0_hstraight
@@ -501,9 +491,7 @@ theorem bv_blast_bin_bitwise_wp (Γ : Env)
           · have hne5 : op ≠ 5#32 := hc; clear hc
             c0_hstraight
             let hdr' : BVHdrState := { hdr with oom := (1 : BitVec 32) }
-            have hfr : hdr.BlastFrame hdr' :=
-              ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-                rfl, rfl, rfl, rfl, rfl, rfl⟩
+            have hfr : hdr.BlastFrame hdr' := Modifies.set_oom _ hdr 1#32
             have hinv_bad : bitwiseOpValid op = false := by
               simp only [bitwiseOpValid, decide_eq_false_iff_not]
               rintro (rfl | rfl | rfl) <;> contradiction
@@ -618,7 +606,7 @@ theorem bv_full_adder_carry_wp (Γ : Env)
   c0_hstraight
   c0_hsplit
   · c0_hstraight
-    exact hQ 0#32 hdr g aigW htS m (aigFrame_refl hdr) (aig_le_refl g)
+    exact hQ 0#32 hdr g aigW htS m (Modifies.refl _ hdr) (aig_le_refl g)
       (Nat.le_add_right _ _) hinv0 (fun hne => hne) (fun h0 _ _ => absurd h0 hc)
       (fun h0 => absurd h0 hc) (fun _ => rfl) hm
   · have h0 : hdr.oom = 0#32 := by bv_omega

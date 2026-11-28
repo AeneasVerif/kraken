@@ -241,12 +241,7 @@ private theorem smBvBlastAddSpec_refines_opsCore
      fun j hj => by rw [haig.aig_len_eq]; exact hwfB j hj⟩, hm, ?_⟩
   intro ret hdr' g' aw' ht' lp' m' hfr hext _ haig' hlp' hpres hlits_le _ hlcap' _ _ hok_r hoom_r
     hm'
-  have hfr_sm : hdr.OpsFrame hdr' :=
-    ⟨hfr.work_base, hfr.work_end, hfr.prog_ptr, hfr.aig_ptr, hfr.ht_ptr, hfr.atom_base_ptr,
-     hfr.slice_off_ptr, hfr.lits_ptr, hfr.marks_ptr, hfr.dimacs_start, hfr.n_vars, hfr.n_nodes,
-     hfr.n_cwords, hfr.root_node, hfr.num_atoms, hfr.aig_cap, hfr.ht_mask, hfr.lits_cap,
-     hfr.dimacs_len⟩
-  refine hQ ret hdr' g' aw' ht' lp' m' hfr_sm hext haig' hlp' hlits_le hlcap' hpres
+  refine hQ ret hdr' g' aw' ht' lp' m' hfr hext haig' hlp' hlits_le hlcap' hpres
     (fun hbad => by
       rcases hbad with h1 | h2 | h3 | h4
       · exact absurd hoom0 h1

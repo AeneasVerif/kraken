@@ -117,7 +117,7 @@ private theorem bv_blast_ite_into_loop_wp (Γ : Env) (hΓ_ite : Γ.Has "bv_aig_i
           array (t := i32) st.2.1.ht_ptr st.2.2.2.2.1 ⋆ R)) m') ?_ ?_
   · intro J2 hJ2
     exact hJ2 (0, hdr, g, aigWords, htSlots, litsPool) m
-      ⟨BVHdrState.AigFrame.rfl _, Aig.extends_rfl g, by dsimp; omega, hinv, rfl, by omega,
+      ⟨Modifies.refl _ _, Aig.extends_rfl g, by dsimp; omega, hinv, rfl, by omega,
         ho, fun _ _ => rfl, fun _ hk => False.elim (Nat.not_lt_zero _ hk),
         fun _ hk => False.elim (Nat.not_lt_zero _ hk), hm⟩
   · intro J2 st m1 ⟨hf1, hg1, hsz1, hinv1, hlen1, hjle, hoom1, hagree1, hwf1, heval1, hm1⟩ hjind
@@ -408,7 +408,7 @@ public theorem bv_blast_ite_slice_wp (Γ : Env) (hΓ_ok : Γ.Has "bv_slice_ok" b
     c0_hfast_nogrp
     have hm1 := opMem_of_hdr_emp (by assumption)
     exact hpost 0xFFFFFFFF#32 { hdr with oom := 1#32 } g aigWords htSlots litsPool _
-      (hdr_with_oom_aigFrame.toDcBlastFrame) (Aig.extends_rfl g) (by omega)
+      (Modifies.set_oom _ hdr 1#32) (Aig.extends_rfl g) (by omega)
       (aigInv_set_oom 1#32 hinv) rfl (fun _ _ => rfl) (fun _ => by simp)
       (fun h0 hlcap0 hlptr ht hf _ _ _ => by
         exfalso; rcases hfail with hne | hbad
@@ -446,8 +446,7 @@ public theorem bv_blast_ite_slice_wp (Γ : Env) (hΓ_ok : Γ.Has "bv_slice_ok" b
             intro m1 hm1
             let hdr1 := { hdr with lits_len := hdr.lits_len + w, oom := 0#32 }
             have hf1 : hdr.DcBlastFrame hdr1 :=
-              ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-                rfl, rfl, rfl⟩
+              Modifies.set_lits_len_oom _ hdr (hdr.lits_len + w) 0#32
             have hinv1 : AigInv hdr1 g aigWords htSlots :=
               aigInv_blastFrame hinv hf1 rfl
             have hlen1 : hdr1.lits_len.toNat = hdr.lits_len.toNat + w.toNat := by
@@ -473,7 +472,7 @@ public theorem bv_blast_ite_slice_wp (Γ : Env) (hΓ_ok : Γ.Has "bv_slice_ok" b
                   hdisj_t, hdisj_f⟩
               · intro ret hdr2 g2 aw2 ht2 lp2 m2 hf12 hg12 hsz12 hinv2 hlp2 hagree2 hne2
                   hret2 hoom2 hres2 hm2
-                have hf2 : hdr.DcBlastFrame hdr2 := hf1.trans hf12.toDcBlastFrame
+                have hf2 : hdr.DcBlastFrame hdr2 := hf1.trans hf12.mono
                 have hagree_old : ∀ p, p < hdr.lits_len.toNat →
                     lp2.getD p 0#32 = litsPool.getD p 0#32 :=
                   fun p hp => hagree2 p (Or.inl hp)
@@ -499,9 +498,7 @@ public theorem bv_blast_ite_slice_wp (Γ : Env) (hΓ_ok : Γ.Has "bv_slice_ok" b
                   intro m3 hm3
                   c0_hfast_nogrp
                   let hdr3 := { hdr2 with lits_len := hdr.lits_len }
-                  have hf3 : hdr.DcBlastFrame hdr3 :=
-                    hf2.trans ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-                      rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+                  have hf3 : hdr.DcBlastFrame hdr3 := hf2.with_lits_len hdr.lits_len
                   have hinv3 : AigInv hdr3 g2 aw2 ht2 := aigInv_set_litsLen _ hinv2
                   exact hpost 0xFFFFFFFF#32 hdr3 g2 aw2 ht2 lp2 m3 hf3 hg12 hsz12 hinv3 hlp2
                     hagree_old (fun h => absurd ho h)
@@ -524,7 +521,7 @@ public theorem bv_blast_ite_slice_wp (Γ : Env) (hΓ_ok : Γ.Has "bv_slice_ok" b
               let hdr1 := { hdr with oom := 1#32 }
               have hm1' := opMem_of_hdr hm1
               exact hpost 0xFFFFFFFF#32 hdr1 g aigWords htSlots litsPool m1
-                hdr_with_oom_aigFrame.toDcBlastFrame (Aig.extends_rfl g) (by omega)
+                (Modifies.set_oom _ hdr 1#32) (Aig.extends_rfl g) (by omega)
                 (aigInv_set_oom 1#32 hinv) rfl (fun _ _ => rfl) (fun _ => by simp [hdr1])
                 (fun _ _ _ _ _ hw_fit _ _ => False.elim (hroom hw_fit))
                 (fun _ => ⟨rfl, rfl⟩) (fun h => absurd h (by simp [hdr1])) hm1'
@@ -800,7 +797,7 @@ public theorem bv_blast_sub_with_borrow_wp (Γ : Env)
                       array (t := i32) hdr1.ht_ptr ht1 ⋆ R)) m1) ?_ ?_
             · intro J2 hJ2
               refine hJ2 (0, 1#32, hdr, g, aigWords, htSlots, litsPool) _
-                ⟨BVHdrState.AigFrame.rfl _, Aig.extends_rfl g, by dsimp; omega, hinv, rfl,
+                ⟨Modifies.refl _ _, Aig.extends_rfl g, by dsimp; omega, hinv, rfl,
                   by omega, ho, by rw [hinv.aig_len_eq]; simp; omega, fun _ _ => rfl,
                   fun _ hk => False.elim (Nat.not_lt_zero _ hk),
                   fun ρ => by rw [evalLit_one, BitVec.carry_zero],
