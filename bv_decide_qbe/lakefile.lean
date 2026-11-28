@@ -21,8 +21,8 @@ target kissat_asm (pkg : NPackage __name__) : FilePath := do
   let arch := hostArch
   let needMods : Array Lean.Name :=
     #[ `LeanQbeTest.T.BitblastFidelityCommon
-     , `LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12
-     , `LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy
+     , `LeanQbe.T.Examples.Kissat.Src.Full
+     , `LeanQbe.T.Examples.Kissat.Src.InlPolicy
      , `LeanQbe.T.Examples.Bitblast.Src.Full
      , `LeanQbe.T.MainInline
      , `LeanQbe.T.Driver

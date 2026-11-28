@@ -4,7 +4,8 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityAssemblyStep12.lean" ] || \
-   [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityAssembly.lean" ]; then
+   [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityAssembly.lean" ] || \
+   [ -f "$ROOT/LeanQbe/T/Examples/Kissat/Src/Full.lean" ]; then
   TARGET="fidelity"
 else
   TARGET="plain"
@@ -22,8 +23,8 @@ DIFF_BASE=""
 usage() {
   cat <<'EOF'
 usage: bash bench/kissat/build_c0_direct.sh [options]
-  --target <fidelity|fidelity-step12|fidelity-step11|fidelity-step10|fidelity-step9|fidelity-step8|fidelity-step7|fidelity-step6|m8opt|plain>
-                         Kissat C0 splice target (aliases: fid, step12, step11, step10, step9, step8, opt, m8; default: auto)
+  --target <src-full|fidelity|fidelity-step12|fidelity-step11|fidelity-step10|fidelity-step9|fidelity-step8|fidelity-step7|fidelity-step6|m8opt|plain>
+                         Kissat C0 target (aliases: srcfull, fidelity-src, fid, step12..step8, opt, m8; default: auto)
   --out-dir <dir>        Output directory for sources/objects/binary (default: /tmp/kissat-c0direct)
   -o, --out <bin>        Output binary path (default: <out-dir>/bench_c0direct_<target>[_asan])
   --split-dir <dir>      Split-TU source directory (default in split mode: <out-dir>/split_<target>)
@@ -55,9 +56,9 @@ while [ $# -gt 0 ]; do
 done
 
 case "$TARGET" in
-  plain|fidelity|fid|fidelity-step12|step12|fidelity-step11|step11|fidelity-step10|step10|\
-  fidelity-step9|step9|fidelity-step8|step8|fidelity-step7|fidelity-step6|fidelity-c0|\
-  m8opt|opt|m8) ;;
+  plain|src-full|srcfull|fidelity-src|fidelity|fid|fidelity-step12|step12|fidelity-step11|step11|\
+  fidelity-step10|step10|fidelity-step9|step9|fidelity-step8|step8|fidelity-step7|fidelity-step6|\
+  fidelity-c0|m8opt|opt|m8) ;;
   *) echo "ERROR: unsupported --target '$TARGET'" >&2; exit 2 ;;
 esac
 
@@ -87,6 +88,9 @@ C0_FLAGS=(-std=c99 "$OPT_LEVEL" -fwrapv -fno-strict-aliasing -Wall -Wextra -Werr
 # Plain's C0 has one unparenthesized `a || b && c` (clang -Wlogical-op-parentheses,
 # gcc -Wparentheses); fidelity/opt targets stay warning-free without it.
 if [ "$TARGET" = plain ]; then C0_FLAGS+=(-Wno-parentheses); fi
+case "$TARGET" in
+  src-full|srcfull|fidelity-src) C0_FLAGS+=(-Wno-unused-variable) ;;
+esac
 MAIN_FLAGS=(-std=c99 "$OPT_LEVEL" -Wall -Wextra -Werror)
 
 if [ "$SPLIT_MODE" -eq 0 ]; then

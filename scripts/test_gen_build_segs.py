@@ -130,6 +130,51 @@ class GenBuildSegsTest(unittest.TestCase):
                 self.assertIn(f"{arch_dir}.S2.ToyMix2.cert", full)
                 self.assertIn("LinkedCert.ofSegs", full)
 
+    def test_multi_dep_right_assoc_and_line_width_under_deep_namespace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            mpath = Path(tmp) / "multi.json"
+            mpath.write_text(
+                json.dumps(
+                    {
+                        "base_ns": "LeanQbe.T.Examples.Kissat.Build",
+                        "src_full_mod": "LeanQbe.T.Examples.Kissat.Src.Full",
+                        "src_full_mod_sym": "kissatModule",
+                        "segs": [
+                            {"name": "Float64", "src_mod": "A.Float64", "fns": ["f0"], "exports": ["f0"]},
+                            {"name": "Dimacs", "src_mod": "A.Dimacs", "fns": ["f1"], "deps": ["Float64"], "exports": ["f1"]},
+                            {"name": "Limits", "src_mod": "A.Limits", "fns": ["f2"], "deps": ["Float64"], "exports": ["f2"]},
+                            {
+                                "name": "Search",
+                                "src_mod": "A.Search",
+                                "fns": ["f3"],
+                                "deps": ["Float64", "Dimacs", "Limits"],
+                                "exports": [],
+                            },
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            mf = gbs.load_manifest(
+                REPO_ROOT,
+                mpath,
+                base_ns="unused",
+                src_full_mod="unused",
+                src_full_mod_sym="unused",
+                heavy_threshold=1000,
+                profile_path=None,
+                max_bound=2048,
+                max_dirs=600,
+                chunk_size=1,
+                tree_groups=0,
+            )
+            files = dict(gbs.build_plan(mf, ["amd64"]))
+            inl_full = files["LeanQbe/T/Examples/Kissat/Build/Inl/Full.lean"]
+            # Left-associated `((d0 ++ d1) ++ d2)` matching Lean `infixl:65 " ++ "`.
+            self.assertIn("depE (depR Limits.inl.exports_sub) <|", inl_full)
+            self.assertIn("depE (depL <| depR Dimacs.inl.exports_sub) <|", inl_full)
+            self.assertIn("depL <| depL <| depR Float64.inl.exports_sub,", inl_full)
+
     def test_rejects_cyclic_or_out_of_order_deps(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             mpath = Path(tmp) / "bad.json"

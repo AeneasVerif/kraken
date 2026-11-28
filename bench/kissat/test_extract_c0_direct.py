@@ -39,11 +39,25 @@ class ExtractC0DirectTest(unittest.TestCase):
                 ("FullFidelityAssembly", "FullFidelityAssembly", "fidFns"),
             )
             self.assertEqual(ext.default_target_for_kdir(fake), "fidelity")
+        with tempfile.TemporaryDirectory() as td:
+            fake_src = pathlib.Path(td)
+            (fake_src / "Src").mkdir()
+            (fake_src / "Src" / "Full.lean").write_text("", encoding="utf-8")
+            self.assertEqual(
+                ext.resolve_target_spec(fake_src, "fidelity"),
+                ("Src.Full", "Src.Full", "kissatFns"),
+            )
+            self.assertEqual(ext.default_target_for_kdir(fake_src), "fidelity")
 
     def test_fidelity_and_plain_fn_counts(self):
         fid_fns, _, _, sym = ext.load_fns_for_target(KDIR, "fidelity")
         self.assertEqual(sym, "fidStep12Fns")
         self.assertEqual(len(fid_fns), 517)
+        src_fns, src_mod, src_ns, src_sym = ext.load_fns_for_target(KDIR, "src-full")
+        self.assertEqual((src_mod, src_ns, src_sym), ("Src.Full", "Src.Full", "kissatFns"))
+        self.assertEqual(len(src_fns), 418)
+        self.assertEqual(src_fns[0]["name"], "f64u_msb64")
+        self.assertEqual(src_fns[-1]["name"], "kissat_solve_bytes")
         s7_fns, _, _, s7_sym = ext.load_fns_for_target(KDIR, "fidelity-step7")
         self.assertEqual(s7_sym, "fidStep7Fns")
         self.assertEqual(len(s7_fns), 501)

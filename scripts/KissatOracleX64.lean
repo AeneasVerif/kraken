@@ -5,7 +5,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 import LeanQbeTest.T.SegCertOracleCommon
 import LeanQbe.T.Amd64.Isa
 import LeanQbe.T.Examples.Kissat.Src.Full
-import LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy
+import LeanQbe.T.Examples.Kissat.Src.InlPolicy
 
 /-!
 # SysV x64 Kissat Build Oracle CLI (`scripts/KissatOracleX64.lean`)
@@ -46,7 +46,7 @@ def main (args : List String) : IO Unit := do
   let outDir : System.FilePath := args.headD ".lake/kissat-oracle"
   let baseNs := "LeanQbe.T.Examples.Kissat.Build"
   let (_, infos) := computeSegPlans
-    LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy.fidInlPolicy kissatSegs
+    LeanQbe.T.Examples.Kissat.Src.InlPolicy.kissatInlPolicy kissatSegs
   let archDir := outDir / "Oracle" / "Amd64"
   IO.FS.createDirAll archDir
   let mut extAcc : List (SigEntry × Nat) := []

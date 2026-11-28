@@ -376,13 +376,19 @@ def _render_dep_sub_lines(
     prev_segs: list[SegSpec],
     dep_name: str,
     indent: str,
+    *,
+    suffix: str = "",
 ) -> list[str]:
-    """Build wrapped `forall_mem_mono_append_*` proof lines for `dep_name.Exports.fns`."""
+    """Build wrapped `depL`/`depR` proof lines for `dep_name.Exports.fns` within 100 cols."""
     idx = next(i for i, s in enumerate(prev_segs) if s.name == dep_name)
-    base = f"{mf.base_ns}.Inl.{dep_name}.inl.exports_sub"
+    base = (
+        f"{mf.base_ns}.Inl.{dep_name}.inl.exports_sub"
+        if dep_name == "Full"
+        else f"{dep_name}.inl.exports_sub"
+    )
     lefts = len(prev_segs) - (idx + 1)
-    tokens = ["InlSeg.forall_mem_mono_append_left <|" for _ in range(lefts)]
-    tokens.append(f"InlSeg.forall_mem_mono_append_right {base}")
+    tokens = ["depL <|" for _ in range(lefts)]
+    tokens.extend(["depR", f"{base}{suffix}"])
     return wrap_line(indent, tokens, indent=indent)
 
 
@@ -392,27 +398,33 @@ def _render_deps_mem_lines(
     deps: tuple[str, ...],
     indent: str,
 ) -> list[str]:
-    """Build wrapped proof lines for `∀ e ∈ seg.depsExports, e ∈ prevFns`."""
+    """Build left-associated `depE` proof lines for `∀ e ∈ seg.depsExports, e ∈ prevFns`."""
     if not deps:
         return [f"{indent}InlSeg.forall_mem_nil,"]
     if len(deps) == 1:
-        res = _render_dep_sub_lines(mf, prev_segs, deps[0], indent)
-        res[-1] = res[-1] + ","
-        return res
+        return _render_dep_sub_lines(mf, prev_segs, deps[0], indent, suffix=",")
 
-    def emit_chain(k: int, ind: str) -> list[str]:
-        if k == 0:
-            return _render_dep_sub_lines(mf, prev_segs, deps[0], ind)
-        lhs = emit_chain(k - 1, ind + "  ")
-        rhs = _render_dep_sub_lines(mf, prev_segs, deps[k], ind + "  ")
-        lhs[0] = f"{ind}  (" + lhs[0].lstrip()
-        lhs[-1] = lhs[-1] + ")"
-        rhs[0] = f"{ind}  (" + rhs[0].lstrip()
-        rhs[-1] = rhs[-1] + ")"
-        return [f"{ind}InlSeg.forall_mem_append_elim", *lhs, *rhs]
-
-    out = emit_chain(len(deps) - 1, indent)
-    out[-1] = out[-1] + ","
+    # Lean `++` is left-associative: `d0 ++ d1 ++ ... ++ d_{k-1}` parses as
+    # `((d0 ++ d1) ++ ...) ++ d_{k-1}`. With `depE h_right h_left`, peeling from the
+    # right yields constant-indent `depE (d_{k-1}) <| ... <| depE (d1) <| d0`.
+    out: list[str] = []
+    rev_deps = list(reversed(deps))
+    for i, dep_name in enumerate(rev_deps):
+        is_last = i + 1 == len(rev_deps)
+        if is_last:
+            sub = _render_dep_sub_lines(mf, prev_segs, dep_name, indent, suffix=",")
+            out.extend(sub)
+        else:
+            sub = _render_dep_sub_lines(mf, prev_segs, dep_name, f"{indent}  ", suffix=") <|")
+            sub[0] = f"{indent}depE (" + sub[0].lstrip()
+            if len(sub[0]) > MAX_LINE_LEN:
+                sub = _render_dep_sub_lines(
+                    mf, prev_segs, dep_name, f"{indent}  ", suffix=") <|"
+                )
+                out.append(f"{indent}depE (")
+                out.extend(sub)
+            else:
+                out.extend(sub)
     return out
 
 
@@ -481,6 +493,18 @@ def render_inl_full(mf: BuildManifest) -> str:
             "private theorem allNames_nodup :",
             "    listNodup ((InlSeg.allSrcFns allSegs).map Fn.name) = true := by",
             "  decide",
+            "",
+            "private theorem depL {s l₁ l₂ : List Fn} (h : ∀ x ∈ s, x ∈ l₁) :",
+            "    ∀ x ∈ s, x ∈ l₁ ++ l₂ :=",
+            "  InlSeg.forall_mem_mono_append_left h",
+            "",
+            "private theorem depR {s l₁ l₂ : List Fn} (h : ∀ x ∈ s, x ∈ l₂) :",
+            "    ∀ x ∈ s, x ∈ l₁ ++ l₂ :=",
+            "  InlSeg.forall_mem_mono_append_right h",
+            "",
+            "private theorem depE {P : Fn → Prop} {l₁ l₂ : List Fn}",
+            "    (h₂ : ∀ x ∈ l₂, P x) (h₁ : ∀ x ∈ l₁, P x) : ∀ x ∈ l₁ ++ l₂, P x :=",
+            "  InlSeg.forall_mem_append_elim h₁ h₂",
             "",
             "private theorem deps_ok : InlSeg.DepsOkFrom fullPlan [] [] allSegs := by",
             "  refine",

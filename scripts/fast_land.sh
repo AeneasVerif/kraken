@@ -223,7 +223,7 @@ if [ "$needs_kissat_warm" -eq 1 ]; then
     --timeout "$CHECK_TIMEOUT" --log "$LOG_DIR/prebuild.log" -- \
     env "LEAN_NUM_THREADS=${LAKE_JOBS:-${LEAN_NUM_THREADS:-6}}" lake build --wfail \
     LeanQbe.T.Examples.Kissat.Solver LeanQbe.T.Examples.Kissat.Plain \
-    LeanQbe.T.Examples.Kissat.FullM3 \
+    LeanQbe.T.Examples.Kissat.Src.Full \
     LeanQbe.T.PrintCpp LeanQbe.T.Driver LeanQbe.T.Amd64.Targ LeanQbe.T.Arm64.Targ \
     LeanQbeTest.T.KissatC0Test Kraken.X64.PrintATT Kraken.AArch64.Print \
     || { cat "$LOG_DIR/prebuild.log" >&2; exit 1; }

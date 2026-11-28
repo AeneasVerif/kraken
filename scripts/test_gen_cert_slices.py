@@ -1140,6 +1140,24 @@ class GenCertSlicesTest(unittest.TestCase):
             self.assertEqual(gcs._format_lean_ty("f32"), "f32")
             self.assertEqual(gcs._format_lean_ty("bool"), ".bool")
 
+            # 5. Additive SrcFull preset resolves cleanly to 418-fn Src.Full + Src.InlPolicy.
+            for alias in ("SrcFull", "srcfull", "src-full", "kissatsrcfull", "kissatfull"):
+                self.assertEqual(gcs.resolve_preset(alias).name, "SrcFull")
+            sf_cfg = gcs.build_config(
+                gcs.parse_args(
+                    [
+                        "--module", "SrcFull", "--allow-prefix-eval",
+                        "--root", str(REPO_ROOT), "--dry-run",
+                    ]
+                )
+            )
+            self.assertEqual(sf_cfg.total_fns, 418)
+            self.assertEqual(sf_cfg.source_mod, "LeanQbe.T.Examples.Kissat.Src.Full")
+            self.assertEqual(sf_cfg.inl_policy_mod, "LeanQbe.T.Examples.Kissat.Src.InlPolicy")
+            self.assertEqual(sf_cfg.inl_policy, "kissatInlChunkPolicy")
+            self.assertEqual(sf_cfg.sat_nv_mod, "LeanQbe.T.Examples.Kissat.Proof.Spec.SatNv1")
+            self._assert_hygiene(gcs.build_plan(sf_cfg, ["amd64", "arm64"]))
+
             # 4. Partial-arch bounds JSON refuses silent fallback to eval_prefix_ext! on uncovered arch.
             (bdir / "KissatAuto_bounds_arm64.json").unlink()
             partial_cfg = gcs.build_config(

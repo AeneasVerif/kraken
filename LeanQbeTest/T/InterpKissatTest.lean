@@ -4,30 +4,14 @@ public import LeanQbe.T.InterpKissat
 public import LeanQbe.T.Examples.Kissat.Plain
 public import LeanQbe.T.Examples.Kissat.Plain1
 public import LeanQbe.T.Examples.Kissat.PlainLemmas
-public import LeanQbe.T.Examples.Kissat.Full
-public import LeanQbe.T.Examples.Kissat.FullProof
-public import LeanQbe.T.Examples.Kissat.FullM5
-public import LeanQbe.T.Examples.Kissat.FullM6Hdr
-public import LeanQbe.T.Examples.Kissat.FullM6Orch
-public import LeanQbe.T.Examples.Kissat.FullM6
-public import LeanQbe.T.Examples.Kissat.FullM6SatNv
-public import LeanQbe.T.Examples.Kissat.FullM7FidelityAssembly
-public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12
+public import LeanQbe.T.Examples.Kissat.Src.Full
 public import Kraken.Mem
 
 public meta import LeanQbe.T.InterpKissat
 public meta import LeanQbe.T.Examples.Kissat.Plain
 public meta import LeanQbe.T.Examples.Kissat.Plain1
 public meta import LeanQbe.T.Examples.Kissat.PlainLemmas
-public meta import LeanQbe.T.Examples.Kissat.Full
-public meta import LeanQbe.T.Examples.Kissat.FullProof
-public meta import LeanQbe.T.Examples.Kissat.FullM5
-public meta import LeanQbe.T.Examples.Kissat.FullM6Hdr
-public meta import LeanQbe.T.Examples.Kissat.FullM6Orch
-public meta import LeanQbe.T.Examples.Kissat.FullM6
-public meta import LeanQbe.T.Examples.Kissat.FullM6SatNv
-public meta import LeanQbe.T.Examples.Kissat.FullM7FidelityAssembly
-public meta import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12
+public meta import LeanQbe.T.Examples.Kissat.Src.Full
 
 /-!
 # Tests and Soundness Audit for Kissat IL Executable Interpreter
@@ -36,8 +20,7 @@ This module validates the verified, fuel-indexed Lean executable interpreter for
 (`LeanQbe.T.InterpKissat`):
 1. Compile-time `#guard` execution checks on mathematical routines (`plain_isqrt`, `plain_ilog10`),
 2. Compile-time `#guard` execution checks on end-to-end SAT / UNSAT DIMACS payloads across
-   `Plain` (59 fns), `FullM5` (270 fns), `FullM6` (382 fns), `FullM7Fidelity` (413 fns), and
-   `FullFidelityAssemblyStep12` (517 fns),
+   `Plain` (59 fns) and `Src.Full.kissatModule` (418 fns),
 3. Standalone audit restatements of all headline interpreter soundness theorems (`interpFlat_sound`,
    `interpModule_sound`, `interpModule_not_ub`, `interpModule_ok_witness`, `ModuleOk.env_sound`),
 4. `#print axioms` assertions verifying that the entire semantic and operational verification
@@ -54,12 +37,7 @@ namespace LeanQbe.T.InterpKissatTest
 open LeanQbe.T
 open LeanQbe.T.Examples.Kissat
 open LeanQbe.T.Examples.Kissat.Plain
-open LeanQbe.T.Examples.Kissat.Full
-open LeanQbe.T.Examples.Kissat.FullM5
-open LeanQbe.T.Examples.Kissat.FullM6Hdr
-open LeanQbe.T.Examples.Kissat.FullM6
-open LeanQbe.T.Examples.Kissat.FullM7Fidelity
-open LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12
+open LeanQbe.T.Examples.Kissat.Src.Full
 open Kraken
 
 /-! ## 1. Headline Soundness Theorems Audit -/
@@ -181,48 +159,37 @@ private def testPlainSat : Bool :=
 #guard testPlainUnsat
 #guard testPlainSat
 
-/-! ## 4. Executable Smoke Tests: FullM5 (270 functions) UNSAT Execution -/
+/-! ## 4. Executable Smoke Tests: `Src.Full.kissatModule` (418 fns) UNSAT / SAT Execution -/
 
-private def testFullM5Unsat : Bool :=
-  let mM5 : Mem 64 := (fullPayload fullNvUnsatBytes).At fullNvCnfPtr
-  let argsM5 := (fullNvCnfPtr, BitVec.ofNat 64 fullNvUnsatBytes.length,
-                 fullNvWorkPtr fullNvUnsatBytes, 4096#64, 16#64, ())
-  match interpFunc m5Module 300000 FullM5.kissat_solve_bytes_body argsM5 mM5 with
-  | .ok (r, ()) _ => r == 20#64
-  | _ => false
+private def srcFullCnfPtr : BitVec 64 := 0x1000#64
+private def srcFullWorkLen : Nat := 8192
 
-#guard testFullM5Unsat
+/-- Concrete UNSAT DIMACS `"p cnf 1 2\n1 0\n-1 0\n"` (`19` bytes). -/
+private def srcFullUnsatBytes : List UInt8 :=
+  [112, 32, 99, 110, 102, 32, 49, 32, 50, 10, 49, 32, 48, 10, 45, 49, 32, 48, 10]
 
-/-! ## 5. Executable Smoke Tests: FullM6 (382 functions) UNSAT Execution -/
+/-- Concrete SAT DIMACS `"p cnf 2 1\n1 2 0\n"` (`16` bytes). -/
+private def srcFullSatBytes : List UInt8 :=
+  [112, 32, 99, 110, 102, 32, 50, 32, 49, 10, 49, 32, 50, 32, 48, 10]
 
-private def m6Args : Tup Val [i64, i64, i64, i64, i64] :=
-  (nvM6CnfPtr, BitVec.ofNat 64 nvM6UnsatBytes.length,
-   nvM6UnsatWorkPtr, BitVec.ofNat 64 nvM6WorkLen, 16#64, ())
+private def runSrcFull (cnfBytes : List UInt8) : Option (BitVec 64) :=
+  let m : Mem 64 := (cnfBytes ++ List.replicate srcFullWorkLen 0).At srcFullCnfPtr
+  let workPtr := srcFullCnfPtr + BitVec.ofNat 64 cnfBytes.length
+  let args : Tup Val [i64, i64, i64, i64, i64] :=
+    (srcFullCnfPtr, BitVec.ofNat 64 cnfBytes.length,
+     workPtr, BitVec.ofNat 64 srcFullWorkLen, 16#64, ())
+  match interpModule Src.Full.kissatModule 300000 "kissat_solve_bytes"
+      [i64, i64, i64, i64, i64] [i64] args m with
+  | .ok (r, ()) _ => some r
+  | _ => none
 
-private def testFullM6Unsat : Bool :=
-  match interpModule m6Module 300000 "kissat_solve_bytes"
-      [i64, i64, i64, i64, i64] [i64] m6Args nvM6UnsatInitMem with
-  | .ok (r, ()) _ => r == 20#64
-  | _ => false
+private def testSrcFullUnsat : Bool :=
+  runSrcFull srcFullUnsatBytes == some 20#64
 
-#guard testFullM6Unsat
+private def testSrcFullSat : Bool :=
+  runSrcFull srcFullSatBytes == some 10#64
 
-/-! ## 6. Executable Smoke Tests: FullM7Fidelity (413 fns) & Step12 (517 fns) UNSAT Execution -/
-
-private def testFullM7FidelityUnsat : Bool :=
-  match interpModule m7FidelityModule 300000 "kissat_solve_bytes"
-      [i64, i64, i64, i64, i64] [i64] m6Args nvM6UnsatInitMem with
-  | .ok (r, ()) _ => r == 20#64
-  | _ => false
-
-#guard testFullM7FidelityUnsat
-
-private def testFullFidelityStep12Unsat : Bool :=
-  match interpModule fidStep12Module 300000 "kissat_solve_bytes"
-      [i64, i64, i64, i64, i64] [i64] m6Args nvM6UnsatInitMem with
-  | .ok (r, ()) _ => r == 20#64
-  | _ => false
-
-#guard testFullFidelityStep12Unsat
+#guard testSrcFullUnsat
+#guard testSrcFullSat
 
 end LeanQbe.T.InterpKissatTest

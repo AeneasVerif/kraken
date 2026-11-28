@@ -11,8 +11,11 @@ EXT_ENGINES = ("c1", "c0_fid", "c4_fid", "c0_opt", "c4_opt")
 
 
 def default_module():
-    k = ROOT / "LeanQbe/T/Examples/Kissat/FullFidelityAssemblyStep12.lean"
-    return "KissatFidelity" if k.is_file() else "Plain"
+    if (ROOT / "LeanQbe/T/Examples/Kissat/Src/Full.lean").is_file() or (
+        ROOT / "LeanQbe/T/Examples/Kissat/FullFidelityAssemblyStep12.lean"
+    ).is_file():
+        return "KissatFidelity"
+    return "Plain"
 
 
 def resolve_module(raw_name):
@@ -24,21 +27,21 @@ def resolve_module(raw_name):
 
 def resolve_emit_exprs(mod):
     info = REG[mod]
-    c0_tgt, lean_file, mod_expr = info["c0_target"], info["mod_file"], info["mod_expr"]
+    c0_tgt, lean_file, lean_mod, mod_expr = info["c0_target"], info["mod_file"], info["lean_mod"], info["mod_expr"]
     extra_imps, fns_expr = list(info.get("extra_imports", [])), info["fns_expr"]
     kdir = ROOT / "LeanQbe/T/Examples/Kissat"
     if extra_imps and extra_imps[0].startswith("LeanQbe.T.Examples.Kissat."):
-        short = extra_imps[0].split(".")[-1]
-        if not (kdir / f"{short}.lean").is_file():
-            pol = ("FullFidelityInlPolicy", "fidInlPolicy") if mod == "KissatFidelity" else (
+        rel_imp = extra_imps[0].removeprefix("LeanQbe.T.Examples.Kissat.").replace(".", "/")
+        if not (kdir / f"{rel_imp}.lean").is_file():
+            pol = ("Src.InlPolicy", "kissatInlPolicy") if mod == "KissatFidelity" else (
                 ("FullM8InlPolicy", "m8InlPolicy") if mod == "KissatM8Opt" else (None, None)
             )
-            if pol[0] and (kdir / f"{pol[0]}.lean").is_file():
-                return c0_tgt, lean_file, mod_expr, [
+            if pol[0] and (kdir / f"{pol[0].replace('.', '/')}.lean").is_file():
+                return c0_tgt, lean_file, lean_mod, mod_expr, [
                     "LeanQbe.T.MainInline", f"LeanQbe.T.Examples.Kissat.{pol[0]}"
                 ], f"(({mod_expr}).optInlinePolicy LeanQbe.T.Examples.Kissat.{pol[0]}.{pol[1]}).fns"
-            return c0_tgt, lean_file, mod_expr, [], f"({mod_expr}).fns"
-    return c0_tgt, lean_file, mod_expr, extra_imps, fns_expr
+            return c0_tgt, lean_file, lean_mod, mod_expr, [], f"({mod_expr}).fns"
+    return c0_tgt, lean_file, lean_mod, mod_expr, extra_imps, fns_expr
 
 
 def sh(cmd, timeout=600):
@@ -72,12 +75,12 @@ def verify_dimacs_model(cnf_path, stdout):
 
 
 def build_solver_bins(tmp, mod, drv, skip_lake, pfx=""):
-    c0_tgt, lean_file, mod_expr, extra_imps, fns_expr = resolve_emit_exprs(mod)
+    c0_tgt, lean_file, lean_mod, mod_expr, extra_imps, fns_expr = resolve_emit_exprs(mod)
     lean_src = ROOT / "LeanQbe/T/Examples/Kissat" / f"{lean_file}.lean"
     if not lean_src.is_file():
         raise SystemExit(f"ERROR: {lean_src.relative_to(ROOT)} is not present yet (needed for {mod})")
     if not skip_lake:
-        sh(["lake", "build", "--wfail", f"LeanQbe.T.Examples.Kissat.{lean_file}", *extra_imps,
+        sh(["lake", "build", "--wfail", lean_mod, *extra_imps,
             "LeanQbe.T.PrintCpp", "LeanQbe.T.Opt", "LeanQbe.T.Driver",
             "LeanQbe.T.Amd64.Targ", "LeanQbe.T.Amd64.PrintATTAlign"], 1800)
     c_path, o_path, c0_bin = tmp / f"{pfx}c0.c", tmp / f"{pfx}c0.o", tmp / f"{pfx}c0direct"
@@ -88,7 +91,7 @@ def build_solver_bins(tmp, mod, drv, skip_lake, pfx=""):
     sh(["clang", o_path, drv, "-o", c0_bin], 120)
     imp_lines = "".join(f"import {m}\n" for m in extra_imps)
     (tmp / f"{pfx}Emit.lean").write_text(
-        f"import LeanQbe.T.Examples.Kissat.{lean_file}\n{imp_lines}"
+        f"import {lean_mod}\n{imp_lines}"
         "import LeanQbe.T.PrintCpp\nimport LeanQbe.T.Opt\nimport LeanQbe.T.Driver\n"
         "import LeanQbe.T.Amd64.Targ\nimport LeanQbe.T.Amd64.PrintATTAlign\n"
         "open LeanQbe.T LeanQbe.T.PrintCpp LeanQbe.T.Amd64 LeanQbe.T.Examples.Kissat\n"

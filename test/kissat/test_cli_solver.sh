@@ -48,8 +48,8 @@ if [ -z "${STAGE_LEAN_PATH:-}" ]; then
   if [ "${SKIP_BUILD:-0}" != "1" ]; then
     timeout "$BUILD_TIMEOUT" lake build --wfail \
       LeanQbe.T.Examples.Kissat.Plain \
-      LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12 \
-      LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy \
+      LeanQbe.T.Examples.Kissat.Src.Full \
+      LeanQbe.T.Examples.Kissat.Src.InlPolicy \
       LeanQbe.T.Opt LeanQbe.T.Driver LeanQbe.T.MainInline \
       LeanQbe.T.Amd64.Targ LeanQbe.T.Amd64.PrintATTAlign \
       LeanQbe.T.Arm64.Targ Kraken.AArch64.Print

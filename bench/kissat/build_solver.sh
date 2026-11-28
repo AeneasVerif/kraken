@@ -10,8 +10,9 @@
 #    (skipped when `STAGE_LEAN_PATH` is set).
 # 2. Compiles `<Module>Module` with `Driver.compileFns` (matching `LinkedCert`) for x86-64
 #    (`toATTAligned`) or AArch64 (`Kraken.AArch64.Print.directive`) into a `.s` file. Default
-#    `--inline-max 0` emits the exact certified policy/IR (`FullFidelityStep12Inl.fidStep12InlFns`
-#    for `KissatFidelity`, `FullM8OptInl.m8OptInlFns` for `KissatM8Opt`, `inline=0` for `Plain`);
+#    `--inline-max 0` emits the exact certified policy/IR (`Src.Full.kissatModule` under
+#    `Src.InlPolicy.kissatInlPolicy` for `KissatFidelity`, `FullM8OptInl.m8OptInlFns` for
+#    `KissatM8Opt`, `inline=0` for `Plain`);
 #    `--inline-max <N>` (`N > 0`) and `--debug` apply uncertified transforms outside `LinkedCert`.
 # 3. Links that assembly with `bench/kissat/kissat_cli.c` into `<output_bin>`. `Plain` builds
 #    with certified `SAT+UNSAT`; `KissatFidelity` and `KissatM8Opt` build with certified UNSAT +
@@ -81,7 +82,7 @@ esac
 
 if [ -z "$MODULE" ]; then
   if [ -f "$ROOT/LeanQbe/T/$ARCH_DIR/KissatFidelity.lean" ] && \
-     [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityAssemblyStep12.lean" ]; then
+     [ -f "$ROOT/LeanQbe/T/Examples/Kissat/Src/Full.lean" ]; then
     MODULE=KissatFidelity
   else
     MODULE=Plain
@@ -90,9 +91,9 @@ fi
 
 LEAN_MOD=""
 case "${MODULE,,}" in
-  kissatfidelity|fullfidelity|fidelity|fid|fullfidelitystep12|fidelity-step12|step12)
-    MODULE=KissatFidelity; LEAN_MOD=FullFidelityAssemblyStep12
-    EXPR=LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12.fidStep12Module ;;
+  kissatfidelity|fullfidelity|fidelity|fid|srcfull|src-full|fullfidelitystep12|fidelity-step12|step12)
+    MODULE=KissatFidelity; LEAN_MOD=Src.Full
+    EXPR=LeanQbe.T.Examples.Kissat.Src.Full.kissatModule ;;
   kissatm8opt|fullm8opt|m8opt|opt|fullm8|m8)
     MODULE=KissatM8Opt; LEAN_MOD=FullM8OptAssembly
     EXPR=LeanQbe.T.Examples.Kissat.FullM8OptAssembly.m8OptModule ;;
@@ -132,9 +133,10 @@ case "$MODULE" in
     ;;
 esac
 
+LEAN_MOD_PATH="${LEAN_MOD//.//}"
 if [ -z "${STAGE_LEAN_PATH:-}" ] && \
-   [ ! -f "$ROOT/LeanQbe/T/Examples/Kissat/$LEAN_MOD.lean" ]; then
-  echo "ERROR: LeanQbe/T/Examples/Kissat/$LEAN_MOD.lean is not present in $ROOT yet." >&2
+   [ ! -f "$ROOT/LeanQbe/T/Examples/Kissat/$LEAN_MOD_PATH.lean" ]; then
+  echo "ERROR: LeanQbe/T/Examples/Kissat/$LEAN_MOD_PATH.lean is not present in $ROOT yet." >&2
   exit 2
 fi
 
@@ -197,13 +199,13 @@ if [ "$INLINE_MAX" -gt 0 ]; then
   FNS_EXPR="(($EXPR).optInline $INLINE_MAX).fns"
   INL_DESC="inline-max=$INLINE_MAX"
 elif [ "$MODULE" = KissatFidelity ]; then
-  if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityInlPolicy.lean" ]; then
+  if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/Src/InlPolicy.lean" ]; then
     IMPORTS="$IMPORTS
 import LeanQbe.T.MainInline
-import LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy"
-    LAKE_EXTRA+=(LeanQbe.T.MainInline LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy)
-    FNS_EXPR="(($EXPR).optInlinePolicy LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy.fidInlPolicy).fns"
-    INL_DESC="inline-policy=fidInlPolicy"
+import LeanQbe.T.Examples.Kissat.Src.InlPolicy"
+    LAKE_EXTRA+=(LeanQbe.T.MainInline LeanQbe.T.Examples.Kissat.Src.InlPolicy)
+    FNS_EXPR="(($EXPR).optInlinePolicy LeanQbe.T.Examples.Kissat.Src.InlPolicy.kissatInlPolicy).fns"
+    INL_DESC="inline-policy=kissatInlPolicy"
   else
     FNS_EXPR="($EXPR).fns"
     INL_DESC="inline-max=0"

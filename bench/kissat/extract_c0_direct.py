@@ -28,8 +28,26 @@ def _norm_typedef(txt):
                                      for v in m.group(2).split(",")), s)
 
 
-def parse_c0_block(src, bid):
+def _unescape_lean_str(s):
+    return s.replace('\\"', '"').replace("\\\\", "\\")
+
+
+def _expand_c0_includes(src, headers):
+    if not headers:
+        return src
+    out = []
+    for ln in src.splitlines():
+        m = re.match(r'^\s*#include\s+"([^"]+)"\s*$', ln)
+        if m and m.group(1) in headers:
+            out.append(headers[m.group(1)])
+        else:
+            out.append(ln)
+    return "\n".join(out)
+
+
+def parse_c0_block(src, bid, headers=None):
     """Parse #defines, typedefs, statics, and function definitions from one kissat_c0! block."""
+    src = _expand_c0_includes(src, headers)
     lines = _strip_comments(src).splitlines()
     macros, tdefs, statics, fns = {}, [], [], []
     i, n = 0, len(lines)
@@ -41,7 +59,7 @@ def parse_c0_block(src, bid):
             parts = s.split(None, 2)
             macros[parts[1]] = parts[2] if len(parts) > 2 else ""
             i += 1
-        elif s.startswith("extern "):
+        elif s.startswith("extern ") or s.startswith("_Static_assert"):
             while not lines[i].strip().endswith(";") and i + 1 < n:
                 i += 1
             i += 1
@@ -86,6 +104,29 @@ def _ns_at(txt, pos):
 def load_kissat(kdir):
     """Scan Kissat/*.lean for kissat_c0! blocks, Fn aliases, and List Fn splice definitions."""
     body_map, fn_envs, list_envs, before_envs, rename_maps, files = {}, {}, {}, {}, {}, []
+    headers = {}
+    src_dir = kdir / "Src"
+    if src_dir.is_dir():
+        for fp in sorted(src_dir.glob("*.lean")):
+            txt = fp.read_text()
+            for hm in re.finditer(r'c0_header!\s+"([^"]+)"\s+"(.*?)\n"', txt, re.S):
+                headers[hm.group(1)] = _unescape_lean_str(hm.group(2))
+        for fp in sorted(src_dir.glob("*.lean")):
+            txt = fp.read_text()
+            opens = [KISSAT_NS] + [
+                t for m in re.finditer(r"^open\s+(.*)$", txt, re.M)
+                for t in m.group(1).split() if t.startswith(KISSAT_NS)
+            ]
+            files.append((f"Src_{fp.name}", txt, opens))
+            for m in re.finditer(r'kissat_c0!\s+(?:\(postlude\s*:=\s*(?:true|false)\)\s+)?(\w+)\s+"(.*?)\n"', txt, re.S):
+                ns, pfx = _ns_at(txt, m.start()), m.group(1)
+                c0_src = _unescape_lean_str(m.group(2))
+                fns = parse_c0_block(c0_src, f"Src_{fp.name}:{pfx}", headers=headers)
+                for f in fns:
+                    body_map[f"{ns}.{f['orig']}_body"] = f
+                    fn_envs.setdefault(f"{ns}.{f['orig']}", {**f, "name": f["orig"]})
+                list_envs[f"{ns}.{pfx}_fns"] = fns
+                list_envs.setdefault(f"{ns}.fns", fns)
     for fp in sorted(kdir.glob("*.lean")):
         if any(x in fp.name for x in SKIP_SUFFIXES):
             continue
@@ -583,6 +624,9 @@ def check_fns(fns, spec, root, imp_mod, open_ns, sym):
 
 BASE_TARGET_SPECS = {
     "plain": ("Plain", "Plain", "plainFns"),
+    "src-full": ("Src.Full", "Src.Full", "kissatFns"),
+    "srcfull": ("Src.Full", "Src.Full", "kissatFns"),
+    "fidelity-src": ("Src.Full", "Src.Full", "kissatFns"),
     "fidelity-step12": ("FullFidelityAssemblyStep12", "FullFidelityAssemblyStep12", "fidStep12Fns"),
     "step12": ("FullFidelityAssemblyStep12", "FullFidelityAssemblyStep12", "fidStep12Fns"),
     "fidelity-step11": ("FullFidelityAssemblyStep11", "FullFidelityAssemblyStep11", "fidStep11Fns"),
@@ -602,10 +646,15 @@ BASE_TARGET_SPECS = {
 }
 
 ALL_TARGET_CHOICES = [
-    "plain", "fidelity", "fid", "fidelity-step12", "step12", "fidelity-step11", "step11",
+    "plain", "src-full", "srcfull", "fidelity-src",
+    "fidelity", "fid", "fidelity-step12", "step12", "fidelity-step11", "step11",
     "fidelity-step10", "step10", "fidelity-step9", "step9", "fidelity-step8", "step8",
     "fidelity-step7", "fidelity-step6", "fidelity-c0", "m8opt", "opt", "m8",
 ]
+
+
+def _mod_lean_path(kdir, file_mod):
+    return kdir / f"{file_mod.replace('.', '/')}.lean"
 
 
 def resolve_target_spec(kdir, target):
@@ -614,9 +663,10 @@ def resolve_target_spec(kdir, target):
         for step_key in (
             "fidelity-step12", "fidelity-step11", "fidelity-step10",
             "fidelity-step9", "fidelity-step8", "fidelity-step7", "fidelity-step6",
+            "src-full",
         ):
             file_mod = BASE_TARGET_SPECS[step_key][0]
-            if (kdir / f"{file_mod}.lean").is_file():
+            if _mod_lean_path(kdir, file_mod).is_file():
                 return BASE_TARGET_SPECS[step_key]
         return BASE_TARGET_SPECS["fidelity-step6"]
     return BASE_TARGET_SPECS[target]
@@ -627,8 +677,9 @@ def default_target_for_kdir(kdir):
     for step_key in (
         "fidelity-step12", "fidelity-step11", "fidelity-step10",
         "fidelity-step9", "fidelity-step8", "fidelity-step7", "fidelity-step6",
+        "src-full",
     ):
-        if (kdir / f"{BASE_TARGET_SPECS[step_key][0]}.lean").is_file():
+        if _mod_lean_path(kdir, BASE_TARGET_SPECS[step_key][0]).is_file():
             return "fidelity"
     return "plain"
 
@@ -636,9 +687,10 @@ def default_target_for_kdir(kdir):
 def load_fns_for_target(kdir, target):
     """Load and evaluate the spliced C0 function list for `target` under `kdir`."""
     file_mod, ns_mod, sym = resolve_target_spec(kdir, target)
-    if not (kdir / f"{file_mod}.lean").exists():
+    mod_path = _mod_lean_path(kdir, file_mod)
+    if not mod_path.exists():
         raise FileNotFoundError(
-            f"{kdir / f'{file_mod}.lean'} not found (--target {target} not landed yet)"
+            f"{mod_path} not found (--target {target} not landed yet)"
         )
     fn_envs, list_envs, before_envs = load_kissat(kdir)
     fns = eval_list(f"{ns_mod}.{sym}", list_envs, fn_envs, {}, before_envs)

@@ -1,5 +1,5 @@
-import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12
-import LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy
+import LeanQbe.T.Examples.Kissat.Src.Full
+import LeanQbe.T.Examples.Kissat.Src.InlPolicy
 import LeanQbe.T.Examples.Bitblast.Src.Full
 import LeanQbe.T.MainInline
 import LeanQbe.T.Driver
@@ -9,8 +9,8 @@ import Kraken.AArch64.Print
 set_option autoImplicit false
 
 private def solverFns : List LeanQbe.T.Fn :=
-  (LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12.fidStep12Module.optInlinePolicy
-      LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy.fidInlPolicy).fns ++
+  (LeanQbe.T.Examples.Kissat.Src.Full.kissatModule.optInlinePolicy
+      LeanQbe.T.Examples.Kissat.Src.InlPolicy.kissatInlPolicy).fns ++
     LeanQbe.T.Examples.Bitblast.Src.Full.bitblastModule.fns
 
 private def solverGlobals : List String := ["bv_solve_bytes"]

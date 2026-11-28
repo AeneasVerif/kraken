@@ -6,17 +6,17 @@ module
 
 meta import LeanQbe.T.CompileGuard
 meta import LeanQbe.T.Arm64.Isa
-meta import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep9
-meta import LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy
+meta import LeanQbe.T.Examples.Kissat.Src.Full
+meta import LeanQbe.T.Examples.Kissat.Src.InlPolicy
 
 /-!
-# KissatFidelity (`504` fns) AAPCS64 Arm64 Fail-Closed Preflight Compile Guard
+# KissatFidelity (`418` fns) AAPCS64 Arm64 Fail-Closed Preflight Compile Guard
 
-Pure `IO` preflight verifying that `FullFidelityAssemblyStep9.fidStep9Module` (`504` fns)
-under `fidInlPolicy` passes acyclicity, legal signatures, `fnNameOk`, `stringsNodup`,
-`supportsSource`, `Spill.hints`, `Rega.lowerFn`, `checkAndBoundExt <= 2048`, and `progSmall`
-on AAPCS64 Arm64. Emits zero declarations and zero axioms; fails `lake build --wfail` via
-`IO.userError` on any regression.
+Pure `IO` preflight verifying that `Src.Full.kissatModule` (`418` fns)
+under `Src.InlPolicy.kissatInlPolicy` passes acyclicity, legal signatures, `fnNameOk`,
+`stringsNodup`, `supportsSource`, `Spill.hints`, `Rega.lowerFn`, `checkAndBoundExt <= 2048`,
+and `progSmall` on AAPCS64 Arm64. Emits zero declarations and zero axioms; fails
+`lake build --wfail` via `IO.userError` on any regression.
 -/
 
 set_option autoImplicit false
@@ -32,8 +32,8 @@ private meta def armGuardDirSize : LeanQbe.T.Arm64.armIsa.Directive → Nat
     LeanQbe.T.Arm64.armIsa
     LeanQbe.T.Arm64.armLegalTarget
     armGuardDirSize
-    LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep9.fidStep9Module
-    LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy.fidInlPolicy
+    LeanQbe.T.Examples.Kissat.Src.Full.kissatModule
+    LeanQbe.T.Examples.Kissat.Src.InlPolicy.kissatInlPolicy
     { label := "KissatFidelity-arm64"
       maxBound := 2048
       entryFn? := some "kissat_solve_bytes" }

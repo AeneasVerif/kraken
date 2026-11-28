@@ -4,13 +4,13 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 import LeanQbeTest.T.SegCertOracleCommon
 import LeanQbe.T.Examples.Kissat.Src.Full
-import LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy
+import LeanQbe.T.Examples.Kissat.Src.InlPolicy
 
 /-!
 # Arch-Neutral Kissat Build Oracle CLI (`scripts/KissatOracle.lean`)
 
 Runnable directly via `lake env lean --run scripts/KissatOracle.lean <out-dir>`:
-runs `policyToInlPlan` over all 41 subsystems of `Src.Full` using `fidInlPolicy`
+runs `policyToInlPlan` over all 41 subsystems of `Src.Full` using `Src.InlPolicy.kissatInlPolicy`
 (exact `selectCandsForCaller` parity) and writes:
   - `<out-dir>/manifest.json` (for `scripts/gen_build_segs.py --manifest`)
   - `<out-dir>/Oracle/<S>.lean` (`plan : InlPlan`)
@@ -43,7 +43,7 @@ def main (args : List String) : IO Unit := do
   let outDir : System.FilePath := args.headD ".lake/kissat-oracle"
   let baseNs := "LeanQbe.T.Examples.Kissat.Build"
   let (_, infos) := computeSegPlans
-    LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy.fidInlPolicy kissatSegs
+    LeanQbe.T.Examples.Kissat.Src.InlPolicy.kissatInlPolicy kissatSegs
   IO.FS.createDirAll (outDir / "Oracle")
   for info in infos do
     let planSrc := renderPlanOracleLean s!"{baseNs}.Oracle.{info.seg.name}" info.plan
