@@ -167,10 +167,6 @@ theorem Env.Sat.override_old {names : List Sym} {Γnew Γ : Env} {tbl : List Spe
 
 /-! ## 3. Segment certificates & `ModuleOk.ofCanonical` -/
 
-/-- Signature triple `(name, as, rs)` of a specification row, matching `Fn.sig`. -/
-@[expose] def SpecEntry.sig (e : SpecEntry) : SigEntry :=
-  (e.name, e.as, e.rs)
-
 theorem names_eq_of_sigs_eq {tbl : List SpecEntry} {fs : List Fn}
     (h : tbl.map SpecEntry.sig = fs.map Fn.sig) :
     tbl.map SpecEntry.name = fs.map Fn.name := by

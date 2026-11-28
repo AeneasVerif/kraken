@@ -2,6 +2,7 @@ module
 
 public import LeanQbe.T.Logic.Rules
 public import LeanQbe.T.Logic.C0StepAttr
+public import LeanQbe.T.Logic.SpecTable
 public import LeanQbe.T.Module
 public import Kraken.SeparationTactics
 public meta import Lean.Elab.Tactic
@@ -36,37 +37,7 @@ set_option autoImplicit false
 
 namespace LeanQbe.T
 
-/-! ## 1. Specification tables -/
-
-/-- One row of a specification table: contract `spec` for symbol `name : as → rs`.
-With `noExit := true` the row ignores the caller's exit continuation (`X`), as required by
-`Compiled.fnSpec_noExit_id`. -/
-structure SpecEntry where
-  name : Sym
-  as : List Ty
-  rs : List Ty
-  spec : Spec as rs
-  noExit : Bool := false
-
-/-- Table row for the module function `fn`. -/
-abbrev SpecEntry.ofFn (fn : Fn) (spec : Spec fn.as fn.rs) (noExit : Bool := false) : SpecEntry :=
-  ⟨fn.name, fn.as, fn.rs, spec, noExit⟩
-
-/-- Effective contract of a row: `spec`, with `X := ⊥` when `noExit`. -/
-def SpecEntry.eff (e : SpecEntry) : Spec e.as e.rs :=
-  fun xs m Q X => e.spec xs m Q (if e.noExit then fun _ _ _ _ => False else X)
-
-/-- `e.eff` transported along signature equalities. -/
-def SpecEntry.cast (e : SpecEntry) {as bs : List Ty} (ha : e.as = as) (hr : e.rs = bs) :
-    Spec as bs :=
-  ha ▸ hr ▸ e.eff
-
-/-- First-match environment of a specification table (`False` off the table). -/
-def Env.ofTable : List SpecEntry → Env
-  | [] => fun _ _ _ _ _ _ _ => False
-  | e :: es => fun f as bs xs m Q X =>
-    (∃ h : e.name = f ∧ e.as = as ∧ e.rs = bs, e.cast h.2.1 h.2.2 xs m Q X) ∨
-      (¬ (e.name = f ∧ e.as = as ∧ e.rs = bs) ∧ Env.ofTable es f as bs xs m Q X)
+/-! ## 1. Specification tables (`SpecEntry` and `Env.ofTable` re-exported from `SpecTable`) -/
 
 theorem Env.ofTable_cons_self (e : SpecEntry) (es : List SpecEntry) (xs : Tup Val e.as)
     (m : Mem 64) (Q : Post e.rs) (X : XPost) :

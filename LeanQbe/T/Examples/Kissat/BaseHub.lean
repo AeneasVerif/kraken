@@ -410,6 +410,7 @@ public import LeanQbe.T.Examples.Kissat.Proof.Learn.WpOneLit
 public import LeanQbe.T.Examples.Kissat.Proof.Learn.WpOneLitBin
 public import LeanQbe.T.Examples.Kissat.Proof.Learn.WpOneLitHelpers
 public import LeanQbe.T.Examples.Kissat.Proof.Learn.WpOneLitLarge
+public import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
 public import LeanQbe.T.Examples.Kissat.Proof.Limits.Cert
 public import LeanQbe.T.Examples.Kissat.Proof.Limits.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Limits.Wp
@@ -495,6 +496,7 @@ public import LeanQbe.T.Examples.Kissat.Proof.Spec.Contracts1
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Contracts2
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Contracts3
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Contracts4
+public import LeanQbe.T.Examples.Kissat.Proof.Spec.Core
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.HdrView
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.HdrViewEquiv
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Header

@@ -123,6 +123,7 @@ public import LeanQbe.T.Logic.Rules
 public import LeanQbe.T.Logic.SepTree
 public import LeanQbe.T.Logic.SlabChain
 public import LeanQbe.T.Logic.SlabLayout
+public import LeanQbe.T.Logic.SpecTable
 public import LeanQbe.T.Logic.Vec
 public import LeanQbe.T.Logic.ZeroTerm
 public import LeanQbe.T.LoopRotate

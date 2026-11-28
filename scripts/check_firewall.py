@@ -33,9 +33,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from lean_imports import (
+    ANY_ATTR_RE,
+    DECL_RE,
     ImportStmt,
     module_to_path,
     parse_imports,
+    strip_lean_code,
 )
 
 TARG_MOD_RE = re.compile(r"^LeanQbe\.T\.(?:Amd64|Arm64)\.Targ(?:Lemmas)?$")
@@ -92,6 +95,45 @@ ARM64_PREFIXES = (
     "Kraken.AArch64",
 )
 ARCH_PREFIXES = (*AMD64_PREFIXES, *ARM64_PREFIXES)
+
+PURITY_REF_PATH_RE = re.compile(r"(?:^|/)Kissat[^/]*/Ref/.*\.lean$")
+PURITY_SPEC_PATH_RE = re.compile(
+    r"(?:^|/)Kissat[^/]*/(?:[^/]+/)*(?:Spec/.*|Proof/Spec/.*|Proof/[^/]+/Spec[^/]*)\.lean$"
+)
+PURITY_FORBIDDEN_DECL_RE = re.compile(
+    r"^(?:(?:public|private|protected|noncomputable|unsafe|partial|local|"
+    r"scoped|meta|nonrec)\s+)*"
+    r"(theorem|lemma|axiom|elab|elab_rules|macro|macro_rules|syntax|declare_syntax_cat)\b"
+)
+PURITY_REF_FORBIDDEN_IMP_RE = re.compile(
+    r"(?:^|\.)(?:Kraken|Frontend\.C0|T\.Logic|Src|Spec|Proof)(?:\.|$)"
+)
+PURITY_SPEC_DEPS_RE = re.compile(
+    r"^(?:(?:public|private|protected|noncomputable|unsafe|partial|local|"
+    r"scoped|meta|nonrec)\s+)*(?:def|abbrev)\s+deps\b"
+)
+PURITY_SPEC_FORBIDDEN_EXACT: frozenset[str] = frozenset(
+    {
+        "LeanQbe.T.Logic.C0Step",
+        "LeanQbe.T.Logic.C0HeadStep",
+        "LeanQbe.T.Logic.ControlComb",
+        "LeanQbe.T.Logic.SlabChain",
+        "Kraken.SeparationTactics",
+    }
+)
+PURITY_SPEC_SHARED_LEAVES: frozenset[str] = frozenset(
+    {"Core", "Layout", "HdrView", "Header", "Inv", "Solver"}
+)
+PURITY_SPEC_RAW_IDX_RE = re.compile(r"\b(?:ws'?|kbuf'?|hdr)\[[0-9]+\]\?")
+PURITY_SPEC_LEGACY_RE = re.compile(
+    r"(?:SafetySlice|m6HdrW2aSpec|readModelFromWork|[Ss]tep13|(?:^|_)s13|S13)"
+)
+PURITY_SPEC_FIELD_START_RE = re.compile(r"(?:^|[\s{,])(pre|post)\s*:=", re.MULTILINE)
+PURITY_SPEC_NEXT_FIELD_RE = re.compile(r"^[ \t]*(?:extFrame|pre|mem|post|postMem)\s*:=")
+PURITY_SPEC_TOP_END_RE = re.compile(
+    r"^(?:@\[|(?:public|private|protected|noncomputable|unsafe|partial|local|"
+    r"scoped|meta|nonrec)?\s*(?:def|abbrev|structure|inductive|class|end|section|namespace)\b)"
+)
 
 
 @dataclass
@@ -647,12 +689,342 @@ def check_l5_param_and_guards(
     return [*param_files, *guard_core, *guard_leaves], violations
 
 
+def _walk_lean_files(root: Path, path_re: re.Pattern[str]) -> list[str]:
+    """Collect relative `.lean` paths under `root` matching `path_re` (skipping `.lake`/`.git`)."""
+    out: list[str] = []
+    for p in sorted(root.rglob("*.lean")):
+        if ".lake" in p.parts or ".git" in p.parts:
+            continue
+        rel = p.relative_to(root).as_posix()
+        if path_re.search(rel):
+            out.append(rel)
+    return out
+
+
+def discover_purity_ref_files(root: Path) -> list[str]:
+    """Collect `**/Kissat*/Ref/*.lean` files subject to Rule `P-Ref`."""
+    return _walk_lean_files(root, PURITY_REF_PATH_RE)
+
+
+def discover_purity_spec_files(root: Path) -> list[str]:
+    """Collect `**/Kissat*/Spec/*.lean` and pre-W8 `Proof/Spec*` files subject to Rule `P-Spec`."""
+    return _walk_lean_files(root, PURITY_SPEC_PATH_RE)
+
+
+def check_purity_ref_files(
+    root: Path,
+    rel_files: list[str],
+    cache: dict[Path, list[ImportStmt]],
+) -> list[Violation]:
+    """Enforce Rule `P-Ref` (`0` proofs/tactics/`meta import`, `0` C0/Kraken/Spec/Proof imports)."""
+    viols: list[Violation] = []
+    for rel in rel_files:
+        path = root / rel
+        if not path.is_file():
+            continue
+        imps = _load_imports(path, cache)
+        for imp in imps:
+            if imp.is_meta:
+                viols.append(
+                    Violation(
+                        leak_id="P-Ref",
+                        file=rel,
+                        line=imp.line,
+                        module=imp.module,
+                        kind="ref-meta-import",
+                        detail=f"forbidden `meta import {imp.module}` in pure `Ref/` module",
+                    )
+                )
+            if PURITY_REF_FORBIDDEN_IMP_RE.search(imp.module):
+                viols.append(
+                    Violation(
+                        leak_id="P-Ref",
+                        file=rel,
+                        line=imp.line,
+                        module=imp.module,
+                        kind="ref-forbidden-import",
+                        detail=(
+                            f"forbidden import `{imp.module}` in `Ref/` "
+                            "(no `Kraken`, `Frontend.C0`, `T.Logic`, `Src`, `Spec`, `Proof`)"
+                        ),
+                    )
+                )
+        cleaned = strip_lean_code(path.read_text(encoding="utf-8"))
+        for lineno, raw_line in enumerate(cleaned.splitlines(), start=1):
+            code = ANY_ATTR_RE.sub("", raw_line).strip()
+            if not code:
+                continue
+            m = PURITY_FORBIDDEN_DECL_RE.match(code)
+            if m:
+                viols.append(
+                    Violation(
+                        leak_id="P-Ref",
+                        file=rel,
+                        line=lineno,
+                        module="",
+                        kind="ref-forbidden-decl",
+                        detail=f"forbidden `{m.group(1)}` declaration in pure `Ref/` module",
+                    )
+                )
+    return viols
+
+
+def _is_forbidden_spec_import(mod: str) -> tuple[str, str] | None:
+    """Return `(kind, detail)` if `mod` violates Rule `P-Spec` import restrictions."""
+    if mod in PURITY_SPEC_FORBIDDEN_EXACT:
+        return ("spec-forbidden-import", f"forbidden import `{mod}` in pure `Spec/` module")
+    m_spec = re.search(r"(?:^|\.)(?:Proof\.)?Spec\.([^.]+)$", mod)
+    if m_spec:
+        leaf = m_spec.group(1)
+        if leaf not in PURITY_SPEC_SHARED_LEAVES:
+            return (
+                "spec-cross-spec-import",
+                f"cross-subsystem `Spec` import `{mod}` (only shared `Spec.{{Core,Layout,HdrView,Header,Inv,Solver}}` allowed)",
+            )
+        return None
+    if re.search(r"(?:^|\.)Proof(?:\.|$)", mod):
+        return ("spec-proof-import", f"forbidden `Proof.*` import `{mod}` in pure `Spec/` module")
+    return None
+
+
+def _strip_outer_parens(expr: str) -> str:
+    """Strip a single balanced outer `(...)` pair if it wraps the whole expression."""
+    s = expr.strip()
+    while len(s) >= 2 and s[0] == "(" and s[-1] == ")":
+        depth = 0
+        wraps_all = True
+        for i, ch in enumerate(s):
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+                if depth == 0 and i < len(s) - 1:
+                    wraps_all = False
+                    break
+        if wraps_all and depth == 0:
+            s = s[1:-1].strip()
+        else:
+            break
+    return s
+
+
+def _count_pre_post_conjuncts(cleaned: str) -> list[tuple[int, str, int]]:
+    """Return `(line, field_name, conjunct_count)` for every `pre`/`post` body with > 12 conjuncts."""
+    hits: list[tuple[int, str, int]] = []
+    n = len(cleaned)
+    for m in PURITY_SPEC_FIELD_START_RE.finditer(cleaned):
+        field_name = m.group(1)
+        pos = m.end()
+        start_line = cleaned[: m.start(1)].count("\n") + 1
+        dp = db = dc = 0
+        end = pos
+        while end < n:
+            ch = cleaned[end]
+            if ch == "(":
+                dp += 1
+            elif ch == ")":
+                if dp == 0:
+                    break
+                dp -= 1
+            elif ch == "[":
+                db += 1
+            elif ch == "]":
+                if db == 0:
+                    break
+                db -= 1
+            elif ch == "{":
+                dc += 1
+            elif ch == "}":
+                if dc == 0:
+                    break
+                dc -= 1
+            elif ch == "," and dp == 0 and db == 0 and dc == 0:
+                break
+            elif ch == "\n" and dp == 0 and db == 0 and dc == 0:
+                rest = cleaned[end + 1 :]
+                if PURITY_SPEC_NEXT_FIELD_RE.match(rest) or PURITY_SPEC_TOP_END_RE.match(rest):
+                    break
+            end += 1
+        body = cleaned[pos:end].strip()
+        if "=>" in body:
+            # Advance past top-level `fun ... =>` header if present before outer grouping.
+            p_dp = p_db = p_dc = 0
+            i = 0
+            while i + 1 < len(body):
+                c = body[i]
+                if c == "(":
+                    p_dp += 1
+                elif c == ")":
+                    p_dp = max(0, p_dp - 1)
+                elif c == "[":
+                    p_db += 1
+                elif c == "]":
+                    p_db = max(0, p_db - 1)
+                elif c == "{":
+                    p_dc += 1
+                elif c == "}":
+                    p_dc = max(0, p_dc - 1)
+                elif body[i : i + 2] == "=>" and p_dp == 0 and p_db == 0 and p_dc == 0:
+                    body = body[i + 2 :].strip()
+                    break
+                i += 1
+        body = _strip_outer_parens(body)
+        if not body:
+            continue
+        p_dp = p_db = p_dc = 0
+        ands = 0
+        i = 0
+        blen = len(body)
+        while i < blen:
+            c = body[i]
+            if c == "(":
+                p_dp += 1
+            elif c == ")":
+                p_dp = max(0, p_dp - 1)
+            elif c == "[":
+                p_db += 1
+            elif c == "]":
+                p_db = max(0, p_db - 1)
+            elif c == "{":
+                p_dc += 1
+            elif c == "}":
+                p_dc = max(0, p_dc - 1)
+            elif p_dp == 0 and p_db == 0 and p_dc == 0:
+                if c == "∧":
+                    ands += 1
+                elif body[i : i + 2] == "/\\":
+                    ands += 1
+                    i += 1
+            i += 1
+        conjuncts = ands + 1
+        if conjuncts > 12:
+            hits.append((start_line, field_name, conjuncts))
+    return hits
+
+
+def check_purity_spec_files(
+    root: Path,
+    rel_files: list[str],
+    cache: dict[Path, list[ImportStmt]],
+) -> list[Violation]:
+    """Enforce Rule `P-Spec` on `Kissat*/Spec/*` and pre-W8 `Proof/*/Spec*` modules."""
+    viols: list[Violation] = []
+    for rel in rel_files:
+        path = root / rel
+        if not path.is_file():
+            continue
+        imps = _load_imports(path, cache)
+        for imp in imps:
+            if imp.is_meta:
+                viols.append(
+                    Violation(
+                        leak_id="P-Spec",
+                        file=rel,
+                        line=imp.line,
+                        module=imp.module,
+                        kind="spec-meta-import",
+                        detail=f"forbidden `meta import {imp.module}` in pure `Spec/` module",
+                    )
+                )
+            if imp.is_all:
+                viols.append(
+                    Violation(
+                        leak_id="P-Spec",
+                        file=rel,
+                        line=imp.line,
+                        module=imp.module,
+                        kind="spec-import-all",
+                        detail=f"forbidden `import all {imp.module}` in pure `Spec/` module",
+                    )
+                )
+            bad = _is_forbidden_spec_import(imp.module)
+            if bad is not None:
+                kind, detail = bad
+                viols.append(
+                    Violation(
+                        leak_id="P-Spec",
+                        file=rel,
+                        line=imp.line,
+                        module=imp.module,
+                        kind=kind,
+                        detail=detail,
+                    )
+                )
+
+        cleaned = strip_lean_code(path.read_text(encoding="utf-8"))
+        for lineno, raw_line in enumerate(cleaned.splitlines(), start=1):
+            code = ANY_ATTR_RE.sub("", raw_line).strip()
+            if not code:
+                continue
+            m_decl = PURITY_FORBIDDEN_DECL_RE.match(code)
+            if m_decl:
+                viols.append(
+                    Violation(
+                        leak_id="P-Spec",
+                        file=rel,
+                        line=lineno,
+                        module="",
+                        kind="spec-forbidden-decl",
+                        detail=f"forbidden `{m_decl.group(1)}` declaration in pure `Spec/` module",
+                    )
+                )
+            if PURITY_SPEC_DEPS_RE.match(code):
+                viols.append(
+                    Violation(
+                        leak_id="P-Spec",
+                        file=rel,
+                        line=lineno,
+                        module="",
+                        kind="spec-deps-decl",
+                        detail="forbidden `deps` declaration in `Spec/` (move to `Proof/<Sub>/Cert.lean`)",
+                    )
+                )
+            m_d = DECL_RE.match(code)
+            if m_d and m_d.group(2) and PURITY_SPEC_LEGACY_RE.search(m_d.group(2)):
+                viols.append(
+                    Violation(
+                        leak_id="P-Spec",
+                        file=rel,
+                        line=lineno,
+                        module="",
+                        kind="spec-legacy-ident",
+                        detail=f"legacy identifier in declaration `{m_d.group(2)}`",
+                    )
+                )
+            m_idx = PURITY_SPEC_RAW_IDX_RE.search(code)
+            if m_idx:
+                viols.append(
+                    Violation(
+                        leak_id="P-Spec",
+                        file=rel,
+                        line=lineno,
+                        module="",
+                        kind="spec-raw-index",
+                        detail=f"raw positional header/array index `{m_idx.group(0)}` (use `HdrView`/`HdrWordField`)",
+                    )
+                )
+        for lineno, fname, cnt in _count_pre_post_conjuncts(cleaned):
+            viols.append(
+                Violation(
+                    leak_id="P-Spec",
+                    file=rel,
+                    line=lineno,
+                    module="",
+                    kind="spec-conjunct-cap",
+                    detail=f"`{fname}` body has {cnt} > 12 conjuncts (factor into `<Fn>Pre`/`<Fn>Post`)",
+                )
+            )
+    return viols
+
+
 def run_audit(
     root: Path,
     require_isa: bool = False,
     data_proof: bool = False,
+    purity_ref: bool = False,
+    purity_spec: bool = False,
 ) -> list[LeakGroupReport]:
-    """Run all firewall checks (L1-L5, plus optional D1-D2 `--data-proof`) against `root`."""
+    """Run all firewall checks (L1-L5, plus optional D1-D2, P-Ref, P-Spec) against `root`."""
     cache: dict[Path, list[ImportStmt]] = {}
 
     l1_files = ["LeanQbe/T/MainLemmas.lean"]
@@ -756,6 +1128,26 @@ def run_audit(
                 ),
             ]
         )
+    if purity_ref:
+        ref_files = discover_purity_ref_files(root)
+        reports.append(
+            LeakGroupReport(
+                leak_id="P-Ref",
+                label="Kissat `Ref/` purity (`0` proofs/tactics, `0` C0/Kraken/Spec/Proof imports)",
+                files=ref_files,
+                violations=check_purity_ref_files(root, ref_files, cache),
+            )
+        )
+    if purity_spec:
+        spec_files = discover_purity_spec_files(root)
+        reports.append(
+            LeakGroupReport(
+                leak_id="P-Spec",
+                label="Kissat `Spec/` purity (`0` proofs/deps/meta/cross-Spec/raw-idx/legacy)",
+                files=spec_files,
+                violations=check_purity_spec_files(root, spec_files, cache),
+            )
+        )
     return reports
 
 
@@ -811,6 +1203,16 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     ap.add_argument(
+        "--purity-ref",
+        action="store_true",
+        help="Enforce Rule `P-Ref` purity on `**/Kissat*/Ref/*.lean` modules (opt-in).",
+    )
+    ap.add_argument(
+        "--purity-spec",
+        action="store_true",
+        help="Enforce Rule `P-Spec` purity on `**/Kissat*/Spec/*.lean` and pre-W8 `Spec*` modules (opt-in).",
+    )
+    ap.add_argument(
         "--json",
         action="store_true",
         help="Emit machine-readable JSON output.",
@@ -819,7 +1221,13 @@ def main(argv: list[str] | None = None) -> int:
 
     t0 = time.perf_counter()
     root = Path(args.root).resolve()
-    groups = run_audit(root, require_isa=args.require_isa, data_proof=args.data_proof)
+    groups = run_audit(
+        root,
+        require_isa=args.require_isa,
+        data_proof=args.data_proof,
+        purity_ref=args.purity_ref,
+        purity_spec=args.purity_spec,
+    )
     elapsed_ms = (time.perf_counter() - t0) * 1000.0
 
     leak_groups = sum(1 for g in groups if g.violations)
