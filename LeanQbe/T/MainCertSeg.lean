@@ -5,6 +5,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 module
 
 public import LeanQbe.T.MainCertSlices
+public import LeanQbe.T.MainCertFlat
 public import LeanQbe.T.MainCertInlineProof
 public import LeanQbe.T.InlinePlanLemmas
 
@@ -342,5 +343,71 @@ theorem eventually_ret1_i64_inlinePlan
 end ConcreteInit
 
 end LinkedCert
+
+/-! ## 4. Staged Per-Pass `compileModuleFlat` Kernel Bridge Lemmas -/
+
+/-- Zero-peel configuration used by `earlyOptFlat` (`peelBudget := 24`). -/
+@[expose] def stagedZpCfg24 : ZeroPeelConfig := { peelBudget := 24 }
+
+/-- Decompose `earlyOptFlat f` into two kernel-checkable pass stages (`t0` and `t1`). -/
+theorem earlyOptFlat_eq {f : TFlatFn} {t0 t1 : TFlat f.rs}
+    (h0 : OptFlatValue.foldFlat f.as (OptFlatValue.copyFlat f.as
+      (OptFlatValue.gvnFlat f.as (OptFlatValue.copyFlat f.as
+        (OptFlatValue.canonFlat f.as (OptFlatValue.foldFlat f.as f.body))))) = t0)
+    (h1 : OptFlatCfg.dcePFlat f.as (OptFlatValue.foldFlat f.as (OptFlatValue.copyFlat f.as
+      (TFlat.zeroPeelWith stagedZpCfg24
+        (peelFastFlat f.as (simplifyGroupFastFlat f.as
+          (OptFlatCfg.ifOptFlat false f.as t0)) 24)))) = t1) :
+    earlyOptFlat f = ⟨f.name, f.as, f.rs, t1⟩ := by
+  dsimp only [earlyOptFlat]
+  dsimp only [stagedZpCfg24] at h1
+  rw [h0, h1]
+
+/-- Decompose `midStageFlat lt ef` into 13 kernel-checkable per-pass equalities. -/
+theorem midStageFlat_eq {lt : LegalTarget} {ef : TFlatFn}
+    {t0 t1 t2a t2b t2 t3a t3b t3 t4a t4 t5a t5b t5 : TFlat (lt.legalSig ef.rs)}
+    (h0 : legalFlat lt (as := ef.as) ef.body = t0)
+    (h1 : OptFlatValue.copyFlat (lt.legalSig ef.as) (OptFlatMem.divConstFlat (lt.legalSig ef.as)
+      (OptFlatValue.canonFlat (lt.legalSig ef.as)
+        (OptFlatValue.foldFlat (lt.legalSig ef.as) t0))) = t1)
+    (h2a : OptFlatMem.memLoadFlat (lt.legalSig ef.as) t1 = t2a)
+    (h2b : OptFlatValue.gvnFlat (lt.legalSig ef.as) t2a = t2b)
+    (h2 : OptFlatValue.foldFlat (lt.legalSig ef.as)
+      (OptFlatMem.assumeBitsFlat (lt.legalSig ef.as) t2b) = t2)
+    (h3a : OptFlatValue.foldFlat (lt.legalSig ef.as) (assumeElimFlat
+      (OptFlatCfg.deadLoadElimFlat (lt.legalSig ef.as)
+        (simplifyGroupFastFlat (lt.legalSig ef.as)
+          (OptFlatCfg.ifOptFlat true (lt.legalSig ef.as) t2)))) = t3a)
+    (h3b : addrRangeOptFlatWith lt.foldAddrDisp (lt.legalSig ef.as) t3a = t3b)
+    (h3 : OptFlatValue.gvnFlat (lt.legalSig ef.as) t3b = t3)
+    (h4a : OptFlatCfg.dcePFlat (lt.legalSig ef.as) (licmFlat (lt.legalSig ef.as) t3) = t4a)
+    (h4 : loopRotateFlat (lt.legalSig ef.as) t4a = t4)
+    (h5a : pathCondOptFlat (lt.legalSig ef.as) t4 = t5a)
+    (h5b : condThreadPassFlat (lt.legalSig ef.as) t5a = t5b)
+    (h5 : mergeRetsFlat (tailDupFlat (lt.legalSig ef.as) (OptFlatCfg.dcePFlat (lt.legalSig ef.as)
+      (OptFlatValue.foldFlat (lt.legalSig ef.as) t5b)) TailDup.defaultConfig) = t5) :
+    midStageFlat lt ef = ⟨ef.name, lt.legalSig ef.as, lt.legalSig ef.rs, t5⟩ := by
+  dsimp only [midStageFlat, condThreadLateOptFlat]
+  dsimp only [TailDup.defaultConfig] at h5
+  rw [h0, h1, h2a, h2b, h2, h3a, h3b, h3, h4a, h4, h5a, h5b, h5]
+
+/-- Assemble a singleton `compileModuleFlat` certificate from staged per-stage equalities. -/
+theorem compileModuleFlat_single
+    {I : Isa} {lt : LegalTarget} {raBytes : Nat}
+    {extCallees : List (SigEntry × Nat)} {exits : List Sym} {nX : Nat}
+    {f ef mf : TFlatFn} {h : I.Hints} {ext : Rega.Ext}
+    {code : List I.Directive} {b : Nat}
+    (hwf : f.wfCheck = true)
+    (hef : earlyOptFlat f = ef)
+    (hsupp : ef.supportsSource lt = true)
+    (hmf : midStageFlat lt ef = mf)
+    (hext : TFlat.ext mf.body = ext)
+    (hlow : Rega.lowerFlatFn I h ext mf = .ok code)
+    (hbnd : checkAndBoundExt I raBytes exits nX extCallees h ext = some b) :
+    compileModuleFlat I lt raBytes extCallees exits nX [f] [h] =
+      .ok (code, [(f.name, b)]) := by
+  dsimp only [compileModuleFlat]
+  rw [hwf, hef, hsupp, hmf, hext, hlow, hbnd]
+  simp
 
 end LeanQbe.T

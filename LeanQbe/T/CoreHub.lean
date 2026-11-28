@@ -138,6 +138,7 @@ public import LeanQbe.T.MainCertProof
 public import LeanQbe.T.MainCertScc
 public import LeanQbe.T.MainCertSeg
 public import LeanQbe.T.MainCertSegElab
+public import LeanQbe.T.MainCertSegStaged
 public import LeanQbe.T.MainCertSlices
 public import LeanQbe.T.MainFlat
 public import LeanQbe.T.MainFlatLemmas

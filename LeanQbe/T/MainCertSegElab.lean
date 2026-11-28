@@ -9,6 +9,7 @@ public import LeanQbe.T.MainCertFlat
 public meta import Lean
 public meta import LeanQbe.T.InlinePlanSeg
 public meta import LeanQbe.T.MainCertSeg
+public meta import LeanQbe.T.MainCertSegStaged
 public meta import LeanQbe.T.MainCertFlat
 public meta import LeanQbe.T.MainCertFlatDecode
 public meta import LeanQbe.T.MainFlat
@@ -355,17 +356,19 @@ private structure SegCertOptions where
   hintsT? : Option Term := none
   chunkSizeT? : Option Term := none
   excludeT? : Option Term := none
+  stagedT? : Option Term := none
   deriving Inhabited
 
 private def parseSegCertOptions (cmd : String)
     (optKeys : TSyntaxArray `ident) (optVals : TSyntaxArray `term) :
     CommandElabM SegCertOptions :=
   parseKvOptions cmd
-    "hints, ext, exits, nX, maxBound, maxDirs, chunkSize, pruneExt, exclude, compile" {}
+    "hints, ext, exits, nX, maxBound, maxDirs, chunkSize, pruneExt, exclude, compile, staged" {}
     (fun opts k v => pure <| match k with
       | `hints => some { opts with hintsT? := some v }
       | `chunkSize => some { opts with chunkSizeT? := some v }
       | `exclude => some { opts with excludeT? := some v }
+      | `staged => some { opts with stagedT? := some v }
       | `maxBound => some { opts with base := { opts.base with maxBT? := some v } }
       | `ext => some { opts with base := { opts.base with extT? := some v } }
       | `exits => some { opts with base := { opts.base with exitsT? := some v } }
@@ -374,6 +377,26 @@ private def parseSegCertOptions (cmd : String)
       | `pruneExt => some { opts with base := { opts.base with pruneExtT? := some v } }
       | `compile => some { opts with base := { opts.base with compileT? := some v } }
       | _ => none) optKeys optVals
+
+private def evalOptBoolOpt (opt? : Option Term) : TermElabM (Option Bool) := do
+  match opt? with
+  | none => pure none
+  | some t => some <$> evalBoolOpt (some t) false
+
+private def runStagedFnEval (cmd : String) (b : CertBaseEnv) (pruneExt : Bool)
+    (hintsE : Lean.Expr) (flatFns : List TFlatFn) : TermElabM EvalStagedFnData := do
+  let listFlatTy := mkApp (Lean.mkConst ``List [.zero]) (Lean.mkConst ``LeanQbe.T.TFlatFn)
+  let pruneExtE := Lean.mkConst (if pruneExt then ``Bool.true else ``Bool.false)
+  let outTy := mkApp2 (Lean.mkConst ``Except [.zero, .zero]) (Lean.mkConst ``String)
+    (Lean.mkConst ``LeanQbe.T.EvalStagedFnData)
+  let runnerTy := Lean.mkForall `_ .default listFlatTy outTy
+  let callE ← instantiateMVars (mkAppN (Lean.mkConst ``LeanQbe.T.makeStagedFnEvaluator)
+    #[b.isaE, b.ltE, b.raE, b.ext0E, b.exitsE, b.nXE, b.maxBE, pruneExtE, hintsE,
+      b.toExprHintsInst, b.toExprDirInst])
+  let runner ← unsafe evalExpr (List TFlatFn → Except String EvalStagedFnData) runnerTy callE
+  match runner flatFns with
+  | .error e => throwError "{cmd}: {e}"
+  | .ok sd => return sd
 
 private def emitSegChunksFromRun (segNm auxNs : Name) (b : CertBaseEnv)
     (runFnsE flatBaseE : Lean.Expr) (fnsFlatEqNm : Name)
@@ -452,9 +475,10 @@ scoped elab_rules : command
     let tys := mkCertTypes
     let flatTy := Lean.mkConst ``LeanQbe.T.TFlatFn
     let listFlatTy := mkApp (Lean.mkConst ``List [.zero]) flatTy
-    let (b, fnsBaseE, flatListE, pf, runs, hasExcl) ← liftTermElabM do
+    let (b, fnsBaseE, flatListE, pf, evalRes) ← liftTermElabM do
       let b ← elabCertBase targT layoutT ltT clT opts.base
       let pruneExt ← evalBoolOpt opts.base.pruneExtT? true
+      let stagedOpt ← evalOptBoolOpt opts.stagedT?
       let chunkSize ← match opts.chunkSizeT? with
         | none => pure 1
         | some t =>
@@ -471,6 +495,16 @@ scoped elab_rules : command
       Term.synthesizeSyntheticMVarsNoPostponing
       let some (flatFns, flatListE, pf) ← decodeFlatSliceExpr fnsE
         | throwError "seg_cert!: fnsExpr must be a materialized TFlatFn/denoteFunc list"
+      if !exclNames.isEmpty && stagedOpt == some true then
+        throwError "seg_cert!: (staged := true) requires an unexcluded single-function segment"
+      let useStaged := match flatFns with
+        | [f] => exclNames.isEmpty && stagedOpt.getD (tflatSize f.body >= 800)
+        | _ => false
+      if !useStaged && stagedOpt == some true then
+        throwError "seg_cert!: (staged := true) requires a single-function segment"
+      if useStaged then
+        let sd ← runStagedFnEval "seg_cert!" b pruneExt hintsE flatFns
+        return (b, fnsE, flatListE, pf, Sum.inr sd)
       let pruneExtE := Lean.mkConst (if pruneExt then ``Bool.true else ``Bool.false)
       let outTy := mkApp2 (Lean.mkConst ``Except [.zero, .zero]) (Lean.mkConst ``String)
         (mkApp (Lean.mkConst ``List [.zero]) (Lean.mkConst ``LeanQbe.T.EvalSegRun))
@@ -481,7 +515,7 @@ scoped elab_rules : command
       let runner ← unsafe evalExpr (List TFlatFn → Except String (List EvalSegRun)) runnerTy callE
       match runner flatFns with
       | .error e => throwError "seg_cert!: {e}"
-      | .ok runs => return (b, fnsE, flatListE, pf, runs, !exclNames.isEmpty)
+      | .ok runs => return (b, fnsE, flatListE, pf, Sum.inl (runs, !exclNames.isEmpty))
     let auxRoot := certNm ++ `aux
     let flatFnsNm := auxRoot ++ `flatFns
     let fnsFlatEqNm := auxRoot ++ `fns_flat_eq
@@ -492,37 +526,44 @@ scoped elab_rules : command
     liftCoreM do
       addCertDef flatFnsNm listFlatTy flatListE false
       addCertThm fnsFlatEqNm eqTy pf
-    if !hasExcl then
-      let some run := runs.head?
-        | throwError "seg_cert!: internal error (empty run list)"
-      emitSegChunksFromRun certNm auxRoot b fnsBaseE flatFnsConstE fnsFlatEqNm run
-    else
-      let mut pi : Nat := 0
-      for run in runs do
-        let pNm := certNm ++ Name.mkSimple s!"part{pi}"
-        let pAux := pNm ++ `aux
-        let pFnsNm := pAux ++ `runFns
-        let pFlatNm := pAux ++ `runFlat
-        let pEqNm := pAux ++ `run_flat_eq
-        let sliceFnsE := mkSliceExpr tys.fnTy fnsBaseE run.startIdx run.fnCount false 1
-        let sliceFlatE := mkSliceExpr flatTy flatFnsConstE run.startIdx run.fnCount false .zero
-        let sliceEqPf := mkAppN (Lean.mkConst ``LeanQbe.T.map_slice_eq [.zero, .one])
-          #[flatTy, tys.fnTy, Lean.mkConst ``LeanQbe.T.TFlatFn.toFn, fnsBaseE, flatFnsConstE,
-            Lean.mkConst fnsFlatEqNm, mkNatLit run.startIdx, mkNatLit run.fnCount]
-        let pEqTy := mkApp3 (Lean.mkConst ``Eq [2]) tys.listFnTy (Lean.mkConst pFnsNm)
-          (mkApp4 (Lean.mkConst ``List.map [.zero, .one]) flatTy tys.fnTy
-            (Lean.mkConst ``LeanQbe.T.TFlatFn.toFn) (Lean.mkConst pFlatNm))
-        liftCoreM do
-          addCertDef pFnsNm tys.listFnTy sliceFnsE b.compileCert
-          addCertDef pFlatNm listFlatTy sliceFlatE false
-          addCertThm pEqNm pEqTy sliceEqPf
-        emitSegChunksFromRun pNm pAux b (Lean.mkConst pFnsNm) (Lean.mkConst pFlatNm) pEqNm run
-        pi := pi + 1
+    match evalRes with
+    | .inr sd =>
+      emitStagedSegChunks certNm auxRoot b fnsBaseE flatFnsConstE fnsFlatEqNm
+        (flatListE.getArg! 1) sd
+    | .inl (runs, hasExcl) =>
+      if !hasExcl then
+        let some run := runs.head?
+          | throwError "seg_cert!: internal error (empty run list)"
+        emitSegChunksFromRun certNm auxRoot b fnsBaseE flatFnsConstE fnsFlatEqNm run
+      else
+        let mut pi : Nat := 0
+        for run in runs do
+          let pNm := certNm ++ Name.mkSimple s!"part{pi}"
+          let pAux := pNm ++ `aux
+          let pFnsNm := pAux ++ `runFns
+          let pFlatNm := pAux ++ `runFlat
+          let pEqNm := pAux ++ `run_flat_eq
+          let sliceFnsE := mkSliceExpr tys.fnTy fnsBaseE run.startIdx run.fnCount false 1
+          let sliceFlatE := mkSliceExpr flatTy flatFnsConstE run.startIdx run.fnCount false .zero
+          let sliceEqPf := mkAppN (Lean.mkConst ``LeanQbe.T.map_slice_eq [.zero, .one])
+            #[flatTy, tys.fnTy, Lean.mkConst ``LeanQbe.T.TFlatFn.toFn, fnsBaseE, flatFnsConstE,
+              Lean.mkConst fnsFlatEqNm, mkNatLit run.startIdx, mkNatLit run.fnCount]
+          let pEqTy := mkApp3 (Lean.mkConst ``Eq [2]) tys.listFnTy (Lean.mkConst pFnsNm)
+            (mkApp4 (Lean.mkConst ``List.map [.zero, .one]) flatTy tys.fnTy
+              (Lean.mkConst ``LeanQbe.T.TFlatFn.toFn) (Lean.mkConst pFlatNm))
+          liftCoreM do
+            addCertDef pFnsNm tys.listFnTy sliceFnsE b.compileCert
+            addCertDef pFlatNm listFlatTy sliceFlatE false
+            addCertThm pEqNm pEqTy sliceEqPf
+          emitSegChunksFromRun pNm pAux b (Lean.mkConst pFnsNm) (Lean.mkConst pFlatNm) pEqNm run
+          pi := pi + 1
 
 /-- `fn_cert! fnCertId target layout legalTarget labelClean flatFnExpr (hints := hintExpr)
 [(ext := ...)] [(exits := ...)] [(nX := ...)] [(maxBound := ...)] [(pruneExt := true)]
-[(compile := false)]` compiles a single isolated heavy `TFlatFn` using oracle `hintExpr` and
-`ext`, emitting `fnCertId : SegChunks ...` covering `[flatFnExpr.toFn]`. -/
+[(compile := false)] [(staged := auto)]` compiles a single isolated heavy `TFlatFn` using oracle
+`hintExpr` and `ext`, emitting `fnCertId : SegChunks ...` covering `[flatFnExpr.toFn]`. Uses
+staged per-pass `TFlat` kernel equalities automatically when `tflatSize ≥ 800` or
+`(staged := true)`. -/
 scoped syntax "fn_cert! " ident
     term:arg term:arg term:arg term:arg term:arg ("(" ident " := " term ")")* : command
 
@@ -537,9 +578,10 @@ scoped elab_rules : command
     let tys := mkCertTypes
     let flatTy := Lean.mkConst ``LeanQbe.T.TFlatFn
     let listFlatTy := mkApp (Lean.mkConst ``List [.zero]) flatTy
-    let (b, flatFnE, md) ← liftTermElabM do
+    let (b, flatFnE, evalRes) ← liftTermElabM do
       let b ← elabCertBase targT layoutT ltT clT opts.base
       let pruneExt ← evalBoolOpt opts.base.pruneExtT? true
+      let stagedOpt ← evalOptBoolOpt opts.stagedT?
       let hintTy := mkApp (Lean.mkConst ``LeanQbe.T.Isa.Hints) b.isaE
       let hintE ← instantiateMVars (← Term.elabTerm hintT (some hintTy))
       let flatFnE ← instantiateMVars (← Term.elabTerm flatFnT (some flatTy))
@@ -548,6 +590,13 @@ scoped elab_rules : command
         [mkApp (Lean.mkConst ``LeanQbe.T.TFlatFn.toFn) flatFnE]
       let some (flatFns, _, _) ← decodeFlatSliceExpr singleFnE
         | throwError "fn_cert!: flatFnExpr must decode to a concrete TFlatFn literal"
+      let [f] := flatFns
+        | throwError "fn_cert!: expected singleton TFlatFn"
+      let useStaged := stagedOpt.getD (tflatSize f.body >= 800)
+      if useStaged then
+        let hintsE := mkExprList .zero hintTy [hintE]
+        let sd ← runStagedFnEval "fn_cert!" b pruneExt hintsE flatFns
+        return (b, flatFnE, Sum.inr sd)
       let pruneExtE := Lean.mkConst (if pruneExt then ``Bool.true else ``Bool.false)
       let outTy := mkApp2 (Lean.mkConst ``Except [.zero, .zero]) (Lean.mkConst ``String)
         (Lean.mkConst ``LeanQbe.T.EvalModuleData)
@@ -558,7 +607,7 @@ scoped elab_rules : command
       let runner ← unsafe evalExpr (List TFlatFn → Except String EvalModuleData) runnerTy callE
       match runner flatFns with
       | .error e => throwError "fn_cert!: {e}"
-      | .ok md => return (b, flatFnE, md)
+      | .ok md => return (b, flatFnE, Sum.inl md)
     let fnSingletonE := mkExprList 1 tys.fnTy
       [mkApp (Lean.mkConst ``LeanQbe.T.TFlatFn.toFn) flatFnE]
     let flatSingletonE := mkExprList .zero flatTy [flatFnE]
@@ -569,8 +618,13 @@ scoped elab_rules : command
     liftCoreM do
       addCertDef flatFnsNm listFlatTy flatSingletonE false
       addKernelEqThm fnsFlatEqNm tys.listFnTy fnSingletonE rhsE .one
-    let run : EvalSegRun := { startIdx := 0, fnCount := 1, isLastFull := true, data := md }
-    emitSegChunksFromRun certNm auxNs b fnSingletonE (Lean.mkConst flatFnsNm) fnsFlatEqNm run
+    match evalRes with
+    | .inr sd =>
+      emitStagedSegChunks certNm auxNs b fnSingletonE (Lean.mkConst flatFnsNm) fnsFlatEqNm
+        flatFnE sd
+    | .inl md =>
+      let run : EvalSegRun := { startIdx := 0, fnCount := 1, isLastFull := true, data := md }
+      emitSegChunksFromRun certNm auxNs b fnSingletonE (Lean.mkConst flatFnsNm) fnsFlatEqNm run
 
 end
 
