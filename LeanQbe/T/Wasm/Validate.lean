@@ -19,8 +19,8 @@ set_option autoImplicit false
 
 namespace LeanQbe.T.Wasm
 
-/-- Maximum supported WebAssembly function parameter count (with 3 ABI args = 6 GPRs). -/
-abbrev maxWasmParams : Nat := 3
+/-- Maximum supported WebAssembly function parameter count (with 2 ABI args = 6 GPRs). -/
+abbrev maxWasmParams : Nat := 4
 
 /-- Maximum supported WebAssembly function result count (with status/fuel = 4 GPRs). -/
 abbrev maxWasmResults : Nat := 2

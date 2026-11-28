@@ -5,6 +5,7 @@ public import LeanQbe.T.Wasm.BulkLower
 public import LeanQbe.T.Wasm.BulkSafety
 public import LeanQbe.T.Wasm.Decode
 public import LeanQbe.T.Wasm.Lower
+public import LeanQbe.T.Wasm.Normalize
 public import LeanQbe.T.Wasm.Safety
 public import LeanQbe.T.Wasm.Validate
 
