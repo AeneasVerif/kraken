@@ -4,11 +4,11 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 module
 
-public import LeanQbe.T.Examples.Kissat.Src.Float64
-public import LeanQbe.T.Examples.Kissat.Src.Full
-public import LeanQbe.T.Examples.Kissat.Src.Config
-public import LeanQbe.T.PrintCpp
-public import LeanQbe.T.PrintQbe
+import LeanQbe.T.Examples.Kissat.Src.Float64
+import LeanQbe.T.Examples.Kissat.Src.Full
+import LeanQbe.T.Examples.Kissat.Src.Config
+import LeanQbe.T.PrintCpp
+import LeanQbe.T.PrintQbe
 meta import LeanQbe.T.Examples.Kissat.Src.Header
 meta import LeanQbe.T.Examples.Kissat.Src.Float64
 meta import LeanQbe.T.Examples.Kissat.Src.Full
@@ -36,7 +36,7 @@ open LeanQbe.T
 open LeanQbe.T.PrintCpp
 open LeanQbe.T.Examples.Kissat.Src
 
-public section
+section
 
 kissat_c0! (postlude := false) postlude_demo "
 u32 demo_inc(u32 x) { return x + 1u; }
@@ -45,7 +45,7 @@ u32 demo_add2(u32 x) { return demo_inc(demo_inc(x)); }
 
 end
 
-public section
+section
 
 kissat_src_postlude! postlude_demo
 

@@ -1,13 +1,13 @@
 module
 
-public import LeanQbe.T.Amd64.IselLemmas5
-public import LeanQbe.T.Amd64.IselVec
-public import LeanQbe.T.Amd64.Frame
-public import LeanQbe.T.Main
-public import LeanQbe.T.Examples.Bignum
-public import LeanQbe.T.Examples.LratBytes
-public import LeanQbe.T.Legal
-public import LeanQbe.T.FlatLemmas
+import LeanQbe.T.Amd64.IselLemmas5
+import LeanQbe.T.Amd64.IselVec
+import LeanQbe.T.Amd64.Frame
+import LeanQbe.T.Main
+import LeanQbe.T.Examples.Bignum
+import LeanQbe.T.Examples.LratBytes
+import LeanQbe.T.Legal
+import LeanQbe.T.FlatLemmas
 meta import LeanQbe.T.Amd64.Isel
 meta import LeanQbe.T.Amd64.IselVec
 meta import LeanQbe.T.Amd64.Frame
@@ -35,7 +35,7 @@ Standalone x86-64 backend suite (no legacy untyped-IR imports). Verifies:
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.Amd64IselTest
 
@@ -666,7 +666,7 @@ theorem backendOk_rejects_rbit : unsupportedRbitFn.backendOk testX64Isa = false 
 /-! ## 5b. Full `x64Gpr` + `x64Vec` + `x64Frame` `Bignum` Regression -/
 
 /-- Full x64 `Isa` combining `x64Gpr`, `x64Vec`, and `x64Frame`. -/
-@[expose] meta def fullX64Isa : Isa where
+meta def fullX64Isa : Isa where
   Reg := Reg64
   VReg := RegMm
   Cond := CondCode

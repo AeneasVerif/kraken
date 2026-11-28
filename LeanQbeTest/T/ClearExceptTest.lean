@@ -1,6 +1,6 @@
 module
 
-public import LeanQbe.T.Logic.ProofKit
+import LeanQbe.T.Logic.ProofKit
 meta import LeanQbe.T.Logic.ProofKit
 
 /-!
@@ -31,7 +31,7 @@ open LeanQbe.T.ProofKit
 
 /-! ## 1. 40+ Distractor Stress Tests: BitVec 64, BitVec 32, UInt32/UInt64, Array/List -/
 
-public section
+section
 
 opaque OpaquePred : Nat → Prop
 opaque SepPred : Nat → Nat → Prop
@@ -147,7 +147,7 @@ end
 
 /-! ## 2. Compound Proof Terms & Projection Assertions -/
 
-public section
+section
 
 theorem compound_proof_terms_and_conjunctions
     (x y z : BitVec 64)
@@ -176,7 +176,7 @@ end
 
 /-! ## 3. Empty List (Tautology/Arithmetic) & Auto-Filter Mode -/
 
-public section
+section
 
 theorem empty_keep_list_pure_arithmetic
     (x : BitVec 64) (y : Nat)
@@ -211,7 +211,7 @@ end
 
 /-! ## 4. Composition with `omega`, `simp`, `decide` -/
 
-public section
+section
 
 theorem composition_with_omega
     (a b c d : Nat)
@@ -233,7 +233,7 @@ end
 
 /-! ## 5. Transitive Dependency Closure & Let Bindings -/
 
-public section
+section
 
 theorem transitive_let_dependency_preserved
     (x : Nat)
@@ -258,7 +258,7 @@ end
 
 /-! ## 6. Negative / Fail-Fast Tests -/
 
-public section
+section
 
 theorem fail_fast_missing_hypothesis (x y z : BitVec 64)
     (h1 : x = y) (h2 : y = z) :

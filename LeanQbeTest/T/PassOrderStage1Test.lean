@@ -1,9 +1,9 @@
 module
 
-public import LeanQbe.T.OptLemmas
-public import LeanQbe.T.WPLemmas
-public import LeanQbe.T.FlatLemmas
-public import LeanQbe.T.Logic.Rules
+import LeanQbe.T.OptLemmas
+import LeanQbe.T.WPLemmas
+import LeanQbe.T.FlatLemmas
+import LeanQbe.T.Logic.Rules
 
 /-!
 # Mid-End Pass-Order Wiring (`ZeroPeel`, `AssumeBits`, `assumeElim` Cleanup) & `Fn.renorm` Tests

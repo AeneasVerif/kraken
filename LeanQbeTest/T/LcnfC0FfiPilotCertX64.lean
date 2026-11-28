@@ -11,7 +11,7 @@ meta import LeanQbe.T.MainCertElab
 meta import LeanQbe.T.Amd64.KissatPlainBounds
 meta import LeanQbe.T.Amd64.LcnfC0FullCertX64Bounds
 meta import LeanQbe.T.LeanLCNF.LcnfC0FfiPilot
-public meta import LeanQbe.T.LeanLCNF.LcnfC0FfiPilotProof2
+meta import LeanQbe.T.LeanLCNF.LcnfC0FfiPilotProof2
 
 /-!
 # Shard `F3` SysV x86-64 Linked Certificate & Machine `Eventually` Witnesses

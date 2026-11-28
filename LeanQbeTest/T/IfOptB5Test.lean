@@ -1,10 +1,10 @@
 module
 
-public import LeanQbe.T.IfOptLemmas
-public import LeanQbe.T.SimplifyGroupPlanLemmas
-public import LeanQbe.T.OptLemmas
-public import LeanQbe.T.WPLemmas
-public import LeanQbe.T.FlatLemmas
+import LeanQbe.T.IfOptLemmas
+import LeanQbe.T.SimplifyGroupPlanLemmas
+import LeanQbe.T.OptLemmas
+import LeanQbe.T.WPLemmas
+import LeanQbe.T.FlatLemmas
 import LeanQbe.T.OpsLemmas
 
 /-!
@@ -21,7 +21,7 @@ Covers:
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.IfOptB5Test
 

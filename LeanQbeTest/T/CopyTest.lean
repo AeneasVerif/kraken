@@ -1,9 +1,9 @@
 module
 
-public import LeanQbe.T.CopyLemmas
-public import LeanQbe.T.WPLemmas
-public import LeanQbe.T.FlatLemmas
-public import LeanQbe.T.Logic.Rules
+import LeanQbe.T.CopyLemmas
+import LeanQbe.T.WPLemmas
+import LeanQbe.T.FlatLemmas
+import LeanQbe.T.Logic.Rules
 
 /-!
 # Tests of `LeanQbe.T.Copy`
@@ -20,7 +20,7 @@ Covers:
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbe.T.CopyTest
 

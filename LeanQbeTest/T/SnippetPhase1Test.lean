@@ -1,11 +1,11 @@
 module
 
-public import LeanQbe.T.OptPolicy
-public import LeanQbe.T.MainLateInline
-public import LeanQbe.T.SpillSnippet
-public import LeanQbe.T.SnippetCheck
-public import LeanQbe.T.Examples.Kissat.Dimacs
-public import LeanQbe.T.Examples.Kissat.Plain1
+import LeanQbe.T.OptPolicy
+import LeanQbe.T.MainLateInline
+import LeanQbe.T.SpillSnippet
+import LeanQbe.T.SnippetCheck
+import LeanQbe.T.Examples.Kissat.Dimacs
+import LeanQbe.T.Examples.Kissat.Plain1
 import LeanQbe.T.FlatLemmas
 import LeanQbe.T.MainLemmas
 

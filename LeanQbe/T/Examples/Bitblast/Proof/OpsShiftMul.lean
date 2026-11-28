@@ -32,7 +32,7 @@ open LeanQbe.T.ProofUtil
 open LeanQbe.T.Examples.Bitblast.Ref
 open LeanQbe.T.Examples.Bitblast.Src.OpsShiftMul
 
-@[expose] public section
+public section
 
 /-- Restricted `Env` visible to function `i` of `opsShiftMulFns` (`i` prior internal callees +
 `8` declared externs). -/
@@ -47,7 +47,7 @@ def nvSmHtPtr : BitVec 64 := 0x100088#64
 def nvSmLitsPtr : BitVec 64 := 0x10008c#64
 def nvSmAw : List (BitVec 64) := [0#64]
 def nvSmHt : List (BitVec 32) := [0#32]
-def nvSmLp : List (BitVec 32) := [1#32, 1#32, 1#32, 0#32] ++ List.replicate 12 0#32
+@[expose] def nvSmLp : List (BitVec 32) := [1#32, 1#32, 1#32, 0#32] ++ List.replicate 12 0#32
 
 /-- Concrete `BVHdrState` (`lits_len = 4`, `lits_cap = 16`, `a = 3#2`, `b = 1#2`, `oom = 0`). -/
 def nvSmHdr : BVHdrState :=
@@ -66,7 +66,7 @@ def nvSmB1 : List UInt8 := bytesOf (t := i32) nvSmHdr.u32s
 def nvSmB2 : List UInt8 := bytes64 nvSmAw
 def nvSmB3 : List UInt8 := bytesOf (t := i32) nvSmHt
 def nvSmB4 : List UInt8 := bytesOf (t := i32) nvSmLp
-def nvSmBytes : List UInt8 := nvSmB0 ++ (nvSmB1 ++ (nvSmB2 ++ (nvSmB3 ++ nvSmB4)))
+@[expose] def nvSmBytes : List UInt8 := nvSmB0 ++ (nvSmB1 ++ (nvSmB2 ++ (nvSmB3 ++ nvSmB4)))
 
 /-- Concrete `Mem 64` slab holding `nvSmHdr`, `nvSmAw`, `nvSmHt`, and `nvSmLp` at `0x100000`. -/
 def nvSmMem : Mem 64 := nvSmBytes.At nvSmH

@@ -9,8 +9,8 @@ public import LeanQbe.T.Examples.LinkRec
 public import LeanQbe.T.Examples.LratBytesLemmas
 import LeanQbe.T.Logic.MemLemmas
 import LeanQbe.T.FlatLemmas
-import all Kraken.Mem
-import all Kraken.Separation
+import Kraken.Mem
+import Kraken.Separation
 
 /-!
 # Target-Parametric Benchmarks, `FnSpec`s, and Execution Witnesses (`Examples.BenchmarkCertKit`)

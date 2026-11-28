@@ -1,9 +1,9 @@
 module
 
-public import LeanQbe.T.MemLoadLemmas
-public import LeanQbe.T.WPLemmas
-public import LeanQbe.T.FlatLemmas
-public import LeanQbe.T.Logic.Rules
+import LeanQbe.T.MemLoadLemmas
+import LeanQbe.T.WPLemmas
+import LeanQbe.T.FlatLemmas
+import LeanQbe.T.Logic.Rules
 
 /-!
 # Tests for Indexed `(base, idx, scale, off)` `MemLoad` & Acyclic `.group` CSE

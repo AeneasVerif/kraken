@@ -5,7 +5,7 @@ import LeanQbe.T.LeanLCNF.LcnfC0RtProofM0a
 import LeanQbe.T.Logic.C0HeadStep
 import LeanQbe.T.Logic.ProofKit
 import LeanQbe.T.Logic.ControlComb
-import all Kraken.Separation
+import Kraken.Separation
 
 /-!
 # Soundness Proofs for `LcnfC0Rt`, Part M0b (Recursive Cold Dec / Mark Persistent / ModuleOk)

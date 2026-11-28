@@ -1,7 +1,7 @@
 module
 
-public import LeanQbe.T.Examples.Arisca.ArtSound
-public import LeanQbe.T.Examples.Arisca.ArtSoundB
+import LeanQbe.T.Examples.Arisca.ArtSound
+import LeanQbe.T.Examples.Arisca.ArtSoundB
 
 /-!
 # End-to-End Kernel (`decide +kernel`) Tests for ARiSCA ART v1 Checkers
@@ -19,7 +19,7 @@ namespace LeanQbeTest.T.AriscaTest
 
 open LeanQbe.T.Examples.Arisca
 
-public section
+section
 
 noncomputable section
 
@@ -335,7 +335,7 @@ end
 
 end
 
-public section
+section
 
 theorem u_array_4_ok : checkArt false u_array_4_aig 268 u_array_4_art 1116 = true := by
   decide +kernel

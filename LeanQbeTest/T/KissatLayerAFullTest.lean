@@ -1,10 +1,10 @@
 module
 
-public import LeanQbe.T.Examples.Kissat.Ref.Sweep
-public import LeanQbe.T.Examples.Kissat.Ref.Chrono
-public import LeanQbe.T.Examples.Kissat.Proof.Ref.Chrono
-public import LeanQbe.T.Examples.LratBytes
-public import LeanQbe.T.Examples.LratBytesDimacsLemmas
+import LeanQbe.T.Examples.Kissat.Ref.Sweep
+import LeanQbe.T.Examples.Kissat.Ref.Chrono
+import LeanQbe.T.Examples.Kissat.Proof.Ref.Chrono
+import LeanQbe.T.Examples.LratBytes
+import LeanQbe.T.Examples.LratBytesDimacsLemmas
 meta import LeanQbe.T.Examples.Kissat.Ref.Sat
 meta import LeanQbe.T.Examples.Kissat.Ref.Sweep
 meta import LeanQbe.T.Examples.Kissat.Ref.Chrono
@@ -28,7 +28,7 @@ Executable `#guard` checks, closed end-to-end non-vacuity theorems, and single-l
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace KissatLayerAFullTest
 

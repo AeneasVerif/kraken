@@ -1,10 +1,10 @@
 module
 
-public import LeanQbe.T.MainCertInlineChunk
-public import LeanQbeTest.T.Common.Fixtures
-public meta import Lean
-public meta import LeanQbe.T.MainCertInlineChunk
-public meta import LeanQbeTest.T.Common.Fixtures
+import LeanQbe.T.MainCertInlineChunk
+import LeanQbeTest.T.Common.Fixtures
+meta import Lean
+meta import LeanQbe.T.MainCertInlineChunk
+meta import LeanQbeTest.T.Common.Fixtures
 
 /-!
 # Chunked `inline_mod!` Tests (`MainCertInlineChunkTest`)
@@ -49,12 +49,14 @@ private meta def mkChainMatFn (i : Nat) : MatFnData :=
     else .call "f0" [i64] v0 (.ret v0)
   ⟨s!"f{i}", [i64], [i64], flat⟩
 
-local elab "def_chain_mod! " id:ident n:num : command => open Lean Elab Command in do
+meta section
+open Lean Elab Command in
+run_cmd do
   let ns ← getCurrNamespace
-  let modNm := ns ++ id.getId
+  let modNm := ns ++ `chain520Mod
   let fnTy := Lean.mkConst ``LeanQbe.T.Fn
   let modTy := Lean.mkConst ``LeanQbe.T.Module
-  let fns := (List.range n.getNat).map mkChainMatFn
+  let fns := (List.range 520).map mkChainMatFn
   liftCoreM do
     let mut fnExprs : Array Lean.Expr := #[]
     for f in fns do
@@ -63,8 +65,7 @@ local elab "def_chain_mod! " id:ident n:num : command => open Lean Elab Command 
     let modVal := mkApp3 (Lean.mkConst ``LeanQbe.T.Module.mk) fnsLit
       (InlineMeta.listExternToExpr []) (InlineMeta.listSymToExpr [])
     addCertDef modNm modTy modVal true
-
-def_chain_mod! chain520Mod 520
+end
 
 inline_chunk_base! chConstBase chain520Mod (InlinePolicy.const 20)
 inline_mod_chunk! chConst0 chConstBase chain520Mod (InlinePolicy.const 20) 0 64 (compile := true)

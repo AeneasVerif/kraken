@@ -5,8 +5,8 @@ import LeanQbe.T.Logic.ProofKit
 meta import LeanQbe.T.Logic.ProofKit
 import LeanQbe.T.Logic.C0HeadStep
 meta import LeanQbe.T.Logic.C0HeadStep
-import all Kraken.Mem
-import all Kraken.Separation
+import Kraken.Mem
+import Kraken.Separation
 
 /-!
 # Soundness Proofs for `LcnfC0BigNum` Core Helpers (`Milestone R1`, Part 1)
@@ -593,18 +593,18 @@ theorem region_to_mpz_parts {p : BitVec 64} {n : Nat} {R : Mem 64 → Prop} {m :
   rw [h16, h8] at hm
   have hm1 : (region p 8 ⋆ (region (p + 8#64) 8 ⋆ (region (p + 16#64) (8 * n) ⋆ R))) m :=
     sep_ac hm
-  obtain ⟨m0, mRest, rfl, hd0, hr0, hRest⟩ := hm1
-  obtain ⟨w0, hc0⟩ := region_to_cell64_bn hr0
-  obtain ⟨m1, mRest2, rfl, hd1, hr1, hRest2⟩ := hRest
-  obtain ⟨w1, hc1⟩ := region_to_cell64_bn hr1
-  obtain ⟨m2, mR, rfl, hd2, hr2, hR⟩ := hRest2
-  obtain ⟨limbs, hlen, harr⟩ := bn_region_to_array64 n (by omega) hr2
-  refine ⟨w0, w1, limbs, hlen, ?_⟩
-  have htmp : (cell64 p w0 ⋆ (cell64 (p + 8#64) w1 ⋆ (array64 (p + 16#64) limbs ⋆ R)))
-      (m0.union (m1.union (m2.union mR))) :=
-    ⟨m0, m1.union (m2.union mR), rfl, hd0, hc0,
-      ⟨m1, m2.union mR, rfl, hd1, hc1, ⟨m2, mR, rfl, hd2, harr, hR⟩⟩⟩
-  exact sep_ac htmp
+  obtain ⟨w0, hm2⟩ := sep_ex_l.mp (sep_mono (fun _ => region_to_cell64_bn) hm1)
+  change (cell64 p w0 ⋆ _) m at hm2
+  have hm3 : (region (p + 8#64) 8 ⋆ (cell64 p w0 ⋆ (region (p + 16#64) (8 * n) ⋆ R))) m :=
+    sep_ac hm2
+  obtain ⟨w1, hm4⟩ := sep_ex_l.mp (sep_mono (fun _ => region_to_cell64_bn) hm3)
+  change (cell64 (p + 8#64) w1 ⋆ _) m at hm4
+  have hm5 : (region (p + 16#64) (8 * n) ⋆ (cell64 p w0 ⋆ (cell64 (p + 8#64) w1 ⋆ R))) m :=
+    sep_ac hm4
+  obtain ⟨limbs, hm6⟩ := sep_ex_l.mp (sep_mono (fun _ => bn_region_to_array64 n (by omega)) hm5)
+  obtain ⟨hlen, hm7⟩ := sep_pure_l.mp hm6
+  change (array64 (p + 16#64) limbs ⋆ _) m at hm7
+  exact ⟨w0, w1, limbs, hlen, sep_ac hm7⟩
 
 theorem intSmallEnc_sshiftRight1 {z : Int} (hlo : -(2 ^ 62 : Int) ≤ z) (hhi : z < (2 ^ 62 : Int)) :
     let w := BitVec.ofInt 64 (2 * z + 1)

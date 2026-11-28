@@ -1,12 +1,12 @@
 module
 
-public import LeanQbe.T.Amd64.TargLemmas
-public import LeanQbe.T.Amd64.IselLemmas5
-public import LeanQbe.T.Amd64.IselZeroLemmas
-public import LeanQbe.T.RegaLemmasZero
-public import LeanQbe.T.RegaLemmas4
-public import LeanQbe.T.Spill
-public import LeanQbe.T.MainFlatLemmas
+import LeanQbe.T.Amd64.TargLemmas
+import LeanQbe.T.Amd64.IselLemmas5
+import LeanQbe.T.Amd64.IselZeroLemmas
+import LeanQbe.T.RegaLemmasZero
+import LeanQbe.T.RegaLemmas4
+import LeanQbe.T.Spill
+import LeanQbe.T.MainFlatLemmas
 meta import Lean
 meta import LeanQbe.T.Amd64.TargLemmas
 meta import LeanQbe.T.Amd64.IselZeroLemmas
@@ -33,7 +33,7 @@ Regression tests covering Wave-4 Shard 2 (`C-P1.2`) on production `x64Target` / 
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.X64ZeroIdiomTest
 

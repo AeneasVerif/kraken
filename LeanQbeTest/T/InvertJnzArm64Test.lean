@@ -1,9 +1,9 @@
 module
 
-public import LeanQbe.T.Arm64.TargLemmas
-public import LeanQbe.T.Spill
-public import LeanQbeTest.T.RegaTestKit
-public import LeanQbeTest.T.Arm64DirPreds
+import LeanQbe.T.Arm64.TargLemmas
+import LeanQbe.T.Spill
+import LeanQbeTest.T.RegaTestKit
+import LeanQbeTest.T.Arm64DirPreds
 meta import LeanQbe.T.Arm64.Isel
 meta import LeanQbe.T.Arm64.TargLemmas
 meta import LeanQbe.T.Spill
@@ -28,7 +28,7 @@ on the Arm64 target:
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.InvertJnzArm64Test
 

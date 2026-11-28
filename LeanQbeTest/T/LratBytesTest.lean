@@ -1,10 +1,10 @@
 module
 
-public import LeanQbe.T.PrintCpp
-public import LeanQbe.T.Legal
-public import LeanQbe.T.Examples.LratBytes
-public import LeanQbe.T.Examples.LratBytesSpec
-public import LeanQbe.T.Examples.LratBytesLemmas
+import LeanQbe.T.PrintCpp
+import LeanQbe.T.Legal
+import LeanQbe.T.Examples.LratBytes
+import LeanQbe.T.Examples.LratBytesSpec
+import LeanQbe.T.Examples.LratBytesLemmas
 meta import LeanQbe.T.PrintCpp
 meta import LeanQbe.T.Legal
 meta import LeanQbe.T.Examples.LratBytes
@@ -254,7 +254,7 @@ private def mkDriverCpp : String :=
     ]
 
 /-- Generate standalone C++20 TUs, `gen_lrat_suite.hpp`, and `gen_lrat_driver.cpp` in `outDir`. -/
-public def runGenerate (outDir : String) : IO UInt32 := do
+def runGenerate (outDir : String) : IO UInt32 := do
   let writeChecked (fname : String) (res : Except String String) : IO Unit := do
     match res with
     | .ok s => IO.FS.writeFile s!"{outDir}/{fname}" s

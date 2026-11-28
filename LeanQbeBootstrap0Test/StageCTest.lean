@@ -1,9 +1,9 @@
 module
 
-public import LeanQbe.T.Bootstrap0.StageC
-public import LeanQbe.T.Bootstrap0.Sound0
-public import LeanQbe.T.Amd64.ScalarTarg
-public import Kraken.X64.PrintATT
+import LeanQbe.T.Bootstrap0.StageC
+import LeanQbe.T.Bootstrap0.Sound0
+import LeanQbe.T.Amd64.ScalarTarg
+import Kraken.X64.PrintATT
 import Lean
 meta import Lean
 meta import LeanQbe.T.Bootstrap0.StageC
@@ -20,7 +20,7 @@ Validates `LeanQbe.T.Bootstrap0.StageC` on seven small scalar C0 functions (`sta
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeBootstrap0Test.StageCTest
 

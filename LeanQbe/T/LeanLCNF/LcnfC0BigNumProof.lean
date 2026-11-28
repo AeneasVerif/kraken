@@ -8,8 +8,8 @@ public import LeanQbe.T.LeanLCNF.LcnfC0BigNumProof5
 public import LeanQbe.T.LeanLCNF.LcnfC0BigNumProof6
 public import LeanQbe.T.LeanLCNF.LcnfC0BigNumProof7
 public import LeanQbe.T.LeanLCNF.LcnfC0BigNumProof8
-import all Kraken.Mem
-import all Kraken.Separation
+import Kraken.Mem
+import Kraken.Separation
 
 /-!
 # Top-Level `LcnfC0BigNum` `ModuleOk`, Soundness & Concrete `Mem 64` Non-Vacuity (`Milestone R1`)
@@ -333,10 +333,8 @@ private theorem nvBn_sep_append {P Q : Mem 64 → Prop} {a : BitVec 64}
     (h1 : bs1.length = n1) (h2 : bs2.length = n2) (hfit : n1 + n2 ≤ 2 ^ 64)
     (hp : P (bs1.At a)) (hq : Q (bs2.At (a + BitVec.ofNat 64 n1))) :
     (P ⋆ Q) ((bs1 ++ bs2).At a) := by
-  have hs := congrFun (Mem.At_append_sep bs1 bs2 a (by omega)) ((bs1 ++ bs2).At a)
-  obtain ⟨m1, m2, hu, hd, rfl, rfl⟩ := hs.mp rfl
-  refine ⟨bs1.At a, bs2.At (a + BitVec.ofNat 64 bs1.length), hu, hd, hp, ?_⟩
-  rwa [h1]
+  have hs := (congrFun (Mem.At_append_sep bs1 bs2 a (by omega)) ((bs1 ++ bs2).At a)).mp rfl
+  exact sep_mono (fun _ h => h ▸ hp) (sep_mono_r (fun _ h => h ▸ (h1 ▸ hq)) hs)
 
 private theorem array64_baseHdrWords_to_At (rt : BitVec 64) (h : LcnfC0Rt) {m : Mem 64}
     (hm : array64 (rt + 33536#64) (nvBnHdrWords h) m) : LcnfC0Rt.At rt h m := by

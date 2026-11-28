@@ -1,12 +1,12 @@
 module
 
-public import LeanQbe.T.Flat
-public import LeanQbe.T.Legal
-public import LeanQbe.T.Wf
-public import LeanQbe.T.Examples.UnionFindLemmas
-public import LeanQbeTest.T.Examples
-public import LeanQbeTest.T.Smoke
-public import LeanQbeTest.T.NotationTest
+import LeanQbe.T.Flat
+import LeanQbe.T.Legal
+import LeanQbe.T.Wf
+import LeanQbe.T.Examples.UnionFindLemmas
+import LeanQbeTest.T.Examples
+import LeanQbeTest.T.Smoke
+import LeanQbeTest.T.NotationTest
 import LeanQbe.T.FlatLemmas
 import LeanQbe.T.LegalCheck3
 import LeanQbe.T.LegalLemmas
@@ -28,7 +28,7 @@ Exercises `Func.legal` / `Fn.legal`, `Func.legal_wf`, `Func.legal_wp` / `Func.le
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.LegalTest
 

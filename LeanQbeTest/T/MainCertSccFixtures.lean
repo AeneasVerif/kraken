@@ -1,13 +1,13 @@
 module
 
 public import LeanQbe.T.MainCertScc
-public import LeanQbe.T.Notation
-public import LeanQbe.T.Logic.Rules
-public import LeanQbe.T.FlatLemmas
+import LeanQbe.T.Notation
+import LeanQbe.T.Logic.Rules
+import LeanQbe.T.FlatLemmas
 public import LeanQbeTest.T.MainTest
-public meta import Lean
-public meta import LeanQbe.T.MainCertScc
-public meta import LeanQbeTest.T.RegaLitmusTarget
+meta import Lean
+meta import LeanQbe.T.MainCertScc
+meta import LeanQbeTest.T.RegaLitmusTarget
 
 /-!
 # Shared Recursive SCC Test Fixtures & Proof Helpers (`MainCertSccFixtures`)

@@ -364,10 +364,10 @@ end
 
 /-! ## 3. Exposed Invariant Predicates for `bv_blast_mul` & `bv_blast_clz` (`@[expose]`) -/
 
-@[expose] public section
+public section
 
 /-- Invariant across bit index `j` of the initial `out[j] = bv_mk_and(y0, a[j])` loop. -/
-def MulInitInv (aOff bOff w : BitVec 32)
+@[expose] def MulInitInv (aOff bOff w : BitVec 32)
     (hdr0 : BVHdrState) (g0 : Aig) (lp0 : List (BitVec 32))
     (R : Mem 64 → Prop) (y0 : BitVec 32)
     (st : Nat × BVHdrState × Aig × List (BitVec 64) × List (BitVec 32) × List (BitVec 32))
@@ -388,7 +388,7 @@ def MulInitInv (aOff bOff w : BitVec 32)
     array (t := i32) hdrJ.ht_ptr htJ ⋆ array (t := i32) hdr0.lits_ptr lpJ ⋆ R) mJ
 
 /-- Outer loop invariant (`1 ≤ s ≤ w`) for `bv_blast_mul`. -/
-def MulOuterInv (aOff bOff w : BitVec 32)
+@[expose] def MulOuterInv (aOff bOff w : BitVec 32)
     (hdr0 : BVHdrState) (g0 : Aig) (lp0 : List (BitVec 32))
     (R : Mem 64 → Prop)
     (st : Nat × BVHdrState × Aig × List (BitVec 64) × List (BitVec 32) × List (BitVec 32))
@@ -406,7 +406,7 @@ def MulOuterInv (aOff bOff w : BitVec 32)
     array (t := i32) hdrS.ht_ptr htS ⋆ array (t := i32) hdr0.lits_ptr lpS ⋆ R) mS
 
 /-- Zero-padding loop invariant (`0 ≤ j ≤ s`) for `shifted[0..<s] = 0u`. -/
-def MulZeroInv (aOff bOff w : BitVec 32) (s : Nat)
+@[expose] def MulZeroInv (aOff bOff w : BitVec 32) (s : Nat)
     (hdr0 hdrS : BVHdrState) (g0 gS : Aig) (awS : List (BitVec 64))
     (htS lp0 : List (BitVec 32)) (R : Mem 64 → Prop)
     (st : Nat × List (BitVec 32)) (mZ : Mem 64) (hptr : BitVec 64) : Prop :=
@@ -425,7 +425,7 @@ def MulZeroInv (aOff bOff w : BitVec 32) (s : Nat)
     array (t := i32) hdrS.ht_ptr htS ⋆ array (t := i32) hdr0.lits_ptr lpZ ⋆ R) mZ
 
 /-- Copy-shifted loop invariant (`s ≤ j ≤ w`) for `shifted[s..<w] = a[0..<w-s]`. -/
-def MulCopyInv (aOff bOff w : BitVec 32) (s : Nat)
+@[expose] def MulCopyInv (aOff bOff w : BitVec 32) (s : Nat)
     (hdr0 hdrS : BVHdrState) (g0 gS : Aig) (awS : List (BitVec 64))
     (htS lp0 : List (BitVec 32)) (R : Mem 64 → Prop)
     (st : Nat × List (BitVec 32)) (mC : Mem 64) (hptr : BitVec 64) : Prop :=
@@ -444,7 +444,7 @@ def MulCopyInv (aOff bOff w : BitVec 32) (s : Nat)
     array (t := i32) hdrS.ht_ptr htS ⋆ array (t := i32) hdr0.lits_ptr lpC ⋆ R) mC
 
 /-- Inner `out[j] = bv_aig_ite(ys, added[j], out[j])` invariant for `bv_blast_mul`. -/
-def MulIteInv (aOff bOff w : BitVec 32) (s : Nat) (ys added : BitVec 32)
+@[expose] def MulIteInv (aOff bOff w : BitVec 32) (s : Nat) (ys added : BitVec 32)
     (hdr0 : BVHdrState) (g0 : Aig) (lp0 : List (BitVec 32))
     (R : Mem 64 → Prop)
     (st : Nat × BVHdrState × Aig × List (BitVec 64) × List (BitVec 32) × List (BitVec 32))
@@ -469,7 +469,7 @@ def MulIteInv (aOff bOff w : BitVec 32) (s : Nat) (ys added : BitVec 32)
     array (t := i32) hdrJ.ht_ptr htJ ⋆ array (t := i32) hdr0.lits_ptr lpJ ⋆ R) mJ
 
 /-- Initial `out[j] = (j < 32 ? (w >> j) & 1 : 0)` loop invariant for `bv_blast_clz`. -/
-def ClzInitInv (w : BitVec 32)
+@[expose] def ClzInitInv (w : BitVec 32)
     (hdr0 hdr1 : BVHdrState) (g0 : Aig) (aw0 : List (BitVec 64))
     (ht0 lp0 : List (BitVec 32)) (R : Mem 64 → Prop)
     (st : Nat × List (BitVec 32)) (mJ : Mem 64) (hptr : BitVec 64) : Prop :=
@@ -485,7 +485,7 @@ def ClzInitInv (w : BitVec 32)
     array (t := i32) hdr1.ht_ptr ht0 ⋆ array (t := i32) hdr0.lits_ptr lpJ ⋆ R) mJ
 
 /-- Outer `curr < w` scan invariant for `bv_blast_clz`. -/
-def ClzOuterInv (aOff w : BitVec 32)
+@[expose] def ClzOuterInv (aOff w : BitVec 32)
     (hdr0 : BVHdrState) (g0 : Aig) (lp0 : List (BitVec 32))
     (R : Mem 64 → Prop)
     (st : Nat × BVHdrState × Aig × List (BitVec 64) × List (BitVec 32) × List (BitVec 32))
@@ -502,7 +502,7 @@ def ClzOuterInv (aOff w : BitVec 32)
     array (t := i32) hdrC.ht_ptr htC ⋆ array (t := i32) hdr0.lits_ptr lpC ⋆ R) mC
 
 /-- Inner `out[j] = bv_aig_ite(xc, cbit, out[j])` loop invariant for `bv_blast_clz`. -/
-def ClzInnerInv (aOff w : BitVec 32) (curr : Nat) (xc : BitVec 32)
+@[expose] def ClzInnerInv (aOff w : BitVec 32) (curr : Nat) (xc : BitVec 32)
     (hdr0 : BVHdrState) (g0 : Aig) (lp0 : List (BitVec 32))
     (R : Mem 64 → Prop)
     (st : Nat × BVHdrState × Aig × List (BitVec 64) × List (BitVec 32) × List (BitVec 32))

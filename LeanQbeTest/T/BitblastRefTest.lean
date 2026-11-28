@@ -1,13 +1,13 @@
 module
 
 public import LeanQbe.T.Examples.Bitblast.Ref.BVProg
-public meta import LeanQbe.T.Examples.Bitblast.Ref.BVProg
+meta import LeanQbe.T.Examples.Bitblast.Ref.BVProg
 public import LeanQbe.T.Examples.Bitblast.Ref.Aig
-public meta import LeanQbe.T.Examples.Bitblast.Ref.Aig
+meta import LeanQbe.T.Examples.Bitblast.Ref.Aig
 public import LeanQbe.T.Examples.Bitblast.Ref.Tseitin
-public meta import LeanQbe.T.Examples.Bitblast.Ref.Tseitin
+meta import LeanQbe.T.Examples.Bitblast.Ref.Tseitin
 public import LeanQbe.T.Examples.BvDecideBridge
-public meta import LeanQbe.T.Examples.BvDecideBridge
+meta import LeanQbe.T.Examples.BvDecideBridge
 
 /-!
 # Tests, Empirical Kernel `rfl` Gate (< 5 ms), and Axiom Audit for `Bitblast.Ref` (`S2a`)

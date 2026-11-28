@@ -1,10 +1,10 @@
 module
 
-public import LeanQbe.T.Wasm.Decode
-public import LeanQbe.T.Wasm.Safety
-public import LeanQbe.T.Main
-public import LeanQbe.T.MainLinkScc
-public import LeanQbeTest.T.WasmCertKit
+import LeanQbe.T.Wasm.Decode
+import LeanQbe.T.Wasm.Safety
+import LeanQbe.T.Main
+import LeanQbe.T.MainLinkScc
+import LeanQbeTest.T.WasmCertKit
 meta import LeanQbe.T.Wasm.Decode
 meta import LeanQbe.T.Main
 meta import LeanQbe.T.MainLinkScc
@@ -44,7 +44,7 @@ strict architectural neutrality and zero `.olean` leaks.
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.WasmDecodeTest
 

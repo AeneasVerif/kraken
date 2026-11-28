@@ -4,14 +4,14 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 module
 
-public import LeanQbe.T.MainFlat
-public import LeanQbe.T.Examples.Arisca.Src.Module
-public import LeanQbe.T.Arm64.Isa
-public import LeanQbe.T.Spill
-public meta import LeanQbe.T.MainFlat
-public meta import LeanQbe.T.Examples.Arisca.Src.Module
-public meta import LeanQbe.T.Arm64.Isa
-public meta import LeanQbe.T.Spill
+import LeanQbe.T.MainFlat
+import LeanQbe.T.Examples.Arisca.Src.Module
+import LeanQbe.T.Arm64.Isa
+import LeanQbe.T.Spill
+meta import LeanQbe.T.MainFlat
+meta import LeanQbe.T.Examples.Arisca.Src.Module
+meta import LeanQbe.T.Arm64.Isa
+meta import LeanQbe.T.Spill
 
 /-!
 # AAPCS64 Arm64 `compileModuleFlat` Check for `Arisca.Src` (`AriscaSrcArm64Test`)

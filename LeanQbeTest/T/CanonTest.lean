@@ -1,11 +1,11 @@
 module
 
-public import LeanQbe.T.CanonLemmas
-public import LeanQbe.T.GvnLemmas
-public import LeanQbe.T.DceLemmas
-public import LeanQbe.T.WPLemmas
-public import LeanQbe.T.FlatLemmas
-public import LeanQbe.T.Logic.Rules
+import LeanQbe.T.CanonLemmas
+import LeanQbe.T.GvnLemmas
+import LeanQbe.T.DceLemmas
+import LeanQbe.T.WPLemmas
+import LeanQbe.T.FlatLemmas
+import LeanQbe.T.Logic.Rules
 meta import LeanQbe.T.Canon
 
 /-!

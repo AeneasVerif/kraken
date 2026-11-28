@@ -1,8 +1,8 @@
 module
 
-public import LeanQbe.T.SccLemmas
-public import LeanQbe.T.Notation
-public import LeanQbe.T.FlatLemmas
+import LeanQbe.T.SccLemmas
+import LeanQbe.T.Notation
+import LeanQbe.T.FlatLemmas
 meta import LeanQbe.T.Scc
 meta import LeanQbe.T.SccLemmas
 meta import LeanQbe.T.Module

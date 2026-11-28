@@ -1,8 +1,8 @@
 module
 
-public import LeanQbe.T.Amd64.TargLemmas
-public import LeanQbe.T.Spill
-public import LeanQbeTest.T.RegaTestKit
+import LeanQbe.T.Amd64.TargLemmas
+import LeanQbe.T.Spill
+import LeanQbeTest.T.RegaTestKit
 meta import LeanQbe.T.Amd64.TargLemmas
 meta import LeanQbe.T.Spill
 meta import LeanQbeTest.T.RegaTestKit
@@ -23,7 +23,7 @@ on the x64 target:
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.InvertJnzTest
 

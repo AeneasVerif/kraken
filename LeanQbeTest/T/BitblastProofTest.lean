@@ -4,14 +4,14 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 module
 
-public import LeanQbe.T.Examples.Bitblast.Proof.Full
-public import LeanQbe.T.Examples.Bitblast.Proof.Validate
-public import LeanQbe.T.Examples.Bitblast.Proof.Aig
-public import LeanQbe.T.Examples.Bitblast.Proof.Tseitin0
-public import LeanQbe.T.Examples.Bitblast.Proof.Tseitin
-public import LeanQbe.T.Examples.Bitblast.Proof.Driver
-public import LeanQbe.T.Examples.Kissat.PlainSpec
-public meta import LeanQbe.T.Examples.Bitblast.Proof.Full
+import LeanQbe.T.Examples.Bitblast.Proof.Full
+import LeanQbe.T.Examples.Bitblast.Proof.Validate
+import LeanQbe.T.Examples.Bitblast.Proof.Aig
+import LeanQbe.T.Examples.Bitblast.Proof.Tseitin0
+import LeanQbe.T.Examples.Bitblast.Proof.Tseitin
+import LeanQbe.T.Examples.Bitblast.Proof.Driver
+import LeanQbe.T.Examples.Kissat.PlainSpec
+meta import LeanQbe.T.Examples.Bitblast.Proof.Full
 
 /-!
 # Smoke Tests & Axiom Audit for `Bitblast.Proof` (`S2c`)
@@ -23,7 +23,7 @@ Verifies concrete `Mem 64` non-vacuity (`nvProgBytes`), `BVProg.parse` parity, a
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.BitblastProofTest
 

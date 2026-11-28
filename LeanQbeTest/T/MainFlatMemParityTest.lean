@@ -1,12 +1,12 @@
 module
 
-public import LeanQbe.T.OptFlatMem
-public import LeanQbe.T.OptFlatMemLemmas
-public import LeanQbe.T.MemLoad
-public import LeanQbe.T.AssumeBits
-public import LeanQbe.T.DivConst
-public import LeanQbe.T.Examples.LitmusProgsProg
-public import LeanQbe.T.Examples.Kissat.Plain1
+import LeanQbe.T.OptFlatMem
+import LeanQbe.T.OptFlatMemLemmas
+import LeanQbe.T.MemLoad
+import LeanQbe.T.AssumeBits
+import LeanQbe.T.DivConst
+import LeanQbe.T.Examples.LitmusProgsProg
+import LeanQbe.T.Examples.Kissat.Plain1
 meta import Lean
 meta import LeanQbe.T.OptFlatMem
 meta import LeanQbe.T.MemLoad
@@ -27,7 +27,7 @@ Litmus benchmarks, and Kissat schedule functions, and audits `OptFlatMemLemmas` 
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.MainFlatMemParityTest
 

@@ -1,15 +1,15 @@
 module
 
-public import LeanQbe.T.IfOptLemmas
-public import LeanQbe.T.LoopRotateLemmas
-public import LeanQbe.T.SimplifyGroupPlanLemmas
-public import LeanQbe.T.WPLemmas
-public import LeanQbe.T.FlatLemmas
-public import LeanQbe.T.Opt
-public import LeanQbe.T.OptLemmas
-public import LeanQbe.T.Main
-public import LeanQbe.T.Examples.LratBytes
-public import LeanQbe.T.Examples.Kissat.Plain
+import LeanQbe.T.IfOptLemmas
+import LeanQbe.T.LoopRotateLemmas
+import LeanQbe.T.SimplifyGroupPlanLemmas
+import LeanQbe.T.WPLemmas
+import LeanQbe.T.FlatLemmas
+import LeanQbe.T.Opt
+import LeanQbe.T.OptLemmas
+import LeanQbe.T.Main
+import LeanQbe.T.Examples.LratBytes
+import LeanQbe.T.Examples.Kissat.Plain
 meta import LeanQbe.T.IfOpt
 meta import LeanQbe.T.LoopRotate
 meta import LeanQbe.T.Opt
@@ -36,7 +36,7 @@ Covers:
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.IfOptLoopRotB5Test
 

@@ -1,7 +1,7 @@
 module
 
-public import LeanQbe.T.MainInline
-public import LeanQbe.T.FlatLemmas
+import LeanQbe.T.MainInline
+import LeanQbe.T.FlatLemmas
 
 /-!
 # `InlinePolicy` Threshold, Exclusion, and Soundness Tests

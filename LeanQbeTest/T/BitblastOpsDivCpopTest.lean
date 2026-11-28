@@ -4,19 +4,19 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 module
 
-public import LeanQbe.T.InterpKissat
-public import LeanQbe.T.Examples.Bitblast.Src.Aig
-public import LeanQbe.T.Examples.Bitblast.Src.OpsCore
-public import LeanQbe.T.Examples.Bitblast.Src.OpsDivCpop
-public import LeanQbe.T.Examples.Bitblast.Ref.Aig
-public import Std.Tactic.BVDecide.Bitblast.BVExpr.Basic
+import LeanQbe.T.InterpKissat
+import LeanQbe.T.Examples.Bitblast.Src.Aig
+import LeanQbe.T.Examples.Bitblast.Src.OpsCore
+import LeanQbe.T.Examples.Bitblast.Src.OpsDivCpop
+import LeanQbe.T.Examples.Bitblast.Ref.Aig
+import Std.Tactic.BVDecide.Bitblast.BVExpr.Basic
 
-public meta import LeanQbe.T.InterpKissat
-public meta import LeanQbe.T.Examples.Bitblast.Src.Aig
-public meta import LeanQbe.T.Examples.Bitblast.Src.OpsCore
-public meta import LeanQbe.T.Examples.Bitblast.Src.OpsDivCpop
-public meta import LeanQbe.T.Examples.Bitblast.Ref.Aig
-public meta import Std.Tactic.BVDecide.Bitblast.BVExpr.Basic
+meta import LeanQbe.T.InterpKissat
+meta import LeanQbe.T.Examples.Bitblast.Src.Aig
+meta import LeanQbe.T.Examples.Bitblast.Src.OpsCore
+meta import LeanQbe.T.Examples.Bitblast.Src.OpsDivCpop
+meta import LeanQbe.T.Examples.Bitblast.Ref.Aig
+meta import Std.Tactic.BVDecide.Bitblast.BVExpr.Basic
 
 /-!
 # Differential `Interp` Tests & Axiom Audit for `Bitblast/Src/OpsDivCpop.lean` (`S5`)
@@ -31,7 +31,7 @@ constant folding, and OOM/overflow guards, plus `#print axioms` (`<= std3`).
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.BitblastOpsDivCpopTest
 

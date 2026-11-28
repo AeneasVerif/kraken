@@ -1,10 +1,10 @@
 module
 
-public import LeanQbe.T.AddrRangeOptLemmas
-public import LeanQbe.T.OptLemmas
-public import LeanQbe.T.WPLemmas
-public import LeanQbe.T.FlatLemmas
-public import LeanQbe.T.Logic.Rules
+import LeanQbe.T.AddrRangeOptLemmas
+import LeanQbe.T.OptLemmas
+import LeanQbe.T.WPLemmas
+import LeanQbe.T.FlatLemmas
+import LeanQbe.T.Logic.Rules
 meta import LeanQbe.T.AddrRangeOpt
 meta import LeanQbe.T.Opt
 

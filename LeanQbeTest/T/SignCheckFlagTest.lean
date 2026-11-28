@@ -1,11 +1,11 @@
 module
 
-public import LeanQbe.T.Amd64.TargLemmas
-public import LeanQbe.T.Amd64.IselLemmas5
-public import LeanQbe.T.RegaLemmasCmpReuse
-public import LeanQbe.T.RegaLemmas3b
-public import LeanQbe.T.RegaLemmas4
-public import LeanQbe.T.Spill
+import LeanQbe.T.Amd64.TargLemmas
+import LeanQbe.T.Amd64.IselLemmas5
+import LeanQbe.T.RegaLemmasCmpReuse
+import LeanQbe.T.RegaLemmas3b
+import LeanQbe.T.RegaLemmas4
+import LeanQbe.T.Spill
 meta import LeanQbe.T.Amd64.TargLemmas
 meta import LeanQbe.T.Spill
 
@@ -27,7 +27,7 @@ Verifies end-to-end x86-64 compilation (`checkCompile` + `compileModule`) and di
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.SignCheckFlagTest
 

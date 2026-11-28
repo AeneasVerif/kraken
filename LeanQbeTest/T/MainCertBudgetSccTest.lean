@@ -1,14 +1,14 @@
 module
 
-public import LeanQbe.T.MainCertScc
-public import LeanQbe.T.Notation
-public import LeanQbe.T.Logic.Rules
-public import LeanQbeTest.T.MainTest
-public import LeanQbeTest.T.MainCertSccFixtures
-public meta import LeanQbeTest.T.MainCertSccFixtures
-public meta import Lean
-public meta import LeanQbe.T.MainCertScc
-public meta import LeanQbeTest.T.RegaLitmusTarget
+import LeanQbe.T.MainCertScc
+import LeanQbe.T.Notation
+import LeanQbe.T.Logic.Rules
+import LeanQbeTest.T.MainTest
+import LeanQbeTest.T.MainCertSccFixtures
+meta import LeanQbeTest.T.MainCertSccFixtures
+meta import Lean
+meta import LeanQbe.T.MainCertScc
+meta import LeanQbeTest.T.RegaLitmusTarget
 
 /-!
 # End-to-End Compiled Stack-Budget SCC Tests (`MainLinkScc` + `MainCertScc`)
@@ -24,7 +24,7 @@ Tests `compile_linked_budget_scc!` and `link_scc_budget_lfp` using shared helper
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.MainCertBudgetSccTest
 

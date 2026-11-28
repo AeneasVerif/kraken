@@ -4,8 +4,9 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 module
 
-public import LeanQbe.T.InlinePlanLemmas
-public import LeanQbe.T.FlatLemmas
+public import LeanQbe.T.MainInline
+import LeanQbe.T.InlinePlanLemmas
+import LeanQbe.T.FlatLemmas
 public import LeanQbeTest.T.SegCertToy.SrcFull
 public import LeanQbeTest.T.SegCertToy.Build.Inl.Full
 meta import LeanQbe.T.InlinePlan

@@ -1,6 +1,6 @@
 module
 
-public import LeanQbe.T.FlatLemmas
+import LeanQbe.T.FlatLemmas
 
 /-!
 # Scaling checks for `TFlat` reification
@@ -14,7 +14,7 @@ elaboration, codegen, and kernel timings for literal syntax programs are recorde
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbe.T.ScaleTest
 

@@ -1,12 +1,12 @@
 module
 
-public import LeanQbe.T.Arm64.TargLemmas
-public import LeanQbe.T.MainLemmas
-public import LeanQbe.T.Driver
-public import LeanQbe.T.MainInline
-public import LeanQbe.T.Examples.Kissat.Plain
-public import LeanQbeTest.T.Arm64DirPreds
-public import LeanQbeTest.T.RegaTestKit
+import LeanQbe.T.Arm64.TargLemmas
+import LeanQbe.T.MainLemmas
+import LeanQbe.T.Driver
+import LeanQbe.T.MainInline
+import LeanQbe.T.Examples.Kissat.Plain
+import LeanQbeTest.T.Arm64DirPreds
+import LeanQbeTest.T.RegaTestKit
 meta import LeanQbe.T.Arm64.TargLemmas
 meta import LeanQbe.T.MainLemmas
 meta import LeanQbe.T.Driver
@@ -14,7 +14,7 @@ meta import LeanQbe.T.MainInline
 meta import LeanQbe.T.Examples.Kissat.Plain
 meta import LeanQbeTest.T.Arm64DirPreds
 meta import LeanQbeTest.T.RegaTestKit
-public meta import Kraken.AArch64.Print
+meta import Kraken.AArch64.Print
 
 /-!
 # Arm64 Wave-6 `W6-A + W6-B` (`w6ab`) Activation Tests
@@ -37,7 +37,7 @@ Arm64 `w6ab` bundle, each checked against the same compiler with the bundle swit
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.Arm64W6ABTest
 
@@ -47,7 +47,7 @@ open LeanQbeTest.T.RegaTestKit LeanQbeTest.T.Arm64DirPreds
 /-! ## 1. Compilation helpers (bundle on / off) -/
 
 /-- `armTarget.toIsa` with every `w6ab` hook switched off (the pre-`w6ab` Arm64 backend). -/
-@[expose] meta def armIsaNoW6ab : Isa :=
+meta def armIsaNoW6ab : Isa :=
   { armTarget.toIsa with
     gpr :=
       { armGpr with

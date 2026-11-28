@@ -1,12 +1,12 @@
 module
 
-public import LeanQbe.T.Logic.ControlComb
-public import LeanQbe.T.LegalEmit
-public import LeanQbe.T.LegalCheck1
-public import LeanQbe.T.LegalWfBaseLemmas1
-public import LeanQbe.T.LegalWpBaseLemmas1
-public import LeanQbe.T.Logic.C0Step
-public import LeanQbe.T.Examples.LratBytesDimacsLemmas
+import LeanQbe.T.Logic.ControlComb
+import LeanQbe.T.LegalEmit
+import LeanQbe.T.LegalCheck1
+import LeanQbe.T.LegalWfBaseLemmas1
+import LeanQbe.T.LegalWpBaseLemmas1
+import LeanQbe.T.Logic.C0Step
+import LeanQbe.T.Examples.LratBytesDimacsLemmas
 import LeanQbe.T.Logic.MemLemmas
 
 /-!

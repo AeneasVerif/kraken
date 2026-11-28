@@ -4,15 +4,15 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 module
 
-public import LeanQbe.T.MainCertSeg
-public import LeanQbe.T.MainCertInline
-public import LeanQbe.T.MainCertFlat
-public import LeanQbe.T.Arm64.TargLemmas
-public import LeanQbeTest.T.SegCertToyTest
-public import LeanQbeTest.T.SegCertToy.Build.Arm64.Full
+import LeanQbe.T.MainCertSeg
+import LeanQbe.T.MainCertInline
+import LeanQbe.T.MainCertFlat
+import LeanQbe.T.Arm64.TargLemmas
+import LeanQbeTest.T.SegCertToyTest
+import LeanQbeTest.T.SegCertToy.Build.Arm64.Full
 meta import Lean
 meta import LeanQbe.T.MainCertInline
-meta import LeanQbe.T.MainCertFlatElab
+import LeanQbe.T.MainCertFlatElab
 meta import LeanQbe.T.Arm64.Targ
 meta import LeanQbeTest.T.SegCertToy.SrcFull
 
@@ -28,7 +28,7 @@ and name-keyed `fn_cert!` `S2/ToyMix2`) end-to-end on `armTarget`:
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.SegCertToyTestArm64
 

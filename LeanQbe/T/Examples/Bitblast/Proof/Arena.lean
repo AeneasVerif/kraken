@@ -43,7 +43,7 @@ open Kraken.Bedrock2.Test
 
 /-! ## 1. `BVHdr` State and Separation Predicate (`128 B`) -/
 
-@[expose] public section
+public section
 
 /-- Logical mirror of the `128`-byte C0 `BVHdr` struct (`10` `u64` fields + `12` `u32` fields). -/
 structure BVHdrState where
@@ -71,22 +71,22 @@ structure BVHdrState where
   dimacs_len : BitVec 32
 
 /-- The `10` leading `u64` words of `BVHdrState` (`+0 .. +72`). -/
-def BVHdrState.u64s (s : BVHdrState) : List (BitVec 64) :=
+@[expose] def BVHdrState.u64s (s : BVHdrState) : List (BitVec 64) :=
   [ s.work_base, s.work_end, s.prog_ptr, s.aig_ptr, s.ht_ptr
   , s.atom_base_ptr, s.slice_off_ptr, s.lits_ptr, s.marks_ptr, s.dimacs_start ]
 
 /-- The `12` trailing `u32` words of `BVHdrState` (`+80 .. +124`). -/
-def BVHdrState.u32s (s : BVHdrState) : List (BitVec 32) :=
+@[expose] def BVHdrState.u32s (s : BVHdrState) : List (BitVec 32) :=
   [ s.n_vars, s.n_nodes, s.n_cwords, s.root_node
   , s.num_atoms, s.aig_len, s.aig_cap, s.ht_mask
   , s.lits_len, s.lits_cap, s.oom, s.dimacs_len ]
 
 /-- Exact `128`-byte separation predicate for `BVHdr` at `h`. -/
-def bvHdrMem (h : BitVec 64) (s : BVHdrState) : Mem 64 → Prop :=
+@[expose] def bvHdrMem (h : BitVec 64) (s : BVHdrState) : Mem 64 → Prop :=
   array64 h s.u64s ⋆ array (t := i32) (h + 80) s.u32s
 
 /-- Packed `u64` encoding `(lhs | (rhs << 32))` of an AIG gate in `aig[idx]`. -/
-def packAigGate (lhs rhs : UInt32) : BitVec 64 :=
+@[expose] def packAigGate (lhs rhs : UInt32) : BitVec 64 :=
   lhs.toBitVec.setWidth 64 ||| (rhs.toBitVec.setWidth 64 <<< 32)
 
 /-- Predicate stating that `aigWords` matches `g : Ref.Aig` at gate indices `g.A + 1 ..< len`. -/
@@ -113,6 +113,7 @@ structure BVWorkspaceCfg where
   lits_bytes : Nat
 
 /-- Separation invariant for the bitblasting workspace `[work_base, work_base + avail)`. -/
+@[expose]
 def bvBlastMem (cfg : BVWorkspaceCfg) (hdr : BVHdrState) (atomBases sliceOffs : List (BitVec 32))
     (aigWords : List (BitVec 64)) (htSlots litsPool : List (BitVec 32)) : Mem 64 → Prop :=
   bvHdrMem cfg.work_base hdr ⋆
@@ -170,7 +171,7 @@ structure BVWorkspaceOk (cfg : BVWorkspaceCfg) (hdr : BVHdrState)
 /-- Post-bitblast / COI + DIMACS workspace partitioning `[work_base, work_base + avail)` into:
 `BVHdr`, prefix scratch `[work_base + 128, aig_ptr)`, active AIG `aigWords[0 .. aig_len)`,
 COI marks `[marks_ptr, marks_ptr + aig_len)`, and free space `[marks_ptr + aig_len, work_end)`. -/
-def bvCoiMem (work_base aig_ptr marks_ptr : BitVec 64) (avail : Nat) (hdr : BVHdrState)
+@[expose] def bvCoiMem (work_base aig_ptr marks_ptr : BitVec 64) (avail : Nat) (hdr : BVHdrState)
     (aigUsed : List (BitVec 64)) (marks : List UInt8) : Mem 64 → Prop :=
   bvHdrMem work_base hdr ⋆
   region (work_base + 128) (aig_ptr.toNat - (work_base.toNat + 128)) ⋆
@@ -182,7 +183,7 @@ def bvCoiMem (work_base aig_ptr marks_ptr : BitVec 64) (avail : Nat) (hdr : BVHd
 /-- Final workspace state after `bv_dimacs_write` succeeds:
 `[work_base, dimacs_start)` is free/scratch `BVHdr + prefix + aig + marks + gap`,
 and `[dimacs_start, work_end)` holds exact `dimacsBytes`. -/
-def bvDimacsMem (work_base dimacs_start : BitVec 64) (_avail : Nat)
+@[expose] def bvDimacsMem (work_base dimacs_start : BitVec 64) (_avail : Nat)
     (dimacsBytes : List UInt8) : Mem 64 → Prop :=
   region work_base (dimacs_start.toNat - work_base.toNat) ⋆
   bytes dimacs_start dimacsBytes

@@ -1,13 +1,13 @@
 module
 
-public import LeanQbe.T.Arm64.TargLemmas
-public import LeanQbe.T.Arm64.IselLemmas4
-public import LeanQbe.T.Arm64.LratBytes
-public import LeanQbe.T.Examples.LratBytes
-public import LeanQbe.T.Examples.Kissat.Plain1
-public import LeanQbe.T.Spill
-public import LeanQbeTest.T.RegaTestKit
-public import LeanQbeTest.T.Arm64DirPreds
+import LeanQbe.T.Arm64.TargLemmas
+import LeanQbe.T.Arm64.IselLemmas4
+import LeanQbe.T.Arm64.LratBytes
+import LeanQbe.T.Examples.LratBytes
+import LeanQbe.T.Examples.Kissat.Plain1
+import LeanQbe.T.Spill
+import LeanQbeTest.T.RegaTestKit
+import LeanQbeTest.T.Arm64DirPreds
 meta import LeanQbe.T.Arm64.Isel
 meta import LeanQbe.T.Arm64.TargLemmas
 meta import LeanQbe.T.Arm64.LratBytes
@@ -26,7 +26,7 @@ Verifies compare-against-zero and single-bit test branch fusion through
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.Arm64BranchFuseTest
 

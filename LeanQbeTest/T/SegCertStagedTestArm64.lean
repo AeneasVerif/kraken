@@ -4,12 +4,12 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 module
 
-public import LeanQbe.T.MainCertSeg
-public import LeanQbe.T.MainCertFlat
-public import LeanQbe.T.Arm64.TargLemmas
-public import LeanQbeTest.T.SegCertToy.Build.Inl.S2
-public import LeanQbeTest.T.SegCertToy.Build.Arm64.S2.ToyMix2
-public import LeanQbeTest.T.SegCertToy.Build.Oracle.Arm64.S2
+import LeanQbe.T.MainCertSeg
+import LeanQbe.T.MainCertFlat
+import LeanQbe.T.Arm64.TargLemmas
+import LeanQbeTest.T.SegCertToy.Build.Inl.S2
+import LeanQbeTest.T.SegCertToy.Build.Arm64.S2.ToyMix2
+import LeanQbeTest.T.SegCertToy.Build.Oracle.Arm64.S2
 meta import Lean
 meta import LeanQbe.T.MainCertSegElab
 meta import LeanQbe.T.Arm64.Targ
@@ -24,7 +24,7 @@ confirming exact kernel `rfl` parity with the unstaged `Build/Arm64/S2/ToyMix2.c
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.SegCertStagedTestArm64
 
@@ -37,7 +37,7 @@ fn_cert! stagedFnCert armTarget armLayout armLegalTarget armLabelClean
   (ext := LeanQbeTest.T.SegCertToy.Build.Oracle.Arm64.S2.ext_toy_mix2) (maxBound := 2048)
   (pruneExt := true) (staged := true)
 
-@[expose] noncomputable def mix2Fns : List Fn :=
+noncomputable def mix2Fns : List Fn :=
   [LeanQbeTest.T.SegCertToy.Build.Inl.S2.inl.flat.f1.toFn]
 
 meta def mix2Hints : List armIsa.Hints :=

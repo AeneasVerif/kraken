@@ -1,13 +1,13 @@
 module
 
-public import LeanQbe.T.MainCertCore
-public import LeanQbe.T.Amd64.TargLemmas
-public import LeanQbeTest.T.Common.Fixtures
+import LeanQbe.T.MainCertCore
+import LeanQbe.T.Amd64.TargLemmas
+import LeanQbeTest.T.Common.Fixtures
 import LeanQbe.T.FlatLemmas
-public meta import Lean
-public meta import LeanQbe.T.MainCertElab
-public meta import LeanQbe.T.Amd64.Targ
-public meta import LeanQbeTest.T.Common.Fixtures
+meta import Lean
+import LeanQbe.T.MainCertElab
+meta import LeanQbe.T.Amd64.Targ
+meta import LeanQbeTest.T.Common.Fixtures
 
 /-!
 # Auto-Computed Prefix Bounds (`eval_prefix_ext!`) Test on SysV x64

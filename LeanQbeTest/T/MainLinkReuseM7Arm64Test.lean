@@ -4,10 +4,10 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 module
 
-public import LeanQbe.T.MainLinkReuseCover
-public import LeanQbe.T.Arm64.KissatPlainCert2
-public import LeanQbe.T.Arm64.KissatPlainBounds
-public import LeanQbe.T.Examples.Kissat.Plain
+import LeanQbe.T.MainLinkReuseCover
+import LeanQbe.T.Arm64.KissatPlainCert2
+import LeanQbe.T.Arm64.KissatPlainBounds
+import LeanQbe.T.Examples.Kissat.Plain
 meta import Lean
 meta import LeanQbe.T.MainLinkReuseElab
 meta import LeanQbe.T.Arm64.Targ
@@ -26,7 +26,7 @@ on `LeanQbe.T.Arm64.KissatPlainCert2` under a shifted `plainExtPrefix 15`.
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.MainLinkReuseM7Arm64Test
 

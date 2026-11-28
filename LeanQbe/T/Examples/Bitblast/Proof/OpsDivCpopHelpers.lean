@@ -16,7 +16,7 @@ open LeanQbe.T
 open LeanQbe.T.Examples.Bitblast.Ref
 open LeanQbe.T.Examples.Bitblast.Src.OpsDivCpop
 
-@[expose] public section
+public section
 
 /-- Header frame preserved by bitblast ops that may allocate literals, gates, or set `oom`. -/
 abbrev BVHdrState.DcBlastFrame (h1 h2 : BVHdrState) : Prop :=
@@ -26,30 +26,30 @@ end
 
 namespace OpsDivCpop
 
-@[expose] public section
+public section
 
 /-- All literals in `litsPool[off ..< off + w]` lie within `hdr.lits_len` and `hdr.aig_len`. -/
-def SliceLitsWf (hdr : BVHdrState) (litsPool : List (BitVec 32)) (off w : Nat) : Prop :=
+@[expose] def SliceLitsWf (hdr : BVHdrState) (litsPool : List (BitVec 32)) (off w : Nat) : Prop :=
   off + w ≤ hdr.lits_len.toNat ∧
     ∀ j, j < w → ((litsPool.getD (off + j) 0#32) >>> 1).toNat < hdr.aig_len.toNat
 
 /-- Two half-open intervals `[off1, off1 + w1)` and `[off2, off2 + w2)` are disjoint. -/
-def DisjointSlice (off1 w1 off2 w2 : Nat) : Prop :=
+@[expose] def DisjointSlice (off1 w1 off2 w2 : Nat) : Prop :=
   off1 + w1 ≤ off2 ∨ off2 + w2 ≤ off1
 
 /-- Bitvector value denoted by `litsPool[off ..< off + w]` in `g` under valuation `ρ`. -/
-def sliceVal (g : Aig) (ρ : Nat → Bool) (litsPool : List (BitVec 32)) (off w : Nat) :
+@[expose] def sliceVal (g : Aig) (ρ : Nat → Bool) (litsPool : List (BitVec 32)) (off w : Nat) :
     BitVec w :=
   BitVec.cast (by simp) (BitVec.ofBoolListLE
     ((List.range w).map fun j => g.evalLit ρ (UInt32.ofBitVec (litsPool.getD (off + j) 0#32))))
 
 /-- Sum modulo `2^w` of `len` contiguous `w`-bit slices starting at `off`. -/
-def sliceSum (g : Aig) (ρ : Nat → Bool) (litsPool : List (BitVec 32)) (off len w : Nat) :
+@[expose] def sliceSum (g : Aig) (ρ : Nat → Bool) (litsPool : List (BitVec 32)) (off len w : Nat) :
     BitVec w :=
   (List.range len).foldl (fun acc i => acc + sliceVal g ρ litsPool (off + i * w) w) 0#w
 
 /-- Canonical spec for `bv_slice_ok` from `OpsCore`. -/
-def bvSliceOkSpec : Spec [i64, i32, i32] [Ty.bool] :=
+@[expose] def bvSliceOkSpec : Spec [i64, i32, i32] [Ty.bool] :=
   fun ⟨h, off, w, ⟨⟩⟩ m Q _X =>
     ∃ hdr R, (bvHdrMem h hdr ⋆ R) m ∧
       let ok : Bool :=
@@ -60,7 +60,7 @@ def bvSliceOkSpec : Spec [i64, i32, i32] [Ty.bool] :=
       Q (ok, ⟨⟩) m
 
 /-- Canonical spec for `bv_blast_eq` from `OpsCore`. -/
-def bvBlastEqSpec : Spec [i64, i32, i32, i32] [i32] :=
+@[expose] def bvBlastEqSpec : Spec [i64, i32, i32, i32] [i32] :=
   fun ⟨h, a_off, b_off, w, ⟨⟩⟩ m Q _X =>
     ∃ hdr g aigWords htSlots litsPool R,
       AigInv hdr g aigWords htSlots ∧
@@ -102,7 +102,7 @@ def bvBlastEqSpec : Spec [i64, i32, i32, i32] [i32] :=
         Q (ret, ⟨⟩) m'
 
 /-- Canonical spec for `bv_blast_ite_into`. -/
-def bvBlastIteIntoSpec : Spec [i64, i32, i32, i32, i32, i32] [Ty.bool] :=
+@[expose] def bvBlastIteIntoSpec : Spec [i64, i32, i32, i32, i32, i32] [Ty.bool] :=
   fun ⟨h, cond, t_off, f_off, out_off, w, ⟨⟩⟩ m Q _X =>
     ∃ hdr g aigWords htSlots litsPool R,
       AigInv hdr g aigWords htSlots ∧
@@ -148,7 +148,7 @@ def bvBlastIteIntoSpec : Spec [i64, i32, i32, i32, i32, i32] [Ty.bool] :=
         Q (ret, ⟨⟩) m'
 
 /-- Canonical spec for `bv_blast_ite_slice`. -/
-def bvBlastIteSliceSpec : Spec [i64, i32, i32, i32, i32] [i32] :=
+@[expose] def bvBlastIteSliceSpec : Spec [i64, i32, i32, i32, i32] [i32] :=
   fun ⟨h, cond, t_off, f_off, w, ⟨⟩⟩ m Q _X =>
     ∃ hdr g aigWords htSlots litsPool R,
       AigInv hdr g aigWords htSlots ∧
@@ -193,7 +193,7 @@ def bvBlastIteSliceSpec : Spec [i64, i32, i32, i32, i32] [i32] :=
         Q (ret, ⟨⟩) m'
 
 /-- Canonical spec for `bv_blast_sub_with_borrow`. -/
-def bvBlastSubWithBorrowSpec : Spec [i64, i32, i32, i32, i32] [i32] :=
+@[expose] def bvBlastSubWithBorrowSpec : Spec [i64, i32, i32, i32, i32] [i32] :=
   fun ⟨h, a_off, b_off, out_off, w, ⟨⟩⟩ m Q _X =>
     ∃ hdr g aigWords htSlots litsPool R,
       AigInv hdr g aigWords htSlots ∧
@@ -242,7 +242,7 @@ def bvBlastSubWithBorrowSpec : Spec [i64, i32, i32, i32, i32] [i32] :=
         Q (ret, ⟨⟩) m'
 
 /-- Canonical spec for `bv_blast_udiv_umod`. -/
-def bvBlastUdivUmodSpec : Spec [i64, i32, i32, i32, i32] [i32] :=
+@[expose] def bvBlastUdivUmodSpec : Spec [i64, i32, i32, i32, i32] [i32] :=
   fun ⟨h, n_off, d_off, w, want_rem, ⟨⟩⟩ m Q _X =>
     ∃ hdr g aigWords htSlots litsPool R,
       AigInv hdr g aigWords htSlots ∧
@@ -290,17 +290,17 @@ def bvBlastUdivUmodSpec : Spec [i64, i32, i32, i32, i32] [i32] :=
         Q (ret, ⟨⟩) m'
 
 /-- Canonical spec for `bv_blast_udiv`. -/
-def bvBlastUdivSpec : Spec [i64, i32, i32, i32] [i32] :=
+@[expose] def bvBlastUdivSpec : Spec [i64, i32, i32, i32] [i32] :=
   fun ⟨h, n_off, d_off, w, ⟨⟩⟩ m Q X =>
     bvBlastUdivUmodSpec ⟨h, n_off, d_off, w, 0#32, ⟨⟩⟩ m Q X
 
 /-- Canonical spec for `bv_blast_umod`. -/
-def bvBlastUmodSpec : Spec [i64, i32, i32, i32] [i32] :=
+@[expose] def bvBlastUmodSpec : Spec [i64, i32, i32, i32] [i32] :=
   fun ⟨h, n_off, d_off, w, ⟨⟩⟩ m Q X =>
     bvBlastUdivUmodSpec ⟨h, n_off, d_off, w, 1#32, ⟨⟩⟩ m Q X
 
 /-- Canonical spec for `bv_blast_add_into`. -/
-def bvBlastAddIntoSpec : Spec [i64, i32, i32, i32, i32] [Ty.bool] :=
+@[expose] def bvBlastAddIntoSpec : Spec [i64, i32, i32, i32, i32] [Ty.bool] :=
   fun ⟨h, a_off, b_off, out_off, w, ⟨⟩⟩ m Q _X =>
     ∃ hdr g aigWords htSlots litsPool R,
       AigInv hdr g aigWords htSlots ∧
@@ -344,7 +344,7 @@ def bvBlastAddIntoSpec : Spec [i64, i32, i32, i32, i32] [Ty.bool] :=
         Q (ret, ⟨⟩) m'
 
 /-- Canonical spec for `bv_blast_cpop_layer`. -/
-def bvBlastCpopLayerSpec : Spec [i64, i32, i32, i32, i32] [Ty.bool] :=
+@[expose] def bvBlastCpopLayerSpec : Spec [i64, i32, i32, i32, i32] [Ty.bool] :=
   fun ⟨h, in_off, out_off, in_len, w, ⟨⟩⟩ m Q _X =>
     ∃ hdr g aigWords htSlots litsPool R,
       AigInv hdr g aigWords htSlots ∧
@@ -390,7 +390,7 @@ def bvBlastCpopLayerSpec : Spec [i64, i32, i32, i32, i32] [Ty.bool] :=
         Q (ret, ⟨⟩) m'
 
 /-- Canonical spec for `bv_blast_cpop`. -/
-def bvBlastCpopSpec : Spec [i64, i32, i32] [i32] :=
+@[expose] def bvBlastCpopSpec : Spec [i64, i32, i32] [i32] :=
   fun ⟨h, a_off, w, ⟨⟩⟩ m Q _X =>
     ∃ hdr g aigWords htSlots litsPool R,
       AigInv hdr g aigWords htSlots ∧

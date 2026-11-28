@@ -1,14 +1,14 @@
 module
 
-public import LeanQbe.T.Bedrock2.Phoas
-public import LeanQbe.T.Bedrock2.Flat
-public import LeanQbe.T.Bedrock2.ToT
-public import LeanQbe.T.Bedrock2.FromKraken
-public import LeanQbe.T.MainLemmas
-public import Kraken.Bedrock2.Test.Cases
+import LeanQbe.T.Bedrock2.Phoas
+import LeanQbe.T.Bedrock2.Flat
+import LeanQbe.T.Bedrock2.ToT
+import LeanQbe.T.Bedrock2.FromKraken
+import LeanQbe.T.MainLemmas
+import Kraken.Bedrock2.Test.Cases
 import LeanQbe.T.RegaLemmas3
 import LeanQbe.T.Logic.MemLemmas
-import all Kraken.Separation
+import Kraken.Separation
 
 /-!
 # End-to-End Bedrock2 Typed-PHOAS, `FromKraken`, & `Fn.mid` Verification Suite
@@ -252,8 +252,8 @@ theorem scratchSwap_wp {ext : ExtSpecB} {Γ : EnvB} {B : Nat}
     (sep_cast hm2 (by ac_rfl))
   refine ⟨hok3, ?_⟩
   have hm4 : ((cell64 pa b ⋆ cell64 pb a ⋆ R) ⋆ cell64 tmp a) _ := sep_cast hm3 (by ac_rfl)
-  rcases hm4 with ⟨mSmall', mStack', hu, hi, hSmall', hStack'⟩
-  exact ⟨mSmall', mStack', cell64_anybytes8 hStack', ⟨hu, hi⟩, rfl, hSmall'⟩
+  obtain ⟨mSmall', mStack', hsp, hSmall', hStack'⟩ := sep_elim_split hm4
+  exact ⟨mSmall', mStack', cell64_anybytes8 hStack', hsp, rfl, hSmall'⟩
 
 theorem scratchSwapT_spec {ext : ExtSpecB} {Γ : EnvB}
     {pa pb a b : BitVec 64} {R : Mem 64 → Prop} {m : Mem 64} {X : XPost}
@@ -332,10 +332,10 @@ theorem logAndInc_wp {B : Nat} {ptr x v0 : BitVec 64} {R : Mem 64 → Prop}
   refine ⟨hok, ?_⟩
   have hm1' : (R ⋆ cell64 ptr (x + 1#64)) (storeMem m₁ i64 ptr (x + 1#64)) :=
     sep_cast hm1 (by ac_rfl)
-  rcases hm1' with ⟨mKeep, mGive, hu, hi, hKeep, hGive⟩
+  obtain ⟨mKeep, mGive, hsp, hKeep, hGive⟩ := sep_elim_split hm1'
   refine ⟨mKeep, mGive,
     fun mRec res => cell64 ptr ((x + 1#64) ^^^ 1#64) mRec ∧ res = (x + 1#64, ()),
-    ⟨hu, hi⟩, ⟨rfl, rfl, rfl, x + 1#64, hGive, fun mRec hmRec => ⟨hmRec, rfl⟩⟩, ?_⟩
+    hsp, ⟨rfl, rfl, rfl, x + 1#64, hGive, fun mRec hmRec => ⟨hmRec, rfl⟩⟩, ?_⟩
   rintro mRec _ ⟨hmRec, rfl⟩ m' hsp'
   exact hQ mGive mRec m' hGive hmRec (sep_cast (split_sep hsp' hKeep hmRec) (by ac_rfl))
 

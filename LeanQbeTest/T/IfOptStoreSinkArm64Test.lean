@@ -1,10 +1,10 @@
 module
 
-public import LeanQbe.T.IfOptLemmas
-public import LeanQbe.T.OptFlatCfgLemmas
-public import LeanQbe.T.MainFlat
-public import LeanQbe.T.Arm64.Targ
-public import Kraken.AArch64.Print
+import LeanQbe.T.IfOptLemmas
+import LeanQbe.T.OptFlatCfgLemmas
+import LeanQbe.T.MainFlat
+import LeanQbe.T.Arm64.Targ
+import Kraken.AArch64.Print
 meta import LeanQbe.T.IfOpt
 meta import LeanQbe.T.OptFlatCfg
 meta import LeanQbe.T.Main
@@ -24,7 +24,7 @@ guards.
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.IfOptStoreSinkArm64Test
 

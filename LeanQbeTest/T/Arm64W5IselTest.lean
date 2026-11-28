@@ -1,13 +1,13 @@
 module
 
-public import LeanQbe.T.Arm64.IselShiftLemmas
-public import LeanQbe.T.Arm64.IselNarrowLemmas
-public import LeanQbe.T.Arm64.IselLemmas4
-public import LeanQbe.T.Arm64.TargLemmas
-public import LeanQbe.T.Driver
-public import LeanQbe.T.Examples.Kissat.Plain
-public import LeanQbeTest.T.RegaTestKit
-public import LeanQbeTest.T.Arm64DirPreds
+import LeanQbe.T.Arm64.IselShiftLemmas
+import LeanQbe.T.Arm64.IselNarrowLemmas
+import LeanQbe.T.Arm64.IselLemmas4
+import LeanQbe.T.Arm64.TargLemmas
+import LeanQbe.T.Driver
+import LeanQbe.T.Examples.Kissat.Plain
+import LeanQbeTest.T.RegaTestKit
+import LeanQbeTest.T.Arm64DirPreds
 import Kraken.AArch64.Parser
 meta import LeanQbe.T.Arm64.IselShift
 meta import LeanQbe.T.Arm64.IselNarrow
@@ -34,7 +34,7 @@ Verifies all Wave-5 (`W5-1c`) shifted/extended ISel helpers and Rank-9 load/sign
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.Arm64W5IselTest
 

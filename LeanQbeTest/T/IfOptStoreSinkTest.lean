@@ -1,13 +1,13 @@
 module
 
-public import LeanQbe.T.IfOptLemmas
-public import LeanQbe.T.OptFlatCfgLemmas
-public import LeanQbe.T.SimplifyGroupPlanLemmas
-public import LeanQbe.T.FlatLemmas
-public import LeanQbe.T.WPLemmas
-public import LeanQbe.T.MainFlat
-public import LeanQbe.T.Amd64.Targ
-public import LeanQbe.T.Amd64.PrintAsm0
+import LeanQbe.T.IfOptLemmas
+import LeanQbe.T.OptFlatCfgLemmas
+import LeanQbe.T.SimplifyGroupPlanLemmas
+import LeanQbe.T.FlatLemmas
+import LeanQbe.T.WPLemmas
+import LeanQbe.T.MainFlat
+import LeanQbe.T.Amd64.Targ
+import LeanQbe.T.Amd64.PrintAsm0
 meta import LeanQbe.T.IfOpt
 meta import LeanQbe.T.OptFlatCfg
 meta import LeanQbe.T.SimplifyGroupPlan
@@ -39,7 +39,7 @@ codegen (`Amd64.x64Target`; Arm64 `csel` companion in `IfOptStoreSinkArm64Test`)
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.IfOptStoreSinkTest
 

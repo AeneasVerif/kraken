@@ -33,21 +33,21 @@ open LeanQbe.T
 open LeanQbe.T.Examples.Bitblast.Ref
 open Std.Tactic.BVDecide
 
-@[expose] public section
+public section
 
 /-- Pure validity predicate matching `bv_slice_ok(h, off, w)`. -/
-def sliceBoundsOk (hdr : BVHdrState) (off w : BitVec 32) : Bool :=
+@[expose] def sliceBoundsOk (hdr : BVHdrState) (off w : BitVec 32) : Bool :=
   decide (hdr.lits_len.toNat ≤ hdr.lits_cap.toNat ∧
     (0 < w.toNat → hdr.lits_ptr ≠ 0#64) ∧
     off.toNat ≤ hdr.lits_len.toNat ∧
     w.toNat ≤ hdr.lits_len.toNat - off.toNat)
 
 /-- Pure validity predicate matching `bv_blast_extract(h, a_off, aw, start, len)` guards. -/
-def extractValidOk (hdr : BVHdrState) (a_off aw len : BitVec 32) : Bool :=
+@[expose] def extractValidOk (hdr : BVHdrState) (a_off aw len : BitVec 32) : Bool :=
   sliceBoundsOk hdr a_off aw && decide (0 < len.toNat → hdr.lits_ptr ≠ 0#64)
 
 /-- Every AIG literal in `litsPool[off .. off + w)` references a node below `aigLen`. -/
-def SliceAigWf (aigLen : Nat) (litsPool : List (BitVec 32)) (off w : Nat) : Prop :=
+@[expose] def SliceAigWf (aigLen : Nat) (litsPool : List (BitVec 32)) (off w : Nat) : Prop :=
   ∀ j < w, (litsPool.getD (off + j) 0#32 >>> 1).toNat < aigLen
 
 /-- Header frame preserving every `BVHdrState` field except `aig_len`, `lits_len`, and `oom`. -/
@@ -55,26 +55,26 @@ abbrev BVHdrState.BlastFrame (h1 h2 : BVHdrState) : Prop :=
   Modifies [.aig_len, .lits_len, .oom] h1 h2
 
 /-- Opcode semantics for `bv_blast_bin_bitwise`. -/
-def bitwiseOpFn (op : BitVec 32) : Bool → Bool → Bool :=
+@[expose] def bitwiseOpFn (op : BitVec 32) : Bool → Bool → Bool :=
   if op = 3#32 then (· && ·) else if op = 4#32 then (· || ·) else (· ^^ ·)
 
 /-- Per-bit AIG gate upper bound for `bv_blast_bin_bitwise`. -/
-def bitwiseUnitGates (op : BitVec 32) : Nat :=
+@[expose] def bitwiseUnitGates (op : BitVec 32) : Nat :=
   if op = 5#32 then 3 else 1
 
 /-- Valid opcode check for `bv_blast_bin_bitwise` (`AND`, `OR`, `XOR`). -/
-def bitwiseOpValid (op : BitVec 32) : Bool :=
+@[expose] def bitwiseOpValid (op : BitVec 32) : Bool :=
   decide (op = 3#32 ∨ op = 4#32 ∨ op = 5#32)
 
 /-- Canonical spec for `bv_slice_ok(h, off, w)`. -/
-def bvSliceOkSpec : Spec [i64, i32, i32] [Ty.bool] :=
+@[expose] def bvSliceOkSpec : Spec [i64, i32, i32] [Ty.bool] :=
   fun (h, off, w, ⟨⟩) m Q _X =>
     ∃ hdr R,
       (bvHdrMem h hdr ⋆ R) m ∧
       Q (sliceBoundsOk hdr off w, ⟨⟩) m
 
 /-- Canonical spec for `bv_blast_extract(h, a_off, aw, start, len)`. -/
-def bvBlastExtractSpec : Spec [i64, i32, i32, i32, i32] [i32] :=
+@[expose] def bvBlastExtractSpec : Spec [i64, i32, i32, i32, i32] [i32] :=
   fun (h, a_off, aw, start, len, ⟨⟩) m Q _X =>
     ∃ hdr litsPool R,
       (bvHdrMem h hdr ⋆ array (t := i32) hdr.lits_ptr litsPool ⋆ R) m ∧
@@ -101,7 +101,7 @@ def bvBlastExtractSpec : Spec [i64, i32, i32, i32, i32] [i32] :=
         Q (ret, ⟨⟩) m'
 
 /-- Canonical spec for `bv_blast_append(h, lhs_off, lw, rhs_off, rw)`. -/
-def bvBlastAppendSpec : Spec [i64, i32, i32, i32, i32] [i32] :=
+@[expose] def bvBlastAppendSpec : Spec [i64, i32, i32, i32, i32] [i32] :=
   fun (h, lhs_off, lw, rhs_off, rw, ⟨⟩) m Q _X =>
     ∃ hdr litsPool R,
       (bvHdrMem h hdr ⋆ array (t := i32) hdr.lits_ptr litsPool ⋆ R) m ∧
@@ -132,7 +132,7 @@ def bvBlastAppendSpec : Spec [i64, i32, i32, i32, i32] [i32] :=
         Q (ret, ⟨⟩) m'
 
 /-- Canonical spec for `bv_blast_not(h, a_off, w)`. -/
-def bvBlastNotSpec : Spec [i64, i32, i32] [i32] :=
+@[expose] def bvBlastNotSpec : Spec [i64, i32, i32] [i32] :=
   fun (h, a_off, w, ⟨⟩) m Q _X =>
     ∃ hdr litsPool R,
       (bvHdrMem h hdr ⋆ array (t := i32) hdr.lits_ptr litsPool ⋆ R) m ∧
@@ -157,7 +157,7 @@ def bvBlastNotSpec : Spec [i64, i32, i32] [i32] :=
         Q (ret, ⟨⟩) m'
 
 /-- Shared spec shape for `bv_blast_and`, `bv_blast_or`, `bv_blast_xor`. -/
-def bvBlastBitwiseSpec (opFn : Bool → Bool → Bool) (unitGates : Nat) :
+@[expose] def bvBlastBitwiseSpec (opFn : Bool → Bool → Bool) (unitGates : Nat) :
     Spec [i64, i32, i32, i32] [i32] :=
   fun (h, a_off, b_off, w, ⟨⟩) m Q _X =>
     ∃ hdr g aigWords htSlots litsPool R,
@@ -199,7 +199,7 @@ def bvBlastBitwiseSpec (opFn : Bool → Bool → Bool) (unitGates : Nat) :
         Q (ret, ⟨⟩) m'
 
 /-- Canonical spec for `bv_blast_bin_bitwise(h, a_off, b_off, w, op)`. -/
-def bvBlastBinBitwiseSpec : Spec [i64, i32, i32, i32, i32] [i32] :=
+@[expose] def bvBlastBinBitwiseSpec : Spec [i64, i32, i32, i32, i32] [i32] :=
   fun (h, a_off, b_off, w, op, ⟨⟩) m Q _X =>
     ∃ hdr g aigWords htSlots litsPool R,
       AigInv hdr g aigWords htSlots ∧
@@ -244,16 +244,16 @@ def bvBlastBinBitwiseSpec : Spec [i64, i32, i32, i32, i32] [i32] :=
         Q (ret, ⟨⟩) m'
 
 /-- Canonical spec for `bv_blast_and(h, a_off, b_off, w)`. -/
-def bvBlastAndSpec : Spec [i64, i32, i32, i32] [i32] := bvBlastBitwiseSpec (· && ·) 1
+@[expose] def bvBlastAndSpec : Spec [i64, i32, i32, i32] [i32] := bvBlastBitwiseSpec (· && ·) 1
 
 /-- Canonical spec for `bv_blast_or(h, a_off, b_off, w)`. -/
-def bvBlastOrSpec : Spec [i64, i32, i32, i32] [i32] := bvBlastBitwiseSpec (· || ·) 1
+@[expose] def bvBlastOrSpec : Spec [i64, i32, i32, i32] [i32] := bvBlastBitwiseSpec (· || ·) 1
 
 /-- Canonical spec for `bv_blast_xor(h, a_off, b_off, w)`. -/
-def bvBlastXorSpec : Spec [i64, i32, i32, i32] [i32] := bvBlastBitwiseSpec (· ^^ ·) 3
+@[expose] def bvBlastXorSpec : Spec [i64, i32, i32, i32] [i32] := bvBlastBitwiseSpec (· ^^ ·) 3
 
 /-- Canonical spec for `bv_full_adder_carry(h, a, b, cin)`. -/
-def bvFullAdderCarrySpec : Spec [i64, i32, i32, i32] [i32] :=
+@[expose] def bvFullAdderCarrySpec : Spec [i64, i32, i32, i32] [i32] :=
   fun (h, a, b, cin, ⟨⟩) m Q _X =>
     ∃ hdr g aigWords htSlots R,
       AigInv hdr g aigWords htSlots ∧
@@ -281,7 +281,7 @@ def bvFullAdderCarrySpec : Spec [i64, i32, i32, i32] [i32] :=
         Q (ret, ⟨⟩) m'
 
 /-- Canonical spec for `bv_blast_add(h, a_off, b_off, w)`. -/
-def bvBlastAddSpec : Spec [i64, i32, i32, i32] [i32] :=
+@[expose] def bvBlastAddSpec : Spec [i64, i32, i32, i32] [i32] :=
   fun (h, a_off, b_off, w, ⟨⟩) m Q _X =>
     ∃ hdr g aigWords htSlots litsPool R,
       AigInv hdr g aigWords htSlots ∧
@@ -324,7 +324,7 @@ def bvBlastAddSpec : Spec [i64, i32, i32, i32] [i32] :=
         Q (ret, ⟨⟩) m'
 
 /-- Canonical spec for `bv_blast_eq(h, a_off, b_off, w)`. -/
-def bvBlastEqSpec : Spec [i64, i32, i32, i32] [i32] :=
+@[expose] def bvBlastEqSpec : Spec [i64, i32, i32, i32] [i32] :=
   fun (h, a_off, b_off, w, ⟨⟩) m Q _X =>
     ∃ hdr g aigWords htSlots litsPool R,
       AigInv hdr g aigWords htSlots ∧
@@ -358,7 +358,7 @@ def bvBlastEqSpec : Spec [i64, i32, i32, i32] [i32] :=
         Q (ret, ⟨⟩) m'
 
 /-- Canonical spec for `bv_blast_ult(h, a_off, b_off, w)`. -/
-def bvBlastUltSpec : Spec [i64, i32, i32, i32] [i32] :=
+@[expose] def bvBlastUltSpec : Spec [i64, i32, i32, i32] [i32] :=
   fun (h, a_off, b_off, w, ⟨⟩) m Q _X =>
     ∃ hdr g aigWords htSlots litsPool R,
       AigInv hdr g aigWords htSlots ∧
@@ -391,7 +391,7 @@ def bvBlastUltSpec : Spec [i64, i32, i32, i32] [i32] :=
         Q (ret, ⟨⟩) m'
 
 /-- Canonical spec for `bv_blast_get_lsb_d(h, a_off, aw, idx)`. -/
-def bvBlastGetLsbDSpec : Spec [i64, i32, i32, i32] [i32] :=
+@[expose] def bvBlastGetLsbDSpec : Spec [i64, i32, i32, i32] [i32] :=
   fun (h, a_off, aw, idx, ⟨⟩) m Q _X =>
     ∃ hdr litsPool R,
       (bvHdrMem h hdr ⋆ array (t := i32) hdr.lits_ptr litsPool ⋆ R) m ∧

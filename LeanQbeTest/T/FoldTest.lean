@@ -1,9 +1,9 @@
 module
 
-public import LeanQbe.T.FoldLemmas
-public import LeanQbe.T.WPLemmas
-public import LeanQbe.T.FlatLemmas
-public import LeanQbe.T.Logic.Rules
+import LeanQbe.T.FoldLemmas
+import LeanQbe.T.WPLemmas
+import LeanQbe.T.FlatLemmas
+import LeanQbe.T.Logic.Rules
 
 /-!
 # Tests of `LeanQbe.T.Fold`
@@ -22,7 +22,7 @@ Covers constant folding and algebraic simplification in `LeanQbe.T`:
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbe.T.FoldTest
 

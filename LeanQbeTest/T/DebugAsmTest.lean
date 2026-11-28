@@ -1,13 +1,13 @@
 module
 
-public import LeanQbe.T.Amd64.DebugAsm
-public import LeanQbe.T.Amd64.Frame
-public import LeanQbe.T.Amd64.PrintATTAlign
-public import LeanQbe.T.Amd64.Targ
-public import LeanQbe.T.Driver
-public import LeanQbe.T.Examples.LitmusProgs
-public import LeanQbe.T.Notation
-public import Kraken.X64.PrintATT
+import LeanQbe.T.Amd64.DebugAsm
+import LeanQbe.T.Amd64.Frame
+import LeanQbe.T.Amd64.PrintATTAlign
+import LeanQbe.T.Amd64.Targ
+import LeanQbe.T.Driver
+import LeanQbe.T.Examples.LitmusProgs
+import LeanQbe.T.Notation
+import Kraken.X64.PrintATT
 meta import LeanQbe.T.Amd64.DebugAsm
 meta import LeanQbe.T.Amd64.Frame
 meta import LeanQbe.T.Amd64.PrintATTAlign
@@ -29,7 +29,7 @@ multi-exit callee-saved function (`multi_exit`), and a large-frame (`!x64FitsImm
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.DebugAsmTest
 

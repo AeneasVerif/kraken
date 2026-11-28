@@ -4,21 +4,21 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 module
 
-public import LeanQbe.T.InterpKissat
-public import LeanQbe.T.Examples.Kissat.Plain
-public import LeanQbe.T.Examples.Bitblast.Src.Header
-public import LeanQbe.T.Examples.Bitblast.Src.Full
-public import LeanQbe.T.Examples.Bitblast.Ref.BVProg
-public import LeanQbe.T.Examples.Bitblast.Ref.Tseitin
-public import LeanQbeTest.T.BitblastRefTest
+import LeanQbe.T.InterpKissat
+import LeanQbe.T.Examples.Kissat.Plain
+import LeanQbe.T.Examples.Bitblast.Src.Header
+import LeanQbe.T.Examples.Bitblast.Src.Full
+import LeanQbe.T.Examples.Bitblast.Ref.BVProg
+import LeanQbe.T.Examples.Bitblast.Ref.Tseitin
+import LeanQbeTest.T.BitblastRefTest
 
-public meta import LeanQbe.T.InterpKissat
-public meta import LeanQbe.T.Examples.Kissat.Plain
-public meta import LeanQbe.T.Examples.Bitblast.Src.Header
-public meta import LeanQbe.T.Examples.Bitblast.Src.Full
-public meta import LeanQbe.T.Examples.Bitblast.Ref.BVProg
-public meta import LeanQbe.T.Examples.Bitblast.Ref.Tseitin
-public meta import LeanQbeTest.T.BitblastRefTest
+meta import LeanQbe.T.InterpKissat
+meta import LeanQbe.T.Examples.Kissat.Plain
+meta import LeanQbe.T.Examples.Bitblast.Src.Header
+meta import LeanQbe.T.Examples.Bitblast.Src.Full
+meta import LeanQbe.T.Examples.Bitblast.Ref.BVProg
+meta import LeanQbe.T.Examples.Bitblast.Ref.Tseitin
+meta import LeanQbeTest.T.BitblastRefTest
 
 /-!
 # Verification Tests & Axiom Audit for `Bitblast.Src` (`S2b`)
@@ -35,7 +35,7 @@ Tests C0 `bv_validate`, `bv_mk_and`, `bv_lits_*`, `bv_coi_mark`, `bv_dimacs_writ
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.BitblastSrcTest
 

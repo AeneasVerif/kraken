@@ -1,12 +1,13 @@
 module
 
 public import LeanQbe.T.Flat
-public import LeanQbe.T.Notation
+import LeanQbe.T.Notation
 public import LeanQbe.T.Wf
 public import LeanQbeTest.T.Examples
 public import LeanQbeTest.T.Smoke
 import LeanQbe.T.FlatLemmas
-meta import Lean.Elab.Term
+meta import Lean
+meta import LeanQbe.T.Notation
 
 /-!
 # Typed IR Notation Tests (`tqbe`)
@@ -25,24 +26,6 @@ Covers:
 -/
 
 set_option autoImplicit false
-
-open Lean Elab Term in
-/-- Local syntax helper expanding into a 2000-statement `tqbe` block so the `tqbe` parser and
-term elaborator handle every instruction directly while keeping the test file concise. -/
-local elab "gen_tqbe_sl " n:num : term <= expectedType => do
-  let nVal := n.getNat
-  let mut lines := #["tqbe(%a:l) -> l {"]
-  let mut cur := "a"
-  for i in [0:nVal] do
-    let nxt := s!"x{i}"
-    lines := lines.push s!"  %{nxt} =l add %{cur}, %a"
-    cur := nxt
-  lines := lines.push s!"  ret %{cur}"
-  lines := lines.push "}"
-  let src := "\n".intercalate lines.toList
-  match Parser.runParserCategory (← getEnv) `term src "<gen_tqbe_sl>" with
-  | .ok stx => elabTerm stx expectedType
-  | .error e => throwError e
 
 @[expose] public section
 
@@ -579,8 +562,23 @@ theorem tqbeDefFn_wf : Func.Wf tqbeDefFn := by t_wf_reify
 
 /-! ## 5. Scaling acceptance test: executable `def` 2000-instruction function in `tqbe` notation -/
 
+meta section
+open Lean Elab Command in
 set_option maxRecDepth 16384 in
-def sl2000 : Func [i64] [i64] := gen_tqbe_sl 2000
+run_cmd do
+  let mut lines := #["def sl2000 : Func [i64] [i64] := tqbe(%a:l) -> l {"]
+  let mut cur := "a"
+  for i in [0:2000] do
+    let nxt := s!"x{i}"
+    lines := lines.push s!"  %{nxt} =l add %{cur}, %a"
+    cur := nxt
+  lines := lines.push s!"  ret %{cur}"
+  lines := lines.push "}"
+  let src := "\n".intercalate lines.toList
+  match Parser.runParserCategory (← getEnv) `command src "<gen_tqbe_sl>" with
+  | .ok stx => elabCommand stx
+  | .error e => throwError e
+end
 
 theorem sl2000_wf : Func.Wf sl2000 := by t_wf_reify
 theorem sl2000_check : Func.checkTFlat sl2000 = true := by t_kernel_rfl

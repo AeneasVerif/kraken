@@ -2,10 +2,10 @@ module
 
 public import LeanQbe.T.Xcap.Bridge
 public import LeanQbe.T.MainCertProof
-public import LeanQbe.T.Logic.ProofKit
+import LeanQbe.T.Logic.ProofKit
 import LeanQbe.T.AbiLemmas
 import LeanQbe.T.FlatLemmas
-public meta import Lean
+meta import Lean
 
 /-!
 # Generic Tests & Shared Dual-Arch Fixtures for `Xcap.Bridge` (`XcapBridgeTest`)

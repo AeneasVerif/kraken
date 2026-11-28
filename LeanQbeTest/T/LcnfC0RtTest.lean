@@ -1,11 +1,11 @@
 module
 
-public import LeanQbe.T.LeanLCNF.LcnfC0Rt
-public import LeanQbe.T.LeanLCNF.LcnfC0RtSpec
-public import LeanQbe.T.LeanLCNF.LcnfC0RtProof
-public import LeanQbe.T.InterpKissat
-public import LeanQbe.T.PrintCpp
-public import LeanQbe.T.PrintQbe
+import LeanQbe.T.LeanLCNF.LcnfC0Rt
+import LeanQbe.T.LeanLCNF.LcnfC0RtSpec
+import LeanQbe.T.LeanLCNF.LcnfC0RtProof
+import LeanQbe.T.InterpKissat
+import LeanQbe.T.PrintCpp
+import LeanQbe.T.PrintQbe
 meta import LeanQbe.T.LeanLCNF.LcnfC0Rt
 meta import LeanQbe.T.LeanLCNF.LcnfC0RtSpec
 meta import LeanQbe.T.LeanLCNF.LcnfC0RtProof

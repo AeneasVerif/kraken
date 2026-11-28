@@ -1,14 +1,14 @@
 module
 
-public import LeanQbe.T.TailDupLemmas
-public import LeanQbe.T.FlatLemmas
-public import LeanQbe.T.WPLemmas
-public import LeanQbe.T.Legal
-public import LeanQbe.T.Main
-public import LeanQbe.T.MainLemmas
-public import LeanQbe.T.Spill
-public import LeanQbe.T.Examples.Kissat.Plain
-public import LeanQbeTest.T.RegaLitmusTarget
+import LeanQbe.T.TailDupLemmas
+import LeanQbe.T.FlatLemmas
+import LeanQbe.T.WPLemmas
+import LeanQbe.T.Legal
+import LeanQbe.T.Main
+import LeanQbe.T.MainLemmas
+import LeanQbe.T.Spill
+import LeanQbe.T.Examples.Kissat.Plain
+import LeanQbeTest.T.RegaLitmusTarget
 meta import LeanQbe.T.TailDup
 meta import LeanQbe.T.Main
 meta import LeanQbe.T.Spill

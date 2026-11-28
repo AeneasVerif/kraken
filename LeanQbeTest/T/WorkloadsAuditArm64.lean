@@ -1,8 +1,8 @@
 module
 
-public import LeanQbe.T.Arm64.ChaCha
-public import LeanQbe.T.Arm64.Bignum
-public import LeanQbe.T.Arm64.UnionFind
+import LeanQbe.T.Arm64.ChaCha
+import LeanQbe.T.Arm64.Bignum
+import LeanQbe.T.Arm64.UnionFind
 import LeanQbe.T.Logic.MemLemmas
 
 /-!
@@ -45,7 +45,7 @@ verified `armLegalTarget` pass), Curve25519 bignum kernels (`mul4x4`, `addMod255
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace WorkloadsAuditArm64
 

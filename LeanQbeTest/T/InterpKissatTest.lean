@@ -1,17 +1,17 @@
 module
 
-public import LeanQbe.T.InterpKissat
-public import LeanQbe.T.Examples.Kissat.Plain
-public import LeanQbe.T.Examples.Kissat.Plain1
-public import LeanQbe.T.Examples.Kissat.PlainLemmas
-public import LeanQbe.T.Examples.Kissat.Src.Full
-public import Kraken.Mem
+import LeanQbe.T.InterpKissat
+import LeanQbe.T.Examples.Kissat.Plain
+import LeanQbe.T.Examples.Kissat.Plain1
+import LeanQbe.T.Examples.Kissat.PlainLemmas
+import LeanQbe.T.Examples.Kissat.Src.Full
+import Kraken.Mem
 
-public meta import LeanQbe.T.InterpKissat
-public meta import LeanQbe.T.Examples.Kissat.Plain
-public meta import LeanQbe.T.Examples.Kissat.Plain1
-public meta import LeanQbe.T.Examples.Kissat.PlainLemmas
-public meta import LeanQbe.T.Examples.Kissat.Src.Full
+meta import LeanQbe.T.InterpKissat
+meta import LeanQbe.T.Examples.Kissat.Plain
+meta import LeanQbe.T.Examples.Kissat.Plain1
+meta import LeanQbe.T.Examples.Kissat.PlainLemmas
+meta import LeanQbe.T.Examples.Kissat.Src.Full
 
 /-!
 # Tests and Soundness Audit for Kissat IL Executable Interpreter
@@ -30,7 +30,7 @@ This module validates the verified, fuel-indexed Lean executable interpreter for
 set_option autoImplicit false
 set_option linter.unusedVariables false
 
-public section
+section
 
 namespace LeanQbe.T.InterpKissatTest
 

@@ -4,18 +4,18 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 module
 
-public import LeanQbe.T.InterpKissat
-public meta import LeanQbe.T.InterpKissat
-public import LeanQbe.T.Examples.Bitblast.Src.Aig
-public meta import LeanQbe.T.Examples.Bitblast.Src.Aig
-public import LeanQbe.T.Examples.Bitblast.Src.OpsCore
-public meta import LeanQbe.T.Examples.Bitblast.Src.OpsCore
-public import LeanQbe.T.Examples.Bitblast.Src.OpsShiftMul
-public meta import LeanQbe.T.Examples.Bitblast.Src.OpsShiftMul
-public import LeanQbe.T.Examples.Bitblast.Ref.Aig
-public meta import LeanQbe.T.Examples.Bitblast.Ref.Aig
-public import Std.Tactic.BVDecide.Bitblast.BVExpr.Basic
-public meta import Std.Tactic.BVDecide.Bitblast.BVExpr.Basic
+import LeanQbe.T.InterpKissat
+meta import LeanQbe.T.InterpKissat
+import LeanQbe.T.Examples.Bitblast.Src.Aig
+meta import LeanQbe.T.Examples.Bitblast.Src.Aig
+import LeanQbe.T.Examples.Bitblast.Src.OpsCore
+meta import LeanQbe.T.Examples.Bitblast.Src.OpsCore
+import LeanQbe.T.Examples.Bitblast.Src.OpsShiftMul
+meta import LeanQbe.T.Examples.Bitblast.Src.OpsShiftMul
+import LeanQbe.T.Examples.Bitblast.Ref.Aig
+meta import LeanQbe.T.Examples.Bitblast.Ref.Aig
+import Std.Tactic.BVDecide.Bitblast.BVExpr.Basic
+meta import Std.Tactic.BVDecide.Bitblast.BVExpr.Basic
 
 /-!
 # Differential Execution & Structural Tests for `Bitblast/Src/OpsShiftMul.lean` (`S4`)
@@ -32,7 +32,7 @@ OOM/overflow guards, and single-line `#print axioms` (`<= std3`).
 set_option autoImplicit false
 set_option linter.unusedVariables false
 
-public section
+section
 
 namespace LeanQbeTest.T.BitblastOpsShiftMulTest
 

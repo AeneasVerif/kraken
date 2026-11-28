@@ -37,25 +37,25 @@ open LeanQbe.T.Examples.Bitblast.Src.OpsShiftMul
 
 /-! ## 1. Exposed Sub-Expressions (`@[expose]`) -/
 
-@[expose] public section
+public section
 
-@[inline] def m2Cmp (c : CmpOp) (ty : Ty) (x y : Arg Val ty)
+@[expose, inline] def m2Cmp (c : CmpOp) (ty : Ty) (x y : Arg Val ty)
     (k : Val ty.mask → Expr Val Cont [i32]) : Expr Val Cont [i32] :=
   Expr.let_ { sig := [ty, ty], code := OpCode.cmp c ty, args := (x, y, ()) } (fun p => k p.fst)
 
-@[inline] def m2Bin (code : OpCode [i32, i32] [i32]) (x y : Arg Val i32)
+@[expose, inline] def m2Bin (code : OpCode [i32, i32] [i32]) (x y : Arg Val i32)
     (k : Val i32 → Expr Val Cont [i32]) : Expr Val Cont [i32] :=
   Expr.let_ { sig := [i32, i32], code := code, args := (x, y, ()) } (fun p => k p.fst)
 
-@[inline] def m2Add64 (x y : Arg Val i64)
+@[expose, inline] def m2Add64 (x y : Arg Val i64)
     (k : Val i64 → Expr Val Cont [i32]) : Expr Val Cont [i32] :=
   Expr.let_ { sig := [i64, i64], code := OpCode.add i64, args := (x, y, ()) } (fun p => k p.fst)
 
-@[inline] def m2Zext (x : Arg Val i32)
+@[expose, inline] def m2Zext (x : Arg Val i32)
     (k : Val i64 → Expr Val Cont [i32]) : Expr Val Cont [i32] :=
   Expr.let_ { sig := [i32], code := OpCode.zext 32 64, args := (x, ()) } (fun p => k p.fst)
 
-@[inline] def m2LoadLit (litsPtr : Val i64) (idx : Val i32)
+@[expose, inline] def m2LoadLit (litsPtr : Val i64) (idx : Val i32)
     (k : Val i32 → Expr Val Cont [i32]) : Expr Val Cont [i32] :=
   m2Zext (Arg.var idx) fun p0 =>
   Expr.let_ { sig := [i64, i64], code := OpCode.mul i64, args := (Arg.var p0, Arg.imm 4, ()) }
@@ -63,14 +63,15 @@ open LeanQbe.T.Examples.Bitblast.Src.OpsShiftMul
   m2Add64 (Arg.var litsPtr) (Arg.var p1.fst) fun p2 =>
   Expr.load i32 (Arg.var p2) k
 
-@[inline] def m2AddrLit (litsPtr : Val i64) (idx : Val i32)
+@[expose, inline] def m2AddrLit (litsPtr : Val i64) (idx : Val i32)
     (k : Val i64 → Expr Val Cont [i32]) : Expr Val Cont [i32] :=
   m2Zext (Arg.var idx) fun p0 =>
   Expr.let_ { sig := [i64, i64], code := OpCode.mul i64, args := (Arg.var p0, Arg.imm 4, ()) }
     fun p1 =>
   m2Add64 (Arg.var litsPtr) (Arg.var p1.fst) k
 
-@[inline] def m2LoadOom (h : Val i64) (k : Val i32 → Expr Val Cont [i32]) : Expr Val Cont [i32] :=
+@[expose, inline] def m2LoadOom (h : Val i64) (k : Val i32 → Expr Val Cont [i32]) :
+    Expr Val Cont [i32] :=
   m2Add64 (Arg.var h) (Arg.imm 120) fun p0 => Expr.load i32 (Arg.var p0) k
 
 /-- Inner `j < w` `bv_aig_ite` loop of `bv_blast_clz` for non-zero `xc`. -/
@@ -302,7 +303,9 @@ theorem bv_blast_clz_split_eq (h : Val i64) (aOff w : Val i32) :
                                 fun Js => Expr.jump Js.fst (Arg.var p9.fst, Arg.imm 0, ())))
                           Blocks.nil)
                       fun Js => Expr.jump Js.fst (Arg.imm 0, ()))))
-             (Expr.jump Js.fst ())) := rfl
+             (Expr.jump Js.fst ())) := by
+  dsimp only [bv_blast_clz_body, clzInnerExpr, m2Cmp, m2Bin, m2Add64, m2Zext, m2LoadLit,
+    m2AddrLit, m2LoadOom]
 
 theorem bv_blast_mul_split_eq (h : Val i64) (aOff bOff w : Val i32) :
     bv_blast_mul_body (V := Val) (L := Cont) (h, aOff, bOff, w, ()) =
@@ -372,7 +375,9 @@ theorem bv_blast_mul_split_eq (h : Val i64) (aOff bOff w : Val i32) :
                              Blocks.nil)
                          fun Js => Expr.jump Js.fst (Arg.imm 0, ()))))
                 (Expr.jump Js.fst ()))
-             (Expr.jump Js.fst ())) := rfl
+             (Expr.jump Js.fst ())) := by
+  dsimp only [bv_blast_mul_body, mulLoopExpr, mulIterExpr, mulIteExpr, m2Cmp, m2Bin, m2Add64,
+    m2Zext, m2LoadLit, m2AddrLit, m2LoadOom]
 
 theorem clz_inner_wp {Γ : Env} {Q : Post [i32]} {X : XPost} {mC : Mem 64}
     (hIte : Γ.Has "bv_aig_ite" bvAigIteSpec)

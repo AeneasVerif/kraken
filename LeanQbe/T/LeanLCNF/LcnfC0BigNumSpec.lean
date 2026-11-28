@@ -6,7 +6,7 @@ public import LeanQbe.T.LeanLCNF.LcnfC0RtSpec
 public import LeanQbe.T.LeanLCNF.Lower
 public import LeanQbe.T.Logic.C0Step
 public import LeanQbe.T.Logic.SlabChain
-import all Kraken.Separation
+import Kraken.Separation
 
 /-!
 # Canonical `MPZ`/`Nat`/`Int` Specifications & Contracts for `LcnfC0BigNum` (Milestone R1)

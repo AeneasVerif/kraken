@@ -1,8 +1,8 @@
 module
 
-public import LeanQbe.T.Frontend.C0
-public import LeanQbe.T.FlatLemmas
-public import LeanQbe.T.Logic.C0Agrees
+import LeanQbe.T.Frontend.C0
+import LeanQbe.T.FlatLemmas
+import LeanQbe.T.Logic.C0Agrees
 meta import LeanQbe.T.Frontend.C0
 
 /-!

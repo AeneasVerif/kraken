@@ -28,29 +28,29 @@ open LeanQbe.T.Examples.Bitblast.Ref
 open LeanQbe.T.Examples.Bitblast.Ref.BVProg
 open LeanQbe.T.Examples.Bitblast.Src
 
-@[expose] public section
+public section
 
 /-! ## 1. Pure Word Accessors, Offsets, and Atom Prefix Sums -/
 
 /-- Little-endian 32-bit unsigned word at 4-byte index `idx` of `bs`. -/
-def u32At (bs : List UInt8) (idx : Nat) : Nat :=
+@[expose] def u32At (bs : List UInt8) (idx : Nat) : Nat :=
   u32OfBytesLE (bs.getD (4 * idx) 0) (bs.getD (4 * idx + 1) 0)
     (bs.getD (4 * idx + 2) 0) (bs.getD (4 * idx + 3) 0)
 
 /-- Word offset of the constant pool (`8 + 2 * n_vars`). -/
-def cwordsOff (n_vars : Nat) : Nat :=
+@[expose] def cwordsOff (n_vars : Nat) : Nat :=
   8 + 2 * n_vars
 
 /-- Word offset of the node table (`8 + 2 * n_vars + n_cwords`). -/
-def nodesOff (n_vars n_cwords : Nat) : Nat :=
+@[expose] def nodesOff (n_vars n_cwords : Nat) : Nat :=
   8 + 2 * n_vars + n_cwords
 
 /-- Round `n` up to a multiple of `8` (`(n + 7) & ~7`). -/
-def align8 (n : Nat) : Nat :=
+@[expose] def align8 (n : Nat) : Nat :=
   ((n + 7) / 8) * 8
 
 /-- Exact pure mirror of `bv_count_atoms(prog_ptr, n)` returning `0` on overflow or `1 + ∑ vw`. -/
-def countAtoms (bs : List UInt8) : Nat → Nat
+@[expose] def countAtoms (bs : List UInt8) : Nat → Nat
   | 0 => 1
   | k + 1 =>
     let prev := countAtoms bs k
@@ -59,7 +59,7 @@ def countAtoms (bs : List UInt8) : Nat → Nat
     else prev + vw
 
 /-- Exact pure mirror of `bv_validate_node(prog_ptr, nodes_w, n_vars, n_cwords, i)`. -/
-def validNodeAt (bs : List UInt8) (n_vars n_cwords i : Nat) : Bool :=
+@[expose] def validNodeAt (bs : List UInt8) (n_vars n_cwords i : Nat) : Bool :=
   let nw0 := nodesOff n_vars n_cwords
   let base := nw0 + 5 * i
   let op := u32At bs base
@@ -177,7 +177,7 @@ def atomAssignAux (bs : List UInt8) (assign : BVExpr.Assignment) : Nat → Nat �
       atomAssignAux bs assign k a
 
 /-- Induced AIG atom assignment over all `n_vars = u32At bs 2` variables in `bs`. -/
-def atomAssign (bs : List UInt8) (assign : BVExpr.Assignment) (a : Nat) : Bool :=
+@[expose] def atomAssign (bs : List UInt8) (assign : BVExpr.Assignment) (a : Nat) : Bool :=
   atomAssignAux bs assign (u32At bs 2) a
 
 end

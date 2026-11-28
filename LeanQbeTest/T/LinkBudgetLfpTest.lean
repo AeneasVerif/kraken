@@ -1,6 +1,6 @@
 module
 
-public import LeanQbe.T.LinkBudgetLfp
+import LeanQbe.T.LinkBudgetLfp
 import LeanQbe.T.WPLemmas
 import LeanQbe.T.AbiLemmas
 
@@ -23,7 +23,7 @@ Exercises:
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.LinkBudgetLfpTest
 

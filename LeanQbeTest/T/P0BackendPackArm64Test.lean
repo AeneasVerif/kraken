@@ -1,28 +1,28 @@
 module
 
-public import LeanQbe.T.MainCertCore
-public import LeanQbe.T.MainCertFlat
-public import LeanQbe.T.MainCertInline
-public import LeanQbe.T.Arm64.TargLemmas
-public import LeanQbe.T.Arm64.PrintAlign
-public import LeanQbe.T.Arm64.DebugAsm
-public import LeanQbe.T.Examples.LitmusProgs
-public import LeanQbe.T.Examples.Bignum
-public import LeanQbe.T.Examples.ChaCha
-public import LeanQbe.T.Examples.LratBytes
-public import LeanQbe.T.Notation
-public meta import Lean
-public meta import LeanQbe.T.MainCertElab
-public meta import LeanQbe.T.MainCertFlatElab
-public meta import LeanQbe.T.MainCertInline
-public meta import LeanQbe.T.Arm64.Targ
-public meta import LeanQbe.T.Arm64.PrintAlign
-public meta import LeanQbe.T.Arm64.DebugAsm
-public meta import LeanQbe.T.Examples.LitmusProgs
-public meta import LeanQbe.T.Examples.Bignum
-public meta import LeanQbe.T.Examples.ChaCha
-public meta import LeanQbe.T.Examples.LratBytes
-public meta import LeanQbe.T.MainFlat
+import LeanQbe.T.MainCertCore
+import LeanQbe.T.MainCertFlat
+import LeanQbe.T.MainCertInline
+import LeanQbe.T.Arm64.TargLemmas
+import LeanQbe.T.Arm64.PrintAlign
+import LeanQbe.T.Arm64.DebugAsm
+import LeanQbe.T.Examples.LitmusProgs
+import LeanQbe.T.Examples.Bignum
+import LeanQbe.T.Examples.ChaCha
+import LeanQbe.T.Examples.LratBytes
+import LeanQbe.T.Notation
+meta import Lean
+meta import LeanQbe.T.MainCertElab
+meta import LeanQbe.T.MainCertFlatElab
+meta import LeanQbe.T.MainCertInline
+meta import LeanQbe.T.Arm64.Targ
+meta import LeanQbe.T.Arm64.PrintAlign
+meta import LeanQbe.T.Arm64.DebugAsm
+meta import LeanQbe.T.Examples.LitmusProgs
+meta import LeanQbe.T.Examples.Bignum
+meta import LeanQbe.T.Examples.ChaCha
+meta import LeanQbe.T.Examples.LratBytes
+meta import LeanQbe.T.MainFlat
 
 /-!
 # P0 Backend Performance Pack — AAPCS64 Arm64 Regression & Parity Tests
@@ -39,7 +39,7 @@ Verifies Ranks 4 & 5 on AAPCS64 Arm64:
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.P0BackendPackArm64Test
 

@@ -1,7 +1,8 @@
 module
 
-public import LeanQbe.T.Unified.CfgContifyProof
-public meta import LeanQbe.T.Unified.CfgContify
+import LeanQbe.T.Unified.CfgRecovery
+import LeanQbe.T.Unified.CfgContifyProof
+meta import LeanQbe.T.Unified.CfgContify
 import LeanQbe.T.FlatLemmas
 import LeanQbe.T.OpsLemmas
 
@@ -33,6 +34,12 @@ namespace LeanQbeTest.T.BedrockCfgStage1Test
 open LeanQbe.T
 open LeanQbe.T.BedrockWord
 open LeanQbe.T.Unified
+
+@[local simp] private theorem allPcs_leaf (pc : BitVec 64) :
+    GroupTree.allPcs (.leaf pc) = [pc] := GroupTree.allPcs.eq_1 pc
+
+@[local simp] private theorem allPcs_loop (h : BitVec 64) (ns : List GroupTree) :
+    GroupTree.allPcs (.loop h ns) = ns.flatMap GroupTree.allPcs := GroupTree.allPcs.eq_2 h ns
 
 def mkEntry (nm : Sym) (addr : BitVec 64) (b : BlockP) : CodeEntry :=
   ⟨nm, addr, reifyBlock b⟩
@@ -183,9 +190,9 @@ theorem nested_check : nestedWit.check cmNested = true := by
   refine check_two_cont_true cmNested nestedHelperCr nestedMainCr
     [0#64] [8#64, 16#64, 24#64, 32#64, 40#64] [0#64, 8#64, 16#64, 24#64, 32#64, 40#64]
     ⟨"ret_step", 0#64, false, regionMemFree cmNested [] nestedHelperCr⟩
-    (by simp [nestedHelperCr, ContifyRegion.allPcs, GroupTree.allPcs])
-    (by simp [nestedMainCr, ContifyRegion.allPcs, GroupTree.allPcs])
-    (by simp [nestedHelperCr, nestedMainCr, ContifyRegion.allPcs, GroupTree.allPcs])
+    (by simp [nestedHelperCr, ContifyRegion.allPcs])
+    (by simp [nestedMainCr, ContifyRegion.allPcs])
+    (by simp [nestedHelperCr, nestedMainCr, ContifyRegion.allPcs])
     (by simp [ContifyRegion.toCalleeMeta?, nestedHelperCr]) ?_
   t_kernel_rfl
 
@@ -335,15 +342,15 @@ theorem dual_slot_check : dualWit.check cmDualSlot = true := by
   have hMf : regionMemFree cmDualSlot [] dualCalleeCr = true := by
     dsimp only [regionMemFree, ContifyRegion.allPcs]
     have h0 : dualCalleeCr.tree.flatMap GroupTree.allPcs = [0#64] := by
-      simp [dualCalleeCr, GroupTree.allPcs]
+      simp [dualCalleeCr]
     rw [h0]
     exact Eq.refl true
   refine check_two_cont_true cmDualSlot dualCalleeCr dualCallerCr
     [0#64] [8#64, 16#64, 24#64] [0#64, 8#64, 16#64, 24#64]
     (ContCalleeMeta.mk "checked_sub" 0#64 true true)
-    (by simp [dualCalleeCr, ContifyRegion.allPcs, GroupTree.allPcs])
-    (by simp [dualCallerCr, ContifyRegion.allPcs, GroupTree.allPcs])
-    (by simp [dualCalleeCr, dualCallerCr, ContifyRegion.allPcs, GroupTree.allPcs])
+    (by simp [dualCalleeCr, ContifyRegion.allPcs])
+    (by simp [dualCallerCr, ContifyRegion.allPcs])
+    (by simp [dualCalleeCr, dualCallerCr, ContifyRegion.allPcs])
     (by dsimp only [ContifyRegion.toCalleeMeta?]; rw [hMf]; rfl) ?_
   t_kernel_rfl
 
@@ -488,7 +495,7 @@ def privLoopWit : ContifyWitness := ⟨[privLoopCr]⟩
 
 theorem privLoop_check : privLoopWit.check cmPrivLoop = true := by
   refine check_one_cont_eq cmPrivLoop privLoopCr [0#64, 8#64, 16#64]
-    (by simp [privLoopCr, ContifyRegion.allPcs, GroupTree.allPcs]) true ?_
+    (by simp [privLoopCr, ContifyRegion.allPcs]) true ?_
   t_kernel_rfl
 
 theorem privLoop_lift_eq :
@@ -571,7 +578,7 @@ def aliasDynWit : ContifyWitness := ⟨[aliasDynCr]⟩
 /-- (4a) Escaped/unknown pointer `r.r1` is statically rejected when `dynAliasGuard = false`. -/
 theorem alias_static_rejected : aliasStaticWit.check cmAlias = false := by
   refine check_one_cont_eq cmAlias aliasStaticCr [0#64, 8#64]
-    (by simp [aliasStaticCr, ContifyRegion.allPcs, GroupTree.allPcs]) false ?_
+    (by simp [aliasStaticCr, ContifyRegion.allPcs]) false ?_
   t_kernel_rfl
 
 theorem alias_static_lift_err :
@@ -583,17 +590,17 @@ theorem alias_static_lift_err :
 `flushFrame` + unpromoted tail, passing verification and `hybrid_sound`. -/
 theorem alias_dyn_check : aliasDynWit.check cmAlias = true := by
   refine check_one_cont_eq cmAlias aliasDynCr [0#64, 8#64]
-    (by simp [aliasDynCr, aliasStaticCr, ContifyRegion.allPcs, GroupTree.allPcs]) true ?_
+    (by simp [aliasDynCr, aliasStaticCr, ContifyRegion.allPcs]) true ?_
   t_kernel_rfl
 
 theorem alias_dyn_res_eq :
     residualContifyCodeMap cmAlias aliasDynWit =
       [mkEntry "cold_fallback" 40#64 (fun _ r => .halt (.var r.r3))] := by
   have h1 : aliasDynCr.allPcs = [0#64, 8#64] := by
-    simp [ContifyRegion.allPcs, aliasDynCr, aliasStaticCr, GroupTree.allPcs]
+    simp [ContifyRegion.allPcs, aliasDynCr, aliasStaticCr]
   have h2 : List.flatMap ContifyRegion.allPcs
       (List.filter (fun r => !r.retainFallbacks) aliasDynWit.regions) = [0#64, 8#64] := by
-    simp [aliasDynWit, aliasDynCr, aliasStaticCr, ContifyRegion.allPcs, GroupTree.allPcs]
+    simp [aliasDynWit, aliasDynCr, aliasStaticCr, ContifyRegion.allPcs]
   dsimp only [residualContifyCodeMap]; rw [h2]
   simp [aliasDynWit, aliasDynCr, aliasStaticCr, cmAlias, mkEntry]
 
@@ -660,7 +667,7 @@ theorem alias_dyn_hybrid_sound :
   · intro cr hCr _ pc hPc hNe _ _
     simp only [aliasDynWit, List.mem_singleton] at hCr
     subst hCr
-    simp [aliasDynCr, aliasStaticCr, ContifyRegion.allPcs, GroupTree.allPcs] at hPc
+    simp [aliasDynCr, aliasStaticCr, ContifyRegion.allPcs] at hPc
     rcases hPc with rfl | rfl
     · exact absurd rfl hNe
     · intro h40; cases h40

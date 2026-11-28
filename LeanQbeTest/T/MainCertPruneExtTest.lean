@@ -4,14 +4,14 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 module
 
-public import LeanQbe.T.MainCertSlices
-public import LeanQbe.T.Amd64.TargLemmas
-public import LeanQbeTest.T.Common.Fixtures
+import LeanQbe.T.MainCertSlices
+import LeanQbe.T.Amd64.TargLemmas
+import LeanQbeTest.T.Common.Fixtures
 import LeanQbe.T.FlatLemmas
-public meta import Lean
-public meta import LeanQbe.T.MainCertElab
-public meta import LeanQbe.T.Amd64.Targ
-public meta import LeanQbeTest.T.Common.Fixtures
+meta import Lean
+import LeanQbe.T.MainCertElab
+meta import LeanQbe.T.Amd64.Targ
+meta import LeanQbeTest.T.Common.Fixtures
 
 /-!
 # Pruned-`ext` (`N4`) & 2-Level Balanced `MainCertSlices` Tree (`N6`) Tests
@@ -29,7 +29,7 @@ Fast kernel-checked verification (`std3` axioms only, `0` `sorry`, `0` `MainLink
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.MainCertPruneExtTest
 

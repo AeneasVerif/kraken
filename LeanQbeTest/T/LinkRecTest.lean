@@ -3,11 +3,12 @@ module
 public import LeanQbe.T.LinkRecLemmas
 public import LeanQbe.T.Examples.LinkRec
 public import LeanQbeTest.T.MainTest
-public import LeanQbe.T.MainSplice
-public meta import Lean
-public meta import LeanQbe.T.MainSplice
-public meta import LeanQbe.T.Examples.LinkRec
-public meta import LeanQbeTest.T.RegaLitmusTarget
+import LeanQbe.T.MainSplice
+import LeanQbe.T.FlatLemmas
+meta import Lean
+meta import LeanQbe.T.Main
+meta import LeanQbe.T.Examples.LinkRec
+meta import LeanQbeTest.T.RegaLitmusTarget
 
 /-!
 # Tests for Measure/Fuel-Indexed Cyclic Module Linking

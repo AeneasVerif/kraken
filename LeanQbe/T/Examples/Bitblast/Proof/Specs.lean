@@ -34,12 +34,12 @@ open LeanQbe.T.Examples.Bitblast.Ref.BVProg
 open LeanQbe.T.Examples.Bitblast.Ref.Tseitin
 open LeanQbe.T.Examples.Bitblast.Src
 
-@[expose] public section
+public section
 
 /-! ## 1. AIG, Bitblast Evaluation & COI/DIMACS Invariants -/
 
 /-- Exact C0 gate-count cap matching `BV_MAX_GATES` (`89478485`). -/
-def bvMaxGates : Nat := 89478485
+@[expose] def bvMaxGates : Nat := 89478485
 
 /-- Field tags of `BVHdrState` (`22` fields: `10 × u64` + `12 × u32`). -/
 inductive HdrField
@@ -50,13 +50,13 @@ inductive HdrField
   deriving DecidableEq
 
 /-- Bitvector type (`BitVec 64` or `BitVec 32`) of a `BVHdrState` field. -/
-def HdrField.ty : HdrField → Type
+@[expose] def HdrField.ty : HdrField → Type
   | .work_base | .work_end | .prog_ptr | .aig_ptr | .ht_ptr
   | .atom_base_ptr | .slice_off_ptr | .lits_ptr | .marks_ptr | .dimacs_start => BitVec 64
   | _ => BitVec 32
 
 /-- Field projection `h.get f : f.ty` for `BVHdrState`. -/
-def BVHdrState.get (h : BVHdrState) (f : HdrField) : f.ty :=
+@[expose] def BVHdrState.get (h : BVHdrState) (f : HdrField) : f.ty :=
   match f with
   | .work_base => h.work_base
   | .work_end => h.work_end
@@ -82,7 +82,7 @@ def BVHdrState.get (h : BVHdrState) (f : HdrField) : f.ty :=
   | .dimacs_len => h.dimacs_len
 
 /-- Framing predicate: `h2` agrees with `h1` on every `BVHdrState` field not in `S`. -/
-def Modifies (S : List HdrField) (h1 h2 : BVHdrState) : Prop :=
+@[expose] def Modifies (S : List HdrField) (h1 h2 : BVHdrState) : Prop :=
   ∀ f : HdrField, f ∉ S → h2.get f = h1.get f
 
 /-- Framing predicate: `h2` agrees with `h1` on every `BVHdr` field except `aig_len` and `oom`. -/
@@ -106,11 +106,11 @@ structure AigInv (hdr : BVHdrState) (g : Aig)
   ht_bound : htSlots.length ≤ 2 ^ 30
 
 /-- Extract `w` `UInt32` literals from `litsPool` starting at offset `off`. -/
-def litsSlice (litsPool : List (BitVec 32)) (off w : Nat) : List UInt32 :=
+@[expose] def litsSlice (litsPool : List (BitVec 32)) (off w : Nat) : List UInt32 :=
   ((litsPool.drop off).take w).map UInt32.ofBitVec
 
 /-- Semantic denotation of evaluated `BVP1` node `i` under parsed `nodes : BinTree ProgNode`. -/
-def NodeDenotes (bs : List UInt8) (nodes : BinTree ProgNode) (g : Aig)
+@[expose] def NodeDenotes (bs : List UInt8) (nodes : BinTree ProgNode) (g : Aig)
     (sliceOffs litsPool : List (BitVec 32)) (litsLen : Nat) (i : Nat) : Prop :=
   match nodes.get? i with
   | some (.bv w e) =>
@@ -149,11 +149,11 @@ structure BlastEvalInv (cfg : BVWorkspaceCfg) (progPtr : BitVec 64) (progBytes :
     ∀ i < k, NodeDenotes progBytes nodes g sliceOffs litsPool hdr.lits_len.toNat i
 
 /-- Convert raw C0 byte marks (`0` vs non-zero) to `Array Bool` for `Ref.Tseitin`. -/
-def marksToBool (marks : List UInt8) : Array Bool :=
+@[expose] def marksToBool (marks : List UInt8) : Array Bool :=
   (marks.map (· != 0)).toArray
 
 /-- Exact workspace sufficiency condition guaranteeing `bv_init_workspace` returns `true`. -/
-def bvInitFitsCond (progBytes : List UInt8) (avail : Nat) : Prop :=
+@[expose] def bvInitFitsCond (progBytes : List UInt8) (avail : Nat) : Prop :=
   let nv := u32At progBytes 2
   let nn := u32At progBytes 3
   let fixed := 128 + align8 (4 * nv) + align8 (4 * nn)
@@ -161,7 +161,7 @@ def bvInitFitsCond (progBytes : List UInt8) (avail : Nat) : Prop :=
   countAtoms progBytes nv - 1 < min ((avail - fixed) / 32) (bvDimacsBound - 1)
 
 /-- Concrete trivial-UNSAT condition guaranteeing `bv_solve_bytes` returns `20#64` (used for NV). -/
-def bvSolveTrivialUnsatCond (progPtr : BitVec 64) (progBytes : List UInt8)
+@[expose] def bvSolveTrivialUnsatCond (progPtr : BitVec 64) (progBytes : List UInt8)
     (workPtr workCap fuel : BitVec 64) : Prop :=
   let pad := (8 - (workPtr.toNat % 8)) % 8
   fuel ≠ 0#64 ∧
@@ -180,7 +180,7 @@ def bvSolveTrivialUnsatCond (progPtr : BitVec 64) (progBytes : List UInt8)
 /-! ## 2. Canonical Specifications — Group A: `Validate` (`4` fns) -/
 
 /-- Canonical spec for `bv_read_u32(prog_ptr, idx)`. -/
-def bvReadU32Spec : Spec [i64, i64] [i32] :=
+@[expose] def bvReadU32Spec : Spec [i64, i64] [i32] :=
   fun ⟨progPtr, idx, ⟨⟩⟩ m Q _X =>
     ∃ (progBytes : List UInt8) (R : Mem 64 → Prop),
       progPtr.toNat + progBytes.length < 2 ^ 64 ∧
@@ -189,7 +189,7 @@ def bvReadU32Spec : Spec [i64, i64] [i32] :=
       Q (BitVec.ofNat 32 (u32At progBytes idx.toNat), ⟨⟩) m
 
 /-- Canonical spec for `bv_count_atoms(prog_ptr, n_vars)`. -/
-def bvCountAtomsSpec : Spec [i64, i32] [i64] :=
+@[expose] def bvCountAtomsSpec : Spec [i64, i32] [i64] :=
   fun ⟨progPtr, nVars, ⟨⟩⟩ m Q _X =>
     ∃ (progBytes : List UInt8) (R : Mem 64 → Prop),
       progPtr.toNat + progBytes.length < 2 ^ 64 ∧
@@ -198,7 +198,7 @@ def bvCountAtomsSpec : Spec [i64, i32] [i64] :=
       Q (BitVec.ofNat 64 (countAtoms progBytes nVars.toNat), ⟨⟩) m
 
 /-- Canonical spec for `bv_validate_node(prog_ptr, nodes_w, n_vars, n_cwords, i)`. -/
-def bvValidateNodeSpec : Spec [i64, i64, i32, i32, i32] [.bool] :=
+@[expose] def bvValidateNodeSpec : Spec [i64, i64, i32, i32, i32] [.bool] :=
   fun ⟨progPtr, nodesW, nVars, nCwords, idx, ⟨⟩⟩ m Q _X =>
     ∃ (progBytes : List UInt8) (R : Mem 64 → Prop),
       progPtr.toNat + progBytes.length < 2 ^ 64 ∧
@@ -208,7 +208,7 @@ def bvValidateNodeSpec : Spec [i64, i64, i32, i32, i32] [.bool] :=
       Q (validNodeAt progBytes nVars.toNat nCwords.toNat idx.toNat, ⟨⟩) m
 
 /-- Canonical spec for `bv_validate(prog_ptr, prog_len)`. -/
-def bvValidateSpec : Spec [i64, i64] [.bool] :=
+@[expose] def bvValidateSpec : Spec [i64, i64] [.bool] :=
   fun ⟨progPtr, progLen, ⟨⟩⟩ m Q _X =>
     ∃ (progBytes : List UInt8) (R : Mem 64 → Prop),
       progLen.toNat = progBytes.length ∧
@@ -221,12 +221,12 @@ def bvValidateSpec : Spec [i64, i64] [.bool] :=
 /-! ## 3. Canonical Specifications — Group B: `Aig` (`11` fns) -/
 
 /-- Canonical spec for `bv_hash_pair(lhs, rhs)` (untrusted HT needs zero hash semantics). -/
-def bvHashPairSpec : Spec [i32, i32] [i32] :=
+@[expose] def bvHashPairSpec : Spec [i32, i32] [i32] :=
   fun _xs m Q _X =>
     ∀ r : BitVec 32, Q (r, ⟨⟩) m
 
 /-- Canonical spec for `bv_aig_init(h, aig_ptr, aig_cap, ht_ptr, ht_mask, num_atoms)`. -/
-def bvAigInitSpec : Spec [i64, i64, i32, i64, i32, i32] [] :=
+@[expose] def bvAigInitSpec : Spec [i64, i64, i32, i64, i32, i32] [] :=
   fun ⟨h, aigPtr, aigCap, htPtr, htMask, numAtoms, ⟨⟩⟩ m Q _X =>
     ∃ (hdr : BVHdrState) (htSlots : List (BitVec 32)) (R : Mem 64 → Prop),
       htSlots.length = htMask.toNat + 1 ∧
@@ -242,6 +242,7 @@ def bvAigInitSpec : Spec [i64, i64, i32, i64, i32, i32] [] :=
         Q ⟨⟩ m'
 
 /-- Shared canonical spec shape for binary AIG gate constructors (`and`, `or`, `xor`, `beq`). -/
+@[expose]
 def bvAigBinSpec (op : Bool → Bool → Bool) (maxNewGates : Nat) : Spec [i64, i32, i32] [i32] :=
   fun ⟨h, lhs, rhs, ⟨⟩⟩ m Q _X =>
     ∃ (hdr : BVHdrState) (g : Aig) (aigWords : List (BitVec 64))
@@ -274,7 +275,7 @@ abbrev bvMkAndSpec : Spec [i64, i32, i32] [i32] :=
   bvAigBinSpec (· && ·) 1
 
 /-- Canonical spec for `bv_aig_not(l)`. -/
-def bvAigNotSpec : Spec [i32] [i32] :=
+@[expose] def bvAigNotSpec : Spec [i32] [i32] :=
   fun ⟨l, ⟨⟩⟩ m Q _X => Q (l ^^^ 1#32, ⟨⟩) m
 
 /-- Canonical spec for `bv_aig_or(h, a, b)`. -/
@@ -290,7 +291,7 @@ abbrev bvAigBeqSpec : Spec [i64, i32, i32] [i32] :=
   bvAigBinSpec (· == ·) 3
 
 /-- Canonical spec for `bv_aig_ite(h, c, t, f)`. -/
-def bvAigIteSpec : Spec [i64, i32, i32, i32] [i32] :=
+@[expose] def bvAigIteSpec : Spec [i64, i32, i32, i32] [i32] :=
   fun ⟨h, c, t, f, ⟨⟩⟩ m Q _X =>
     ∃ (hdr : BVHdrState) (g : Aig) (aigWords : List (BitVec 64))
       (htSlots : List (BitVec 32)) (R : Mem 64 → Prop),
@@ -322,14 +323,14 @@ def bvAigIteSpec : Spec [i64, i32, i32, i32] [i32] :=
         Q (ret, ⟨⟩) m'
 
 /-- Canonical spec for `bv_lits_mark(h)`. -/
-def bvLitsMarkSpec : Spec [i64] [i32] :=
+@[expose] def bvLitsMarkSpec : Spec [i64] [i32] :=
   fun ⟨h, ⟨⟩⟩ m Q _X =>
     ∃ (hdr : BVHdrState) (R : Mem 64 → Prop),
       (bvHdrMem h hdr ⋆ R) m ∧
       Q (hdr.lits_len, ⟨⟩) m
 
 /-- Canonical spec for `bv_lits_release(h, mark)`. -/
-def bvLitsReleaseSpec : Spec [i64, i32] [] :=
+@[expose] def bvLitsReleaseSpec : Spec [i64, i32] [] :=
   fun ⟨h, mark, ⟨⟩⟩ m Q _X =>
     ∃ (hdr : BVHdrState) (R : Mem 64 → Prop),
       (bvHdrMem h hdr ⋆ R) m ∧
@@ -337,7 +338,7 @@ def bvLitsReleaseSpec : Spec [i64, i32] [] :=
       ∀ m' : Mem 64, (bvHdrMem h { hdr with lits_len := len' } ⋆ R) m' → Q ⟨⟩ m'
 
 /-- Canonical spec for `bv_lits_alloc(h, count)`. -/
-def bvLitsAllocSpec : Spec [i64, i32] [i32] :=
+@[expose] def bvLitsAllocSpec : Spec [i64, i32] [i32] :=
   fun ⟨h, count, ⟨⟩⟩ m Q _X =>
     ∃ (hdr : BVHdrState) (R : Mem 64 → Prop),
       (bvHdrMem h hdr ⋆ R) m ∧
@@ -355,7 +356,7 @@ def bvLitsAllocSpec : Spec [i64, i32] [i32] :=
 /-! ## 4. Canonical Specifications — Group C: `Tseitin` (`8` fns) -/
 
 /-- Canonical spec for `bv_coi_mark(h, root)`. -/
-def bvCoiMarkSpec : Spec [i64, i32] [] :=
+@[expose] def bvCoiMarkSpec : Spec [i64, i32] [] :=
   fun ⟨h, root, ⟨⟩⟩ m Q _X =>
     ∃ (hdr : BVHdrState) (g : Aig) (aigUsed : List (BitVec 64))
       (marks0 : List UInt8) (R : Mem 64 → Prop),
@@ -378,17 +379,17 @@ def bvCoiMarkSpec : Spec [i64, i32] [] :=
         Q ⟨⟩ m'
 
 /-- Canonical spec for `bv_dec_len(v)`. -/
-def bvDecLenSpec : Spec [i32] [i64] :=
+@[expose] def bvDecLenSpec : Spec [i32] [i64] :=
   fun ⟨v, ⟨⟩⟩ m Q _X =>
     Q (BitVec.ofNat 64 (natToBytes v.toNat).length, ⟨⟩) m
 
 /-- Canonical spec for `bv_lit_bytes(lit)`. -/
-def bvLitBytesSpec : Spec [i32] [i64] :=
+@[expose] def bvLitBytesSpec : Spec [i32] [i64] :=
   fun ⟨lit, ⟨⟩⟩ m Q _X =>
     Q (BitVec.ofNat 64 (encodeDimacsLit (litToDimacs (UInt32.ofBitVec lit))).length, ⟨⟩) m
 
 /-- Canonical spec for `bv_write_dec(p, v)`. -/
-def bvWriteDecSpec : Spec [i64, i32] [i64] :=
+@[expose] def bvWriteDecSpec : Spec [i64, i32] [i64] :=
   fun ⟨p, v, ⟨⟩⟩ m Q _X =>
     let bs := natToBytes v.toNat
     ∃ R : Mem 64 → Prop,
@@ -399,7 +400,7 @@ def bvWriteDecSpec : Spec [i64, i32] [i64] :=
         Q (p + BitVec.ofNat 64 bs.length, ⟨⟩) m'
 
 /-- Canonical spec for `bv_write_lit(p, lit)`. -/
-def bvWriteLitSpec : Spec [i64, i32] [i64] :=
+@[expose] def bvWriteLitSpec : Spec [i64, i32] [i64] :=
   fun ⟨p, lit, ⟨⟩⟩ m Q _X =>
     let bs := encodeDimacsLit (litToDimacs (UInt32.ofBitVec lit))
     ∃ R : Mem 64 → Prop,
@@ -410,7 +411,7 @@ def bvWriteLitSpec : Spec [i64, i32] [i64] :=
         Q (p + BitVec.ofNat 64 bs.length, ⟨⟩) m'
 
 /-- Canonical spec for `bv_write_dimacs_hdr(p, mv, nc)`. -/
-def bvWriteDimacsHdrSpec : Spec [i64, i32, i32] [i64] :=
+@[expose] def bvWriteDimacsHdrSpec : Spec [i64, i32, i32] [i64] :=
   fun ⟨p, mv, nc, ⟨⟩⟩ m Q _X =>
     let bs := dimacsHeaderPrefix ++ natToBytes mv.toNat ++ [asciiSpace] ++
       natToBytes nc.toNat ++ [asciiNewline]
@@ -422,7 +423,7 @@ def bvWriteDimacsHdrSpec : Spec [i64, i32, i32] [i64] :=
         Q (p + BitVec.ofNat 64 bs.length, ⟨⟩) m'
 
 /-- Canonical spec for `bv_write_clause_end(p)`. -/
-def bvWriteClauseEndSpec : Spec [i64] [i64] :=
+@[expose] def bvWriteClauseEndSpec : Spec [i64] [i64] :=
   fun ⟨p, ⟨⟩⟩ m Q _X =>
     ∃ R : Mem 64 → Prop,
       p.toNat + 2 < 2 ^ 64 ∧
@@ -432,7 +433,7 @@ def bvWriteClauseEndSpec : Spec [i64] [i64] :=
         Q (p + 2#64, ⟨⟩) m'
 
 /-- Canonical spec for `bv_dimacs_write(h, root)`. -/
-def bvDimacsWriteSpec : Spec [i64, i32] [.bool] :=
+@[expose] def bvDimacsWriteSpec : Spec [i64, i32] [.bool] :=
   fun ⟨h, root, ⟨⟩⟩ m Q _X =>
     ∃ (workBase aigPtr marksPtr : BitVec 64) (avail : Nat) (hdr : BVHdrState)
       (g : Aig) (aigUsed : List (BitVec 64)) (marks : List UInt8) (R : Mem 64 → Prop),
@@ -474,7 +475,7 @@ def bvDimacsWriteSpec : Spec [i64, i32] [.bool] :=
 /-! ## 5. Canonical Specifications — Group D: `Driver` (`7` fns) & Extern `kissat_solve_bytes` -/
 
 /-- Shared canonical spec for `bv_eval_ops_core`/`shift_mul`/`div_cpop`. -/
-def bvEvalSubSpec : Spec [i64, i32] [.bool] :=
+@[expose] def bvEvalSubSpec : Spec [i64, i32] [.bool] :=
   fun ⟨h, nodeIdx, ⟨⟩⟩ m Q _X =>
     ∃ (cfg : BVWorkspaceCfg) (progPtr : BitVec 64) (progBytes : List UInt8)
       (vars : BinTree VarEntry) (cwords : BinTree Nat) (nodes : BinTree ProgNode)
@@ -505,7 +506,7 @@ def bvEvalSubSpec : Spec [i64, i32] [.bool] :=
         Q (ret, ⟨⟩) m'
 
 /-- Canonical spec for `bv_eval_node(h, node_idx)` (extends `bvEvalSubSpec` with `BCONST` NV). -/
-def bvEvalNodeSpec : Spec [i64, i32] [.bool] :=
+@[expose] def bvEvalNodeSpec : Spec [i64, i32] [.bool] :=
   fun ⟨h, nodeIdx, ⟨⟩⟩ m Q _X =>
     ∃ (cfg : BVWorkspaceCfg) (progPtr : BitVec 64) (progBytes : List UInt8)
       (vars : BinTree VarEntry) (cwords : BinTree Nat) (nodes : BinTree ProgNode)
@@ -541,7 +542,7 @@ def bvEvalNodeSpec : Spec [i64, i32] [.bool] :=
         Q (ret, ⟨⟩) m'
 
 /-- Canonical spec for `bv_eval_program(h)`. -/
-def bvEvalProgramSpec : Spec [i64] [.bool] :=
+@[expose] def bvEvalProgramSpec : Spec [i64] [.bool] :=
   fun ⟨h, ⟨⟩⟩ m Q _X =>
     ∃ (cfg : BVWorkspaceCfg) (progPtr : BitVec 64) (progBytes : List UInt8)
       (vars : BinTree VarEntry) (cwords : BinTree Nat) (nodes : BinTree ProgNode)
@@ -575,7 +576,7 @@ def bvEvalProgramSpec : Spec [i64] [.bool] :=
         Q (ret, ⟨⟩) m'
 
 /-- Canonical spec for `bv_init_workspace(h, work_base, avail, prog_ptr)`. -/
-def bvInitWorkspaceSpec : Spec [i64, i64, i64, i64] [.bool] :=
+@[expose] def bvInitWorkspaceSpec : Spec [i64, i64, i64, i64] [.bool] :=
   fun ⟨h, workBase, avail, progPtr, ⟨⟩⟩ m Q _X =>
     ∃ (progBytes : List UInt8) (vars : BinTree VarEntry) (cwords : BinTree Nat)
       (nodes : BinTree ProgNode) (prog : BVLogicalExpr) (R : Mem 64 → Prop),
@@ -614,7 +615,7 @@ def bvInitWorkspaceSpec : Spec [i64, i64, i64, i64] [.bool] :=
 
 /-- Canonical extern UNSAT spec for `kissat_solve_bytes(cnf_ptr, cnf_len, work_ptr, work_cap,
 fuel)`. -/
-def kissatSolveBytesUnsatSpec : Spec [i64, i64, i64, i64, i64] [i64] :=
+@[expose] def kissatSolveBytesUnsatSpec : Spec [i64, i64, i64, i64, i64] [i64] :=
   fun ⟨cnfPtr, cnfLen, workPtr, workCap, _fuel, ⟨⟩⟩ m Q _X =>
     ∃ (cnfBytes : List UInt8) (R : Mem 64 → Prop),
       cnfLen.toNat = cnfBytes.length ∧
@@ -627,7 +628,7 @@ def kissatSolveBytesUnsatSpec : Spec [i64, i64, i64, i64, i64] [i64] :=
         Q (r, ⟨⟩) m'
 
 /-- Canonical top-level spec for `bv_solve_bytes(prog_ptr, prog_len, work_ptr, work_cap, fuel)`. -/
-def bvSolveBytesSpec : Spec [i64, i64, i64, i64, i64] [i64] :=
+@[expose] def bvSolveBytesSpec : Spec [i64, i64, i64, i64, i64] [i64] :=
   fun ⟨progPtr, progLen, workPtr, workCap, fuel, ⟨⟩⟩ m Q _X =>
     ∃ (progBytes : List UInt8) (R : Mem 64 → Prop),
       progLen.toNat = progBytes.length ∧

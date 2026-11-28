@@ -5,12 +5,12 @@ Released under Apache 2.0 license as described in the file LICENSE.
 module
 
 public import LeanQbe.T.Main
-public import LeanQbe.T.FlatLemmas
+import LeanQbe.T.FlatLemmas
 public import LeanQbe.T.Module
 public import LeanQbe.T.MainCertProof
 public import LeanQbe.T.Examples.Kissat.Plain
 public import LeanQbe.T.Examples.Kissat.PlainSpec
-public import LeanQbe.T.Examples.Kissat.PlainLemmas
+import LeanQbe.T.Examples.Kissat.PlainLemmas
 public import LeanQbe.T.Examples.Bitblast.Ref.BVProg
 public import Std.Tactic.BVDecide.Bitblast.BVExpr.Basic
 public import LeanQbe.T.Examples.Bitblast.Src.Full

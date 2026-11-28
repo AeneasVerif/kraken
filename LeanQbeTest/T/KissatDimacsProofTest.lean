@@ -1,7 +1,7 @@
 module
 
-public import LeanQbe.T.Examples.Kissat.DimacsLemmas
-public import LeanQbe.T.Examples.LratBytesLemmas
+import LeanQbe.T.Examples.Kissat.DimacsLemmas
+import LeanQbe.T.Examples.LratBytesLemmas
 meta import LeanQbe.T.Examples.Kissat.DimacsLemmas1
 meta import LeanQbe.T.Examples.LratBytes
 import LeanQbe.T.Logic.MemLemmas
@@ -20,7 +20,7 @@ import LeanQbe.T.Logic.MemLemmas
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.KissatDimacsProofTest
 

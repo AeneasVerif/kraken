@@ -1,8 +1,8 @@
 module
 
 public import LeanQbe.T.LeanLCNF.Sem.E2E
-public import LeanQbe.T.LeanLCNF.Sem.Tactic
-public import LeanQbe.T.Bootstrap0.Splice0
+import LeanQbe.T.LeanLCNF.Sem.Tactic
+import LeanQbe.T.Bootstrap0.Splice0
 public import LeanQbe.T.LeanLCNF.LcnfC0RecDemo
 public import LeanQbe.T.LeanLCNF.LcnfC0TreeDemo
 public import LeanQbeTest.T.LcnfPerceusTest

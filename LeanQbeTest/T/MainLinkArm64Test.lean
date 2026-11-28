@@ -1,17 +1,15 @@
 module
 
 public import LeanQbe.T.MainLink
-public import LeanQbe.T.MainLinkSplice
+import LeanQbe.T.MainLinkSplice
 public import LeanQbe.T.Arm64.TargLemmas
-public import LeanQbe.T.MainSplice
+import LeanQbe.T.MainSplice
 public import LeanQbe.T.Logic.MemLemmas
 public import LeanQbeTest.T.MainLinkFixtures
 import LeanQbe.T.FlatLemmas
-public meta import Lean
-public meta import LeanQbe.T.MainSplice
-public meta import LeanQbe.T.MainLinkSplice
-public meta import LeanQbe.T.Arm64.Targ
-public meta import LeanQbeTest.T.MainLinkFixtures
+meta import Lean
+meta import LeanQbe.T.Arm64.Targ
+meta import LeanQbeTest.T.MainLinkFixtures
 
 /-!
 # Compositional Multi-Chunk Linking Test on AAPCS64 Arm64 (`MainLink` + `MainLinkSplice`)

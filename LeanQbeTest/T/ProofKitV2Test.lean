@@ -1,11 +1,10 @@
 module
 
-public import LeanQbe.T.Frontend.C0
-public import LeanQbe.T.Logic.C0Step
-public import LeanQbe.T.Logic.C0HeadStep
-public import LeanQbe.T.Logic.ProofKit
+import LeanQbe.T.Frontend.C0
+import LeanQbe.T.Logic.C0Step
+import LeanQbe.T.Logic.C0HeadStep
+import LeanQbe.T.Logic.ProofKit
 meta import LeanQbe.T.Frontend.C0
-meta import LeanQbe.T.Logic.C0HeadStep
 meta import LeanQbe.T.Logic.ProofKit
 
 /-!
@@ -38,7 +37,7 @@ open LeanQbe.T.C0HeadStep
 
 /-! ## 1. `U32Kit`, `c0_bv32_omega`, `signExtend`, & Chained Subtraction `c0_bv_omega` -/
 
-public section
+section
 
 theorem u32kit_roundtrips_and_bounds (x y : BitVec 32) (z : BitVec 64)
     (hxy : x.toNat + y.toNat < 2 ^ 32) (hyx : y.toNat ≤ x.toNat)
@@ -105,7 +104,7 @@ end
 
 /-! ## 2. `KissatHdrBitMaskKit`, `PWordKit`, & `pword_mask` (Pure Kernel `std3`) -/
 
-public section
+section
 
 theorem kissat_general_mask_orthogonality {w : Nat} (x v m1 m2 : BitVec w)
     (hdisj : (m1 &&& m2) = 0#w) (hv : (v &&& m1) = v) (hv2 : (v &&& m2) = 0#w) :
@@ -197,7 +196,7 @@ u64 c0_guard_mem_demo(u64 *out, u64 x, u64 y) {
 }
 "
 
-public section
+section
 
 theorem c0_guard_demo_bare (Γ : Env) (Q : Post [i64]) (X : XPost) (m : Mem 64)
     (a b : BitVec 64)
@@ -236,7 +235,7 @@ theorem c0_guard_mem_hstraight (Γ : Env) (X : XPost) (out v0 x y : BitVec 64)
 
 end
 
-public section
+section
 
 /-- Build an `n`-level early-return guard cascade (`jnz` -> `.ret err`) followed by `.ret ok`. -/
 def mkGuardCascade : Nat → Val i64 → Val i64 → Expr Val Cont [i64]
@@ -251,7 +250,7 @@ def mkGuardCascade : Nat → Val i64 → Val i64 → Expr Val Cont [i64]
 
 end
 
-public section
+section
 
 theorem guard_cascade50_exit_close (Γ : Env) (Q : Post [i64]) (X : XPost) (m : Mem 64)
     (x y : BitVec 64) (hx : 50 ≤ x.toNat)
@@ -307,7 +306,7 @@ u64 multi_branch_join(u64 a, u64 b) {
 }
 "
 
-public section
+section
 
 structure SumLoopSt where
   idx : Nat
@@ -354,7 +353,7 @@ def joinIteExpr (b : Bool) (x y : BitVec 64) : Expr Val Cont [i64] :=
 
 end
 
-public section
+section
 
 private theorem sumFrom_step {n i : Nat} {xs : List (BitVec 64)} {acc : BitVec 64}
     (hlt : i < xs.length) :

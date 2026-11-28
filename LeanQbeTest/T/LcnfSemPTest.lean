@@ -1,26 +1,26 @@
 module
 
-public import LeanQbe.T.LeanLCNF.Sem.P
+import LeanQbe.T.LeanLCNF.Sem.P
 meta import LeanQbe.T.LeanLCNF.Sem.P
-public import LeanQbe.T.LeanLCNF.Sem.PLemmas
+import LeanQbe.T.LeanLCNF.Sem.PLemmas
 meta import LeanQbe.T.LeanLCNF.Sem.PLemmas
-public import LeanQbe.T.LeanLCNF.Sem.PAdequacy
+import LeanQbe.T.LeanLCNF.Sem.PAdequacy
 meta import LeanQbe.T.LeanLCNF.Sem.PAdequacy
-public import LeanQbe.T.LeanLCNF.Sem.RcCheck
+import LeanQbe.T.LeanLCNF.Sem.RcCheck
 meta import LeanQbe.T.LeanLCNF.Sem.RcCheck
-public import LeanQbe.T.LeanLCNF.Coverage
+import LeanQbe.T.LeanLCNF.Coverage
 meta import LeanQbe.T.LeanLCNF.Coverage
-public import LeanQbe.T.LeanLCNF.LcnfC0Demo
+import LeanQbe.T.LeanLCNF.LcnfC0Demo
 meta import LeanQbe.T.LeanLCNF.LcnfC0Demo
-public import LeanQbe.T.LeanLCNF.LcnfC0LoopDemo
+import LeanQbe.T.LeanLCNF.LcnfC0LoopDemo
 meta import LeanQbe.T.LeanLCNF.LcnfC0LoopDemo
-public import LeanQbe.T.LeanLCNF.LcnfC0RecDemo
+import LeanQbe.T.LeanLCNF.LcnfC0RecDemo
 meta import LeanQbe.T.LeanLCNF.LcnfC0RecDemo
-public import LeanQbe.T.LeanLCNF.LcnfC0TreeDemo
+import LeanQbe.T.LeanLCNF.LcnfC0TreeDemo
 meta import LeanQbe.T.LeanLCNF.LcnfC0TreeDemo
-public import LeanQbe.T.LeanLCNF.LcnfC0ArrayDemo
+import LeanQbe.T.LeanLCNF.LcnfC0ArrayDemo
 meta import LeanQbe.T.LeanLCNF.LcnfC0ArrayDemo
-public import LeanQbe.T.LeanLCNF.LcnfC0MutRecDemo
+import LeanQbe.T.LeanLCNF.LcnfC0MutRecDemo
 meta import LeanQbe.T.LeanLCNF.LcnfC0MutRecDemo
 
 /-!
@@ -34,7 +34,7 @@ theorems, and `#print axioms` checks (`<= std3`).
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.LcnfSemPTest
 

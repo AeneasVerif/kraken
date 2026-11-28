@@ -1,9 +1,9 @@
 module
 
-public import LeanQbe.T.Frontend.C0
-public import LeanQbe.T.FlatLemmas
-public import LeanQbe.T.Logic.C0Step
-public import LeanQbe.T.Logic.C0HeadStep
+import LeanQbe.T.Frontend.C0
+import LeanQbe.T.FlatLemmas
+import LeanQbe.T.Logic.C0Step
+import LeanQbe.T.Logic.C0HeadStep
 meta import LeanQbe.T.Frontend.C0
 meta import LeanQbe.T.Logic.C0Step
 meta import LeanQbe.T.Logic.C0HeadStep
@@ -31,7 +31,7 @@ ignore exit continuations with `Env.ofTable_noExit`.
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.C0StepTest
 
@@ -538,25 +538,25 @@ example (arena : BitVec 64) (off k : BitVec 32) (ws : List (BitVec 32)) (Q : Pos
 
 section O1MemAndMData
 
-local elab "wrap_hyp_mdata" h:ident : tactic =>
+private meta def wrapHypMData (h : Lean.Name) : _root_.Lean.Elab.Tactic.TacticM Unit :=
   _root_.Lean.Elab.Tactic.withMainContext do
     let lctx ← _root_.Lean.MonadLCtx.getLCtx
-    let some decl := lctx.findFromUserName? h.getId | throwError "unknown hypothesis {h.getId}"
+    let some decl := lctx.findFromUserName? h | throwError "unknown hypothesis {h}"
     let ty ← _root_.Lean.instantiateMVars decl.type
     let g ← _root_.Lean.Elab.Tactic.getMainGoal
     let g' ← g.changeLocalDecl decl.fvarId (_root_.Lean.mkMData {} ty) (checkDefEq := false)
     _root_.Lean.Elab.Tactic.replaceMainGoal [g']
 
-local elab "wrap_goal_mdata" : tactic => do
+private meta def wrapGoalMData : _root_.Lean.Elab.Tactic.TacticM Unit := do
   let g ← _root_.Lean.Elab.Tactic.getMainGoal
   let ty ← _root_.Lean.instantiateMVars (← g.getType)
   let g' ← g.change (_root_.Lean.mkMData {} ty) (checkDefEq := false)
   _root_.Lean.Elab.Tactic.replaceMainGoal [g']
 
-local elab "solve_load_with_c0step" : tactic => do
+private meta def solveLoadWithC0Step : _root_.Lean.Elab.Tactic.TacticM Unit := do
   LeanQbe.T.C0Step.memSolve true (← _root_.Lean.Elab.Tactic.getMainGoal)
 
-local elab "solve_store_with_c0step" : tactic => do
+private meta def solveStoreWithC0Step : _root_.Lean.Elab.Tactic.TacticM Unit := do
   LeanQbe.T.C0Step.memSolve false (← _root_.Lean.Elab.Tactic.getMainGoal)
 
 def O1FP (p : BitVec 64) (a : List (Val i32)) : Mem 64 → Prop := array (t := i32) p a
@@ -567,7 +567,9 @@ def O1FP (p : BitVec 64) (a : List (Val i32)) : Mem 64 → Prop := array (t := i
 
 @[scoped c0_load] theorem o1fp_good_off0 {p : BitVec 64} {a : List (Val i32)}
     {R : Mem 64 → Prop} {m : Mem 64} (h0 : 0 < a.length) (hm : (O1FP p a ⋆ R) m) :
-    loadVal m i32 (p + 0#64) = some (a[0]'h0) := by dsimp only [O1FP] at hm; solve_load_with_c0step
+    loadVal m i32 (p + 0#64) = some (a[0]'h0) := by
+  dsimp only [O1FP] at hm
+  run_tac solveLoadWithC0Step
 
 @[scoped c0_store] theorem o1fp_store_any {p addr : BitVec 64} {a : List (Val i32)}
     {v : Val i32} {R : Mem 64 → Prop} {m : Mem 64} (hbad : False) (_hm : (O1FP p a ⋆ R) m) :
@@ -579,7 +581,7 @@ def O1FP (p : BitVec 64) (a : List (Val i32)) : Mem 64 → Prop := array (t := i
   dsimp only [O1FP] at hm
   change storeOk m i32 (p + 0#64) ∧
     (array (t := i32) p (a.set 0 v) ⋆ R) (storeMem m i32 (p + 0#64) v)
-  solve_store_with_c0step
+  run_tac solveStoreWithC0Step
 
 def O1FallbackFP (p : BitVec 64) (a : List (Val i32)) : Mem 64 → Prop := array (t := i32) p a
 
@@ -588,7 +590,7 @@ def O1FallbackFP (p : BitVec 64) (a : List (Val i32)) : Mem 64 → Prop := array
 @[scoped c0_load] theorem o1fb_load_opaque {p : BitVec 64} {a : List (Val i32)}
     {R : Mem 64 → Prop} {m : Mem 64} (h0 : 0 < a.length) (hm : (O1FallbackFP p a ⋆ R) m) :
     loadVal m i32 (opaqueZeroPtr p) = some (a[0]'h0) := by
-  dsimp only [O1FallbackFP, opaqueZeroPtr] at hm ⊢; solve_load_with_c0step
+  dsimp only [O1FallbackFP, opaqueZeroPtr] at hm ⊢; run_tac solveLoadWithC0Step
 
 theorem o1_mem_addr_dispatch_wp {Q : Post [i32]} {p : BitVec 64} {a : List (Val i32)}
     (h0 : 0 < a.length) (hm : (O1FP p a ⋆ R) m)
@@ -608,7 +610,10 @@ theorem mem_solve_mdata_wp {Q : Post [i32]} {p : BitVec 64} {a : List (Val i32)}
     (hQ : ∀ m', (array (t := i32) p (a.set 0 (a[0]'h0)) ⋆ R) m' → Q (a[0]'h0, ()) m') :
     wp Γ Q X (.load i32 (Arg.imm (p + 0#64)) fun x =>
       .store (Arg.var x) (Arg.imm (p + 0#64)) (.ret (Arg.var x, ()))) m := by
-  wrap_hyp_mdata hm; wrap_goal_mdata; c0_hsteps!; exact hQ _ hm
+  run_tac wrapHypMData `hm
+  run_tac wrapGoalMData
+  c0_hsteps!
+  exact hQ _ hm
 
 end O1MemAndMData
 end SharedWpTests

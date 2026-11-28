@@ -4,12 +4,12 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 module
 
-public import LeanQbe.T.Examples.Bitblast.Build.Flat
-public import LeanQbeTest.T.BitblastCertCommon
-public meta import LeanQbe.T.Driver
-public meta import LeanQbe.T.Arm64.Targ
-public meta import LeanQbe.T.Arm64.PrintAlign
-public meta import LeanQbeTest.T.BitblastCertArm64
+import LeanQbe.T.Examples.Bitblast.Build.Flat
+import LeanQbeTest.T.BitblastCertCommon
+meta import LeanQbe.T.Driver
+meta import LeanQbe.T.Arm64.Targ
+meta import LeanQbe.T.Arm64.PrintAlign
+meta import LeanQbeTest.T.BitblastCertArm64
 
 /-!
 # Bitblast + KissatPlain AAPCS64 Arm64 Certificate Audit & Sanity (`BitblastCertArm64Test`)

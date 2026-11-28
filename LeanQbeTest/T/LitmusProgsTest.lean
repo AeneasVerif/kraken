@@ -1,9 +1,9 @@
 module
 
-public import LeanQbe.T.Examples.LitmusProgsLemmas
-public import LeanQbe.T.PrintQbe
-public import LeanQbe.T.Legal
-public import LeanQbe.T.FlatLemmas
+import LeanQbe.T.Examples.LitmusProgsLemmas
+import LeanQbe.T.PrintQbe
+import LeanQbe.T.Legal
+import LeanQbe.T.FlatLemmas
 meta import LeanQbe.T.Examples.LitmusProgs
 meta import LeanQbe.T.PrintQbe
 meta import LeanQbe.T.Legal
@@ -126,7 +126,7 @@ def litmusModulesNamed : List (String × Module) :=
   ]
 
 /-- Emit `.ssa` files for all 10 litmus modules into `outDir`. -/
-public def runGenerate (outDir : System.FilePath) : IO UInt32 := do
+def runGenerate (outDir : System.FilePath) : IO UInt32 := do
   IO.FS.createDirAll outDir
   let mut ok := true
   for (name, mod) in litmusModulesNamed do

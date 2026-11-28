@@ -1,9 +1,9 @@
 module
 
-public import LeanQbe.T.DivConstLemmas
-public import LeanQbe.T.WPLemmas
-public import LeanQbe.T.FlatLemmas
-public import LeanQbe.T.Logic.Rules
+import LeanQbe.T.DivConstLemmas
+import LeanQbe.T.WPLemmas
+import LeanQbe.T.FlatLemmas
+import LeanQbe.T.Logic.Rules
 
 /-!
 # Tests of `LeanQbe.T.DivConst`

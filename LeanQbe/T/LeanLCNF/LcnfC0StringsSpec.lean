@@ -1,7 +1,7 @@
 module
 
 public import LeanQbe.T.LeanLCNF.LcnfC0ContainersSpec
-import all Kraken.Separation
+import Kraken.Separation
 
 /-!
 # Specifications for `LcnfC0Strings` (`rtR2bMod`)

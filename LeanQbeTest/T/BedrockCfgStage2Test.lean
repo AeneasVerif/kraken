@@ -1,17 +1,17 @@
 module
 
 public import LeanQbe.T.Unified.CfgRecoveryBridge
-public import LeanQbe.T.Logic.ProofKit
+import LeanQbe.T.Logic.ProofKit
 public import LeanQbe.T.BedrockWord.Core
 import LeanQbe.T.BedrockWord.Ops
 import LeanQbe.T.OpsLemmas
 import LeanQbe.T.MainLemmas
 import LeanQbe.T.FlatLemmas
 import LeanQbe.T.Logic.MemLemmas
-public meta import Lean
-public meta import LeanQbe.T.Unified.CfgRecovery
-public meta import LeanQbe.T.Unified.CfgContify
-public meta import LeanQbe.T.BedrockWord.Core
+meta import Lean
+meta import LeanQbe.T.Unified.CfgRecovery
+meta import LeanQbe.T.Unified.CfgContify
+meta import LeanQbe.T.BedrockWord.Core
 
 /-!
 # Stage-2 Generic Fixtures, End-to-End Proofs & Isolation Audit (`BedrockCfgStage2Test`)

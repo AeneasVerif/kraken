@@ -1,30 +1,30 @@
 module
 
-public import LeanQbe.T.ZeroPeel
-public import LeanQbe.T.ZeroPeelLemmas
-public import LeanQbe.T.MainFlat
-public import LeanQbe.T.MainFlatLemmas
-public import LeanQbe.T.MainCertCore
-public import LeanQbe.T.MainCertProof
-public import LeanQbe.T.MainCertFlat
-public import LeanQbe.T.MainCertInline
-public import LeanQbe.T.Arm64.Targ
-public import LeanQbe.T.Arm64.TargLemmas
-public import Kraken.AArch64.Print
-public import LeanQbe.T.Logic.MemLemmas
-public import LeanQbe.T.Examples.Kissat.Plain
-public import LeanQbe.T.Examples.Kissat.Plain1
+import LeanQbe.T.ZeroPeel
+import LeanQbe.T.ZeroPeelLemmas
+import LeanQbe.T.MainFlat
+import LeanQbe.T.MainFlatLemmas
+import LeanQbe.T.MainCertCore
+import LeanQbe.T.MainCertProof
+import LeanQbe.T.MainCertFlat
+import LeanQbe.T.MainCertInline
+import LeanQbe.T.Arm64.Targ
+import LeanQbe.T.Arm64.TargLemmas
+import Kraken.AArch64.Print
+import LeanQbe.T.Logic.MemLemmas
+import LeanQbe.T.Examples.Kissat.Plain
+import LeanQbe.T.Examples.Kissat.Plain1
 import LeanQbe.T.FlatLemmas
 import LeanQbe.T.WPLemmas
-public meta import Lean
-public meta import LeanQbe.T.MainCertElab
-public meta import LeanQbe.T.MainCertFlatElab
-public meta import LeanQbe.T.MainCertInline
-public meta import LeanQbe.T.Arm64.Targ
-public meta import Kraken.AArch64.Print
-public meta import LeanQbe.T.MainFlat
-public meta import LeanQbe.T.Examples.Kissat.Plain
-public meta import LeanQbe.T.Examples.Kissat.Plain1
+meta import Lean
+import LeanQbe.T.MainCertElab
+import LeanQbe.T.MainCertFlatElab
+meta import LeanQbe.T.MainCertInline
+meta import LeanQbe.T.Arm64.Targ
+meta import Kraken.AArch64.Print
+meta import LeanQbe.T.MainFlat
+meta import LeanQbe.T.Examples.Kissat.Plain
+meta import LeanQbe.T.Examples.Kissat.Plain1
 
 /-!
 # AAPCS64 Arm64 `ZeroPeel` Widening / Unrolling Parity & Execution (`ZeroPeelWidenArm64Test`)
@@ -40,7 +40,7 @@ Arm64 companion to `ZeroPeelWidenTest` (zero X64 / Amd64 imports):
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.ZeroPeelWidenArm64Test
 

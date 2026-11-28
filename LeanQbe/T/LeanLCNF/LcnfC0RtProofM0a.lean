@@ -4,7 +4,7 @@ public import LeanQbe.T.LeanLCNF.LcnfC0RtProofCommon
 import LeanQbe.T.Logic.C0HeadStep
 import LeanQbe.T.Logic.ProofKit
 import LeanQbe.T.Logic.ControlComb
-import all Kraken.Separation
+import Kraken.Separation
 
 /-!
 # Soundness Proofs for `LcnfC0Rt`, Part M0a (`lcnf_alloc`, `lcnf_free_obj`, `lcnf_clo_under`)
@@ -99,7 +99,9 @@ private theorem smallPoolsAt_zero_empty {fl : List (BitVec 64)} {pools : Nat →
   rw [smallPoolsAt_split rtNumClasses fl pools hlt, sep_assoc] at h
   have hget : fl.getD cls 0#64 = 0#64 := by
     simp [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem (by omega : cls < fl.length), hz]
-  rw [hget] at h; obtain ⟨m1, _, _, _, hs, _⟩ := h; exact smallPoolSlot_nil_of_zero h2 hs
+  rw [hget] at h
+  exact (sep_pure_l.mp (sep_mono (P' := fun _ => pools cls = [] ∧ True)
+    (fun _ hs => ⟨smallPoolSlot_nil_of_zero h2 hs, trivial⟩) h)).1
 
 private theorem smallPoolsAt_pop {fl : List (BitVec 64)} {pools : Nat → List (BitVec 64)}
     {cls : Nat} {Q : Mem 64 → Prop} {m : Mem 64}
@@ -113,16 +115,18 @@ private theorem smallPoolsAt_pop {fl : List (BitVec 64)} {pools : Nat → List (
   rw [smallPoolsAt_split rtNumClasses fl pools hlt, sep_assoc] at h
   have hget : fl.getD cls 0#64 = fl[cls]'(by omega) := by
     simp [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem (by omega : cls < fl.length)]
-  rw [hget] at h; obtain ⟨m1, m2, rfl, hd, hslot, hrest⟩ := h
-  obtain ⟨rest, hp, halign, hlist⟩ := smallPoolSlot_pop h2 hne hslot
+  rw [hget] at h
+  obtain ⟨rest, h1⟩ := sep_ex_l.mp (sep_mono (fun _ hslot => smallPoolSlot_pop h2 hne hslot) h)
+  obtain ⟨hp, h2'⟩ := sep_pure_l.mp h1
+  obtain ⟨halign, h3⟩ := sep_pure_l.mp h2'
   refine ⟨rest, hp, halign, ?_⟩
-  have h1 : (((region (fl[cls]'(by omega)) 8 ⋆
+  change (((region (fl[cls]'(by omega)) 8 ⋆
       cell64 ((fl[cls]'(by omega)) + 8#64) (listHeadPtr rest) ⋆
       region ((fl[cls]'(by omega)) + 16#64) (8 * cls - 16)) ⋆
       smallFreeList (8 * cls) (listHeadPtr rest) rest) ⋆
-      (smallPoolsExcl cls fl pools rtNumClasses ⋆ Q)) (m1.union m2) :=
-    ⟨m1, m2, rfl, hd, hlist, hrest⟩
-  repeat rw [← sep_assoc] at h1; exact h1
+      (smallPoolsExcl cls fl pools rtNumClasses ⋆ Q)) m at h3
+  repeat rw [← sep_assoc] at h3
+  exact h3
 
 private theorem smallPoolsAt_pop_head {fl fl' : List (BitVec 64)}
     {pools pools' : Nat → List (BitVec 64)} {cls : Nat} {nxt : BitVec 64}
@@ -153,8 +157,12 @@ private theorem smallPoolsAt_push_head {fl fl' : List (BitVec 64)}
     (smallPoolsAt fl' pools' rtNumClasses ⋆ Q) m := by
   rw [smallPoolsAt_split rtNumClasses fl pools hlt, hgetOld] at h
   have hhd : oldHd = listHeadPtr (pools cls) := by
-    obtain ⟨_, _, _, _, _, hs⟩ := h; rw [sep_assoc] at hs
-    obtain ⟨_, _, _, _, hslot, _⟩ := hs; exact smallPoolSlot_hd_eq h2 hslot
+    have h' : (smallPoolSlot cls oldHd (pools cls) ⋆
+        (smallPoolsExcl cls fl pools rtNumClasses ⋆
+          ((region o 8 ⋆ cell64 (o + 8#64) oldHd) ⋆ region (o + 16#64) (8 * cls - 16)) ⋆ Q)) m :=
+      sep_cast h (by ac_rfl)
+    exact (sep_pure_l.mp (sep_mono (P' := fun _ => oldHd = listHeadPtr (pools cls) ∧ True)
+      (fun _ hslot => ⟨smallPoolSlot_hd_eq h2 hslot, trivial⟩) h')).1
   rw [hhd] at h
   have h1 : (((((region o 8 ⋆ cell64 (o + 8#64) (listHeadPtr (pools cls))) ⋆
       region (o + 16#64) (8 * cls - 16)) ⋆
@@ -252,8 +260,9 @@ private theorem largeSegSplit_sfx_nil_of_zero {hd prev : BitVec 64}
       rcases hseg with ⟨_, hnz, _⟩; exact absurd hnext.symm hnz
     | cons _ _ =>
       rw [hr] at hs; rcases hs with ⟨_, _, _, _, _, _, hmem⟩
-      rcases hmem with ⟨_, _, _, _, _, hseg⟩; rcases hseg with ⟨_, hnz, _⟩
-      exact absurd hnext.symm hnz
+      rw [sep_comm] at hmem
+      exact False.elim (sep_pure_l.mp (sep_mono (P' := fun _ => False ∧ True)
+        (fun _ hseg => ⟨absurd hnext.symm hseg.2.1, trivial⟩) hmem)).1
 
 private theorem alloc_small_repack {fl fl' : List (BitVec 64)}
     {pools pools' : Nat → List (BitVec 64)} {cls : Nat} {p nxt : BitVec 64}
@@ -321,17 +330,20 @@ private theorem region_pop8_cell64 {a : BitVec 64} (n : Nat) {Q : Mem 64 → Pro
     (h8 : 8 ≤ n) (hlt : n ≤ 2 ^ 64) (h : (region a n ⋆ Q) m) :
     ∃ v : BitVec 64, (cell64 a v ⋆ region (a + 8#64) (n - 8) ⋆ Q) m := by
   rw [← region_merge8 hlt h8, sep_assoc] at h
-  obtain ⟨m1, m2, rfl, hd, hr8, hRest⟩ := h; obtain ⟨v, hv⟩ := region_to_cell64 hr8
-  have h1 : (cell64 a v ⋆ (region (a + 8#64) (n - 8) ⋆
-      Q)) (m1.union m2) := ⟨m1, m2, rfl, hd, hv, hRest⟩
-  exact ⟨v, sep_cast h1 (by ac_rfl)⟩
+  obtain ⟨v, hv⟩ := sep_ex_l.mp (sep_mono (fun _ hr8 => region_to_cell64 hr8) h)
+  change (cell64 a v ⋆ (region (a + 8#64) (n - 8) ⋆ Q)) m at hv
+  exact ⟨v, sep_cast hv (by ac_rfl)⟩
 
-private theorem sep_mid_exists_pure {α : Type _} {φ1 φ2 : α → Prop} {A : Mem 64 → Prop}
+private theorem sep_mid_exists_pure {α : Type} {φ1 φ2 : α → Prop} {A : Mem 64 → Prop}
     {P : α → Mem 64 → Prop} {R : Mem 64 → Prop} {m : Mem 64}
     (h : (A ⋆ (fun mf => ∃ x, φ1 x ∧ φ2 x ∧ P x mf) ⋆ R) m) :
     ∃ x, φ1 x ∧ φ2 x ∧ (A ⋆ P x ⋆ R) m := by
-  obtain ⟨mAF, mR, rfl, hd1, ⟨mA, mF, rfl, hd2, hA, x, hx1, hx2, hP⟩, hR⟩ := h
-  exact ⟨x, hx1, hx2, mA.union mF, mR, rfl, hd1, ⟨mA, mF, rfl, hd2, hA, hP⟩, hR⟩
+  have h0 : ((fun mf => ∃ x, φ1 x ∧ φ2 x ∧ P x mf) ⋆ (A ⋆ R)) m := sep_cast h (by ac_rfl)
+  obtain ⟨x, h1⟩ := sep_ex_l.mp h0
+  obtain ⟨hx1, h2⟩ := sep_pure_l.mp h1
+  obtain ⟨hx2, h3⟩ := sep_pure_l.mp h2
+  change (P x ⋆ (A ⋆ R)) m at h3
+  exact ⟨x, hx1, hx2, sep_cast h3 (by ac_rfl)⟩
 
 private theorem bv64_eq_lt_max {a b : Nat} (ha : a < rtMaxObjBytes) (hb : b < rtMaxObjBytes)
     (h : BitVec.ofNat 64 a = BitVec.ofNat 64 b) : a = b := by
@@ -565,40 +577,48 @@ theorem lcnf_alloc_rem_wp (Γ : Env) :
                 sep_mono (fun _ hx => largeSegSplit_init hx) hmLoop⟩)
           intro L n ⟨prev, lcur, ⟨⟩⟩ ml hL ⟨pfx, sfx, hlen, hnodes, hnePfx, hmem⟩
           by_cases hlc0 : lcur = 0#64
-          · subst hlc0; obtain ⟨m1, m2, rfl, hd, hsp, hrest⟩ := hmem
-            have hsfx : sfx = [] := largeSegSplit_sfx_nil_of_zero hsp; subst hsfx
-            have hnil := largeSegSplit_nil hsp; rw [List.append_nil] at hnodes
+          · subst hlc0
+            have hsfx : sfx = [] := (sep_pure_l.mp (sep_mono (P' := fun _ => sfx = [] ∧ True)
+              (fun _ hsp => ⟨largeSegSplit_sfx_nil_of_zero hsp, trivial⟩) hmem)).1
+            subst hsfx; rw [List.append_nil] at hnodes
             have hallNe : ∀ x ∈ st.largeNodes, x.2 ≠ bytes := by rw [hnodes]; exact hnePfx
-            have hraw : (largeFreeList st.hdr.s_large_free pfx ⋆ Rest_lg) (m1.union m2) :=
-              ⟨m1, m2, rfl, hd, hnil, hrest⟩
+            have hraw : (largeFreeList st.hdr.s_large_free pfx ⋆ Rest_lg) ml :=
+              sep_mono (fun _ hsp => largeSegSplit_nil hsp) hmem
             rw [← hnodes] at hraw
             have hm' : (rtCore rt st st.freeList st.hdr ⋆
                 smallPoolsAt st.freeList st.smallPools rtNumClasses ⋆
                 largeFreeList st.hdr.s_large_free st.largeNodes ⋆
-                region st.hdr.s_cur st.rem ⋆ R) (m1.union m2) :=
+                region st.hdr.s_cur st.rem ⋆ R) ml :=
               sep_cast hraw (by dsimp only [Rest_lg]; (try unfold rtCore); ac_rfl)
             c0_hsteps_nogrp
             exact hJout (0#64, prev, 0#64, ()) _
               ⟨st, by simp only [↓reduceIte]; exact ⟨trivial, hallNe, by simpa using hm'⟩⟩
-          · obtain ⟨m1, m2, rfl, hd, hsp, hrest⟩ := hmem
+          · have hnext : lcur = largeSegNext 0#64 sfx :=
+              (sep_pure_l.mp (sep_mono (P' := fun _ => lcur = largeSegNext 0#64 sfx ∧ True)
+                (fun _ hsp => ⟨hsp.1, trivial⟩) hmem)).1
             cases sfx with
             | nil =>
-              rcases hsp with ⟨hnext, _⟩; simp [largeSegNext] at hnext; exact absurd hnext hlc0
+              simp [largeSegNext] at hnext; exact absurd hnext hlc0
             | cons x rest =>
-              rcases x with ⟨curp, b⟩; rcases hsp with ⟨hnext, hpfxSplit⟩
+              rcases x with ⟨curp, b⟩
               dsimp only [largeSegNext] at hnext; subst hnext
+              let nxt := largeSegNext 0#64 rest
               cases hr : pfx.reverse with
               | nil =>
-                rw [hr] at hpfxSplit
-                rcases hpfxSplit with ⟨hprev0, hhdEq, _, hcurNz, hcurAl, hb512, hbMax,
-                  hbMod, hnodeSeg⟩
-                rw [hprev0] at *; let nxt := largeSegNext 0#64 rest
+                have hstep : ((fun m => (prev = 0#64 ∧ st.hdr.s_large_free = lcur ∧ lcur ≠ 0#64 ∧
+                    lcur.toNat % 8 = 0 ∧ 512 ≤ b ∧ b < rtMaxObjBytes ∧ b % 8 = 0) ∧
+                    (largeFreeNode b lcur nxt ⋆ largeSeg nxt 0#64 rest) m) ⋆ Rest_lg) ml :=
+                  sep_mono (fun _ hsp => by
+                    rcases hsp with ⟨_, hs⟩; rw [hr] at hs
+                    rcases hs with ⟨hprev0, hhdEq, _, hcurNz, hcurAl, hb512, hbMax, hbMod, hns⟩
+                    exact ⟨⟨hprev0, hhdEq, hcurNz, hcurAl, hb512, hbMax, hbMod⟩, hns⟩) hmem
+                obtain ⟨⟨hprev0, hhdEq, hcurNz, hcurAl, hb512, hbMax, hbMod⟩, htmp⟩ :=
+                  sep_pure_l.mp hstep
+                change ((largeFreeNode b lcur nxt ⋆ largeSeg nxt 0#64 rest) ⋆ Rest_lg) ml at htmp
+                rw [hprev0] at *
                 have hnodeMem : (cell64 (lcur + 8#64) nxt ⋆
                     cell64 (lcur + 16#64) (BitVec.ofNat 64 b) ⋆ region lcur 8 ⋆
-                    region (lcur + 24#64) (b - 24) ⋆ largeSeg nxt 0#64 rest ⋆ Rest_lg)
-                    (m1.union m2) := by
-                  have htmp : ((largeFreeNode b lcur nxt ⋆ largeSeg nxt 0#64 rest) ⋆ Rest_lg)
-                      (m1.union m2) := ⟨m1, m2, rfl, hd, hnodeSeg, hrest⟩
+                    region (lcur + 24#64) (b - 24) ⋆ largeSeg nxt 0#64 rest ⋆ Rest_lg) ml := by
                   unfold largeFreeNode at htmp; exact sep_cast htmp (by ac_rfl)
                 c0_hsteps_nogrp
                 · have hbEq : b = bytes := bv64_eq_lt_max hbMax hbyMax ‹_›
@@ -625,9 +645,9 @@ theorem lcnf_alloc_rem_wp (Γ : Env) :
                   (try dsimp only [rtCore] at *); c0_frame
                 · have hbNe : b ≠ bytes := fun hEq => ‹BitVec.ofNat 64 b ≠ bytesBV› (hEq ▸ rfl)
                   have hmBack : (largeSegSplit lcur lcur nxt ([] ++ [(lcur, b)]) rest ⋆ Rest_lg)
-                      (m1.union m2) := by
+                      ml := by
                     have hnode0 : ((largeFreeNode b lcur nxt ⋆ largeSeg nxt 0#64 rest) ⋆
-                        Rest_lg) (m1.union m2) := by
+                        Rest_lg) ml := by
                       unfold largeFreeNode; exact sep_cast hnodeMem (by ac_rfl)
                     exact sep_mono (P' := largeSegSplit lcur lcur nxt ([] ++ [(lcur, b)]) rest)
                       (fun _ hx => largeSegSplit_step hcurNz hcurAl hb512 hbMax hbMod rfl
@@ -638,37 +658,56 @@ theorem lcnf_alloc_rem_wp (Γ : Env) :
                     ⟨[(lcur, b)], rest, rfl, by rw [hnodes]; simp [List.reverse_eq_nil_iff.mp hr],
                       fun y hy => (List.mem_singleton.mp hy) ▸ hbNe, by simpa using hmBack⟩
               | cons hdRev tlRev =>
-                rw [hr] at hpfxSplit; rcases hdRev with ⟨prv, prvB⟩
-                rcases hpfxSplit with ⟨hprev, hprvNz, hprvAl, hprvLo, hprvMax, hprvMod, m11,
-                  m12, rfl, hd1, hprefMem, _, hcurNz, hcurAl, hb512, hbMax, hbMod, hnodeSeg⟩
-                rw [hprev] at *; let nxt := largeSegNext 0#64 rest
+                rcases hdRev with ⟨prv, prvB⟩
+                have hstep : ((fun m => (prev = prv ∧ prv ≠ 0#64 ∧ prv.toNat % 8 = 0 ∧
+                    512 ≤ prvB ∧ prvB < rtMaxObjBytes ∧ prvB % 8 = 0 ∧ lcur ≠ 0#64 ∧
+                    lcur.toNat % 8 = 0 ∧ 512 ≤ b ∧ b < rtMaxObjBytes ∧ b % 8 = 0) ∧
+                    ((largeSeg st.hdr.s_large_free prv tlRev.reverse ⋆
+                      largeFreeNode prvB prv lcur) ⋆
+                      (largeFreeNode b lcur nxt ⋆ largeSeg nxt 0#64 rest)) m) ⋆ Rest_lg) ml :=
+                  sep_mono (fun m0 hsp => by
+                    rcases hsp with ⟨_, hs⟩; rw [hr] at hs
+                    rcases hs with ⟨hprev, hprvNz, hprvAl, hprvLo, hprvMax, hprvMod, hseg2⟩
+                    have hsub : ((fun m => (lcur ≠ 0#64 ∧ lcur.toNat % 8 = 0 ∧ 512 ≤ b ∧
+                        b < rtMaxObjBytes ∧ b % 8 = 0) ∧
+                        (largeFreeNode b lcur nxt ⋆ largeSeg nxt 0#64 rest) m) ⋆
+                        (largeSeg st.hdr.s_large_free prv tlRev.reverse ⋆
+                          largeFreeNode prvB prv lcur)) m0 := by
+                      rw [sep_comm] at hseg2
+                      exact sep_mono (fun _ hns => by
+                        rcases hns with ⟨_, hcurNz, hcurAl, hb512, hbMax, hbMod, hns'⟩
+                        exact ⟨⟨hcurNz, hcurAl, hb512, hbMax, hbMod⟩, hns'⟩) hseg2
+                    obtain ⟨⟨hcurNz, hcurAl, hb512, hbMax, hbMod⟩, hseg3⟩ := sep_pure_l.mp hsub
+                    change ((largeFreeNode b lcur nxt ⋆ largeSeg nxt 0#64 rest) ⋆
+                      (largeSeg st.hdr.s_large_free prv tlRev.reverse ⋆
+                        largeFreeNode prvB prv lcur)) m0 at hseg3
+                    exact ⟨⟨hprev, hprvNz, hprvAl, hprvLo, hprvMax, hprvMod,
+                      hcurNz, hcurAl, hb512, hbMax, hbMod⟩, sep_cast hseg3 (by ac_rfl)⟩) hmem
+                obtain ⟨⟨hprev, hprvNz, hprvAl, hprvLo, hprvMax, hprvMod,
+                    hcurNz, hcurAl, hb512, hbMax, hbMod⟩, hsplit0⟩ := sep_pure_l.mp hstep
+                change (((largeSeg st.hdr.s_large_free prv tlRev.reverse ⋆
+                  largeFreeNode prvB prv lcur) ⋆
+                  (largeFreeNode b lcur nxt ⋆ largeSeg nxt 0#64 rest)) ⋆ Rest_lg) ml at hsplit0
+                rw [hprev] at *
                 have hnodeMem : (cell64 (lcur + 8#64) nxt ⋆
                     cell64 (lcur + 16#64) (BitVec.ofNat 64 b) ⋆
                     cell64 (prv + 8#64) lcur ⋆ largeSeg st.hdr.s_large_free prv tlRev.reverse ⋆
                     region prv 8 ⋆ cell64 (prv + 16#64) (BitVec.ofNat 64 prvB) ⋆
                     region (prv + 24#64) (prvB - 24) ⋆ region lcur 8 ⋆
-                    region (lcur + 24#64) (b - 24) ⋆ largeSeg nxt 0#64 rest ⋆ Rest_lg)
-                    ((m11.union m12).union m2) := by
-                  have h11 : (largeSeg st.hdr.s_large_free prv tlRev.reverse ⋆
-                      region prv 8 ⋆ cell64 (prv + 8#64) lcur ⋆
-                      cell64 (prv + 16#64) (BitVec.ofNat 64 prvB) ⋆
-                      region (prv + 24#64) (prvB - 24)) m11 :=
-                    sep_cast hprefMem (by unfold largeFreeNode; ac_rfl)
-                  have h12 : (region lcur 8 ⋆ cell64 (lcur + 8#64) nxt ⋆
-                      cell64 (lcur + 16#64) (BitVec.ofNat 64 b) ⋆
-                      region (lcur + 24#64) (b - 24) ⋆ largeSeg nxt 0#64 rest) m12 :=
-                    sep_cast hnodeSeg (by dsimp only [nxt]; unfold largeFreeNode; ac_rfl)
-                  have htmp : (((largeSeg st.hdr.s_large_free prv tlRev.reverse ⋆
-                        region prv 8 ⋆ cell64 (prv + 8#64) lcur ⋆
-                        cell64 (prv + 16#64) (BitVec.ofNat 64 prvB) ⋆
-                        region (prv + 24#64) (prvB - 24)) ⋆
+                    region (lcur + 24#64) (b - 24) ⋆ largeSeg nxt 0#64 rest ⋆ Rest_lg) ml := by
+                  have hsp1 : (((largeSeg st.hdr.s_large_free prv tlRev.reverse ⋆ region prv 8 ⋆
+                      cell64 (prv + 8#64) lcur ⋆ cell64 (prv + 16#64) (BitVec.ofNat 64 prvB) ⋆
+                      region (prv + 24#64) (prvB - 24)) ⋆
                       (region lcur 8 ⋆ cell64 (lcur + 8#64) nxt ⋆
                         cell64 (lcur + 16#64) (BitVec.ofNat 64 b) ⋆
-                        region (lcur + 24#64) (b - 24) ⋆ largeSeg nxt 0#64 rest)) ⋆ Rest_lg)
-                      ((m11.union m12).union m2) :=
-                    ⟨m11.union m12, m2, rfl, hd, ⟨m11, m12, rfl, hd1, h11, h12⟩, hrest⟩
-                  exact sep_cast htmp (by ac_rfl)
-                generalize hmemEq : (m11.union m12).union m2 = memCur at hnodeMem ⊢
+                        region (lcur + 24#64) (b - 24) ⋆ largeSeg nxt 0#64 rest)) ⋆ Rest_lg) ml :=
+                    sep_mono (fun _ h =>
+                      sep_mono_r
+                        (fun _ h2 =>
+                          sep_cast h2 (by dsimp only [nxt]; unfold largeFreeNode; ac_rfl))
+                        (sep_mono (fun _ h1 => sep_cast h1 (by unfold largeFreeNode; ac_rfl)) h))
+                      hsplit0
+                  exact sep_cast hsp1 (by ac_rfl)
                 c0_hsteps_nogrp
                 · have hbEq : b = bytes := bv64_eq_lt_max hbMax hbyMax ‹_›
                   subst hbEq; dsimp only [Rest_lg] at *; (try dsimp only [rtCore] at *); c0_hsteps
@@ -699,14 +738,7 @@ theorem lcnf_alloc_rem_wp (Γ : Env) :
                   (try dsimp only [rtCore] at *); c0_frame
                 · have hbNe : b ≠ bytes := fun hEq => ‹BitVec.ofNat 64 b ≠ bytesBV› (hEq ▸ rfl)
                   have hmBack : (largeSegSplit st.hdr.s_large_free lcur nxt (pfx ++ [(lcur, b)])
-                      rest ⋆ Rest_lg) memCur := by
-                    have hsplit0 : (((largeSeg st.hdr.s_large_free prv tlRev.reverse ⋆
-                        largeFreeNode prvB prv lcur) ⋆
-                        (largeFreeNode b lcur nxt ⋆ largeSeg nxt 0#64 rest)) ⋆ Rest_lg)
-                        memCur := by
-                      rw [← hmemEq]
-                      exact ⟨m11.union m12, m2, rfl, hd, ⟨m11, m12, rfl, hd1, hprefMem,
-                        hnodeSeg⟩, hrest⟩
+                      rest ⋆ Rest_lg) ml := by
                     refine sep_mono (fun _ hx => ?_) hsplit0
                     exact largeSegSplit_step (prev := prv) hcurNz hcurAl hb512 hbMax hbMod rfl
                       (hr ▸ ⟨rfl, hprvNz, hprvAl, hprvLo, hprvMax, hprvMod, hx⟩)
@@ -714,7 +746,7 @@ theorem lcnf_alloc_rem_wp (Γ : Env) :
                     (by simp only [List.length_cons] at hlen; omega)
                     ⟨pfx ++ [(lcur, b)], rest, rfl, by rw [hnodes]; simp [List.append_assoc],
                       fun y hy => (List.mem_append.mp hy).elim (hnePfx y)
-                        (fun h => (List.mem_singleton.mp h) ▸ hbNe), hmemEq ▸ hmBack⟩
+                        (fun h => (List.mem_singleton.mp h) ▸ hbNe), hmBack⟩
 
 theorem lcnf_alloc_wp (Γ : Env) :
     ∀ xs m Q X, lcnfAllocSpec xs m Q X → Func.wp Γ lcnf_alloc_body xs m Q X :=
@@ -781,8 +813,8 @@ private theorem free_obj_tri_split_small {o w16 : BitVec 64} {bytes : Nat} {m : 
       show bytes - 16 - 8 = bytes - 24 by omega]
     exact sep_cast (sep_mono (P' := region (o + 16#64) 8) (fun _ hc => cell64_to_region hc) h0) (by
       rw [show (o + BitVec.ofNat 64 (8 + 16) : BitVec 64) = o + 24#64 from rfl]; ac_rfl)
-  obtain ⟨m1, m2, rfl, hd, hr8, hr16⟩ := h1; obtain ⟨v8, hv8⟩ := region_to_cell64 hr8
-  exact ⟨v8, m1, m2, rfl, hd, hv8, hr16⟩
+  obtain ⟨v8, hv8⟩ := sep_ex_l.mp (sep_mono (fun _ hr8 => region_to_cell64 hr8) h1)
+  exact ⟨v8, hv8⟩
 
 private theorem free_obj_tri_split_large {o w16 : BitVec 64} {bytes : Nat} {m : Mem 64}
     (hm : (region (o + 8#64) 8 ⋆ cell64 (o + 16#64) w16 ⋆ region (o + 24#64) (bytes - 24)) m) :
@@ -790,10 +822,9 @@ private theorem free_obj_tri_split_large {o w16 : BitVec 64} {bytes : Nat} {m : 
     ((cell64 (o + 8#64) v8 ⋆ cell64 (o + 16#64) v16) ⋆ region (o + 24#64) (bytes - 24)) m := by
   have h0 : (region (o + 8#64) 8 ⋆
       (cell64 (o + 16#64) w16 ⋆ region (o + 24#64) (bytes - 24))) m := sep_cast hm (by ac_rfl)
-  obtain ⟨m1, m2, rfl, hd, hr8, h23⟩ := h0; obtain ⟨v8, hc8⟩ := region_to_cell64 hr8
-  have h1 : (cell64 (o + 8#64) v8 ⋆
-      (cell64 (o + 16#64) w16 ⋆ region (o + 24#64) (bytes - 24))) (m1.union m2) :=
-    ⟨m1, m2, rfl, hd, hc8, h23⟩
+  obtain ⟨v8, h1⟩ := sep_ex_l.mp (sep_mono (fun _ hr8 => region_to_cell64 hr8) h0)
+  change (cell64 (o + 8#64) v8 ⋆
+    (cell64 (o + 16#64) w16 ⋆ region (o + 24#64) (bytes - 24))) m at h1
   exact ⟨v8, w16, sep_cast h1 (by ac_rfl)⟩
 
 private theorem freeObjBody_split_small {o hdr : BitVec 64} {bytes : Nat} {m : Mem 64}
@@ -920,15 +951,14 @@ theorem lcnf_free_obj_wp (Γ : Env) :
             intro Jepi hJepi
             have hBody : (freeObjBody o bytes hdr ⋆ (cell64 o 0#64 ⋆ rtC0Inv rt st ⋆ R)) _ :=
               sep_cast ‹_› (by ac_rfl)
-            obtain ⟨mB, mRest, rfl, hdB, hB, hRest⟩ := hBody
             have hb : bytes < 2 ^ 64 := by unfold rtMaxObjBytes at hmax; omega
             by_cases hsmall : bytes / 8 < 64
-            · obtain ⟨v8, hsp8⟩ := freeObjBody_split_small hmin hmax hB
-              have hmSm0 : ((cell64 (o + 8#64) v8 ⋆ region (o + 16#64) (bytes - 16)) ⋆
-                  (cell64 o 0#64 ⋆ rtC0Inv rt st ⋆ R)) (mB.union mRest) :=
-                ⟨mB, mRest, rfl, hdB, hsp8, hRest⟩
+            · obtain ⟨v8, hmSm0⟩ :=
+                sep_ex_l.mp (sep_mono (fun _ hB => freeObjBody_split_small hmin hmax hB) hBody)
+              change ((cell64 (o + 8#64) v8 ⋆ region (o + 16#64) (bytes - 16)) ⋆
+                (cell64 o 0#64 ⋆ rtC0Inv rt st ⋆ R)) _ at hmSm0
               have hmSm : (cell64 (o + 8#64) v8 ⋆ region (o + 16#64) (bytes - 16) ⋆
-                  cell64 o 0#64 ⋆ rtC0Inv rt st ⋆ R) (mB.union mRest) :=
+                  cell64 o 0#64 ⋆ rtC0Inv rt st ⋆ R) _ :=
                 sep_cast hmSm0 (by ac_rfl)
               unfold rtC0Inv at hmSm
               have hclsLt : (BitVec.ofNat 64 bytes >>> 3).ult 64#64 = true := by
@@ -989,27 +1019,31 @@ theorem lcnf_free_obj_wp (Γ : Env) :
                 rw [Nat.mod_eq_of_lt hb, show (64 : Nat) % 2 ^ 64 = 64 from rfl,
                   show (2 : Nat) ^ (OfNat.ofNat 3 : Nat) = 8 from rfl] at hc; omega
             · have h512 : 512 ≤ bytes := by omega
-              obtain ⟨v8, v16, hspLg⟩ := freeObjBody_split_large (by omega) hmax hB
+              obtain ⟨v8, hspLg0⟩ := sep_ex_l.mp
+                (sep_mono (fun _ hB => freeObjBody_split_large (by omega) hmax hB) hBody)
+              obtain ⟨v16, hspLg⟩ := sep_ex_l.mp hspLg0
+              change (((cell64 (o + 8#64) v8 ⋆ cell64 (o + 16#64) v16) ⋆
+                region (o + 24#64) (bytes - 24)) ⋆
+                (cell64 o 0#64 ⋆ rtC0Inv rt st ⋆ R)) _ at hspLg
+              unfold rtC0Inv at hspLg
               have hmLg : (cell64 (o + 8#64) v8 ⋆ cell64 (o + 16#64) v16 ⋆
                   region (o + 24#64) (bytes - 24) ⋆ cell64 o 0#64 ⋆
                   largeFreeList st.hdr.s_large_free st.largeNodes ⋆
                   rtCore rt st st.freeList st.hdr ⋆
-                      smallPoolsAt st.freeList st.smallPools rtNumClasses ⋆
-                  region st.hdr.s_cur st.rem ⋆ R) (mB.union mRest) := by
-                have h0 : ((cell64 (o + 8#64) v8 ⋆ cell64 (o + 16#64) v16 ⋆
-                    region (o + 24#64) (bytes - 24)) ⋆
-                    (cell64 o 0#64 ⋆ rtC0Inv rt st ⋆
-                        R)) (mB.union mRest) := ⟨mB, mRest, rfl, hdB, hspLg, hRest⟩
-                unfold rtC0Inv at h0; exact sep_cast h0 (by (try unfold rtCore); ac_rfl)
-              have hOldHd : st.hdr.s_large_free = largeSegNext 0#64 st.largeNodes := by
-                obtain ⟨_, _, _, _, hLF, _⟩ := (sep_cast hmLg (by (try unfold rtCore); ac_rfl) :
-                  (largeFreeList st.hdr.s_large_free st.largeNodes ⋆
+                  smallPoolsAt st.freeList st.smallPools rtNumClasses ⋆
+                  region st.hdr.s_cur st.rem ⋆ R) _ :=
+                sep_cast hspLg (by (try unfold rtCore); ac_rfl)
+              have hOldHd : st.hdr.s_large_free = largeSegNext 0#64 st.largeNodes :=
+                (sep_pure_l.mp (sep_mono
+                  (P' := fun _ => st.hdr.s_large_free = largeSegNext 0#64 st.largeNodes ∧ True)
+                  (fun _ h => ⟨largeSeg_hd_eq_next h, trivial⟩)
+                  (show (largeFreeList st.hdr.s_large_free st.largeNodes ⋆
                     (cell64 (o + 8#64) v8 ⋆ cell64 (o + 16#64) v16 ⋆
                       region (o + 24#64) (bytes - 24) ⋆ cell64 o 0#64 ⋆
                       rtCore rt st st.freeList st.hdr ⋆
                       smallPoolsAt st.freeList st.smallPools rtNumClasses ⋆
-                      region st.hdr.s_cur st.rem ⋆ R)) (mB.union mRest))
-                exact largeSeg_hd_eq_next hLF
+                      region st.hdr.s_cur st.rem ⋆ R)) _ from
+                    sep_cast hmLg (by (try unfold rtCore); ac_rfl)))).1
               have hnotSmall : (BitVec.ofNat 64 bytes >>> 3).ult 64#64 = false := by
                 simp [BitVec.ult, Nat.shiftRight_eq_div_pow]; omega
               (try dsimp only [rtCore] at *); c0_hsteps
@@ -1108,7 +1142,12 @@ theorem lcnf_free_obj_wp (Γ : Env) :
                     · have hmKeep := hm; unfold freeObjLayout at hm
                       rw [ite_eq_right ht246, ite_eq_right ht248, ite_eq_right ht249,
                         ite_eq_right ht250] at hm
-                      rcases hm with ⟨_, _, _, _, ⟨_, _, _, _, _, hby, _⟩, _⟩; c0_hsteps_nogrp
+                      have hby : (hdr >>> 32 &&& 65535#64).toNat = bytes := by
+                        have hm' : ((fun m => (hdr >>> 32 &&& 65535#64).toNat = bytes ∧
+                            (cell64 o hdr ⋆ region (o + 8#64) (bytes - 8)) m) ⋆
+                            (rtC0Inv rt st ⋆ R)) m := sep_cast hm (by ac_rfl)
+                        exact (sep_pure_l.mp hm').1
+                      c0_hsteps_nogrp
                       · exfalso; exact tag_ne_of_bv_eq ht250 (by decide) hc
                       · rw [show (hdr >>> 32 &&& 65535#64) = BitVec.ofNat 64 bytes by
                           apply BitVec.eq_of_toNat_eq; unfold rtMaxObjBytes at hmax
@@ -1225,25 +1264,37 @@ private theorem split_clo_region {c : BitVec 64} {nfix k : Nat}
       (cell64 c v0 ⋆ cell64 (c + 8#64) v8 ⋆ cell64 (c + 16#64) v16 ⋆ array64 (c + 24#64) dst ⋆
       region (c + BitVec.ofNat 64 (24 + 8 * nfix)) (8 * k)) m := by
   have h1 : 24 + 8 * (nfix + k) = (24 + 8 * nfix) + 8 * k := by omega
-  rw [h1, region_split (by omega)] at hr; obtain ⟨m1, mTail, rfl, hd1, h1m, hTail⟩ := hr
-  obtain ⟨m24, mArr, rfl, hd24, h24m, hArm⟩ :=
-    (region_split (a := c) (n1 := 24) (n2 := 8 * nfix) (by omega)) ▸ h1m
-  obtain ⟨dst, hlen, hDst⟩ := region_to_array64 nfix (by omega) hArm
-  obtain ⟨m0, m16, rfl, hd0, h0m, h16m⟩ :=
-    (region_split (a := c) (n1 := 8) (n2 := 16) (by decide)) ▸ h24m
+  rw [h1, region_split (by omega),
+    region_split (a := c) (n1 := 24) (n2 := 8 * nfix) (by omega),
+    region_split (a := c) (n1 := 8) (n2 := 16) (by decide)] at hr
   have hsp8 : region (c + 8#64) 16 = (region (c + 8#64) 8 ⋆ region (c + 16#64) 8) := by
     rw [show c + 16#64 = c + 8#64 + 8#64 by bv_omega]
     exact region_split (a := c + 8#64) (n1 := 8) (n2 := 8) (by decide)
-  obtain ⟨m8, m16', rfl, hd8, h8m, h16m'⟩ := hsp8 ▸ h16m
-  obtain ⟨v0, hv0⟩ := region_to_cell64 h0m; obtain ⟨v8, hv8⟩ := region_to_cell64 h8m
-  obtain ⟨v16, hv16⟩ := region_to_cell64 h16m'
-  have hAll : (((cell64 c v0 ⋆ (cell64 (c + 8#64) v8 ⋆ cell64 (c + 16#64) v16)) ⋆
-      array64 (c + 24#64) dst) ⋆ region (c + BitVec.ofNat 64 (24 + 8 * nfix)) (8 * k))
-      (((m0.union (m8.union m16')).union mArr).union mTail) :=
-    ⟨(m0.union (m8.union m16')).union mArr, mTail, rfl, hd1,
-      ⟨m0.union (m8.union m16'), mArr, rfl, hd24,
-        ⟨m0, m8.union m16', rfl, hd0, hv0, ⟨m8, m16', rfl, hd8, hv8, hv16⟩⟩, hDst⟩, hTail⟩
-  exact ⟨v0, v8, v16, dst, hlen, sep_cast hAll (by ac_rfl)⟩
+  rw [hsp8] at hr
+  let Tail := region (c + BitVec.ofNat 64 (24 + 8 * nfix)) (8 * k)
+  have hr0 : (region c 8 ⋆ (region (c + 8#64) 8 ⋆ (region (c + 16#64) 8 ⋆
+      (region (c + 24#64) (8 * nfix) ⋆ Tail)))) m := sep_cast hr (by dsimp only [Tail]; ac_rfl)
+  obtain ⟨v0, h0⟩ := sep_ex_l.mp (sep_mono (fun _ h => region_to_cell64 h) hr0)
+  change (cell64 c v0 ⋆ (region (c + 8#64) 8 ⋆ (region (c + 16#64) 8 ⋆
+      (region (c + 24#64) (8 * nfix) ⋆ Tail)))) m at h0
+  have h0' : (region (c + 8#64) 8 ⋆ (cell64 c v0 ⋆ (region (c + 16#64) 8 ⋆
+      (region (c + 24#64) (8 * nfix) ⋆ Tail)))) m := sep_cast h0 (by ac_rfl)
+  obtain ⟨v8, h8⟩ := sep_ex_l.mp (sep_mono (fun _ h => region_to_cell64 h) h0')
+  change (cell64 (c + 8#64) v8 ⋆ (cell64 c v0 ⋆ (region (c + 16#64) 8 ⋆
+      (region (c + 24#64) (8 * nfix) ⋆ Tail)))) m at h8
+  have h8' : (region (c + 16#64) 8 ⋆ (cell64 c v0 ⋆ (cell64 (c + 8#64) v8 ⋆
+      (region (c + 24#64) (8 * nfix) ⋆ Tail)))) m := sep_cast h8 (by ac_rfl)
+  obtain ⟨v16, h16⟩ := sep_ex_l.mp (sep_mono (fun _ h => region_to_cell64 h) h8')
+  change (cell64 (c + 16#64) v16 ⋆ (cell64 c v0 ⋆ (cell64 (c + 8#64) v8 ⋆
+      (region (c + 24#64) (8 * nfix) ⋆ Tail)))) m at h16
+  have h16' : (region (c + 24#64) (8 * nfix) ⋆ (cell64 c v0 ⋆ (cell64 (c + 8#64) v8 ⋆
+      (cell64 (c + 16#64) v16 ⋆ Tail)))) m := sep_cast h16 (by ac_rfl)
+  obtain ⟨dst, hdst⟩ :=
+    sep_ex_l.mp (sep_mono (fun _ h => region_to_array64 nfix (by omega) h) h16')
+  obtain ⟨hlen, hdst'⟩ := sep_pure_l.mp hdst
+  change (array64 (c + 24#64) dst ⋆ (cell64 c v0 ⋆ (cell64 (c + 8#64) v8 ⋆
+      (cell64 (c + 16#64) v16 ⋆ Tail)))) m at hdst'
+  exact ⟨v0, v8, v16, dst, hlen, sep_cast hdst' (by dsimp only [Tail]; ac_rfl)⟩
 
 private theorem cloMetaWord_arity (a n : Nat) (ha : a < 65536) :
     cloMetaWord a n &&& 65535#64 = BitVec.ofNat 64 a := by
@@ -1370,14 +1421,17 @@ theorem lcnf_clo_under_wp (Γ : Env)
         sep_cast hm1 (by ac_rfl)
       rw [lcnfObjMem_clo_eq fc hfcTag, hfcAddr] at h1
       exact sep_mono_r (fun _ x => sep_cast x (by dsimp only [F_tail])) h1
-    obtain ⟨mr, mfr, hmrEq, hd, hmr, hmfr⟩ := hm1_r
-    obtain ⟨v0, v8, v16, dst, hdstLen, hsplit⟩ := split_clo_region (by omega) hmr
-    have hm1_raw : ((cell64 c v0 ⋆ cell64 (c + 8#64) v8 ⋆ cell64 (c + 16#64) v16 ⋆
-        array64 (c + 24#64) dst ⋆ region (c + BitVec.ofNat 64 (24 + 8 * nfix)) (8 * k.toNat)) ⋆
-        F_tail) (mr.union mfr) := ⟨mr, mfr, rfl, hd, hsplit, hmfr⟩
+    obtain ⟨v0, h0⟩ := sep_ex_l.mp (sep_mono (fun _ h => split_clo_region (by omega) h) hm1_r)
+    obtain ⟨v8, h1⟩ := sep_ex_l.mp h0
+    obtain ⟨v16, h2⟩ := sep_ex_l.mp h1
+    obtain ⟨dst, h3⟩ := sep_ex_l.mp h2
+    obtain ⟨hdstLen, h4⟩ := sep_pure_l.mp h3
+    change ((cell64 c v0 ⋆ cell64 (c + 8#64) v8 ⋆ cell64 (c + 16#64) v16 ⋆
+      array64 (c + 24#64) dst ⋆ region (c + BitVec.ofNat 64 (24 + 8 * nfix)) (8 * k.toNat)) ⋆
+      F_tail) m1 at h4
     have hm1' : (cell64 c v0 ⋆ cell64 (c + 8#64) v8 ⋆ cell64 (c + 16#64) v16 ⋆
         array64 (c + 24#64) dst ⋆ region (c + BitVec.ofNat 64 (24 + 8 * nfix)) (8 * k.toNat) ⋆
-        F_tail) m1 := hmrEq ▸ sep_cast hm1_raw (by ac_rfl)
+        F_tail) m1 := sep_cast h4 (by ac_rfl)
     dsimp only [F_tail] at hm1'
     let cHdr : BitVec 64 :=
       1#64 ||| BitVec.ofNat 64 sz <<< 32 ||| BitVec.ofNat 64 closureTag <<< 56

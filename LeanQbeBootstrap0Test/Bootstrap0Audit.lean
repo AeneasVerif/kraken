@@ -1,11 +1,11 @@
 module
 
-public import LeanQbe.T.Bootstrap0.Mod0
-public import LeanQbe.T.Bootstrap0.Cert
-public import LeanQbe.T.Amd64.LcnfC0FullCertX64
-public import LeanQbe.T.Amd64.LcnfC0FullCertX64Bounds
-public import LeanQbe.T.Amd64.TargLemmas
-public import LeanQbe.T.MainCertCore
+import LeanQbe.T.Bootstrap0.Mod0
+import LeanQbe.T.Bootstrap0.Cert
+import LeanQbe.T.Amd64.LcnfC0FullCertX64
+import LeanQbe.T.Amd64.LcnfC0FullCertX64Bounds
+import LeanQbe.T.Amd64.TargLemmas
+import LeanQbe.T.MainCertCore
 meta import LeanQbe.T.Bootstrap0.Mod0
 meta import LeanQbe.T.Bootstrap0.Cert
 meta import LeanQbe.T.Amd64.LcnfC0FullCertX64Bounds
@@ -66,7 +66,7 @@ claim. The following remain outside Stage A or in the TCB:
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace Bootstrap0Audit
 

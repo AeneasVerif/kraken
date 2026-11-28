@@ -4,7 +4,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 module
 
-public import LeanQbe.T.Arm64.KissatFidelityParam
+import LeanQbe.T.Arm64.KissatFidelityParam
 
 /-!
 # KissatFidelity (`Src.Full.kissatModule`, `418` fns) Parameterized Audit: AAPCS64 Arm64 (`std3`)
@@ -16,7 +16,7 @@ Audits every parameterized Arm64 theorem in `LeanQbe.T.Arm64.KissatFidelityParam
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.KissatFidelityParamAuditArm64
 

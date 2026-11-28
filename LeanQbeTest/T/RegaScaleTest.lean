@@ -1,10 +1,10 @@
 module
 
-public import LeanQbe.T.FlatLemmas
-public import LeanQbe.T.Spill
-public meta import Lean
-public meta import LeanQbe.T.Target
-public meta import LeanQbe.T.Spill
+import LeanQbe.T.FlatLemmas
+import LeanQbe.T.Spill
+meta import Lean
+meta import LeanQbe.T.Target
+meta import LeanQbe.T.Spill
 
 /-!
 # `Rega.lowerFn` Kernel `rfl` Scaling Benchmarks
@@ -23,9 +23,9 @@ section
 namespace LeanQbe.T.RegaScaleTest
 open LeanQbe.T
 
-public abbrev MockDir := Nat × Nat × Nat × Sym
+abbrev MockDir := Nat × Nat × Nat × Sym
 
-@[expose] public def mkScaleIsa (nAlloc : Nat) : Isa where
+def mkScaleIsa (nAlloc : Nat) : Isa where
   Reg := Nat
   VReg := Nat
   Cond := Nat
@@ -81,8 +81,8 @@ public abbrev MockDir := Nat × Nat × Nat × Sym
     ret := [(22, 0, 0, "")]
   }
 
-@[expose] public def scaleIsa : Isa := mkScaleIsa 14
-@[expose] public def smallIsa : Isa := mkScaleIsa 4
+def scaleIsa : Isa := mkScaleIsa 14
+def smallIsa : Isa := mkScaleIsa 4
 
 /-! ## Benchmark Functions (`sl250`, `sl1000`, `sl2000`, `bl50`, `bl250`, `bl250_cross`, `spill20`) -/
 
@@ -154,10 +154,13 @@ def fn_spill20 : Fn := ⟨"spill20", [i64], [i64], fun _ _ (a, ()) => mkSpill 20
 meta section
 open Lean Elab Command Term Meta
 
-elab "splice_lower " hName:ident cName:ident isaId:ident fnId:ident : command => do
-  let hDeclNm := (← getCurrNamespace) ++ hName.getId
-  let cDeclNm := (← getCurrNamespace) ++ cName.getId
+private def spliceLower (hName cName isaNm fnNm : Name) : CommandElabM Unit := do
+  let ns ← getCurrNamespace
+  let hDeclNm := ns ++ hName
+  let cDeclNm := ns ++ cName
   let (hExpr, cExpr) ← liftTermElabM do
+    let isaId := mkIdent (ns ++ isaNm)
+    let fnId := mkIdent (ns ++ fnNm)
     let hTerm ← elabTerm (← `(Spill.hints $isaId $fnId)) none
     let hTy := mkApp3 (mkConst ``Hints) (mkConst ``Nat) (mkConst ``Nat) (mkConst ``Nat)
     let hVal ← unsafe evalExpr (Hints Nat Nat Nat) hTy hTerm
@@ -183,15 +186,16 @@ elab "splice_lower " hName:ident cName:ident isaId:ident fnId:ident : command =>
       name := cDeclNm, levelParams := [], type := cTy, value := cExpr,
       hints := .abbrev, safety := .safe }
 
-end
+run_cmd do
+  spliceLower `hints_sl250 `code_sl250 `scaleIsa `fn_sl250
+  spliceLower `hints_sl1000 `code_sl1000 `scaleIsa `fn_sl1000
+  spliceLower `hints_sl2000 `code_sl2000 `scaleIsa `fn_sl2000
+  spliceLower `hints_bl50 `code_bl50 `scaleIsa `fn_bl50
+  spliceLower `hints_bl250 `code_bl250 `scaleIsa `fn_bl250
+  spliceLower `hints_bl250_cross `code_bl250_cross `scaleIsa `fn_bl250_cross
+  spliceLower `hints_spill20 `code_spill20 `smallIsa `fn_spill20
 
-splice_lower hints_sl250 code_sl250 scaleIsa fn_sl250
-splice_lower hints_sl1000 code_sl1000 scaleIsa fn_sl1000
-splice_lower hints_sl2000 code_sl2000 scaleIsa fn_sl2000
-splice_lower hints_bl50 code_bl50 scaleIsa fn_bl50
-splice_lower hints_bl250 code_bl250 scaleIsa fn_bl250
-splice_lower hints_bl250_cross code_bl250_cross scaleIsa fn_bl250_cross
-splice_lower hints_spill20 code_spill20 smallIsa fn_spill20
+end
 
 theorem sl250_lower :
     Rega.lowerFn scaleIsa hints_sl250 {} fn_sl250 = .ok code_sl250 := by t_kernel_rfl

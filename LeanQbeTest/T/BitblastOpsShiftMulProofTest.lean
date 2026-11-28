@@ -4,14 +4,14 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 module
 
-public import LeanQbe.T.Examples.Bitblast.Proof.OpsShiftMul
-public import LeanQbe.T.Examples.Bitblast.Proof.OpsShiftMulSpecs
-public import LeanQbe.T.Examples.Bitblast.Proof.OpsShiftMul0
-public import LeanQbe.T.Examples.Bitblast.Proof.OpsShiftMul1
-public import LeanQbe.T.Examples.Bitblast.Proof.OpsShiftMul2
-public meta import LeanQbe.T.Examples.Bitblast.Src.OpsShiftMul
-public meta import LeanQbe.T.Examples.Bitblast.Proof.OpsShiftMulSpecs
-public meta import LeanQbe.T.Examples.Bitblast.Proof.OpsShiftMul
+import LeanQbe.T.Examples.Bitblast.Proof.OpsShiftMul
+import LeanQbe.T.Examples.Bitblast.Proof.OpsShiftMulSpecs
+import LeanQbe.T.Examples.Bitblast.Proof.OpsShiftMul0
+import LeanQbe.T.Examples.Bitblast.Proof.OpsShiftMul1
+import LeanQbe.T.Examples.Bitblast.Proof.OpsShiftMul2
+meta import LeanQbe.T.Examples.Bitblast.Src.OpsShiftMul
+meta import LeanQbe.T.Examples.Bitblast.Proof.OpsShiftMulSpecs
+meta import LeanQbe.T.Examples.Bitblast.Proof.OpsShiftMul
 
 /-!
 # Smoke Tests & Axiom Audit for `Bitblast.Proof.OpsShiftMul` (`S4p`)
@@ -24,7 +24,7 @@ non-vacuity witnesses.
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.BitblastOpsShiftMulProofTest
 

@@ -1,12 +1,12 @@
 module
 
-public import LeanQbe.T.LeanLCNF.LcnfC0Rt
-public import LeanQbe.T.LeanLCNF.LcnfC0BigNum
-public import LeanQbe.T.LeanLCNF.LcnfC0BigNumMath
-public import LeanQbe.T.LeanLCNF.LcnfC0BigNumSpec
-public import LeanQbe.T.LeanLCNF.LcnfC0BigNumProof
-public import LeanQbe.T.InterpKissat
-public import LeanQbe.T.PrintCpp
+import LeanQbe.T.LeanLCNF.LcnfC0Rt
+import LeanQbe.T.LeanLCNF.LcnfC0BigNum
+import LeanQbe.T.LeanLCNF.LcnfC0BigNumMath
+import LeanQbe.T.LeanLCNF.LcnfC0BigNumSpec
+import LeanQbe.T.LeanLCNF.LcnfC0BigNumProof
+import LeanQbe.T.InterpKissat
+import LeanQbe.T.PrintCpp
 meta import LeanQbe.T.LeanLCNF.LcnfC0Rt
 meta import LeanQbe.T.LeanLCNF.LcnfC0BigNum
 meta import LeanQbe.T.LeanLCNF.LcnfC0BigNumMath

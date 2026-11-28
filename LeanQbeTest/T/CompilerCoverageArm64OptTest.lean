@@ -1,14 +1,14 @@
 module
 
-public import LeanQbe.T.MainCertCore
-public import LeanQbe.T.MainCertFlat
-public import LeanQbe.T.Arm64.TargLemmas
-public import LeanQbeTest.T.CompilerCoverageFixture
-public meta import Lean
-public meta import LeanQbe.T.MainCertElab
-public meta import LeanQbe.T.MainCertFlatElab
-public meta import LeanQbe.T.Arm64.Targ
-public meta import LeanQbe.T.MainFlat
+import LeanQbe.T.MainCertCore
+import LeanQbe.T.MainCertFlat
+import LeanQbe.T.Arm64.TargLemmas
+import LeanQbeTest.T.CompilerCoverageFixture
+meta import Lean
+import LeanQbe.T.MainCertElab
+import LeanQbe.T.MainCertFlatElab
+meta import LeanQbe.T.Arm64.Targ
+meta import LeanQbe.T.MainFlat
 
 /-!
 # AAPCS64 Arm64 Compiler Coverage Opt/Ctrl & Parity Test (`CompilerCoverageArm64OptTest`)
@@ -21,7 +21,7 @@ parity, exported `MainFlat` closure audit (`auditMainFlatClosure`), and `<= std3
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.CompilerCoverageArm64OptTest
 
@@ -50,8 +50,6 @@ noncomputable def covArm64OptFlatCast :
       (covOptSrcMod.optInlinePolicy covPol)
       [(⟨"cov_ext", [i64], [i64]⟩, 0)] ["cov_ext_exit"] 0 2048 :=
   covArm64OptFlat.castModule covOptMod.eq
-
-#eval auditMainFlatClosure
 
 #print axioms arm64_straight_gates
 #print axioms arm64_opt_code_eq

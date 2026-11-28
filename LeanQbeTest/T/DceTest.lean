@@ -1,9 +1,9 @@
 module
 
-public import LeanQbe.T.DceLemmas
-public import LeanQbe.T.WPLemmas
-public import LeanQbe.T.FlatLemmas
-public import LeanQbe.T.Logic.Rules
+import LeanQbe.T.DceLemmas
+import LeanQbe.T.WPLemmas
+import LeanQbe.T.FlatLemmas
+import LeanQbe.T.Logic.Rules
 
 /-!
 # Tests of `LeanQbe.T.Dce`
@@ -22,7 +22,7 @@ Covers:
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbe.T.DceTest
 

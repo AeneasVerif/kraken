@@ -4,7 +4,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 module
 
-public import LeanQbe.T.Amd64.BitblastFidelityParam
+import LeanQbe.T.Amd64.BitblastFidelityParam
 
 /-!
 # Bitblast + `KissatUnsatPkg` Tier-1 Parameterized Audit: SysV x64 (`std3`)
@@ -15,7 +15,7 @@ against `[propext, Classical.choice, Quot.sound]` (`0` `Kissat.Full*`, `0` `*Cer
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.BitblastFidelityParamAuditX64
 

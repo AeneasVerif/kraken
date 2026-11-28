@@ -4,11 +4,11 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 module
 
-public import LeanQbe.T.MainLinkReuseCover
-public import LeanQbe.T.Amd64.KissatPlainCert2
-public import LeanQbe.T.Amd64.KissatPlainCert5
-public import LeanQbe.T.Amd64.KissatPlainBounds
-public import LeanQbe.T.Examples.Kissat.Plain
+import LeanQbe.T.MainLinkReuseCover
+import LeanQbe.T.Amd64.KissatPlainCert2
+import LeanQbe.T.Amd64.KissatPlainCert5
+import LeanQbe.T.Amd64.KissatPlainBounds
+import LeanQbe.T.Examples.Kissat.Plain
 meta import Lean
 meta import LeanQbe.T.MainLinkReuseElab
 meta import LeanQbe.T.Amd64.Targ
@@ -32,7 +32,7 @@ and `KissatPlainCert5` (`[47, 52)`, `5` fns, `2` chunks):
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.MainLinkReuseM7DryRunTest
 

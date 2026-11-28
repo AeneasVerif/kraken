@@ -1,26 +1,26 @@
 module
 
-public import LeanQbe.T.MainCertCore
-public import LeanQbe.T.MainCertFlat
-public import LeanQbe.T.MainCertInline
-public import LeanQbe.T.Amd64.TargLemmas
-public import LeanQbe.T.Amd64.PrintATTAlign
-public import LeanQbe.T.Amd64.DebugAsm
-public import LeanQbe.T.Notation
-public import LeanQbe.T.SimplifyGroupPlan
-public import LeanQbe.T.Opt
-public import LeanQbe.T.Spill
-public meta import Lean
-public meta import LeanQbe.T.MainCertElab
-public meta import LeanQbe.T.MainCertFlatElab
-public meta import LeanQbe.T.MainCertInline
-public meta import LeanQbe.T.Amd64.Targ
-public meta import LeanQbe.T.Amd64.PrintATTAlign
-public meta import LeanQbe.T.Amd64.DebugAsm
-public meta import LeanQbe.T.MainFlat
-public meta import LeanQbe.T.SimplifyGroupPlan
-public meta import LeanQbe.T.Opt
-public meta import LeanQbe.T.Spill
+import LeanQbe.T.MainCertCore
+import LeanQbe.T.MainCertFlat
+import LeanQbe.T.MainCertInline
+import LeanQbe.T.Amd64.TargLemmas
+import LeanQbe.T.Amd64.PrintATTAlign
+import LeanQbe.T.Amd64.DebugAsm
+import LeanQbe.T.Notation
+import LeanQbe.T.SimplifyGroupPlan
+import LeanQbe.T.Opt
+import LeanQbe.T.Spill
+meta import Lean
+meta import LeanQbe.T.MainCertElab
+meta import LeanQbe.T.MainCertFlatElab
+meta import LeanQbe.T.MainCertInline
+meta import LeanQbe.T.Amd64.Targ
+meta import LeanQbe.T.Amd64.PrintATTAlign
+meta import LeanQbe.T.Amd64.DebugAsm
+meta import LeanQbe.T.MainFlat
+meta import LeanQbe.T.SimplifyGroupPlan
+meta import LeanQbe.T.Opt
+meta import LeanQbe.T.Spill
 
 /-!
 # P0 Backend Performance Pack — SysV x64 Regression & Parity Tests
@@ -39,7 +39,7 @@ Verifies Ranks 1–4 on SysV x64:
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.P0BackendPackX64Test
 

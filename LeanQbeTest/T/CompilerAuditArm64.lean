@@ -1,12 +1,12 @@
 module
 
-public import LeanQbe.T.Arm64.TargLemmas
-public import LeanQbe.T.Arm64.IselLemmas4
-public import LeanQbe.T.Arm64.FrameLemmas
-public import LeanQbe.T.Arm64.IselStepRules
-public import LeanQbe.T.Arm64.LinkRec
-public import LeanQbe.T.Arm64.Litmus
-public import LeanQbeTest.T.MainLinkArm64Test
+import LeanQbe.T.Arm64.TargLemmas
+import LeanQbe.T.Arm64.IselLemmas4
+import LeanQbe.T.Arm64.FrameLemmas
+import LeanQbe.T.Arm64.IselStepRules
+import LeanQbe.T.Arm64.LinkRec
+import LeanQbe.T.Arm64.Litmus
+import LeanQbeTest.T.MainLinkArm64Test
 import LeanQbe.T.Logic.MemLemmas
 
 /-!
@@ -50,7 +50,7 @@ Self-contained machine-level audit for the AAPCS64 AArch64 (`Kraken.AArch64`) ba
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace CompilerAuditArm64
 

@@ -1,18 +1,18 @@
 module
 
-public import LeanQbe.T.MainCertInline
-public import LeanQbe.T.MainCertFlat
-public import LeanQbe.T.Arm64.TargLemmas
-public import LeanQbe.T.Logic.MemLemmas
+import LeanQbe.T.MainCertInline
+import LeanQbe.T.MainCertFlat
+import LeanQbe.T.Arm64.TargLemmas
+import LeanQbe.T.Logic.MemLemmas
 import LeanQbe.T.BenchmarkCertKit
-public import LeanQbeTest.T.Common.Fixtures
-public import Std.Sat.CNF
+import LeanQbeTest.T.Common.Fixtures
+import Std.Sat.CNF
 import LeanQbe.T.FlatLemmas
-public meta import Lean
-public meta import LeanQbe.T.MainCertInline
-public meta import LeanQbe.T.MainCertFlatElab
-public meta import LeanQbe.T.Arm64.Targ
-public meta import LeanQbeTest.T.Common.Fixtures
+meta import Lean
+meta import LeanQbe.T.MainCertInline
+import LeanQbe.T.MainCertFlatElab
+meta import LeanQbe.T.Arm64.Targ
+meta import LeanQbeTest.T.Common.Fixtures
 
 /-!
 # Certified Inlined Compilation Bridge Tests on AAPCS64 Arm64 (`MainCertInline`)

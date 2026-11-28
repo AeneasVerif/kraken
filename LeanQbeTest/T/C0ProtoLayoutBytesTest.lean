@@ -1,8 +1,8 @@
 module
 
-public import LeanQbe.T.Logic.BytesUnaligned
-public import LeanQbe.T.Logic.SlabLayoutElab
-public meta import LeanQbe.T.Logic.SlabLayoutElab
+import LeanQbe.T.Logic.BytesUnaligned
+import LeanQbe.T.Logic.SlabLayoutElab
+meta import LeanQbe.T.Logic.SlabLayoutElab
 
 /-!
 # Unit Tests for Unaligned `BytesUnaligned` Loads/Stores and `c0_slab_layout!` DSL
@@ -18,16 +18,18 @@ Verifies:
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.C0ProtoLayoutBytesTest
 
 open LeanQbe.T
 open Std Std.ExtHashMap
 
+#guard_msgs (drop warning) in
 c0_slab_layout! SingleSlab where
   x : cell u32
 
+#guard_msgs (drop warning) in
 c0_slab_layout! StaticSlab where
   tag : cell32
   _p0 : pad 4
@@ -35,6 +37,7 @@ c0_slab_layout! StaticSlab where
   buf : bytes[6]
   arr : array i16[3]
 
+#guard_msgs (drop warning) in
 c0_slab_layout! ParamSlab (nVars : Nat) where
   hdr : array ptr[4]
   clauses : array_align8 i32[nVars]

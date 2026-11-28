@@ -2,8 +2,8 @@ module
 
 public import LeanQbe.T.LeanLCNF.LcnfC0BigNumProof3
 public import LeanQbe.T.LeanLCNF.LcnfC0BigNumProof4
-import all Kraken.Mem
-import all Kraken.Separation
+import Kraken.Mem
+import Kraken.Separation
 
 /-!
 # Top-Level `Nat` Bitwise & Slow Dispatchers (`lcnf_nat_bits_wp`, `lcnf_nat_slow_wp`, Part 5)

@@ -1,10 +1,10 @@
 module
 
-public import LeanQbe.T.IL
-public import LeanQbe.T.Inline
-public import LeanQbe.T.InlineLemmas
-public import LeanQbe.T.Main
-public import LeanQbe.T.MainInline
+import LeanQbe.T.IL
+import LeanQbe.T.Inline
+import LeanQbe.T.InlineLemmas
+import LeanQbe.T.Main
+import LeanQbe.T.MainInline
 meta import LeanQbe.T.IL
 meta import LeanQbe.T.Inline
 
@@ -32,7 +32,7 @@ namespace LeanQbeTest.T.InlineB5
 
 open LeanQbe.T
 
-public section
+section
 
 private def dummyFn : Fn := ⟨"", [], [], fun _ _ _ => .hlt⟩
 

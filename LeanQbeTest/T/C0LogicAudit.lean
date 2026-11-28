@@ -1,23 +1,23 @@
 module
 
-public import LeanQbe.T.WPLemmas
-public import LeanQbe.T.Frontend.C0
+import LeanQbe.T.WPLemmas
+import LeanQbe.T.Frontend.C0
 meta import LeanQbe.T.Frontend.C0.ToFlat
-public import LeanQbe.T.Logic.Rules
-public import LeanQbe.T.Logic.C0StepAttr
-public import LeanQbe.T.Logic.C0Step
-public import LeanQbe.T.Logic.C0HeadStep
-public import LeanQbe.T.Logic.C0Agrees
-public import LeanQbe.T.Logic.SepTree
-public import LeanQbe.T.Logic.SlabChain
+import LeanQbe.T.Logic.Rules
+import LeanQbe.T.Logic.C0StepAttr
+import LeanQbe.T.Logic.C0Step
+import LeanQbe.T.Logic.C0HeadStep
+import LeanQbe.T.Logic.C0Agrees
+import LeanQbe.T.Logic.SepTree
+import LeanQbe.T.Logic.SlabChain
 meta import LeanQbe.T.Logic.SlabChain
-public import LeanQbe.T.Logic.SlabLayoutElab
-public import LeanQbe.T.Logic.ControlComb
-public import LeanQbe.T.LegalEmit
+import LeanQbe.T.Logic.SlabLayoutElab
+import LeanQbe.T.Logic.ControlComb
+import LeanQbe.T.LegalEmit
 
 set_option autoImplicit false
 
-public section
+section
 
 /-!
 # Audit Specification: C0 Frontend & Separation-Logic Proof Tooling

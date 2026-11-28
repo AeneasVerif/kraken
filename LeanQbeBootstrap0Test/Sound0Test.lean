@@ -1,9 +1,9 @@
 module
 
-public import LeanQbe.T.Bootstrap0.Sound0
-public import LeanQbeBootstrap0Test.Dummies0
-public import LeanQbe.T.Amd64.ScalarTarg
-public import Kraken.X64.PrintATT
+import LeanQbe.T.Bootstrap0.Sound0
+import LeanQbeBootstrap0Test.Dummies0
+import LeanQbe.T.Amd64.ScalarTarg
+import Kraken.X64.PrintATT
 import LeanQbe.T.FlatLemmas
 meta import Lean
 meta import LeanQbe.T.Bootstrap0.Sound0
@@ -22,7 +22,7 @@ End-to-end machine-checked validation of `LeanQbe.T.Bootstrap0.Sound0`:
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeBootstrap0Test.Sound0Test
 

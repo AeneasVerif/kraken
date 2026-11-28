@@ -1,11 +1,11 @@
 module
 
-public import LeanQbe.T.LeanLCNF.Lower1
-public import LeanQbe.T.LeanLCNF.Demo
-public import LeanQbe.T.LeanLCNF.Coverage
-public import LeanQbe.T.FlatLemmas
-public import LeanQbe.T.PrintCpp
-public import LeanQbe.T.PrintQbe
+import LeanQbe.T.LeanLCNF.Lower1
+import LeanQbe.T.LeanLCNF.Demo
+import LeanQbe.T.LeanLCNF.Coverage
+import LeanQbe.T.FlatLemmas
+import LeanQbe.T.PrintCpp
+import LeanQbe.T.PrintQbe
 meta import LeanQbe.T.LeanLCNF.Lower1
 meta import LeanQbe.T.LeanLCNF.Demo
 meta import LeanQbe.T.LeanLCNF.Coverage
@@ -45,7 +45,7 @@ Self-contained audit for the Lean 4 impure-LCNF (`LeanQbe.T.LeanLCNF`) frontend 
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LcnfAudit
 

@@ -1,8 +1,8 @@
 module
 
-public import LeanQbe.T.FlatLemmas
-public import LeanQbeTest.T.Examples
-public import LeanQbeTest.T.Smoke
+import LeanQbe.T.FlatLemmas
+import LeanQbeTest.T.Examples
+import LeanQbeTest.T.Smoke
 
 /-!
 # Reification and well-formedness tests
@@ -18,7 +18,7 @@ public import LeanQbeTest.T.Smoke
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbe.T.ReifyTest
 

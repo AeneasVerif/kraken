@@ -1,13 +1,13 @@
 module
 
-public import LeanQbe.T.Arm64.DebugAsm
-public import LeanQbe.T.Arm64.FrameLemmas
-public import LeanQbe.T.Arm64.Litmus
-public import LeanQbe.T.Arm64.TargLemmas
-public import LeanQbe.T.Driver
-public import LeanQbe.T.Examples.LitmusProgs
-public import LeanQbe.T.Notation
-public import LeanQbe.T.Spill
+import LeanQbe.T.Arm64.DebugAsm
+import LeanQbe.T.Arm64.FrameLemmas
+import LeanQbe.T.Arm64.Litmus
+import LeanQbe.T.Arm64.TargLemmas
+import LeanQbe.T.Driver
+import LeanQbe.T.Examples.LitmusProgs
+import LeanQbe.T.Notation
+import LeanQbe.T.Spill
 meta import LeanQbe.T.Arm64.DebugAsm
 meta import LeanQbe.T.Arm64.Frame
 meta import LeanQbe.T.Arm64.Litmus
@@ -36,7 +36,7 @@ Verifies:
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.Arm64LeafZeroTest
 

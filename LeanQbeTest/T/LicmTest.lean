@@ -1,14 +1,14 @@
 module
 
-public import LeanQbe.T.LicmLemmas
-public import LeanQbe.T.OptLemmas
-public import LeanQbe.T.WPLemmas
-public import LeanQbe.T.FlatLemmas
-public import LeanQbe.T.Logic.Rules
-public import LeanQbe.T.Examples.UnionFind
-public import LeanQbe.T.Examples.LratBytes
-public import LeanQbe.T.Examples.LratTrimProg
-public import LeanQbe.T.Examples.Kissat.Plain1
+import LeanQbe.T.LicmLemmas
+import LeanQbe.T.OptLemmas
+import LeanQbe.T.WPLemmas
+import LeanQbe.T.FlatLemmas
+import LeanQbe.T.Logic.Rules
+import LeanQbe.T.Examples.UnionFind
+import LeanQbe.T.Examples.LratBytes
+import LeanQbe.T.Examples.LratTrimProg
+import LeanQbe.T.Examples.Kissat.Plain1
 meta import LeanQbe.T.Licm
 meta import LeanQbe.T.Opt
 meta import LeanQbe.T.Flat

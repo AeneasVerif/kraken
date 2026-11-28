@@ -1,9 +1,9 @@
 module
 
-public import LeanQbe.T.ZeroPeelLemmas
-public import LeanQbe.T.WPLemmas
-public import LeanQbe.T.FlatLemmas
-public import LeanQbe.T.Logic.Rules
+import LeanQbe.T.ZeroPeelLemmas
+import LeanQbe.T.WPLemmas
+import LeanQbe.T.FlatLemmas
+import LeanQbe.T.Logic.Rules
 import LeanQbe.T.ZeroPeel
 
 /-!
@@ -35,7 +35,7 @@ open LeanQbe.T
 /-- Single-block byte-scanning loop modeled on LEB128 varint decoding: returns immediately on a
 byte `<u 128`, otherwise advances `(p + 1, n + 1)` up to `10` bytes. Entry passes `.imm 0`,
 firing `peelSingle` under default `ZeroPeelConfig`. -/
-public def readByteLoop : Func [i64] [.bits 8] := fun _ _ (ptr, ()) =>
+def readByteLoop : Func [i64] [.bits 8] := fun _ _ (ptr, ()) =>
   loop1 (ts := [i64, i64])
     (fun loop (p, n, ()) =>
       .load (.bits 8) (.var p) fun b =>
@@ -76,7 +76,7 @@ theorem readByteLoop_peel_wf : (Func.zeroPeel readByteLoop).Wf := Func.zeroPeel_
 theorem readByteLoop_peel_checkTFlat : Func.checkTFlat (Func.zeroPeel readByteLoop) = true := by
   t_kernel_rfl
 
-public theorem readByteLoop_peel_fast_spec (Γ : Env) (ptr : BitVec 64) (v : BitVec 8)
+theorem readByteLoop_peel_fast_spec (Γ : Env) (ptr : BitVec 64) (v : BitVec 8)
     (hv : v < 128#8) (R : Mem 64 → Prop) (m : Mem 64)
     (hm : (cell (t := .bits 8) ptr v ⋆ R) m) (X : XPost) :
     Func.spec Γ (Func.zeroPeel readByteLoop) (ptr, ()) m
@@ -181,7 +181,7 @@ theorem nestedGuardLoop_zpLoops :
 
 /-- Byte-fill loop (`shift = 0`, `off? = none`, `0#8`, `.ult`): widens into an unrolled `8x i64`
 zero-fill inner loop + enclosing scalar tail loop. -/
-public def memsetZero8 : Func [i64, i64] [i64] := fun _ _ (ptr, n, ()) =>
+def memsetZero8 : Func [i64, i64] [i64] := fun _ _ (ptr, n, ()) =>
   loop1 (ts := [i64])
     (fun loop (i, ()) =>
       .let_ (op2 (.ult i64) (.var i) (.var n)) fun (cond, ()) =>
@@ -266,7 +266,7 @@ theorem memsetZero8_array_spec (Γ : Env) (ptr : BitVec 64) (xs : List (Val (.bi
     refine hJ xs.length (0#64, ()) m ⟨by simp, xs, rfl, ?_, hm⟩
     intro _ hk; simp at hk
 
-public theorem memsetZero8_zeroPeel_array_spec
+theorem memsetZero8_zeroPeel_array_spec
     (Γ : Env) (ptr : BitVec 64) (xs : List (Val (.bits 8)))
     (hxs : xs.length < 2 ^ 64) (R : Mem 64 → Prop) (m : Mem 64)
     (hm : (array ptr xs ⋆ R) m) (X : XPost) :
@@ -388,7 +388,7 @@ private theorem padBranch_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → 
   | succ _ ih => exact .jnz (.imm _) (ih ha ha) (ih hm ha)
 
 /-- Byte zero-fill loop embedded in a `> 600`-node body (`zpSize > 600`, depth `< 25`). -/
-public def bigMemsetZero8 : Func [i64, i64] [i64] := fun V L (ptr, n, ()) =>
+def bigMemsetZero8 : Func [i64, i64] [i64] := fun V L (ptr, n, ()) =>
   padBranch 9 (memsetZero8 V L (ptr, n, ())) (.ret (.imm 0, ()))
 
 theorem bigMemsetZero8_wf : bigMemsetZero8.Wf :=
@@ -405,7 +405,7 @@ theorem bigMemsetZero8_cap600_unchanged :
 theorem bigMemsetZero8_widens_loops :
     ZeroPeel.zpLoops (reifyFunc (Func.zeroPeel bigMemsetZero8)) = 2 := by decide
 
-public theorem bigMemsetZero8_zeroPeel_wf : (Func.zeroPeel bigMemsetZero8).Wf :=
+theorem bigMemsetZero8_zeroPeel_wf : (Func.zeroPeel bigMemsetZero8).Wf :=
   Func.zeroPeel_wf bigMemsetZero8_wf
 
 #print axioms LeanQbe.T.TFlat.wfCheck_zeroPeelWith

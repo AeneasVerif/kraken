@@ -4,13 +4,13 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 module
 
-public import LeanQbe.T.Examples.Kissat.ExportCnfFmt
-public import LeanQbe.T.Examples.Kissat.ExportCnfFmtProof
-public import LeanQbe.T.Examples.LratBytes
-public import LeanQbe.T.InterpKissat
-public import LeanQbe.T.PrintCpp
-public import LeanQbe.T.PrintQbe
-public import LeanQbe.T.Legal
+import LeanQbe.T.Examples.Kissat.ExportCnfFmt
+import LeanQbe.T.Examples.Kissat.ExportCnfFmtProof
+import LeanQbe.T.Examples.LratBytes
+import LeanQbe.T.InterpKissat
+import LeanQbe.T.PrintCpp
+import LeanQbe.T.PrintQbe
+import LeanQbe.T.Legal
 import LeanQbe.T.Logic.MemLemmas
 import Kraken.Separation
 meta import LeanQbe.T.Examples.Kissat.ExportCnfFmt
@@ -66,7 +66,7 @@ open LeanQbe.T.Examples.Kissat.ExportCnfFmt
 
 /-! ## 2. Pure Round-Trip and `interpModule` Functional Checks -/
 
-public section
+section
 
 /-- Concrete byte vector for `"p cnf 0 1\n0\n"` (`12` bytes). -/
 def nvEmptyClauseBytes : List UInt8 :=
@@ -202,7 +202,7 @@ private def checkTruncatedAndSaturating : Bool :=
 
 /-! ## 3. Concrete `Mem 64` WP Non-Vacuity Witnesses (`XPost := False`) -/
 
-public section
+section
 
 /-- Concrete `Mem 64` WP non-vacuity witness emitting `"p cnf 0 1\n0\n"` (`12` bytes) into a
 16-byte buffer at `0x10000`, with `XPost := False`, and verifying `parseDimacs` round-trip. -/

@@ -1,12 +1,12 @@
 module
 
-public import LeanQbe.T.Arm64.TargLemmas
-public import LeanQbe.T.MainLemmas
-public import LeanQbe.T.Driver
-public import LeanQbe.T.MainInline
-public import LeanQbe.T.Examples.Kissat.Plain
-public import LeanQbeTest.T.Arm64DirPreds
-public import LeanQbeTest.T.RegaTestKit
+import LeanQbe.T.Arm64.TargLemmas
+import LeanQbe.T.MainLemmas
+import LeanQbe.T.Driver
+import LeanQbe.T.MainInline
+import LeanQbe.T.Examples.Kissat.Plain
+import LeanQbeTest.T.Arm64DirPreds
+import LeanQbeTest.T.RegaTestKit
 meta import LeanQbe.T.Arm64.TargLemmas
 meta import LeanQbe.T.MainLemmas
 meta import LeanQbe.T.Driver
@@ -14,7 +14,7 @@ meta import LeanQbe.T.MainInline
 meta import LeanQbe.T.Examples.Kissat.Plain
 meta import LeanQbeTest.T.Arm64DirPreds
 meta import LeanQbeTest.T.RegaTestKit
-public meta import Kraken.AArch64.Print
+meta import Kraken.AArch64.Print
 
 /-!
 # Arm64 Wave 6.2-A (`OPT-7` + `OPT-10`) Activation Tests
@@ -37,7 +37,7 @@ Wave 6.2-A `GprIsa` hooks switched off (`armIsaNoOpt710`):
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.Arm64W62Opt710Test
 
@@ -47,7 +47,7 @@ open LeanQbeTest.T.RegaTestKit LeanQbeTest.T.Arm64DirPreds
 /-! ## 1. Compilation & Inspection Helpers -/
 
 /-- `armTarget.toIsa` with every Wave 6.2-A `OPT-7` / `OPT-10` hook switched off. -/
-@[expose] meta def armIsaNoOpt710 : Isa :=
+meta def armIsaNoOpt710 : Isa :=
   { armTarget.toIsa with
     gpr :=
       { armGpr with

@@ -1,11 +1,11 @@
 module
 
-public import LeanQbe.T.Amd64.TargLemmas
-public import LeanQbe.T.TailDupLemmas
-public import LeanQbe.T.Spill
-public import LeanQbe.T.Main
-public import LeanQbe.T.Examples.Kissat.Plain
-public import LeanQbeTest.T.RegaTestKit
+import LeanQbe.T.Amd64.TargLemmas
+import LeanQbe.T.TailDupLemmas
+import LeanQbe.T.Spill
+import LeanQbe.T.Main
+import LeanQbe.T.Examples.Kissat.Plain
+import LeanQbeTest.T.RegaTestKit
 meta import LeanQbe.T.Amd64.TargLemmas
 meta import LeanQbe.T.TailDup
 meta import LeanQbe.T.Spill

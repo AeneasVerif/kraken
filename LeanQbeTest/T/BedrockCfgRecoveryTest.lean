@@ -1,7 +1,8 @@
 module
 
-public import LeanQbe.T.Unified.CfgRecoveryProof
-public meta import LeanQbe.T.Unified.CfgRecovery
+import LeanQbe.T.Unified.CfgRecovery
+import LeanQbe.T.Unified.CfgRecoveryProof
+meta import LeanQbe.T.Unified.CfgRecovery
 import LeanQbe.T.FlatLemmas
 import LeanQbe.T.Unified.CfgRecoveryLemmas
 
@@ -29,6 +30,12 @@ namespace LeanQbeTest.T.BedrockCfgRecoveryTest
 open LeanQbe.T
 open LeanQbe.T.BedrockWord
 open LeanQbe.T.Unified
+
+@[local simp] private theorem allPcs_leaf (pc : BitVec 64) :
+    GroupTree.allPcs (.leaf pc) = [pc] := GroupTree.allPcs.eq_1 pc
+
+@[local simp] private theorem allPcs_loop (h : BitVec 64) (ns : List GroupTree) :
+    GroupTree.allPcs (.loop h ns) = ns.flatMap GroupTree.allPcs := GroupTree.allPcs.eq_2 h ns
 
 def mkEntry (nm : Sym) (addr : BitVec 64) (b : BlockP) : CodeEntry :=
   ⟨nm, addr, reifyBlock b⟩
@@ -108,7 +115,7 @@ theorem stride_un_check : strideUnWit.check cmStrideUnguarded = true := by
   dsimp only [strideUnWit, CfgWitness.check, CfgWitness.checkAux, RegionWitness.check,
     RegionWitness.allPcs]
   have h1 : strideUnRw.tree.flatMap GroupTree.allPcs = [0#64, 8#64, 16#64, 24#64] := by
-    simp [strideUnRw, GroupTree.allPcs]
+    simp [strideUnRw]
   have h2 : List.flatMap RegionWitness.allPcs [strideUnRw] = [0#64, 8#64, 16#64, 24#64] := by
     simp [RegionWitness.allPcs, h1]
   rw [h1, h2]
@@ -237,7 +244,7 @@ theorem stride_gu_check : strideGuWit.check cmStrideGuarded = true := by
   dsimp only [strideGuWit, CfgWitness.check, CfgWitness.checkAux, RegionWitness.check,
     RegionWitness.allPcs]
   have h1 : strideGuRw.tree.flatMap GroupTree.allPcs = [0#64, 8#64, 16#64] := by
-    simp [strideGuRw, GroupTree.allPcs]
+    simp [strideGuRw]
   have h2 : List.flatMap RegionWitness.allPcs [strideGuRw] = [0#64, 8#64, 16#64] := by
     simp [RegionWitness.allPcs, h1]
   rw [h1, h2]
@@ -320,9 +327,9 @@ def loopWit : CfgWitness := ⟨[loopHelperRw, loopMainRw]⟩
 theorem loop_while_check : loopWit.check cmLoopWhile = true := by
   refine check_two_regions_true cmLoopWhile loopHelperRw loopMainRw
     [0#64] [8#64, 16#64, 24#64] [0#64, 8#64, 16#64, 24#64]
-    (by simp [loopHelperRw, RegionWitness.allPcs, GroupTree.allPcs])
-    (by simp [loopMainRw, RegionWitness.allPcs, GroupTree.allPcs])
-    (by simp [RegionWitness.allPcs, loopHelperRw, loopMainRw, GroupTree.allPcs]) ?_
+    (by simp [loopHelperRw, RegionWitness.allPcs])
+    (by simp [loopMainRw, RegionWitness.allPcs])
+    (by simp [RegionWitness.allPcs, loopHelperRw, loopMainRw]) ?_
   t_kernel_rfl
 
 theorem loop_while_lift_eq :
@@ -453,9 +460,9 @@ def dualWit : CfgWitness := ⟨[dualCalleeRw, dualCallerRw]⟩
 theorem dual_ret_check : dualWit.check cmDualRet = true := by
   refine check_two_regions_true cmDualRet dualCalleeRw dualCallerRw
     [0#64] [8#64, 16#64, 24#64] [0#64, 8#64, 16#64, 24#64]
-    (by simp [dualCalleeRw, RegionWitness.allPcs, GroupTree.allPcs])
-    (by simp [dualCallerRw, RegionWitness.allPcs, GroupTree.allPcs])
-    (by simp [RegionWitness.allPcs, dualCalleeRw, dualCallerRw, GroupTree.allPcs]) ?_
+    (by simp [dualCalleeRw, RegionWitness.allPcs])
+    (by simp [dualCallerRw, RegionWitness.allPcs])
+    (by simp [RegionWitness.allPcs, dualCalleeRw, dualCallerRw]) ?_
   t_kernel_rfl
 
 theorem dual_ret_lift_eq :
@@ -561,7 +568,7 @@ theorem hybrid_check : hybridWit.check cmHybrid = true := by
   dsimp only [hybridWit, CfgWitness.check, CfgWitness.checkAux, RegionWitness.check,
     RegionWitness.allPcs]
   have h1 : hybridRw.tree.flatMap GroupTree.allPcs = [0#64, 8#64, 16#64, 24#64, 32#64] := by
-    simp [hybridRw, GroupTree.allPcs]
+    simp [hybridRw]
   have h2 : List.flatMap RegionWitness.allPcs [hybridRw] = [0#64, 8#64, 16#64, 24#64, 32#64] := by
     simp [RegionWitness.allPcs, h1]
   rw [h1, h2]
@@ -571,11 +578,11 @@ theorem hybrid_res_eq :
     residualCodeMap cmHybrid hybridWit =
       [mkEntry "cold_fallback" 40#64 (fun _ r => .halt (.var r.r3))] := by
   have h1 : hybridRw.allPcs = [0#64, 8#64, 16#64, 24#64, 32#64] := by
-    simp [RegionWitness.allPcs, hybridRw, GroupTree.allPcs]
+    simp [RegionWitness.allPcs, hybridRw]
   have h2 : List.flatMap RegionWitness.allPcs
       (List.filter (fun r => !r.retainFallbacks) hybridWit.regions) =
       [0#64, 8#64, 16#64, 24#64, 32#64] := by
-    simp [hybridWit, hybridRw, RegionWitness.allPcs, GroupTree.allPcs]
+    simp [hybridWit, hybridRw, RegionWitness.allPcs]
   dsimp only [residualCodeMap]
   rw [h2]
   simp [hybridWit, hybridRw, cmHybrid, mkEntry]
@@ -628,7 +635,7 @@ theorem hybrid_sound_holds :
   · intro rw hRw _ pc hPc hNe _ _
     simp only [hybridWit, List.mem_singleton] at hRw
     subst hRw
-    simp [hybridRw, RegionWitness.allPcs, GroupTree.allPcs] at hPc
+    simp [hybridRw, RegionWitness.allPcs] at hPc
     rcases hPc with rfl | rfl | rfl | rfl | rfl
     · exact absurd rfl hNe
     · intro h40; cases h40

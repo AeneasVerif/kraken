@@ -1,20 +1,18 @@
 module
 
-public import LeanQbe.T.Xcap.Bridge
-public import LeanQbe.T.MainCertProof
-public import LeanQbe.T.Arm64.TargLemmas
-public import LeanQbe.T.MainSplice
-public import LeanQbe.T.MainLinkSplice
-public import LeanQbe.T.Logic.ProofKit
-public import LeanQbeTest.T.XcapBridgeTest
+import LeanQbe.T.Xcap.Bridge
+import LeanQbe.T.MainCertProof
+import LeanQbe.T.Arm64.TargLemmas
+import LeanQbe.T.MainSplice
+import LeanQbe.T.MainLinkSplice
+import LeanQbe.T.Logic.ProofKit
+import LeanQbeTest.T.XcapBridgeTest
 import LeanQbe.T.FlatLemmas
 import LeanQbe.T.Logic.MemLemmas
-public meta import Lean
-public meta import LeanQbe.T.MainCertElab
-public meta import LeanQbe.T.MainSplice
-public meta import LeanQbe.T.MainLinkSplice
-public meta import LeanQbe.T.Arm64.Targ
-public meta import LeanQbeTest.T.XcapBridgeTest
+meta import Lean
+import LeanQbe.T.MainCertElab
+meta import LeanQbe.T.Arm64.Targ
+meta import LeanQbeTest.T.XcapBridgeTest
 
 /-!
 # Concrete AAPCS64 Arm64 Dual-Direction `Xcap.Bridge` Test (`XcapBridgeArm64Test`)
@@ -38,7 +36,7 @@ Exercises `LeanQbe.T.Xcap.Bridge` end-to-end on `armTarget` (`armLegalTarget`, `
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.XcapBridgeArm64Test
 
@@ -164,7 +162,7 @@ theorem armCombinedProg_small : armLayout.progSmall armCombinedProg = true := by
 theorem armCombinedProg_nodup : armLayout.labelsNodup armCombinedProg = true := by t_kernel_rfl
 
 /-- Concrete Kraken Arm64 `Host` laying out both the opaque XCAP block and compiled caller. -/
-@[expose, instance_reducible] def armCombinedHost : armTarget.mach.Host :=
+@[instance_reducible] def armCombinedHost : armTarget.mach.Host :=
   armLayout.layoutOf armCombinedProg armCombinedProg_small
 
 theorem armCombinedHost_labelsUnique : armTarget.LabelsUnique armCombinedHost :=

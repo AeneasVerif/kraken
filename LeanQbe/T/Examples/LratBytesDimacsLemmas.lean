@@ -2,7 +2,7 @@ module
 
 public import LeanQbe.T.Examples.LratBytesSpec
 import Kraken.SeparationTactics
-import all Kraken.Separation
+import Kraken.Separation
 import LeanQbe.T.Logic.C0HeadStep
 meta import LeanQbe.T.Logic.C0HeadStep
 import LeanQbe.T.Logic.ControlComb
@@ -392,11 +392,18 @@ theorem lbParseDimacsHeader_correct (Γ : Env) :
     fun nc i6 bs7 hbs7 hnc _ _ hd6 => ?_
   have hph_ok : parseHeader cnfBytes = some (mv, nc, bs7) := by
     rw [hph2]; simp [parseHeaderAfterCnf, hbs4, hbs5, hbs6, hbs7]
-  obtain ⟨f1, f2, hu, hd_m, hf1, hf2⟩ :=
+  have hm0_ex := sep_mono (fun _ => region80_to_words10)
     (sep_ac hm : (region hdr 80 ⋆ (Eq (cnfBytes.At cnf_ptr) ⋆ R)) m)
-  obtain ⟨w0, w1, w2, w3, w4, w5, w6, w7, w8, w9, hwa⟩ := region80_to_words10 hf1
-  have hm0 : (word8Array hdr [w0, w1, w2, w3, w4, w5, w6, w7, w8, w9] ⋆
-      (Eq (cnfBytes.At cnf_ptr) ⋆ R)) m := ⟨f1, f2, hu, hd_m, hwa, hf2⟩
+  obtain ⟨w0, hm0_ex⟩ := sep_ex_l.mp hm0_ex
+  obtain ⟨w1, hm0_ex⟩ := sep_ex_l.mp hm0_ex
+  obtain ⟨w2, hm0_ex⟩ := sep_ex_l.mp hm0_ex
+  obtain ⟨w3, hm0_ex⟩ := sep_ex_l.mp hm0_ex
+  obtain ⟨w4, hm0_ex⟩ := sep_ex_l.mp hm0_ex
+  obtain ⟨w5, hm0_ex⟩ := sep_ex_l.mp hm0_ex
+  obtain ⟨w6, hm0_ex⟩ := sep_ex_l.mp hm0_ex
+  obtain ⟨w7, hm0_ex⟩ := sep_ex_l.mp hm0_ex
+  obtain ⟨w8, hm0_ex⟩ := sep_ex_l.mp hm0_ex
+  obtain ⟨w9, hm0⟩ := sep_ex_l.mp hm0_ex
   c0_hsteps; simp only [List.set_cons_zero] at hm
   apply hpost; rw [hph_ok]
   have hi6_eq : cnfBytes.length - bs7.length = i6 := by rw [← hd6, List.length_drop]; omega

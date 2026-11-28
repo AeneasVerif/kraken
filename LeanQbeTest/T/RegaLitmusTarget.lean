@@ -3,8 +3,9 @@ module
 public import LeanQbe.T.TargetLemmas
 public import LeanQbe.T.Logic.MemLemmas
 public import LeanQbe.T.Logic.Bytes
-import all Kraken.Mem
+import Kraken.Mem
 import LeanQbe.T.AbiLemmas
+import LeanQbe.T.ZeroPeelLemmas1
 
 /-!
 # A Small Executable x64-Flavoured `Target` for the `Rega` Litmus Suite
@@ -116,15 +117,14 @@ inductive Instr where
 /-- Byte-memory interface: the real machine uses `Mem 64`; concrete witnesses use the
 kernel-reducible `FMem` (see `RegaLitmusTest.lean`). -/
 structure MemOps (M : Type) where
-  get : M → BitVec 64 → Option UInt8
+  loadInt : M → BitVec 64 → Nat → Option Int
   put : M → BitVec 64 → List UInt8 → M
 
-def memOps : MemOps (Mem 64) := ⟨fun m k => m.get? k, Mem.storeBytes⟩
+def memOps : MemOps (Mem 64) := ⟨Mem.loadInt, Mem.storeBytes⟩
 
 /-- `loadVal`, generic in the memory (definitionally `loadVal` for `memOps`). -/
 def loadValG {M : Type} (ops : MemOps M) (m : M) (t : Ty) (a : BitVec 64) : Option (Val t) :=
-  ((((List.range t.bytes).map fun i => ops.get m (a + BitVec.ofNat 64 i)).mapM id).map
-      Int.ofBytes).bind fun i =>
+  (ops.loadInt m a t.bytes).bind fun i =>
     match t with
     | .bool => if i == 0 || i == 1 then some (i == 1) else none
     | .bits n => some (ofBits (.bits n) (BitVec.ofInt n i))
@@ -525,11 +525,10 @@ def frameIsa : FrameIsa Nat Instr where
 
 @[simp] theorem loadValG_memOps (m : Mem 64) (t : Ty) (a : BitVec 64) :
     loadValG memOps m t a = loadVal m t a := by
-  simp only [loadValG, loadVal, Mem.loadInt, Mem.loadBytes, memOps]
   cases t <;> rfl
 @[simp] theorem storeMemG_memOps (m : Mem 64) (t : Ty) (a : BitVec 64) (v : Val t) :
-    storeMemG memOps m t a v = storeMem m t a v := by
-  simp only [storeMemG, storeMem, Mem.storeInt, memOps]
+    storeMemG memOps m t a v = storeMem m t a v :=
+  (ZeroPeel.storeMem_eq_storeBytes m t a v).symm
 
 theorem exec_fetch {h : LHost} {k : Nat} {i : Instr} (s : MData) (hi : h.prog[k]? = some i) :
     exec h (s, k) = execI memOps h s k i := by

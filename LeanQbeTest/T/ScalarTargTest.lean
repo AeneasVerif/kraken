@@ -1,14 +1,14 @@
 module
 
-public import LeanQbe.T.Amd64.ScalarTarg
-public import LeanQbe.T.MainCertProof
-public import LeanQbe.T.FlatLemmas
-public import LeanQbe.T.Notation
-public import LeanQbe.T.Logic.Rules
+import LeanQbe.T.Amd64.ScalarTarg
+import LeanQbe.T.MainCertProof
+import LeanQbe.T.FlatLemmas
+import LeanQbe.T.Notation
+import LeanQbe.T.Logic.Rules
 import LeanQbe.T.Logic.MemLemmas
-public meta import Lean
-public meta import LeanQbe.T.MainCertElab
-public meta import LeanQbe.T.Amd64.ScalarTarg
+meta import Lean
+meta import LeanQbe.T.MainCertElab
+meta import LeanQbe.T.Amd64.ScalarTarg
 
 /-!
 # Verification Suite for Scalar x64 Target Firewall (`x64ScalarTarget`)
@@ -26,7 +26,7 @@ Verifies `LeanQbe.T.Amd64.ScalarTarg`:
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.ScalarTargTest
 

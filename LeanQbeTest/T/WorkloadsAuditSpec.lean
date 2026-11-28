@@ -1,8 +1,8 @@
 module
 
-public import LeanQbe.T.Examples.ChaCha
-public import LeanQbe.T.Examples.Bignum
-public import LeanQbe.T.Examples.UnionFindLemmas
+import LeanQbe.T.Examples.ChaCha
+import LeanQbe.T.Examples.Bignum
+import LeanQbe.T.Examples.UnionFindLemmas
 import LeanQbe.T.Logic.MemLemmas
 meta import LeanQbe.T.Examples.ChaCha
 meta import LeanQbe.T.Examples.Bignum
@@ -47,7 +47,7 @@ systems/cryptographic workloads in `LeanQbe.T`. Architecture-independent (import
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace WorkloadsAuditSpec
 

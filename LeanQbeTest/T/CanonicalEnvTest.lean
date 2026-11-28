@@ -1,7 +1,7 @@
 module
 
-public import LeanQbe.T.Logic.CanonicalEnv
-public import LeanQbe.T.FlatLemmas
+import LeanQbe.T.Logic.CanonicalEnv
+import LeanQbe.T.FlatLemmas
 meta import Lean.Elab.Command
 
 /-!
@@ -34,15 +34,15 @@ open LeanQbe.T
 
 /-! ## 1. Toy Multi-Segment Module: `Env.Has`, `Spec.or`, `Spec.iUnion`, `SegCert` -/
 
-public section
+section
 
 /-- Leaf function: returns `x + 1`. -/
-@[expose] def incFn : Fn :=
+def incFn : Fn :=
   ⟨"inc", [i64], [i64], fun _ _ (x, ()) =>
     .let_ (op2 (.add i64) (.var x) (.imm 1#64)) fun (y, ()) => .ret (.var y, ())⟩
 
 /-- Multi-mode function: if `mode = 0`, returns `x + 10`; otherwise returns `x + x`. -/
-@[expose] def modeFn : Fn :=
+def modeFn : Fn :=
   ⟨"mode", [i64, i64], [i64], fun _ _ (md, x, ()) =>
     .let_ (op2 (.eq i64) (.var md) (.imm 0#64)) fun (c, ()) =>
     .jnz (.var c)
@@ -50,14 +50,14 @@ public section
       (.let_ (op2 (.add i64) (.var x) (.var x)) fun (y, ()) => .ret (.var y, ()))⟩
 
 /-- Caller in Segment 1 using mode 0 of `modeFn` and `incFn`. -/
-@[expose] def call0Fn : Fn :=
+def call0Fn : Fn :=
   ⟨"call0", [i64], [i64], fun _ _ (x, ()) =>
     .call "inc" (as := [i64]) (bs := [i64]) (.var x, ()) fun (y, ()) =>
     .call "mode" (as := [i64, i64]) (bs := [i64]) (.imm 0#64, .var y, ()) fun (z, ()) =>
     .ret (.var z, ())⟩
 
 /-- Caller in Segment 1 using mode 1 of `modeFn`. -/
-@[expose] def call1Fn : Fn :=
+def call1Fn : Fn :=
   ⟨"call1", [i64], [i64], fun _ _ (x, ()) =>
     .call "mode" (as := [i64, i64]) (bs := [i64]) (.imm 1#64, .var x, ()) fun (z, ()) =>
     .ret (.var z, ())⟩
@@ -261,14 +261,13 @@ theorem iunion_ok :
 
 /-! ## 3. Mandatory `CS0` Kernel Timing Gate (`410` Functions / `40` Segments) -/
 
+meta section
 open Lean Elab Command in
 /-- Generate a `410`-function acyclic DAG (`40` segments: `30×10 + 10×11`) with up to `5`
 cross-segment call edges per function (~`1,900` total edges), proving `Fn.Wf`, `f_wp`, `mem`,
 `has`, `SegCert`, `checkAcyclicTrie`, `nodup_of_checkAcyclicTrie`, `ModuleOk.ofCanonical`,
 `ModuleOk.ofCanonicalTrie`, and `Env.Sat.ofTable` lookups under `set_option trace.profiler true`. -/
-elab "gen_410_gate " pfx:ident sizes:num* : command => do
-  let ns := pfx.getId.toString
-  let segSizes := sizes.toList.map (·.getNat)
+private def gen410Gate (ns : String) (segSizes : List Nat) : CommandElabM Unit := do
   let total := segSizes.foldl (· + ·) 0
   let offsets := [1, 7, 19, 43, 97]
   let mut fnSeg : Array Nat := #[]
@@ -304,7 +303,7 @@ elab "gen_410_gate " pfx:ident sizes:num* : command => do
         wfBodyStx ← `(term|
           Wf.call $cSym (TRel.cons' (ArgRel.var (.head _)) .nil') fun _ _ => $wfBodyStx)
       elabCommand (← `(command|
-        @[expose] def $fnNm : Fn := ⟨$symLit, [i64], [i64], fun _ _ x => $bodyStx⟩))
+        def $fnNm : Fn := ⟨$symLit, [i64], [i64], fun _ _ x => $bodyStx⟩))
       elabCommand (← `(command|
         theorem $wfNm : Fn.Wf $fnNm := fun _ _ _ _ _ _ => $wfBodyStx))
       elabCommand (← `(command|
@@ -519,11 +518,14 @@ elab "gen_410_gate " pfx:ident sizes:num* : command => do
     theorem $satLastNm : (Env.ofTable $tblNm).Has $lastSym $lastSpec :=
       $lastHas $satProj))
 
-gen_410_gate g410
-  10 10 10 10 10 10 10 10 10 10
-  10 10 10 10 10 10 10 10 10 10
-  10 10 10 10 10 10 10 10 10 10
-  11 11 11 11 11 11 11 11 11 11
+end
+
+run_cmd do
+  gen410Gate "g410"
+    [10, 10, 10, 10, 10, 10, 10, 10, 10, 10,
+     10, 10, 10, 10, 10, 10, 10, 10, 10, 10,
+     10, 10, 10, 10, 10, 10, 10, 10, 10, 10,
+     11, 11, 11, 11, 11, 11, 11, 11, 11, 11]
 
 theorem g410_len : g410_fns.length = 410 ∧ g410_tbl.length = 410 :=
   ⟨by t_kernel_rfl, by t_kernel_rfl⟩

@@ -4,16 +4,16 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 module
 
-public import LeanQbe.T.IfOptLemmas
-public import LeanQbe.T.OptFlatCfgLemmas
-public import LeanQbe.T.WPLemmas
-public import LeanQbe.T.FlatLemmas
+import LeanQbe.T.IfOptLemmas
+import LeanQbe.T.OptFlatCfgLemmas
+import LeanQbe.T.WPLemmas
+import LeanQbe.T.FlatLemmas
 import LeanQbe.T.OpsLemmas
-public meta import LeanQbe.T.Examples.Kissat.Plain
-public meta import LeanQbe.T.Inline
-public meta import LeanQbe.T.Driver
-public meta import LeanQbe.T.Arm64.Isa
-public meta import Kraken.AArch64.Print
+meta import LeanQbe.T.Examples.Kissat.Plain
+meta import LeanQbe.T.Inline
+meta import LeanQbe.T.Driver
+meta import LeanQbe.T.Arm64.Isa
+meta import Kraken.AArch64.Print
 
 /-!
 # Wave 6.1-C (`OPT-3` Compare Sinking next to `.select`) Tests
@@ -36,7 +36,7 @@ Covers:
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.OptW61IfOptCmpSinkTest
 

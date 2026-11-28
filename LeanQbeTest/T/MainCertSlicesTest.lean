@@ -1,23 +1,23 @@
 module
 
-public import LeanQbe.T.MainCertSlices
-public import LeanQbe.T.MainCertInline
-public import LeanQbe.T.Amd64.TargLemmas
-public import LeanQbe.T.Amd64.KissatAbi
-public import LeanQbe.T.Examples.Kissat.KissatAbiCommon
-public import LeanQbe.T.Examples.Kissat.Build.Common.CertParamCommon
-public import LeanQbe.T.Examples.Kissat.Proof.Spec.SatNv1
-public import LeanQbe.T.Logic.MemLemmas
-public import LeanQbeTest.T.Common.Fixtures
-public import Std.Sat.CNF
+import LeanQbe.T.MainCertSlices
+import LeanQbe.T.MainCertInline
+import LeanQbe.T.Amd64.TargLemmas
+import LeanQbe.T.Amd64.KissatAbi
+import LeanQbe.T.Examples.Kissat.KissatAbiCommon
+import LeanQbe.T.Examples.Kissat.Build.Common.CertParamCommon
+import LeanQbe.T.Examples.Kissat.Proof.Spec.SatNv1
+import LeanQbe.T.Logic.MemLemmas
+import LeanQbeTest.T.Common.Fixtures
+import Std.Sat.CNF
 import LeanQbe.T.FlatLemmas
 import Kraken.Mem
 import Kraken.Separation
-public meta import Lean
-public meta import LeanQbe.T.MainCertElab
-public meta import LeanQbe.T.MainCertInline
-public meta import LeanQbe.T.Amd64.Targ
-public meta import LeanQbeTest.T.Common.Fixtures
+meta import Lean
+import LeanQbe.T.MainCertElab
+meta import LeanQbe.T.MainCertInline
+meta import LeanQbe.T.Amd64.Targ
+meta import LeanQbeTest.T.Common.Fixtures
 
 /-!
 # Additive Slice-List Certificate & Kissat ABI Common Tests (`MainCertSlicesTest`)
@@ -43,7 +43,7 @@ Tests all additive M8+ certificate infrastructure (`0` dual-arch co-imports, `st
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.MainCertSlicesTest
 

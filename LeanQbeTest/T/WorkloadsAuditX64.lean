@@ -1,8 +1,8 @@
 module
 
-public import LeanQbe.T.Amd64.ChaCha
-public import LeanQbe.T.Amd64.Bignum
-public import LeanQbe.T.Amd64.UnionFind
+import LeanQbe.T.Amd64.ChaCha
+import LeanQbe.T.Amd64.Bignum
+import LeanQbe.T.Amd64.UnionFind
 import LeanQbe.T.Logic.MemLemmas
 
 /-!
@@ -44,7 +44,7 @@ Curve25519 bignum kernels (`mul4x4` using `mulx`/`adcx`/`adox` with zero `setcc`
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace WorkloadsAuditX64
 

@@ -8,7 +8,7 @@ public import LeanQbe.T.LeanLCNF.LcnfC0ContainersProof1
 public import LeanQbe.T.LeanLCNF.LcnfC0ContainersProof2
 public import LeanQbe.T.LeanLCNF.LcnfC0ContainersProof3
 import LeanQbe.T.Logic.ControlComb
-import all Kraken.Separation
+import Kraken.Separation
 
 /-!
 # Soundness Proofs for `LcnfC0Strings`, Part 2b: `lcnf_string_pos_op`

@@ -1,13 +1,13 @@
 module
 
-public import LeanQbe.T.MainCertCore
-public import LeanQbe.T.MainCertFlat
-public import LeanQbe.T.Amd64.TargLemmas
-public import LeanQbeTest.T.CompilerCoverageFixture
-public meta import Lean
-public meta import LeanQbe.T.MainCertElab
-public meta import LeanQbe.T.MainCertFlatElab
-public meta import LeanQbe.T.Amd64.Targ
+import LeanQbe.T.MainCertCore
+import LeanQbe.T.MainCertFlat
+import LeanQbe.T.Amd64.TargLemmas
+import LeanQbeTest.T.CompilerCoverageFixture
+meta import Lean
+import LeanQbe.T.MainCertElab
+import LeanQbe.T.MainCertFlatElab
+meta import LeanQbe.T.Amd64.Targ
 
 /-!
 # SysV x64 Compiler Coverage Ops/SIMD & Parity Test (`CompilerCoverageX64OpsTest`)
@@ -21,7 +21,7 @@ Compiles `covX64OpsMod` (shared scalar/cmp/bool/select ops + x64 `clz`/`cls`/`ct
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.CompilerCoverageX64OpsTest
 

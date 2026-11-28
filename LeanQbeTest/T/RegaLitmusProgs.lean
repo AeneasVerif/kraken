@@ -1,11 +1,12 @@
 module
 
 public import LeanQbeTest.T.RegaLitmusTarget
-public import LeanQbe.T.FlatLemmas
+public import LeanQbe.T.Wf
+import LeanQbe.T.FlatLemmas
 public import LeanQbe.T.Spill
-public meta import Lean
-public meta import LeanQbe.T.Spill
-public meta import LeanQbeTest.T.RegaLitmusTarget
+meta import Lean
+meta import LeanQbe.T.Spill
+meta import LeanQbeTest.T.RegaLitmusTarget
 
 /-!
 # `Rega` Litmus Programs, Untrusted `Spill` Hints, and Kernel-Checked Lowering
@@ -17,10 +18,10 @@ program (`t_kernel_rfl`).
 
 set_option autoImplicit false
 
-@[expose] public section
-
 namespace LeanQbe.T.RegaLitmus
 open LeanQbe.T
+
+@[expose] public section
 
 abbrev v2i32 : Ty := Ty.vec 1 i32
 
@@ -191,25 +192,27 @@ def extCarryCall : Rega.Ext := { callees := [("inc", [i64], [i64])] }
 /-! ## 4. External Untrusted Hint & Code Splicing (`ToExpr`, zero kernel oracle execution) -/
 
 meta section
-open Lean Elab Command Term Meta
-
-/-- `splice_lower_on isaTerm h c (hintsTerm) (extTerm) fn` evaluates `hintsTerm` and
-`Rega.lowerFn isaTerm hints ext fn` in the interpreter and adds the results as literal
-definitions `h` and `c`. -/
-elab "splice_lower_on " iT:ident hName:ident cName:ident "(" hT:term ")" "(" eT:term ")"
-    fnId:ident : command => do
-  let hDeclNm := (← getCurrNamespace) ++ hName.getId
-  let cDeclNm := (← getCurrNamespace) ++ cName.getId
+open Lean Elab Command Term Meta in
+private def spliceLowerOn (iNm : Name) (hName cName : Name) (extNm : Option Name) (fnNm : Name) :
+    CommandElabM Unit := do
+  let ns ← getCurrNamespace
+  let hDeclNm := ns ++ hName
+  let cDeclNm := ns ++ cName
   let hTy := mkApp3 (mkConst ``Hints) (mkConst ``Nat) (mkConst ``Nat) (mkConst ``Cond)
   let cTy := mkApp (mkConst ``List [0]) (mkConst ``Instr)
   let (hExpr, cExpr) ← liftTermElabM do
-    let hTerm ← elabTerm hT (some hTy)
+    let iId := mkIdent iNm
+    let fId := mkIdent (ns ++ fnNm)
+    let hTerm ← elabTerm (← `(Spill.hints $iId $fId)) (some hTy)
     let hVal ← unsafe evalExpr (Hints Nat Nat Cond) hTy hTerm
     let hLit := toExpr hVal
     let resTy := mkApp2 (mkConst ``Except [0, 0]) (mkConst ``String) cTy
-    let isaE ← elabTerm iT none
-    let fnE ← elabTerm fnId none
-    let extE ← elabTerm eT (some (mkConst ``Rega.Ext))
+    let isaE ← elabTerm iId none
+    let fnE ← elabTerm fId none
+    let extStx ← match extNm with
+      | none => `({})
+      | some nm => pure (mkIdent (ns ++ nm))
+    let extE ← elabTerm extStx (some (mkConst ``Rega.Ext))
     let lowerTerm := mkApp4 (mkConst ``Rega.lowerFn) isaE hLit extE fnE
     let resVal ← unsafe evalExpr (Except String (List Instr)) resTy lowerTerm
     match resVal with
@@ -222,35 +225,31 @@ elab "splice_lower_on " iT:ident hName:ident cName:ident "(" hT:term ")" "(" eT:
     let cDecl := Declaration.defnDecl {
       name := cDeclNm, levelParams := [], type := cTy, value := cExpr,
       hints := .abbrev, safety := .safe }
-    -- exported with their bodies (kernel-unfoldable from importing modules) and compiled
     addDecl hDecl (forceExpose := true)
     addDecl cDecl (forceExpose := true)
     compileDecl hDecl
     compileDecl cDecl
 
-macro "splice_lower " hName:ident cName:ident "(" hT:term ")" "(" eT:term ")" fnId:ident :
-    command =>
-  `(splice_lower_on isa $hName $cName ($hT) ($eT) $fnId)
-
+run_cmd do
+  let isaNm := ``isa
+  let addrIsaNm := ``addrIsa
+  spliceLowerOn isaNm `hintsBranches `codeBranches none `fnBranches
+  spliceLowerOn isaNm `hintsLoop `codeLoop none `fnLoop
+  spliceLowerOn isaNm `hintsEvenOdd `codeEvenOdd none `fnEvenOdd
+  spliceLowerOn isaNm `hintsNested `codeNested none `fnNested
+  spliceLowerOn isaNm `hintsPairLoop `codePairLoop none `fnPairLoop
+  spliceLowerOn isaNm `hintsVecLoop `codeVecLoop none `fnVecLoop
+  spliceLowerOn isaNm `hintsInc `codeInc none `fnInc
+  spliceLowerOn isaNm `hintsCarryCall `codeCarryCall (some `extCarryCall) `fnCarryCall
+  spliceLowerOn isaNm `hintsBits8 `codeBits8 none `fnBits8
+  spliceLowerOn isaNm `hintsCmpJcc `codeCmpJcc none `fnCmpJcc
+  spliceLowerOn isaNm `hintsAdcChain `codeAdcChain none `fnAdcChain
+  spliceLowerOn isaNm `hintsAdcxAdox `codeAdcxAdox none `fnAdcxAdox
+  spliceLowerOn isaNm `hintsCfLoop `codeCfLoop none `fnCfLoop
+  spliceLowerOn addrIsaNm `hintsAddrDisp `codeAddrDisp none `fnAddrDisp
+  spliceLowerOn addrIsaNm `hintsAddrCall `codeAddrCall (some `extCarryCall) `fnAddrCall
+  spliceLowerOn addrIsaNm `hintsAddrSib `codeAddrSib none `fnAddrSib
 end
-
-splice_lower hintsBranches codeBranches (Spill.hints isa fnBranches) ({}) fnBranches
-splice_lower hintsLoop codeLoop (Spill.hints isa fnLoop) ({}) fnLoop
-splice_lower hintsEvenOdd codeEvenOdd (Spill.hints isa fnEvenOdd) ({}) fnEvenOdd
-splice_lower hintsNested codeNested (Spill.hints isa fnNested) ({}) fnNested
-splice_lower hintsPairLoop codePairLoop (Spill.hints isa fnPairLoop) ({}) fnPairLoop
-splice_lower hintsVecLoop codeVecLoop (Spill.hints isa fnVecLoop) ({}) fnVecLoop
-splice_lower hintsInc codeInc (Spill.hints isa fnInc) ({}) fnInc
-splice_lower hintsCarryCall codeCarryCall (Spill.hints isa fnCarryCall) (extCarryCall) fnCarryCall
-splice_lower hintsBits8 codeBits8 (Spill.hints isa fnBits8) ({}) fnBits8
-splice_lower hintsCmpJcc codeCmpJcc (Spill.hints isa fnCmpJcc) ({}) fnCmpJcc
-splice_lower hintsAdcChain codeAdcChain (Spill.hints isa fnAdcChain) ({}) fnAdcChain
-splice_lower hintsAdcxAdox codeAdcxAdox (Spill.hints isa fnAdcxAdox) ({}) fnAdcxAdox
-splice_lower hintsCfLoop codeCfLoop (Spill.hints isa fnCfLoop) ({}) fnCfLoop
-splice_lower_on addrIsa hintsAddrDisp codeAddrDisp (Spill.hints addrIsa fnAddrDisp) ({}) fnAddrDisp
-splice_lower_on addrIsa hintsAddrCall codeAddrCall
-  (Spill.hints addrIsa fnAddrCall) (extCarryCall) fnAddrCall
-splice_lower_on addrIsa hintsAddrSib codeAddrSib (Spill.hints addrIsa fnAddrSib) ({}) fnAddrSib
 
 /-! ## 5. Well-Formedness and Kernel-Checked Lowering -/
 
@@ -415,5 +414,7 @@ theorem stage1b_sib_highlights :
 #print axioms stage1a_addr_highlights
 #print axioms addrSib_lower
 #print axioms stage1b_sib_highlights
+
+end
 
 end LeanQbe.T.RegaLitmus

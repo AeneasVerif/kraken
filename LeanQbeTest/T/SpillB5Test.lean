@@ -1,10 +1,10 @@
 module
 
-public import LeanQbe.T.Amd64.Targ
-public import LeanQbe.T.Examples.Kissat.Plain
-public import LeanQbe.T.Examples.LratBytes
-public import LeanQbe.T.Main
-public import LeanQbe.T.Spill
+import LeanQbe.T.Amd64.Targ
+import LeanQbe.T.Examples.Kissat.Plain
+import LeanQbe.T.Examples.LratBytes
+import LeanQbe.T.Main
+import LeanQbe.T.Spill
 meta import LeanQbe.T.Amd64.Targ
 meta import LeanQbe.T.Examples.Kissat.Plain
 meta import LeanQbe.T.Examples.LratBytes

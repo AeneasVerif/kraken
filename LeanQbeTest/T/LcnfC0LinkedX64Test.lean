@@ -1,12 +1,12 @@
 module
 
-public import LeanQbe.T.Amd64.LcnfC0FullCertX64
-public import LeanQbe.T.Amd64.TargLemmas
-public import LeanQbe.T.LeanLCNF.LcnfC0DemoProof
-public import LeanQbe.T.Logic.MemLemmas
+import LeanQbe.T.Amd64.LcnfC0FullCertX64
+import LeanQbe.T.Amd64.TargLemmas
+import LeanQbe.T.LeanLCNF.LcnfC0DemoProof
+import LeanQbe.T.Logic.MemLemmas
 import LeanQbe.T.Bedrock2.Phoas
 meta import Lean
-meta import LeanQbe.T.MainCertElab
+import LeanQbe.T.MainCertElab
 meta import LeanQbe.T.Amd64.Targ
 meta import LeanQbe.T.Amd64.LcnfC0FullCertX64Bounds
 meta import LeanQbe.T.LeanLCNF.LcnfC0Full
@@ -30,7 +30,7 @@ functions:
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.LcnfC0LinkedX64Test
 

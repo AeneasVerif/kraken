@@ -5,8 +5,8 @@ public import LeanQbe.T.LeanLCNF.LcnfC0RtProof
 public import LeanQbe.T.LeanLCNF.LcnfC0BigNumProof
 public import LeanQbe.T.LeanLCNF.LcnfC0ContainersProof
 public import LeanQbe.T.LeanLCNF.LcnfC0StringsProof
-import all Kraken.Mem
-import all Kraken.Separation
+import Kraken.Mem
+import Kraken.Separation
 
 /-!
 # Composed `ModuleOk`, `TableImpl`, `LcnfC0FullInv`, and Non-Vacuity (`LcnfC0FullProof`)

@@ -1,11 +1,11 @@
 module
 
-public import LeanQbe.T.PrintQbe
-public import LeanQbe.T.Legal
-public import LeanQbe.T.Examples.UnionFind
-public import LeanQbe.T.Examples.LratBytes
-public import LeanQbe.T.Examples.LratTrimProg
-public import LeanQbe.T.Examples.ChaCha
+import LeanQbe.T.PrintQbe
+import LeanQbe.T.Legal
+import LeanQbe.T.Examples.UnionFind
+import LeanQbe.T.Examples.LratBytes
+import LeanQbe.T.Examples.LratTrimProg
+import LeanQbe.T.Examples.ChaCha
 meta import LeanQbe.T.PrintQbe
 meta import LeanQbe.T.Legal
 meta import LeanQbe.T.Examples.UnionFind
@@ -424,7 +424,7 @@ def writeSsa (outDir : System.FilePath) (filename : String)
     pure true
 
 /-- Generate stock-QBE `.ssa` artifacts into `outDir`. Returns `0` on success, `1` on failure. -/
-public def runGenerate (outDir : System.FilePath) : IO UInt32 := do
+def runGenerate (outDir : System.FilePath) : IO UInt32 := do
   IO.FS.createDirAll outDir
   let uf := ufModule
   let lb := LeanQbe.T.Examples.LratBytes.lratBytesModule

@@ -6,7 +6,7 @@ meta import LeanQbe.T.Logic.C0HeadStep
 import LeanQbe.T.Logic.ControlComb
 import LeanQbe.T.Logic.ProofKit
 meta import LeanQbe.T.Logic.ProofKit
-import all Kraken.Separation
+import Kraken.Separation
 
 /-!
 # Verification of `lbCheckPrf`, `lratCheckBytes`, and `checkPrfPure` soundness in `LeanQbe.T`
@@ -881,17 +881,21 @@ private theorem split_workspace (c : WorkCfg) (work_len : Nat)
     ← region_merge_eq (a := c.cb) (n1 := 8 * c.cap) (n2 := 4 * c.poolInts)
       (n := 8 * c.cap + 4 * c.poolInts) rfl (by omega),
     show c.cb + BitVec.ofNat 64 (8 * c.cap) = c.pbase from rfl] at hm
-  obtain ⟨f_vc, f_rem, hu1, hd1, ⟨f_v, f_c, hu2, hd2, hrv, hrc⟩, hrem⟩ :=
-    (sep_ac hm : (region c.vb (c.mv + 1) ⋆ region c.cb (8 * c.cap) ⋆
+  have hm_vc := sep_mono (fun _ => sep_mono2
+      (fun _ => region_to_byte1Array (c.mv + 1) (by omega))
+      (fun _ => region_to_word8Array c.cap (by omega)) _)
+    (sep_ac hm : ((region c.vb (c.mv + 1) ⋆ region c.cb (8 * c.cap)) ⋆
       (word8Array c.hdr hdrInit ⋆
         (region (c.vb + BitVec.ofNat 64 (c.mv + 1)) (c.vBytes - (c.mv + 1)) ⋆
           region c.tb c.tRaw ⋆ region c.tlim (c.tBytes - c.tRaw) ⋆
           region c.pbase (4 * c.poolInts)) ⋆
         region (c.hdr + BitVec.ofNat 64 c.activeBytes) (work_len - c.activeBytes) ⋆ R_rest)) m)
-  obtain ⟨vs0, hvs0, hbv⟩ := region_to_byte1Array (c.mv + 1) (by omega) hrv
-  obtain ⟨cs0, hcs0, hbc⟩ := region_to_word8Array c.cap (by omega) hrc
-  exact ⟨vs0, cs0, hvs0, hcs0, sep_ac (show (byte1Array c.vb vs0 ⋆ word8Array c.cb cs0 ⋆ _) m from
-    ⟨f_vc, f_rem, hu1, hd1, ⟨f_v, f_c, hu2, hd2, hbv, hbc⟩, hrem⟩)⟩
+  obtain ⟨vs0, hm_vc⟩ := sep_ex_l.mp (sep_mono (fun _ hx => sep_ex_l.mp hx) hm_vc)
+  obtain ⟨hvs0, hm_vc⟩ := sep_pure_l.mp (sep_mono (fun _ hx => sep_pure_l.mp hx) hm_vc)
+  obtain ⟨cs0, hm_vc⟩ := sep_ex_l.mp (sep_mono (fun _ hx => sep_ex_r.mp hx) hm_vc)
+  obtain ⟨hcs0, hm_vc⟩ := sep_pure_l.mp (sep_mono (fun _ hx => sep_pure_r.mp hx) hm_vc)
+  change ((byte1Array c.vb vs0 ⋆ word8Array c.cb cs0) ⋆ _) m at hm_vc
+  exact ⟨vs0, cs0, hvs0, hcs0, sep_ac hm_vc⟩
 
 private theorem merge_ws_tail (c : WorkCfg) (work_len : Nat)
     (hlen : c.activeBytes ≤ work_len) (hwfit : c.hdr.toNat + work_len < 2 ^ 64)

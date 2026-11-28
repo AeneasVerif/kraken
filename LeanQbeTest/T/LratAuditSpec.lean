@@ -1,7 +1,7 @@
 module
 
-public import LeanQbe.T.Examples.LratBytesLemmas
-public import LeanQbe.T.PrintCpp
+import LeanQbe.T.Examples.LratBytesLemmas
+import LeanQbe.T.PrintCpp
 import LeanQbe.T.Logic.MemLemmas
 meta import LeanQbe.T.Legal
 meta import LeanQbe.T.PrintCpp
@@ -47,7 +47,7 @@ DIMACS + Binary LRAT proof checker `lratBytesModule`. Architecture-independent (
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LratAuditSpec
 

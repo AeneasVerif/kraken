@@ -1,14 +1,14 @@
 module
 
-public import LeanQbe.T.DceParamLemmas
-public import LeanQbe.T.OptLemmas
-public import LeanQbe.T.WPLemmas
-public import LeanQbe.T.FlatLemmas
-public import LeanQbe.T.Amd64.TargLemmas
-public import LeanQbe.T.MainSplice
-public import LeanQbe.T.Examples.LratTrimProg
-public import LeanQbe.T.Examples.Kissat.Plain1
-meta import LeanQbe.T.MainSplice
+import LeanQbe.T.DceParamLemmas
+import LeanQbe.T.OptLemmas
+import LeanQbe.T.WPLemmas
+import LeanQbe.T.FlatLemmas
+import LeanQbe.T.Amd64.TargLemmas
+import LeanQbe.T.MainSplice
+import LeanQbe.T.Examples.LratTrimProg
+import LeanQbe.T.Examples.Kissat.Plain1
+meta import LeanQbe.T.Main
 meta import LeanQbe.T.Amd64.Targ
 meta import LeanQbe.T.Examples.LratTrimProg
 meta import LeanQbe.T.Examples.Kissat.Plain1
@@ -30,7 +30,7 @@ Covers:
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.DceParamTest
 

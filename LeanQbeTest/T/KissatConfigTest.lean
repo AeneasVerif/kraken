@@ -4,14 +4,14 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 module
 
-public import LeanQbe.T.Examples.Kissat.Src.Header
-public import LeanQbe.T.Examples.Kissat.Src.Config
-public import LeanQbe.T.Examples.Kissat.Src.Float64
-public import LeanQbe.T.Examples.Kissat.Src.Tiers
-public import LeanQbe.T.InterpKissat
-public import LeanQbe.T.PrintCpp
-public import LeanQbe.T.PrintQbe
-public import LeanQbe.T.Legal
+import LeanQbe.T.Examples.Kissat.Src.Header
+import LeanQbe.T.Examples.Kissat.Src.Config
+import LeanQbe.T.Examples.Kissat.Src.Float64
+import LeanQbe.T.Examples.Kissat.Src.Tiers
+import LeanQbe.T.InterpKissat
+import LeanQbe.T.PrintCpp
+import LeanQbe.T.PrintQbe
+import LeanQbe.T.Legal
 meta import LeanQbe.T.Examples.Kissat.Src.Header
 meta import LeanQbe.T.Examples.Kissat.Src.Config
 meta import LeanQbe.T.Examples.Kissat.Src.Float64
@@ -35,7 +35,7 @@ meta import LeanQbe.T.Legal
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.KissatConfigTest
 

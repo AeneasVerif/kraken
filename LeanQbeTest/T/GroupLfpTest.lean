@@ -1,7 +1,7 @@
 module
 
-public import LeanQbe.T.GroupLfpLemmas
-public import LeanQbe.T.FlatLemmas
+import LeanQbe.T.GroupLfpLemmas
+import LeanQbe.T.FlatLemmas
 
 /-!
 # Tests of `LeanQbe.T.GroupLfpLemmas` (least join-point solution `Js^*`)

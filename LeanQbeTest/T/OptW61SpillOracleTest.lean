@@ -1,12 +1,12 @@
 module
 
-public import LeanQbe.T.Amd64.Targ
-public import LeanQbe.T.Amd64.PrintATTAlign
-public import LeanQbe.T.Driver
-public import LeanQbe.T.Examples.Kissat.Plain
-public import LeanQbe.T.MainInline
-public import LeanQbe.T.Spill
-public import LeanQbe.T.SpillCoalesce
+import LeanQbe.T.Amd64.Targ
+import LeanQbe.T.Amd64.PrintATTAlign
+import LeanQbe.T.Driver
+import LeanQbe.T.Examples.Kissat.Plain
+import LeanQbe.T.MainInline
+import LeanQbe.T.Spill
+import LeanQbe.T.SpillCoalesce
 meta import LeanQbe.T.Amd64.Targ
 meta import LeanQbe.T.Amd64.PrintATTAlign
 meta import LeanQbe.T.Driver
@@ -35,7 +35,7 @@ Tests the untrusted `Spill.Cfg` extensions and `SpillCoalesce` passes on x86-64 
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.OptW61SpillOracleTest
 

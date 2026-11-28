@@ -1,13 +1,13 @@
 module
 
-public import LeanQbe.T.InterpKissat
-public import LeanQbe.T.LeanLCNF.LcnfC0Ffi
-public import LeanQbe.T.LeanLCNF.LcnfC0FfiSpec
-public import LeanQbe.T.LeanLCNF.LcnfC0FfiProof1
-public import LeanQbe.T.LeanLCNF.LcnfC0FfiProof2
-public import LeanQbe.T.LeanLCNF.LcnfC0FfiProof
-public import LeanQbe.T.PrintCpp
-public import LeanQbe.T.PrintQbe
+import LeanQbe.T.InterpKissat
+import LeanQbe.T.LeanLCNF.LcnfC0Ffi
+import LeanQbe.T.LeanLCNF.LcnfC0FfiSpec
+import LeanQbe.T.LeanLCNF.LcnfC0FfiProof1
+import LeanQbe.T.LeanLCNF.LcnfC0FfiProof2
+import LeanQbe.T.LeanLCNF.LcnfC0FfiProof
+import LeanQbe.T.PrintCpp
+import LeanQbe.T.PrintQbe
 meta import LeanQbe.T.InterpKissat
 meta import LeanQbe.T.LeanLCNF.LcnfC0Ffi
 meta import LeanQbe.T.LeanLCNF.LcnfC0FfiSpec

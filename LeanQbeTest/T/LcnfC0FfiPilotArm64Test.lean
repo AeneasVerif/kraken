@@ -4,8 +4,8 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 module
 
-public meta import LeanQbe.T.LeanLCNF.LcnfC0FfiPilotProof
-public meta import LeanQbeTest.T.LcnfC0FfiPilotCertArm64
+meta import LeanQbe.T.LeanLCNF.LcnfC0FfiPilotProof
+meta import LeanQbeTest.T.LcnfC0FfiPilotCertArm64
 
 /-!
 # Shard `F3` AArch64 Certificate Sanity & Strict `std3` Axiom Audit (`LcnfC0FfiPilotArm64Test`)

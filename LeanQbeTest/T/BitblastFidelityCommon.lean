@@ -4,8 +4,8 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 module
 
-public import LeanQbe.T.Examples.Bitblast.FidelityBridgeLemmas
-public import LeanQbe.T.Examples.Kissat.Proof.Full
+import LeanQbe.T.Examples.Bitblast.FidelityBridgeLemmas
+import LeanQbe.T.Examples.Kissat.Proof.Full
 meta import LeanQbe.T.Examples.Bitblast.FidelityBridgeLemmas
 meta import LeanQbe.T.Examples.Kissat.Proof.Full
 
@@ -20,7 +20,7 @@ from `LeanQbe.T.Examples.Bitblast.FidelityBridgeLemmas` and instantiates it on t
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.BitblastFidelityCommon
 
@@ -68,17 +68,17 @@ theorem fidFull_bitblast_names_disj :
 
 /-- Closed `482`-function un-inlined `Kissat Src.Full + Bitblast` module
 (`0` externs, `0` exits). -/
-@[expose] def bitblastFidFullLinkedMod : Module :=
+def bitblastFidFullLinkedMod : Module :=
   { fns := kissatModule.fns ++ bitblastModule.fns, externs := [], exits := [] }
 
 /-- Closed `482`-function PGO-inlined `Kissat Src.Full + Bitblast` module (`0` externs,
 `0` exits) — exact module emitted by `bv_decide_qbe`. -/
-@[expose] def bitblastFidFullInlLinkedMod : Module :=
+def bitblastFidFullInlLinkedMod : Module :=
   { fns := (kissatModule.optInlinePolicy kissatInlPolicy).fns ++ bitblastModule.fns,
     externs := [], exits := [] }
 
 /-- Closed `482`-function `Env` for `Kissat Proof.Full + Bitblast`. -/
-@[expose] def bitblastFidFullLinkedEnv : Env :=
+def bitblastFidFullLinkedEnv : Env :=
   bitblastLinkedEnvOfPkg kissatUnsatPkg
 
 theorem bitblastFidFull_moduleOk :

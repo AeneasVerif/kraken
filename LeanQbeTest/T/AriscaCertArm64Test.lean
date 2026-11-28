@@ -4,13 +4,13 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 module
 
-public import LeanQbe.T.Examples.Arisca.Build.Flat
-public import LeanQbe.T.Examples.Arisca.Build.CertCommon
-public import LeanQbe.T.Arm64.AriscaCert
-public meta import LeanQbe.T.Driver
-public meta import LeanQbe.T.Arm64.Targ
-public meta import LeanQbe.T.Arm64.PrintAlign
-public meta import LeanQbe.T.Examples.Arisca.Src.Module
+import LeanQbe.T.Examples.Arisca.Build.Flat
+import LeanQbe.T.Examples.Arisca.Build.CertCommon
+import LeanQbe.T.Arm64.AriscaCert
+meta import LeanQbe.T.Driver
+meta import LeanQbe.T.Arm64.Targ
+meta import LeanQbe.T.Arm64.PrintAlign
+meta import LeanQbe.T.Examples.Arisca.Src.Module
 
 /-!
 # ARiSCA AAPCS64 Arm64 `LinkedCert` Smoke, `emitAsm`, & Axiom Audit (`AriscaCertArm64Test`)
@@ -48,7 +48,7 @@ open LeanQbe.T.Examples.Arisca.Build.CertCommon
     s.contains "ar_do_gate:"
   | .error _ => false
 
-public section
+section
 
 theorem audit_flat_eq : ariscaFlatMod = ariscaModule :=
   ariscaFlatMod_eq

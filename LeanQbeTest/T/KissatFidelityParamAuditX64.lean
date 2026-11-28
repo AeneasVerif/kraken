@@ -4,7 +4,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 module
 
-public import LeanQbe.T.Amd64.KissatFidelityParam
+import LeanQbe.T.Amd64.KissatFidelityParam
 
 /-!
 # KissatFidelity (`Src.Full.kissatModule`, `418` fns) Parameterized Audit: SysV x64 (`std3`)
@@ -16,7 +16,7 @@ Audits every parameterized x64 theorem in `LeanQbe.T.Amd64.KissatFidelityParam`
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.KissatFidelityParamAuditX64
 

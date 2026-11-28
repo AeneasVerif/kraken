@@ -1,9 +1,9 @@
 module
 
-public import LeanQbeTest.T.MainFlatParityFixtures
-public import LeanQbe.T.OptFlatCfg
-public import LeanQbe.T.Amd64.Targ
-public import LeanQbe.T.Amd64.PrintAsm0
+import LeanQbeTest.T.MainFlatParityFixtures
+import LeanQbe.T.OptFlatCfg
+import LeanQbe.T.Amd64.Targ
+import LeanQbe.T.Amd64.PrintAsm0
 import LeanQbe.T.FlatDirectLemmas
 import LeanQbe.T.OptFlatCfgLemmas
 import LeanQbe.T.RegaFlatLemmas
@@ -25,7 +25,7 @@ byte-exact `Amd64.printAsm0` assembly parity against `reifyFunc (Func.* ff.toFn.
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.MainFlatCfgParityTest
 

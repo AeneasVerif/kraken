@@ -1,6 +1,6 @@
 module
 
-public import LeanQbe.T.Arm64.LcnfC0LoopDemoCertArm64
+import LeanQbe.T.Arm64.LcnfC0LoopDemoCertArm64
 meta import Lean
 meta import LeanQbe.T.Arm64.LcnfC0LoopDemoCertArm64
 
@@ -14,7 +14,7 @@ meta import LeanQbe.T.Arm64.LcnfC0LoopDemoCertArm64
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.LcnfC0LoopDemoArm64Test
 

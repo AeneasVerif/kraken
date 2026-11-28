@@ -1,11 +1,11 @@
 module
 
-public import LeanQbe.T.LoopRotateLemmas
-public import LeanQbe.T.OptFlatLoopLemmas
-public import LeanQbe.T.MainFlatLemmas
-public import LeanQbe.T.Logic.Rules
-public import LeanQbe.T.Amd64.Targ
-public import LeanQbe.T.Examples.Kissat.Plain
+import LeanQbe.T.LoopRotateLemmas
+import LeanQbe.T.OptFlatLoopLemmas
+import LeanQbe.T.MainFlatLemmas
+import LeanQbe.T.Logic.Rules
+import LeanQbe.T.Amd64.Targ
+import LeanQbe.T.Examples.Kissat.Plain
 meta import LeanQbe.T.LoopRotate
 meta import LeanQbe.T.OptFlatLoop
 meta import LeanQbe.T.MainFlat
@@ -37,7 +37,7 @@ Covers:
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.LoopRotateLoadHdrTest
 

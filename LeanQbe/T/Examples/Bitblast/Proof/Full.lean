@@ -59,11 +59,11 @@ open LeanQbe.T.Examples.Bitblast.Ref.BVProg
 open LeanQbe.T.Examples.Bitblast.Src
 open LeanQbe.T.Examples.Bitblast.Src.Full
 
-@[expose] public section
+public section
 
 /-- Closed `65`-row specification table for `bitblastModule` (`64` defined fns + `1` extern,
 all `noExit = true`). -/
-def bitblastSpecTable : List SpecEntry :=
+@[expose] def bitblastSpecTable : List SpecEntry :=
   -- Validate (4): indices 0..3
   [ ⟨"bv_read_u32", [i64, i64], [i32], bvReadU32Spec, true⟩
   , ⟨"bv_count_atoms", [i64, i32], [i64], bvCountAtomsSpec, true⟩
@@ -145,7 +145,7 @@ def bitblastSpecTable : List SpecEntry :=
   , ⟨"kissat_solve_bytes", [i64, i64, i64, i64, i64], [i64], kissatSolveBytesUnsatSpec, true⟩ ]
 
 /-- Closed canonical `Env` for `bitblastModule`. -/
-def bitblastEnv : Env := Env.ofTable bitblastSpecTable
+@[expose] def bitblastEnv : Env := Env.ofTable bitblastSpecTable
 
 /-- Callee prefix before `bv_solve_bytes` inside `bitblastModule.fns` (`63` fns). -/
 def bitblastPre : List Fn :=
@@ -153,7 +153,7 @@ def bitblastPre : List Fn :=
     OpsShiftMul.fns ++ OpsDivCpop.fns ++ Driver.fns.take 6
 
 /-- Top-level `bv_solve_bytes` entry function matching the `64`th slot of `bitblastModule.fns`. -/
-def bvSolveBytesFn : Fn :=
+@[expose] def bvSolveBytesFn : Fn :=
   ⟨"bv_solve_bytes", [i64, i64, i64, i64, i64], [i64], Driver.bv_solve_bytes_body⟩
 
 /-- Restricted `Env` visible to `bv_solve_bytes` (`63` internal callees + `kissat_solve_bytes`). -/
@@ -162,14 +162,14 @@ def bitblastSolvedEnv : Env :=
     (bitblastPre.map Fn.sig ++ bitblastModule.externs.map Extern.sig)
 
 /-- Concrete `BVP1` byte sequence encoding `BCONST false` (`52` bytes = `13` LE `u32` words). -/
-def nvProgBytes : List UInt8 :=
+@[expose] def nvProgBytes : List UInt8 :=
   BVProg.wordsToBytesLE [0x31505642, 1, 0, 1, 0, 0, 0, 0, 25, 1, 0, 0, 0]
 
 def nvProgPtr : BitVec 64 := 0x100000#64
-def nvProgLen : BitVec 64 := 52#64
+@[expose] def nvProgLen : BitVec 64 := 52#64
 def nvWorkPtr : BitVec 64 := 0x100034#64
-def nvWorkCap : BitVec 64 := 0x1000#64
-def nvFuel : BitVec 64 := 1#64
+@[expose] def nvWorkCap : BitVec 64 := 0x1000#64
+@[expose] def nvFuel : BitVec 64 := 1#64
 
 /-- Concrete `Mem 64` slab holding `nvProgBytes` at `0x100000` plus `0x1000` scratch bytes. -/
 def nvMem : Mem 64 :=

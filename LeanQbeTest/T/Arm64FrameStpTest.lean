@@ -1,9 +1,9 @@
 module
 
-public import LeanQbe.T.Arm64.FrameLemmas
-public import LeanQbe.T.Arm64.TargLemmas
-public import LeanQbe.T.RegaLemmas
-public import LeanQbe.T.Spill
+import LeanQbe.T.Arm64.FrameLemmas
+import LeanQbe.T.Arm64.TargLemmas
+import LeanQbe.T.RegaLemmas
+import LeanQbe.T.Spill
 import Kraken.AArch64.Parser
 meta import LeanQbe.T.Arm64.TargLemmas
 meta import LeanQbe.T.Spill

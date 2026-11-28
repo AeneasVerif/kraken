@@ -4,12 +4,12 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 module
 
-public import LeanQbe.T.Examples.Kissat.Proof.Spec.HdrView
-public import LeanQbe.T.Examples.Kissat.Proof.Spec.HdrViewEquiv
-public import LeanQbe.T.Examples.Kissat.Proof.Spec.Contracts2
-public import LeanQbe.T.Logic.CanonicalEnv
-public import LeanQbe.T.Logic.C0Step
-public import Kraken.Mem
+import LeanQbe.T.Examples.Kissat.Proof.Spec.HdrView
+import LeanQbe.T.Examples.Kissat.Proof.Spec.HdrViewEquiv
+import LeanQbe.T.Examples.Kissat.Proof.Spec.Contracts2
+import LeanQbe.T.Logic.CanonicalEnv
+import LeanQbe.T.Logic.C0Step
+import Kraken.Mem
 
 /-!
 # Verification Tests for `Kissat.Proof.Spec.HdrView` & `HdrViewEquiv`
@@ -25,7 +25,7 @@ public import Kraken.Mem
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.KissatHdrViewTest
 

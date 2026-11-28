@@ -1,19 +1,19 @@
 module
 
-public import LeanQbe.T.MainCertCore
-public import LeanQbe.T.MainCertFlat
-public import LeanQbe.T.MainCertInline
-public import LeanQbe.T.Amd64.TargLemmas
-public import LeanQbe.T.Examples.Kissat.Plain
-public import LeanQbe.T.Spill
-public meta import Lean
-public meta import LeanQbe.T.MainCertElab
-public meta import LeanQbe.T.MainCertFlatElab
-public meta import LeanQbe.T.MainCertInline
-public meta import LeanQbe.T.Amd64.Targ
-public meta import LeanQbe.T.Examples.Kissat.Plain
-public meta import LeanQbe.T.MainFlat
-public meta import LeanQbe.T.Spill
+import LeanQbe.T.MainCertCore
+import LeanQbe.T.MainCertFlat
+import LeanQbe.T.MainCertInline
+import LeanQbe.T.Amd64.TargLemmas
+import LeanQbe.T.Examples.Kissat.Plain
+import LeanQbe.T.Spill
+meta import Lean
+meta import LeanQbe.T.MainCertElab
+meta import LeanQbe.T.MainCertFlatElab
+meta import LeanQbe.T.MainCertInline
+meta import LeanQbe.T.Amd64.Targ
+meta import LeanQbe.T.Examples.Kissat.Plain
+meta import LeanQbe.T.MainFlat
+meta import LeanQbe.T.Spill
 
 /-!
 # Verified `Base + ConstDisp` Rematerialization — SysV x64 Regression & Parity Tests
@@ -32,7 +32,7 @@ Covers `W5-1b` on SysV x64 (`LeanQbe.T.Amd64.x64Target`):
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.RegaRematTest
 

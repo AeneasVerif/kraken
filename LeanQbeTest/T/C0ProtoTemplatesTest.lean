@@ -2,10 +2,10 @@ module
 
 public import LeanQbe.T.Frontend.C0.Template.Snippet
 public import LeanQbe.T.Frontend.C0.Template.Wp
-public import LeanQbe.T.Frontend.C0.Template.Elab
-public meta import LeanQbe.T.Frontend.C0.Template.Elab
+import LeanQbe.T.Frontend.C0.Template.Elab
 public import LeanQbe.T.Flat
-public meta import LeanQbe.T.Flat
+public import LeanQbe.T.Wf
+meta import LeanQbe.T.Flat
 import LeanQbe.T.FlatLemmas
 meta import LeanQbe.T.PrintCpp
 meta import LeanQbe.T.PrintQbe

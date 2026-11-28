@@ -28,7 +28,7 @@ open LeanQbe.T.Examples.Bitblast.Src.Driver
 open LeanQbe.T.Examples.Bitblast.Ref
 open LeanQbe.T.Examples.Bitblast.Ref.BVProg
 
-@[expose] public section
+public section
 
 abbrev BvEvalSubQ (cfg : BVWorkspaceCfg) (progPtr : BitVec 64) (progBytes : List UInt8)
     (vars : BinTree VarEntry) (cwords : BinTree Nat) (nodes : BinTree ProgNode)
@@ -47,7 +47,7 @@ abbrev BvEvalSubQ (cfg : BVWorkspaceCfg) (progPtr : BitVec 64) (progBytes : List
       bvBlastMem cfg hdr' atomBases sliceOffs' aigWords' htSlots' litsPool' ⋆ R) m' →
     Q (ret, ⟨⟩) m'
 
-def drv0VarInv (cfg : BVWorkspaceCfg) (progPtr : BitVec 64) (progBytes : List UInt8)
+@[expose] def drv0VarInv (cfg : BVWorkspaceCfg) (progPtr : BitVec 64) (progBytes : List UInt8)
     (hdr hdr1 : BVHdrState) (atomBases sliceOffs : List (BitVec 32))
     (aigWords : List (BitVec 64)) (htSlots litsPool : List (BitVec 32))
     (R : Mem 64 → Prop) (w a : Nat) (s : Nat × List (BitVec 32)) (ml : Mem 64) : Prop :=
@@ -58,7 +58,7 @@ def drv0VarInv (cfg : BVWorkspaceCfg) (progPtr : BitVec 64) (progBytes : List UI
   (bytes progPtr progBytes ⋆ bvBlastMem cfg hdr1 atomBases sliceOffs aigWords
     htSlots s.2 ⋆ R) ml
 
-def drv0ConstInv (cfg : BVWorkspaceCfg) (progPtr : BitVec 64) (progBytes : List UInt8)
+@[expose] def drv0ConstInv (cfg : BVWorkspaceCfg) (progPtr : BitVec 64) (progBytes : List UInt8)
     (hdr hdr1 : BVHdrState) (atomBases sliceOffs : List (BitVec 32))
     (aigWords : List (BitVec 64)) (htSlots litsPool : List (BitVec 32))
     (R : Mem 64 → Prop) (w a : Nat) (s : Nat × BitVec 32 × List (BitVec 32))

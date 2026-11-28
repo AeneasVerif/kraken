@@ -1,12 +1,12 @@
 module
 
-public import LeanQbe.T.MainCertProof
-public import LeanQbe.T.Arm64.TargLemmas
-public import LeanQbe.T.LeanLCNF.Lower1
-public meta import Lean
-public meta import LeanQbe.T.MainCertElab
-public meta import LeanQbe.T.Arm64.Targ
-public meta import LeanQbe.T.LeanLCNF.Lower
+import LeanQbe.T.MainCertProof
+import LeanQbe.T.Arm64.TargLemmas
+import LeanQbe.T.LeanLCNF.Lower1
+meta import Lean
+import LeanQbe.T.MainCertElab
+meta import LeanQbe.T.Arm64.Targ
+meta import LeanQbe.T.LeanLCNF.Lower
 
 /-!
 # Shard `F1` Arm64 `LinkedCert.weakenNoExit` Test (`LcnfC0ExternF1Arm64Test`)
@@ -19,7 +19,7 @@ exit-check rejection on `armTarget` (`<= std3` axioms, zero `Amd64`/`Kraken.X64`
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.LcnfC0ExternF1Arm64Test
 
@@ -120,16 +120,20 @@ theorem weakenCheck_rejects_dup_fn_arm :
     checkWeakenExitsChunks armLayout ["f1_leaf"] armNoExitCert.chunks = false := by
   t_kernel_rfl
 
-/--
-info: 'LeanQbeTest.T.LcnfC0ExternF1Arm64Test.armWeakCert' depends on axioms:
-[propext, Classical.choice, Quot.sound]
--/
-#guard_msgs (whitespace := lax) in #print axioms armWeakCert
-
-/--
-info: 'LeanQbeTest.T.LcnfC0ExternF1Arm64Test.armComposedCert' depends on axioms:
-[propext, Classical.choice, Quot.sound]
--/
-#guard_msgs (whitespace := lax) in #print axioms armComposedCert
-
 end LeanQbeTest.T.LcnfC0ExternF1Arm64Test
+
+private noncomputable def armWeakCert_ax := LeanQbeTest.T.LcnfC0ExternF1Arm64Test.armWeakCert
+private noncomputable def armComposedCert_ax :=
+  LeanQbeTest.T.LcnfC0ExternF1Arm64Test.armComposedCert
+
+/--
+info: '_private.LeanQbeTest.T.LcnfC0ExternF1Arm64Test.0.armWeakCert_ax'
+depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs (whitespace := lax) in #print axioms armWeakCert_ax
+
+/--
+info: '_private.LeanQbeTest.T.LcnfC0ExternF1Arm64Test.0.armComposedCert_ax'
+depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs (whitespace := lax) in #print axioms armComposedCert_ax

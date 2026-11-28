@@ -1,12 +1,12 @@
 module
 
-public import LeanQbe.T.SimplifyGroupPlanLemmas
-public import LeanQbe.T.IfOptLemmas
-public import LeanQbe.T.Opt
-public import LeanQbe.T.LeanLCNF.Lower1
-public import LeanQbe.T.LeanLCNF.Demo
-public import LeanQbe.T.Examples.LratBytesProg
-public import LeanQbe.T.Examples.Kissat.Plain
+import LeanQbe.T.SimplifyGroupPlanLemmas
+import LeanQbe.T.IfOptLemmas
+import LeanQbe.T.Opt
+import LeanQbe.T.LeanLCNF.Lower1
+import LeanQbe.T.LeanLCNF.Demo
+import LeanQbe.T.Examples.LratBytesProg
+import LeanQbe.T.Examples.Kissat.Plain
 meta import LeanQbe.T.SimplifyGroupPlan
 meta import LeanQbe.T.IfOpt
 meta import LeanQbe.T.Opt

@@ -1,9 +1,9 @@
 module
 
-public import LeanQbe.T.Examples.Kissat.Ref.Cdcl
-public import LeanQbe.T.Examples.Kissat.Proof.Ref.Cdcl
-public import LeanQbe.T.Examples.LratBytes
-public import LeanQbe.T.Examples.LratBytesLemmas
+import LeanQbe.T.Examples.Kissat.Ref.Cdcl
+import LeanQbe.T.Examples.Kissat.Proof.Ref.Cdcl
+import LeanQbe.T.Examples.LratBytes
+import LeanQbe.T.Examples.LratBytesLemmas
 meta import LeanQbe.T.Examples.Kissat.Ref.Sat
 meta import LeanQbe.T.Examples.LratBytes
 
@@ -31,7 +31,7 @@ open LeanQbe.T.Examples.LratBytes
 
 /-- Encode Pigeonhole Principle `PHP(pigeons, holes)` in 0-based variable indexing (`v = i*h + j`),
 using `mkLit` positive/negative literals (`2*v` / `2*v+1`). -/
-public def phpClauses (pigeons holes : Nat) : List (List Nat) :=
+def phpClauses (pigeons holes : Nat) : List (List Nat) :=
   let alo := (List.range pigeons).map fun i =>
     (List.range holes).map fun j => mkLit (i * holes + j) true
   let amo := ((List.range holes).flatMap fun j =>
@@ -42,7 +42,7 @@ public def phpClauses (pigeons holes : Nat) : List (List Nat) :=
         else none)
   alo ++ amo
 
-public def php1Clauses (pigeons holes : Nat) : List (List Nat) :=
+def php1Clauses (pigeons holes : Nat) : List (List Nat) :=
   let alo := (List.range pigeons).map fun i =>
     (List.range holes).map fun j => mkLit (1 + i * holes + j) true
   let amo := ((List.range holes).flatMap fun j =>
@@ -53,10 +53,10 @@ public def php1Clauses (pigeons holes : Nat) : List (List Nat) :=
         else none)
   alo ++ amo
 
-public def phpCnf (pigeons holes : Nat) : CNF Nat :=
+def phpCnf (pigeons holes : Nat) : CNF Nat :=
   cnfOfClauses (phpClauses pigeons holes)
 
-public def php1Cnf (pigeons holes : Nat) : CNF Nat :=
+def php1Cnf (pigeons holes : Nat) : CNF Nat :=
   cnfOfClauses (php1Clauses pigeons holes)
 
 /-! ## 2. Literal encoding, CNF bridge, and `checkModel` -/
@@ -208,14 +208,14 @@ private def satDimacsBytes : List UInt8 :=
   | none => false
 
 /-- Concrete `LratBytes.parseDimacs` + `checkModel_sound` bridge. -/
-public theorem parse_model_ok
+theorem parse_model_ok
     {bs : List UInt8} {cnf : CNF Nat} {σ : Array Bool}
     (hp : parseDimacs bs = some cnf) (h : checkModel cnf σ = true) :
     ¬ cnf.Unsat ∧ ∃ α, cnf.Sat α :=
   checkModel_sound_of_parse (parse := parseDimacs) hp h
 
 /-- Concrete `LratBytes.parseDimacs` + `cdclSolve_sound` bridge. -/
-public theorem parse_cdcl_ok
+theorem parse_cdcl_ok
     {bs : List UInt8} {cnf : CNF Nat} (fuel : Nat)
     (hp : parseDimacs bs = some cnf) :
     match cdclSolve fuel cnf with
@@ -225,11 +225,11 @@ public theorem parse_cdcl_ok
   cdclSolve_sound_of_parse (parse := parseDimacs) fuel hp
 
 /-- Certified UNSAT soundness statement tying `parseDimacs nvDimacsBytes` to `cdclSolve`. -/
-public theorem nv_cdcl_unsat (h : cdclSolve 20 nvBytesCnf = .unsat) : nvBytesCnf.Unsat := by
+theorem nv_cdcl_unsat (h : cdclSolve 20 nvBytesCnf = .unsat) : nvBytesCnf.Unsat := by
   have hsolve := parse_cdcl_ok 20 nvDimacsBytes_parse
   rw [h] at hsolve; exact hsolve
 
-public abbrev ax_del_inv := @LeanQbe.T.Examples.Kissat.Ref.deleteClauseState_preserves_inv
+abbrev ax_del_inv := @LeanQbe.T.Examples.Kissat.Ref.deleteClauseState_preserves_inv
 
 #print axioms LeanQbe.T.Examples.Kissat.Ref.checkModel_sound
 #print axioms LeanQbe.T.Examples.Kissat.Ref.analyze1UIP_sound

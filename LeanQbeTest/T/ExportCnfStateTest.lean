@@ -4,14 +4,14 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 module
 
-public import LeanQbe.T.Examples.Kissat.ExportCnfState
-public import LeanQbe.T.Examples.Kissat.ExportCnfStateProof
-public import LeanQbe.T.Examples.Kissat.ExportCnfFmtProof
-public import LeanQbe.T.Examples.LratBytes
-public import LeanQbe.T.InterpKissat
-public import LeanQbe.T.PrintCpp
-public import LeanQbe.T.PrintQbe
-public import LeanQbe.T.Legal
+import LeanQbe.T.Examples.Kissat.ExportCnfState
+import LeanQbe.T.Examples.Kissat.ExportCnfStateProof
+import LeanQbe.T.Examples.Kissat.ExportCnfFmtProof
+import LeanQbe.T.Examples.LratBytes
+import LeanQbe.T.InterpKissat
+import LeanQbe.T.PrintCpp
+import LeanQbe.T.PrintQbe
+import LeanQbe.T.Legal
 import LeanQbe.T.Logic.MemLemmas
 import Kraken.Separation
 meta import LeanQbe.T.Examples.Kissat.ExportCnfState
@@ -77,7 +77,7 @@ open LeanQbe.T.Examples.Kissat.ExportCnfState
 
 /-! ## 2. Pure Clause-Extractor & Executable `interpModule` Functional Checks -/
 
-public section
+section
 
 /-- False exit postcondition witnessing zero `.exit` transitions. -/
 abbrev nvXFalse : XPost := fun _ _ _ _ => False
@@ -242,7 +242,7 @@ private def checkInterpInconsistent : Bool :=
 
 /-! ## 3. WP Soundness & Non-Vacuity Witnesses (`XPost := False`, `<= std3`) -/
 
-public section
+section
 
 /-- Closed-module certification witness for `exportCnfStateMod`. -/
 theorem nv_export_cnf_state_moduleOk : ModuleOk exportCnfStateEnv exportCnfStateMod :=

@@ -1,32 +1,32 @@
 module
 
-public import LeanQbe.T.Amd64.Snippet
-public import LeanQbe.T.Amd64.TargLemmas
-public import LeanQbe.T.MainLateInline
-public import LeanQbe.T.Logic.MemLemmas
-public import LeanQbe.T.Notation
-public import LeanQbe.T.NotationSugar
-public import LeanQbe.T.Examples.Kissat.Dimacs
-public import LeanQbe.T.Examples.Kissat.Plain1
+import LeanQbe.T.Amd64.Snippet
+import LeanQbe.T.Amd64.TargLemmas
+import LeanQbe.T.MainLateInline
+import LeanQbe.T.Logic.MemLemmas
+import LeanQbe.T.Notation
+import LeanQbe.T.NotationSugar
+import LeanQbe.T.Examples.Kissat.Dimacs
+import LeanQbe.T.Examples.Kissat.Plain1
 import LeanQbe.T.FlatLemmas
-import all Kraken.Mem
-import all Kraken.Separation
-public meta import Lean
-public meta import LeanQbe.T.OptPolicy
-public meta import LeanQbe.T.Main
-public meta import LeanQbe.T.MainLateInline
-public meta import LeanQbe.T.Spill
-public meta import LeanQbe.T.SpillSnippet
-public meta import LeanQbe.T.SnippetCheck
-public meta import LeanQbe.T.Amd64.Targ
-public meta import LeanQbe.T.Amd64.TargLemmas
-public meta import LeanQbe.T.Amd64.Snippet
-public meta import LeanQbe.T.MainSplice
-public meta import LeanQbe.T.MainLinkSplice
-public meta import LeanQbe.T.Notation
-public meta import LeanQbe.T.NotationSugar
-public meta import LeanQbe.T.Examples.Kissat.Dimacs
-public meta import LeanQbe.T.Examples.Kissat.Plain1
+import Kraken.Mem
+import Kraken.Separation
+meta import Lean
+meta import LeanQbe.T.OptPolicy
+meta import LeanQbe.T.Main
+meta import LeanQbe.T.MainLateInline
+meta import LeanQbe.T.Spill
+meta import LeanQbe.T.SpillSnippet
+meta import LeanQbe.T.SnippetCheck
+meta import LeanQbe.T.Amd64.Targ
+meta import LeanQbe.T.Amd64.TargLemmas
+meta import LeanQbe.T.Amd64.Snippet
+meta import LeanQbe.T.MainSplice
+meta import LeanQbe.T.MainLinkSplice
+meta import LeanQbe.T.Notation
+meta import LeanQbe.T.NotationSugar
+meta import LeanQbe.T.Examples.Kissat.Dimacs
+meta import LeanQbe.T.Examples.Kissat.Plain1
 
 /-!
 # Phase 1 SysV x86-64 Predictable Codegen, `AsmIso`, & Certified Late-Inline Tests
@@ -48,7 +48,7 @@ Tests end-to-end on `x64Target` (`x64LegalTarget`, `x64Layout`, `x64Init`):
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace LeanQbeTest.T.SnippetPhase1X64Test
 
@@ -596,7 +596,7 @@ def addLitDefX64 (declNm : Name) (ty val : Lean.Expr) : CoreM Unit := do
   addDecl decl (forceExpose := true)
   compileDecl decl
 
-elab "splice_x64_late_cert " hintsId:ident codeId:ident boundsId:ident : command => do
+run_cmd do
   let ns ← getCurrNamespace
   let evalRes ← liftTermElabM do
     let resTy :=
@@ -624,13 +624,11 @@ elab "splice_x64_late_cert " hintsId:ident codeId:ident boundsId:ident : command
       (mkConst ``LeanQbe.T.Sym) (mkConst ``Nat)
     let bTy := mkApp (mkConst ``List [.zero]) symNatTy
     liftCoreM do
-      addLitDefX64 (ns ++ hintsId.getId) hTy (Lean.toExpr hs)
-      addLitDefX64 (ns ++ codeId.getId) cTy (Lean.toExpr code)
-      addLitDefX64 (ns ++ boundsId.getId) bTy (Lean.toExpr bounds)
+      addLitDefX64 (ns ++ `certHintsX64) hTy (Lean.toExpr hs)
+      addLitDefX64 (ns ++ `certCodeX64) cTy (Lean.toExpr code)
+      addLitDefX64 (ns ++ `certBoundsX64) bTy (Lean.toExpr bounds)
 
 end
-
-splice_x64_late_cert certHintsX64 certCodeX64 certBoundsX64
 
 theorem certX64_cm :
     compileLateInlined x64Isa x64LegalTarget x64Target.frame.raBytes
@@ -898,12 +896,24 @@ theorem certX64_eventually_fast (s : MachineData) (ra : Int64) (R : Mem 64 → P
   have hargs : x64Target.ArgsIn (as := [i64, i64]) (0x1000#64, 1#64, ()) s :=
     ⟨_, rfl, .cons ⟨by decide, by simpa using hrdi⟩
       (.cons ⟨by decide, by simpa using hrsi⟩ .nil)⟩
-  obtain ⟨mf, mR, hu1, hd1, ⟨mArr, f, hu2, hd2, hmArr, hf⟩, hmRest⟩ := hmem
+  have hm0 : (array64 0x1000#64 sampleWords12 ⋆
+      ((region (s.regs.get64 .rsp - BitVec.ofNat 64 (lookupFnBound certBoundsX64 "caller14").get!)
+          (lookupFnBound certBoundsX64 "caller14").get! ⋆
+        cell64 (s.regs.get64 .rsp) ra.toBitVec) ⋆ R)) s.dmem :=
+    sep_cast hmem (by ac_rfl)
+  obtain ⟨mArr, hm1⟩ := sep_ex_l.mp (sep_mono
+    (P' := fun f => ∃ mArr, array64 0x1000#64 sampleWords12 mArr ∧ Eq mArr f)
+    (fun f hf => ⟨f, hf, rfl⟩) hm0)
+  obtain ⟨hmArr, hm2⟩ := sep_pure_l.mp hm1
+  change (Eq mArr ⋆
+    ((region (s.regs.get64 .rsp - BitVec.ofNat 64 (lookupFnBound certBoundsX64 "caller14").get!)
+        (lookupFnBound certBoundsX64 "caller14").get! ⋆
+      cell64 (s.regs.get64 .rsp) ra.toBitVec) ⋆ R)) s.dmem at hm2
   have hmEq : s.dmem =⋆ Eq mArr ⋆
       (region (s.regs.get64 .rsp - BitVec.ofNat 64 (lookupFnBound certBoundsX64 "caller14").get!)
           (lookupFnBound certBoundsX64 "caller14").get! ⋆
         cell64 (s.regs.get64 .rsp) ra.toBitVec) ⋆ R :=
-    ⟨mf, mR, hu1, hd1, ⟨mArr, f, hu2, hd2, rfl, hf⟩, hmRest⟩
+    sep_cast hm2 (by ac_rfl)
   have hspec : caller14Spec (0x1000#64, 1#64, ()) mArr
       (fun r _ => r = (caller14Val sampleWords12 1#64, ())) (fun _ _ _ _ => False) :=
     ⟨sampleWords12, emp, rfl, by rwa [sep_emp], rfl⟩

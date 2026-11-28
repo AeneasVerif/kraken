@@ -1,9 +1,9 @@
 module
 
-public import LeanQbe.T.LeanLCNF.Sem.H
-public import LeanQbe.T.LeanLCNF.Sem.SpecNorm
-public import LeanQbe.T.LeanLCNF.LcnfC0Demo
-public import LeanQbe.T.LeanLCNF.LcnfC0BigNumProof
+import LeanQbe.T.LeanLCNF.Sem.H
+import LeanQbe.T.LeanLCNF.Sem.SpecNorm
+import LeanQbe.T.LeanLCNF.LcnfC0Demo
+import LeanQbe.T.LeanLCNF.LcnfC0BigNumProof
 
 namespace LeanQbeTest.T.LcnfSemHTest
 
@@ -11,9 +11,9 @@ open LeanQbe.T
 open LeanQbe.T.LeanLCNF
 open LeanQbe.T.LeanLCNF.Sem
 
-public section
+section
 
-@[expose] public def addNatDecl : LcDecl :=
+def addNatDecl : LcDecl :=
   { name := "LeanQbe.T.LeanLCNF.DemoNatStr.addNat",
     params :=
       [ { id := 1, ty := LcTy.tobject, borrow := true },
@@ -23,11 +23,11 @@ public section
       (LcVal.fap "Nat.add" [LcArg.var 1, LcArg.var 2])
       (LcCode.ret (LcArg.var 3)) }
 
-public theorem demoNatStrLcMod_head_eq :
+theorem demoNatStrLcMod_head_eq :
     demoNatStrLcMod.decls.head? = some addNatDecl := by
   rfl
 
-public theorem addNatDecl_mem_demoNatStrLcMod :
+theorem addNatDecl_mem_demoNatStrLcMod :
     addNatDecl ∈ demoNatStrLcMod.decls := by
   have h := demoNatStrLcMod_head_eq
   cases hds : demoNatStrLcMod.decls with
@@ -38,18 +38,18 @@ public theorem addNatDecl_mem_demoNatStrLcMod :
 
 /-- General Tier-H specification for `DemoNatStr.addNat` at runtime base `rt`,
 covering both tagged scalar fast addition and BigNum slow-path addition. -/
-public def addNatHSpec (rt : BitVec 64) : HSpec :=
+def addNatHSpec (rt : BitVec 64) : HSpec :=
   fun args σ Q X =>
     ∃ a b : BitVec 64,
       args = [Word.i64 a, Word.i64 b] ∧
       HNatPrimWp rt "add" [Word.i64 a, Word.i64 b] Q X σ
 
 /-- Runtime-parametric Tier-H spec for module-level `HModuleOk`. -/
-public def addNatHSpecEnv : HSpec :=
+def addNatHSpecEnv : HSpec :=
   fun args σ Q X =>
     ∀ rt : BitVec 64, HInv rt σ → addNatHSpec rt args σ Q X
 
-public theorem addNatHSpec_mono (rt : BitVec 64) : (addNatHSpec rt).Mono := by
+theorem addNatHSpec_mono (rt : BitVec 64) : (addNatHSpec rt).Mono := by
   intro args σ Q₁ Q₂ X₁ X₂ hQ hX ⟨a, b, heq, hwp⟩
   refine ⟨a, b, heq, ?_⟩
   have hwp' : HPrim.wp rt "Nat.add" [Word.i64 a, Word.i64 b] Q₁ X₁ σ := hwp
@@ -78,7 +78,7 @@ private theorem hNatPrimWp_add_i64 (rt a b : BitVec 64) (σ : HState)
     exact ⟨aVal, bVal, ha, hb, hok, fun res st' scrLimbs' objs' hm hr hwf hp =>
       ⟨rfl, hk res st' scrLimbs' objs' hm hr hwf hp⟩⟩
 
-public theorem demoNatStr_addNat_hwp (Δ : HEnv) (rt : BitVec 64)
+theorem demoNatStr_addNat_hwp (Δ : HEnv) (rt : BitVec 64)
     (as : List Word) (σ : HState) (Q : HPost) (X : HXPost)
     (hspec : addNatHSpec rt as σ Q X) :
     HWp Δ rt addNatDecl.retTy HJEnv.empty
@@ -112,20 +112,20 @@ public theorem demoNatStr_addNat_hwp (Δ : HEnv) (rt : BitVec 64)
 -- NV 1: Scalar fast-path execution of DemoNatStr.addNat (13 + 29 = 42)
 -- =========================================================================
 
-public def scalarRtBase : BitVec 64 := 0x10000#64
+def scalarRtBase : BitVec 64 := 0x10000#64
 
-public def scalarInitState : HState :=
+def scalarInitState : HState :=
   { st := initRtC0State scalarRtBase 8 256 (by decide) (by decide),
     objs := [],
     scr := 0x10000#64 + 64,
     scrLimbs := List.replicate 32 0#64 }
 
-public theorem scalarInitState_inv : HInv scalarRtBase scalarInitState := by
+theorem scalarInitState_inv : HInv scalarRtBase scalarInitState := by
   refine ⟨?_, by decide, by decide, by decide, by decide, by decide⟩
   unfold RtC0State.Bounded48
   decide
 
-public theorem demoNatStr_addNat_scalar_hwp :
+theorem demoNatStr_addNat_scalar_hwp :
     HWp HEnv.bot scalarRtBase addNatDecl.retTy HJEnv.empty
       (HValEnv.empty.bindAll addNatDecl.params
         [Word.i64 (boxNat 13), Word.i64 (boxNat 29)])
@@ -139,7 +139,7 @@ public theorem demoNatStr_addNat_scalar_hwp :
   rw [hsum]
   exact ⟨rfl, rfl⟩
 
-public theorem demoNatStr_addNat_scalar_liftEnv (m₀ : Mem 64)
+theorem demoNatStr_addNat_scalar_liftEnv (m₀ : Mem 64)
     (hm₀ : scalarInitState.mem scalarRtBase m₀) :
     liftEnv demoNatStrLcMod
       (fun name =>
@@ -171,17 +171,17 @@ public theorem demoNatStr_addNat_scalar_liftEnv (m₀ : Mem 64)
 -- NV 2: BigNum slow-path execution on concrete nvBnMem
 -- =========================================================================
 
-public def nvHState : HState :=
+def nvHState : HState :=
   { st := nvBnRtState,
     objs := nvBnObjs,
     scr := nvBnScr,
     scrLimbs := nvBnScrLimbs }
 
-public theorem nvHState_mem : nvHState.mem nvBnRtBase nvBnMem := by
+theorem nvHState_mem : nvHState.mem nvBnRtBase nvBnMem := by
   unfold HState.mem nvHState
   exact nvBnMem_ok
 
-public theorem nvHState_inv : HInv nvBnRtBase nvHState := by
+theorem nvHState_inv : HInv nvBnRtBase nvHState := by
   refine ⟨?_, by decide, by decide, by decide, by decide, by decide⟩
   unfold RtC0State.Bounded48
   decide
@@ -221,7 +221,7 @@ private theorem nvBnNatAdd_ok :
   simp only [natArithOk, canAllocBytes, RtC0State.hasFree]
   decide
 
-public theorem demoNatStr_addNat_bignum_hwp :
+theorem demoNatStr_addNat_bignum_hwp :
     HWp HEnv.bot nvBnRtBase addNatDecl.retTy HJEnv.empty
       (HValEnv.empty.bindAll addNatDecl.params
         [Word.i64 nvBnAddrNatA, Word.i64 nvBnAddrNatB])
@@ -242,7 +242,7 @@ public theorem demoNatStr_addNat_bignum_hwp :
   rcases hpost with ⟨hrep, hmem⟩
   exact ⟨res, by simp, hrep, hmem⟩
 
-public theorem demoNatStr_addNat_bignum_liftEnv :
+theorem demoNatStr_addNat_bignum_liftEnv :
     liftEnv demoNatStrLcMod
       (fun name =>
         if name = addNatDecl.name then addNatHSpec nvBnRtBase
@@ -284,14 +284,14 @@ public theorem demoNatStr_addNat_bignum_liftEnv :
 -- NV 3: HModuleOk, Frame, Join-Loop, and SpecNorm checks
 -- =========================================================================
 
-public def addNatOnlyMod : LcModule :=
+def addNatOnlyMod : LcModule :=
   { name := "addNatOnly",
     decls := [addNatDecl],
     externs := [],
     roots := [],
     snaps := [] }
 
-public theorem addNatOnlyMod_hmoduleOk :
+theorem addNatOnlyMod_hmoduleOk :
     HModuleOk
       (fun name => if name = addNatDecl.name then addNatHSpecEnv else HEnv.bot name)
       addNatOnlyMod := by
@@ -301,12 +301,12 @@ public theorem addNatOnlyMod_hmoduleOk :
   simp only [↓reduceIte] at hspec
   exact demoNatStr_addNat_hwp _ rt _ σ Q X (hspec rt hinv)
 
-public def jpLoopCode : LcCode :=
+def jpLoopCode : LcCode :=
   LcCode.jp 10 [{ id := 20, ty := LcTy.tobject, borrow := true }]
     (LcCode.ret (LcArg.var 20))
     (LcCode.jmp 10 [LcArg.var 1])
 
-public theorem jpLoop_and_frame_smoke :
+theorem jpLoop_and_frame_smoke :
     HWp HEnv.bot scalarRtBase LcTy.tobject HJEnv.empty
       (HValEnv.empty.set 1 LcTy.tobject (Word.i64 (boxNat 42)))
       (fun r σ' => (nvValNatA > 0) ∧ (r = Word.i64 (boxNat 42) ∧ σ' = scalarInitState))
@@ -335,7 +335,7 @@ public theorem jpLoop_and_frame_smoke :
     rw [hev]
     exact hJj 0 [Word.i64 (boxNat 42)] scalarInitState ⟨rfl, rfl, rfl⟩
 
-public theorem liftSpec_frame_scalar_smoke (m₀ : Mem 64)
+theorem liftSpec_frame_scalar_smoke (m₀ : Mem 64)
     (hm₀ : scalarInitState.mem scalarRtBase m₀) :
     liftSpec (addNatHSpec scalarRtBase)
       [LcTy.tobject.toTTy, LcTy.tobject.toTTy] LcTy.tobject.toTTy
@@ -358,7 +358,7 @@ public theorem liftSpec_frame_scalar_smoke (m₀ : Mem 64)
     rw [Std.ExtHashMap.sep_emp] at hm₁ hm''
     exact ⟨rfl, hm'' ▸ hm₁⟩
 
-public theorem specNorm_rtC0CoreEnv_check :
+theorem specNorm_rtC0CoreEnv_check :
     (∀ xs m Q X, lcnfNatSlowSpec xs m Q X → rtC0CoreEnv "lcnf_nat_slow" _ _ xs m Q X) ∧
     (∀ xs m Q X, lcnfIntOpSpec xs m Q X → rtC0CoreEnv "lcnf_int_op" _ _ xs m Q X) ∧
     (∀ xs m Q X, lcnfNatBitsSpec xs m Q X → rtC0CoreEnv "lcnf_nat_bits" _ _ xs m Q X) ∧

@@ -1,10 +1,10 @@
 module
 
-public import LeanQbe.T.Examples.Kissat.Ref.Subsume
-public import LeanQbe.T.Examples.Kissat.Ref.Vivify
-public import LeanQbe.T.Examples.Kissat.Ref.Eliminate
-public import LeanQbe.T.Examples.Kissat.Proof.Ref.Vivify
-public import LeanQbe.T.Examples.Kissat.Proof.Ref.Eliminate
+import LeanQbe.T.Examples.Kissat.Ref.Subsume
+import LeanQbe.T.Examples.Kissat.Ref.Vivify
+import LeanQbe.T.Examples.Kissat.Ref.Eliminate
+import LeanQbe.T.Examples.Kissat.Proof.Ref.Vivify
+import LeanQbe.T.Examples.Kissat.Proof.Ref.Eliminate
 meta import LeanQbe.T.Examples.Kissat.Ref.Sat
 meta import LeanQbe.T.Examples.Kissat.Ref.Subsume
 meta import LeanQbe.T.Examples.Kissat.Ref.Vivify
@@ -30,7 +30,7 @@ open LeanQbe.T.Examples.Kissat.Ref
 
 /-! ## 1. Subsumption & Self-Subsuming Resolution (`LayerASubsume`) -/
 
-public def subsumeSample : List (List Nat) :=
+def subsumeSample : List (List Nat) :=
   [[0, 2, 4], [0, 2], [0, 2], [1, 2, 6], [2, 6, 8]]
 
 #guard
@@ -50,7 +50,7 @@ public def subsumeSample : List (List Nat) :=
 
 /-! ## 2. Failed-Literal Probing & Vivification (`LayerAVivify`) -/
 
-public def probeSample : List (List Nat) :=
+def probeSample : List (List Nat) :=
   [[0, 2], [1, 2], [3, 4]]
 
 #guard
@@ -58,9 +58,9 @@ public def probeSample : List (List Nat) :=
   probeFailedLit 16 probeSample 2 &&
   !(probeFailedLit 16 probeSample 0)
 
-public def vivifyConflRest : List (List Nat) := [[0, 2], [0, 3]]
-public def vivifyImpRest : List (List Nat) := [[0, 2], [3, 4]]
-public def vivifyDropRest : List (List Nat) := [[0, 3]]
+def vivifyConflRest : List (List Nat) := [[0, 2], [0, 3]]
+def vivifyImpRest : List (List Nat) := [[0, 2], [3, 4]]
+def vivifyDropRest : List (List Nat) := [[0, 3]]
 
 #guard
   -- Conflict vivification: assuming `¬0 = 1` triggers conflict in `[[0, 2], [0, 3]]` -> `[0]`.
@@ -70,7 +70,7 @@ public def vivifyDropRest : List (List Nat) := [[0, 3]]
   -- Falsified-literal drop: `¬0 = 1` propagates `3 = ¬2` -> drops `2` -> `[0, 4]`.
   vivifyClause 16 vivifyDropRest [0, 2, 4] == [0, 4]
 
-public def vivifyPassSample : List (List Nat) :=
+def vivifyPassSample : List (List Nat) :=
   [[0, 2], [0, 3], [0, 4, 6], [1, 4, 5]]
 
 #guard vivifyPass 16 vivifyPassSample == [[0], [0], [0], [4, 5]]
@@ -78,7 +78,7 @@ public def vivifyPassSample : List (List Nat) :=
 
 /-! ## 3. Bounded Variable Elimination & Model Reconstruction (`LayerABve1`, `LayerABve`) -/
 
-public def bveSatSample : List (List Nat) :=
+def bveSatSample : List (List Nat) :=
   [[0, 2, 4], [1, 3, 4], [0, 5], [1, 2, 6], [2, 3, 7], [0, 1, 8]]
 
 #guard
@@ -96,7 +96,7 @@ public def bveSatSample : List (List Nat) :=
     evalCnf σ red && evalCnf σFull bveSatSample && checkModel (cnfOfClauses bveSatSample) σFull
   | _ => false
 
-public def bveUnsatSample : List (List Nat) :=
+def bveUnsatSample : List (List Nat) :=
   [[0, 2], [0, 3], [1, 2], [1, 3]]
 
 #guard
@@ -119,7 +119,7 @@ public def bveUnsatSample : List (List Nat) :=
 
 /-- Closed non-vacuity corollary for `LayerASubsume`: exercises `subsume_clauses_equiv`,
 `ssr_clauses_equiv`, and `subsume_ssr_equiv` on `subsumeSample`. -/
-public theorem nv_subsume_ssr_sample :
+theorem nv_subsume_ssr_sample :
     (∀ α : Nat → Bool,
       (cnfOfClauses (subsumeAndSSR 2 subsumeSample)).Sat α ↔
         (cnfOfClauses subsumeSample).Sat α) ∧
@@ -140,7 +140,7 @@ public theorem nv_subsume_ssr_sample :
 
 /-- Closed non-vacuity corollary for `LayerAVivify`: exercises `vivify_conflict_equiv`,
 `vivify_implied_equiv`, `vivify_pass_equiv`, and `failedLit_add_equiv`. -/
-public theorem nv_vivify_sample :
+theorem nv_vivify_sample :
     (∀ α : Nat → Bool,
       ((cnfOfClauses vivifyConflRest).add (cnfClause [0])).Sat α ↔
         ((cnfOfClauses vivifyConflRest).add (cnfClause [0, 4, 6])).Sat α) ∧
@@ -211,7 +211,7 @@ public theorem nv_vivify_sample :
 
 /-- Closed SAT witness reconstruction theorem on `bveSatSample`: constructs an explicit
 reconstructed `Array Bool` model of `bveSatSample` after eliminating pivots `[0, 1]`. -/
-public theorem nv_bve_sat_sample :
+theorem nv_bve_sat_sample :
     ∃ σFull : Array Bool,
       evalCnf σFull bveSatSample = true ∧
       checkModel (cnfOfClauses bveSatSample) σFull = true ∧
@@ -225,7 +225,7 @@ public theorem nv_bve_sat_sample :
 
 /-- Closed UNSAT soundness theorem on `bveUnsatSample`: eliminates pivots `[0, 1]` down to
 `[[]]` and certifies `(cnfOfClauses bveUnsatSample).Unsat`. -/
-public theorem nv_bve_unsat_sample : (cnfOfClauses bveUnsatSample).Unsat := by
+theorem nv_bve_unsat_sample : (cnfOfClauses bveUnsatSample).Unsat := by
   apply bveElim_unsat_sound (pivots := [0, 1])
   have hred : (bveElim bveUnsatSample [0, 1]).1 = [[]] := by decide
   rw [hred, CNF.unsat_iff_not_sat]
@@ -235,7 +235,7 @@ public theorem nv_bve_unsat_sample : (cnfOfClauses bveUnsatSample).Unsat := by
 
 /-- Closed `cdclSolveAfterBve_sound` instantiation on `bveSatSample` and `bveUnsatSample`
 (paired with the executable `#guard` outcomes in Section 3). -/
-public theorem nv_cdcl_bve_sound :
+theorem nv_cdcl_bve_sound :
     (match cdclSolve 64 (bveElimCnf (cnfOfClauses bveSatSample) [0, 1]).1 with
      | .unsat => (cnfOfClauses bveSatSample).Unsat
      | .sat σ =>

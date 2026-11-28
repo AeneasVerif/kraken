@@ -1,9 +1,9 @@
 module
 
-public import LeanQbe.T.InlineLemmas
-public import LeanQbe.T.FlatLemmas
-public import LeanQbe.T.OptLemmas
-public import LeanQbe.T.MainInline
+import LeanQbe.T.InlineLemmas
+import LeanQbe.T.FlatLemmas
+import LeanQbe.T.OptLemmas
+import LeanQbe.T.MainInline
 
 /-!
 # Tests of `LeanQbe.T.Inline`

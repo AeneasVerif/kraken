@@ -4,10 +4,10 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 module
 
-public import LeanQbe.T.Amd64.Isa
-public import LeanQbe.T.Driver
-public import LeanQbe.T.RegaW62
-public import LeanQbe.T.Spill
+import LeanQbe.T.Amd64.Isa
+import LeanQbe.T.Driver
+import LeanQbe.T.RegaW62
+import LeanQbe.T.Spill
 meta import LeanQbe.T.Amd64.Isa
 meta import LeanQbe.T.Driver
 meta import LeanQbe.T.RegaW62
@@ -25,7 +25,7 @@ to fail with `jump: shuffle`.
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.X64ShuffleW62RegTest
 

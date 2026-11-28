@@ -1,8 +1,8 @@
 module
 
-public import LeanQbe.T.PrintCpp
-public import LeanQbe.T.Examples.UnionFindProg
-public import LeanQbe.T.Legal
+import LeanQbe.T.PrintCpp
+import LeanQbe.T.Examples.UnionFindProg
+import LeanQbe.T.Legal
 meta import LeanQbe.T.PrintCpp
 meta import LeanQbe.T.Examples.UnionFindProg
 meta import LeanQbe.T.Legal
@@ -561,7 +561,7 @@ private def emitNamespace (ns : String) (fns : List Fn) : Except String String :
   pure (s!"namespace {ns} " ++ "{\n" ++ decls ++ "\n" ++ defs ++ "\n} // namespace " ++ ns ++ "\n")
 
 /-- Generate standalone C++ translation units and `gen_suite.hpp` in `outDir`. -/
-public def runGenerate (outDir : String) : IO UInt32 := do
+def runGenerate (outDir : String) : IO UInt32 := do
   let writeChecked (fname : String) (res : Except String String) : IO Unit := do
     match res with
     | .ok s => IO.FS.writeFile (s!"{outDir}/{fname}") s

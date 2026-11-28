@@ -1,12 +1,12 @@
 module
 
-public import LeanQbe.T.Examples.Kissat.ExportCnfEntry
-public import LeanQbe.T.Examples.Kissat.ExportCnfEntryProof
-public import LeanQbe.T.Examples.Kissat.ExportCnfEntryProofNv
-public import LeanQbe.T.PrintCpp
-public import LeanQbe.T.PrintQbe
-public import LeanQbe.T.InterpKissat
-public import LeanQbe.T.Legal
+import LeanQbe.T.Examples.Kissat.ExportCnfEntry
+import LeanQbe.T.Examples.Kissat.ExportCnfEntryProof
+import LeanQbe.T.Examples.Kissat.ExportCnfEntryProofNv
+import LeanQbe.T.PrintCpp
+import LeanQbe.T.PrintQbe
+import LeanQbe.T.InterpKissat
+import LeanQbe.T.Legal
 meta import LeanQbe.T.Examples.Kissat.ExportCnfEntry
 meta import LeanQbe.T.Examples.Kissat.ExportCnfEntryProof
 meta import LeanQbe.T.Examples.Kissat.ExportCnfEntryProofNv

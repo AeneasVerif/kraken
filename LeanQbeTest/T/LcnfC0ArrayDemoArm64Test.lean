@@ -1,6 +1,6 @@
 module
 
-public import LeanQbe.T.Arm64.LcnfC0ArrayDemoCertArm64
+import LeanQbe.T.Arm64.LcnfC0ArrayDemoCertArm64
 meta import Lean
 meta import LeanQbe.T.MainCertScc
 meta import LeanQbe.T.Arm64.Targ
@@ -18,7 +18,7 @@ meta import LeanQbe.T.LeanLCNF.LcnfC0ArrayDemo
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.LcnfC0ArrayDemoArm64Test
 

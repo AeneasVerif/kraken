@@ -5,7 +5,7 @@ public import LeanQbe.T.LeanLCNF.LcnfC0StringsSpec
 public import LeanQbe.T.LeanLCNF.LcnfC0ContainersProof1
 public import LeanQbe.T.LeanLCNF.LcnfC0ContainersProof2
 public import LeanQbe.T.Logic.C0Step
-import all Kraken.Separation
+import Kraken.Separation
 
 /-!
 # Soundness Proofs for `LcnfC0Strings`, Part 1: Helpers & Core Alloc/Char Ops
@@ -135,11 +135,12 @@ theorem region_pop_bytes {a : BitVec 64} {rem k : Nat} (hk : k ≤ rem) (hfit : 
     conv => lhs; rw [show rem = k + (rem - k) by omega]
     exact region_split (by omega)
   rw [hsp, sep_assoc] at hm
-  obtain ⟨m1, m23, rfl, hd1, ⟨bs, hbsLen, hm1⟩, hm23⟩ := hm
-  have hbytes : bytes a bs m1 := by rcases hm1 with rfl; simp only [bytes]
-  have hm' : (bytes a bs ⋆ (region (a + BitVec.ofNat 64 k) (rem - k) ⋆ R)) (m1.union m23) :=
-    ⟨m1, m23, rfl, hd1, hbytes, hm23⟩
-  exact ⟨bs, hbsLen, sep_cast hm' (by ac_rfl)⟩
+  have hrk : ∀ f, region a k f → ∃ bs : List UInt8, bs.length = k ∧ bytes a bs f :=
+    fun _ ⟨bs, hl, hm1⟩ => ⟨bs, hl, hm1.symm⟩
+  obtain ⟨bs, hm1⟩ := sep_ex_l.mp (sep_mono hrk hm)
+  obtain ⟨hbsLen, hm2⟩ := sep_pure_l.mp hm1
+  change (bytes a bs ⋆ _) m at hm2
+  exact ⟨bs, hbsLen, sep_cast hm2 (by ac_rfl)⟩
 
 theorem region_to_2cells_rem {p : BitVec 64} {bytes : Nat} (hge : 16 ≤ bytes)
     (hfit : bytes ≤ 2 ^ 64) {R : Mem 64 → Prop} {m : Mem 64}
@@ -168,9 +169,9 @@ theorem region_to_4cells_rem {p : BitVec 64} {bytes : Nat} (hge : 32 ≤ bytes)
 theorem region_to_array64_sep {a : BitVec 64} {n : Nat} (hfit : 8 * n ≤ 2 ^ 64)
     {R : Mem 64 → Prop} {m : Mem 64} (hm : (region a (8 * n) ⋆ R) m) :
     ∃ xs : List (BitVec 64), xs.length = n ∧ (array64 a xs ⋆ R) m := by
-  obtain ⟨m1, m2, rfl, hd, hm1, hm2⟩ := hm
-  obtain ⟨xs, hlen, hxs⟩ := region_to_array64 n hfit hm1
-  exact ⟨xs, hlen, m1, m2, rfl, hd, hxs, hm2⟩
+  obtain ⟨xs, hm1⟩ := sep_ex_l.mp (sep_mono (fun _ => region_to_array64 n hfit) hm)
+  obtain ⟨hlen, hm2⟩ := sep_pure_l.mp hm1
+  exact ⟨xs, hlen, hm2⟩
 
 theorem bytes_to_region {a : BitVec 64} {bs : List UInt8} {m : Mem 64}
     (h : bytes a bs m) : region a bs.length m := by

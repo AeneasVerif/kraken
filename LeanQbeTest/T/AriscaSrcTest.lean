@@ -4,11 +4,11 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 module
 
-public import LeanQbe.T.MainFlat
-public import LeanQbe.T.Examples.Arisca.Src.Module
-public meta import LeanQbe.T.Flat
-public meta import LeanQbe.T.MainFlat
-public meta import LeanQbe.T.Examples.Arisca.Src.Module
+import LeanQbe.T.MainFlat
+import LeanQbe.T.Examples.Arisca.Src.Module
+meta import LeanQbe.T.Flat
+meta import LeanQbe.T.MainFlat
+meta import LeanQbe.T.Examples.Arisca.Src.Module
 
 /-!
 # Target-Neutral `Func.Wf` and Module Invariant Tests for `Arisca.Src` (`AriscaSrcTest`)
@@ -41,7 +41,7 @@ private def ariscaFlatFns : List TFlatFn :=
 #guard ariscaModule.fns.all (fun f => f.as.length <= 6)
 #guard ariscaFlatFns.all TFlatFn.wfCheck
 
-public section
+section
 
 theorem audit_ariscaModule_wf : ∀ f ∈ ariscaModule.fns, f.Wf :=
   ariscaModule_wf

@@ -1,7 +1,7 @@
 module
 
-public import LeanQbe.T.Examples.BvDecideBridge
-public meta import LeanQbe.T.Examples.BvDecideBridge
+import LeanQbe.T.Examples.BvDecideBridge
+meta import LeanQbe.T.Examples.BvDecideBridge
 
 /-!
 # Tests and Axiom Audit for `BvDecideBridge` (`M1a`)
@@ -15,7 +15,7 @@ public meta import LeanQbe.T.Examples.BvDecideBridge
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.BvDecideBridgeTest
 

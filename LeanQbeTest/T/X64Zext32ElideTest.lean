@@ -1,11 +1,11 @@
 module
 
-public import LeanQbe.T.Amd64.TargLemmas
-public import LeanQbe.T.Amd64.IselLemmas1
-public import LeanQbe.T.Amd64.IselLemmas5
-public import LeanQbe.T.RegaLemmas2
-public import LeanQbe.T.RegaLemmas4
-public import LeanQbe.T.Spill
+import LeanQbe.T.Amd64.TargLemmas
+import LeanQbe.T.Amd64.IselLemmas1
+import LeanQbe.T.Amd64.IselLemmas5
+import LeanQbe.T.RegaLemmas2
+import LeanQbe.T.RegaLemmas4
+import LeanQbe.T.Spill
 meta import LeanQbe.T.Amd64.TargLemmas
 meta import LeanQbe.T.Spill
 

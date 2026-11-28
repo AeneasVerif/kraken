@@ -4,10 +4,10 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 module
 
-public import LeanQbe.T.MainCertCore
-public import LeanQbe.T.MainCertFlat
-public import LeanQbe.T.Arm64.TargLemmas
-public import LeanQbeTest.T.CertFlatDecodeFixture
+import LeanQbe.T.MainCertCore
+import LeanQbe.T.MainCertFlat
+import LeanQbe.T.Arm64.TargLemmas
+import LeanQbeTest.T.CertFlatDecodeFixture
 meta import Lean
 meta import LeanQbe.T.MainCertElab
 meta import LeanQbe.T.MainCertFlatElab
@@ -24,7 +24,7 @@ verifying exact kernel and literal equality of `code`, `bounds`, `exportedExt`, 
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.CompileFlatCertArm64Test
 

@@ -7,7 +7,7 @@ public import LeanQbe.T.LeanLCNF.LcnfC0RtProofNv
 import LeanQbe.T.Logic.C0Step
 import LeanQbe.T.Logic.Cells
 import LeanQbe.T.Logic.MemLemmas
-import all Kraken.Separation
+import Kraken.Separation
 
 /-!
 # Soundness Proofs & `ModuleOk` for `LcnfC0Demo` (`addNat`, `addToStr`, `fmtSumTagged`)
@@ -766,9 +766,8 @@ private theorem demo_sep_append {P Q : Mem 64 → Prop} {a : BitVec 64} {bs1 bs2
     {n1 n2 : Nat} (h1 : bs1.length = n1) (h2 : bs2.length = n2) (hfit : n1 + n2 ≤ 2 ^ 64)
     (hp : P (bs1.At a)) (hq : Q (bs2.At (a + BitVec.ofNat 64 n1))) :
     (P ⋆ Q) ((bs1 ++ bs2).At a) := by
-  have hs := congrFun (Mem.At_append_sep bs1 bs2 a (by omega)) ((bs1 ++ bs2).At a)
-  obtain ⟨_, _, hu, hd, rfl, rfl⟩ := hs.mp rfl
-  exact ⟨_, _, hu, hd, hp, h1 ▸ hq⟩
+  have hs := (congrFun (Mem.At_append_sep bs1 bs2 a (by omega)) ((bs1 ++ bs2).At a)).mp rfl
+  exact sep_mono (fun _ h => h ▸ hp) (sep_mono_r (fun _ h => h ▸ (h1 ▸ hq)) hs)
 
 private theorem demo_prefix_len : (nvRtBytes ++ nvDagBytes).length = 33912 := by
   have hRt : nvRtBytes.length = 33800 := by

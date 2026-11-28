@@ -1,11 +1,11 @@
 module
 
-public import LeanQbe.T.Arm64.IselLemmas4
-public import LeanQbe.T.Arm64.Targ
-public import LeanQbe.T.Arm64.Frame
-public import LeanQbe.T.OpsLemmas
-public import LeanQbe.T.Main
-public import LeanQbe.T.Examples.Bignum
+import LeanQbe.T.Arm64.IselLemmas4
+import LeanQbe.T.Arm64.Targ
+import LeanQbe.T.Arm64.Frame
+import LeanQbe.T.OpsLemmas
+import LeanQbe.T.Main
+import LeanQbe.T.Examples.Bignum
 import Kraken.AArch64.Parser
 meta import LeanQbe.T.Arm64.Isel
 meta import LeanQbe.T.Arm64.Frame
@@ -38,7 +38,7 @@ Standalone downstream module verifying:
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.Arm64IselTest
 
@@ -804,7 +804,7 @@ theorem jnzGpr_false_witness {s : MachineData}
 
 /-! ## 8b. Full `armGpr` + `armFrame` `Bignum` Regression -/
 
-@[expose] meta def armEmptyVecIsa : VecIsa Reg Empty ArmCond Directive where
+meta def armEmptyVecIsa : VecIsa Reg Empty ArmCond Directive where
   vecScratch := []
   vecAllocatable := []
   vecArgRegs := []
@@ -821,7 +821,7 @@ theorem jnzGpr_false_witness {s : MachineData}
   supportsVecOp _ _ := false
 
 /-- Scalar AArch64 `Isa` combining `armGpr` and `armFrame`. -/
-@[expose] meta def fullArm64Isa : Isa where
+meta def fullArm64Isa : Isa where
   Reg := Reg
   VReg := Empty
   Cond := ArmCond

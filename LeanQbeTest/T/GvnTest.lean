@@ -1,9 +1,9 @@
 module
 
-public import LeanQbe.T.GvnLemmas
-public import LeanQbe.T.WPLemmas
-public import LeanQbe.T.FlatLemmas
-public import LeanQbe.T.Logic.Rules
+import LeanQbe.T.GvnLemmas
+import LeanQbe.T.WPLemmas
+import LeanQbe.T.FlatLemmas
+import LeanQbe.T.Logic.Rules
 
 /-!
 # Tests of `LeanQbe.T.Gvn`
@@ -20,7 +20,7 @@ Covers global value numbering and common subexpression elimination in `LeanQbe.T
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbe.T.GvnTest
 

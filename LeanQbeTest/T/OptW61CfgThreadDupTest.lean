@@ -1,19 +1,19 @@
 module
 
-public import LeanQbe.T.CondThreadOptLemmas
-public import LeanQbe.T.TailDupLemmas
-public import LeanQbe.T.OptFlatBranchLemmas
-public import LeanQbe.T.FlatLemmas
-public import LeanQbe.T.WPLemmas
-public import LeanQbe.T.MainLemmas
-public meta import LeanQbe.T.CondThreadOpt
-public meta import LeanQbe.T.TailDup
-public meta import LeanQbe.T.OptFlatBranch
-public meta import LeanQbe.T.MainInline
-public meta import LeanQbe.T.Driver
-public meta import LeanQbe.T.Amd64.Targ
-public meta import LeanQbe.T.Amd64.PrintATTAlign
-public meta import LeanQbe.T.Examples.Kissat.Plain
+import LeanQbe.T.CondThreadOptLemmas
+import LeanQbe.T.TailDupLemmas
+import LeanQbe.T.OptFlatBranchLemmas
+import LeanQbe.T.FlatLemmas
+import LeanQbe.T.WPLemmas
+import LeanQbe.T.MainLemmas
+meta import LeanQbe.T.CondThreadOpt
+meta import LeanQbe.T.TailDup
+meta import LeanQbe.T.OptFlatBranch
+meta import LeanQbe.T.MainInline
+meta import LeanQbe.T.Driver
+meta import LeanQbe.T.Amd64.Targ
+meta import LeanQbe.T.Amd64.PrintATTAlign
+meta import LeanQbe.T.Examples.Kissat.Plain
 
 /-!
 # Wave 6.1-A Activation & Soundness Tests (`OPT-1` `CondThreadOpt` + `OPT-4` `TailDup` Latch)
@@ -35,7 +35,7 @@ Verifies:
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.OptW61CfgThreadDupTest
 

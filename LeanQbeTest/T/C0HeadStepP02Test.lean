@@ -4,9 +4,9 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 module
 
-public import LeanQbe.T.Frontend.C0
-public import LeanQbe.T.Logic.CanonicalEnv
-public import LeanQbe.T.Logic.C0HeadStep
+import LeanQbe.T.Frontend.C0
+import LeanQbe.T.Logic.CanonicalEnv
+import LeanQbe.T.Logic.C0HeadStep
 meta import LeanQbe.T.Frontend.C0
 meta import LeanQbe.T.Logic.C0HeadStep
 
@@ -28,7 +28,7 @@ Covers:
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.C0HeadStepP02Test
 
@@ -52,10 +52,6 @@ private meta def wrapWpExprMData : Lean.Elab.Tactic.TacticM Unit := do
   let ty' := Lean.mkAppN ty.getAppFn (ty.getAppArgs.set! 4 e')
   let g' ← g.change ty' (checkDefEq := false)
   Lean.Elab.Tactic.replaceMainGoal [g']
-
-local elab "wrap_outer_mdata" : tactic => wrapOuterMData
-
-local elab "wrap_wp_expr_mdata" : tactic => wrapWpExprMData
 
 private meta def expectTacticFail (tac : Lean.TSyntax `tactic) : Lean.Elab.Tactic.TacticM Unit := do
   let s ← Lean.Elab.Tactic.saveState
@@ -149,8 +145,8 @@ theorem call_mdata_wrapped_ret (Γ : Env)
     (hQ : Q (x + 1#32, ()) m) :
     wp Γ Q X (.call "add1" (as := [i32]) (bs := [i32]) (Arg.imm x, ())
       fun r => .ret (Arg.var r.1, ())) m := by
-  wrap_wp_expr_mdata
-  wrap_outer_mdata
+  run_tac wrapWpExprMData
+  run_tac wrapOuterMData
   c0_hcall hSub
   exact hQ
 
@@ -162,7 +158,7 @@ theorem call_blocks_get_mdata (Γ : Env)
         .call "add1" (as := [i32]) (bs := [i32]) (Arg.var y.1, ())
           fun r => .ret (Arg.var r.1, ())) .nil)
         .here (x, ())) m := by
-  wrap_outer_mdata
+  run_tac wrapOuterMData
   c0_hcall hHas
   exact hQ
 
@@ -266,11 +262,11 @@ theorem c0_step_and_steps_strip_outer_inner_mdata (Γ : Env) (a : BitVec 64) (i 
       .load i64 (Arg.imm (a + i.setWidth 64 * 8)) fun v =>
         .let_ (op2 (.add i64) (Arg.var v) (Arg.imm 3#64)) fun (w, _) =>
           .ret (Arg.var w, ())) m := by
-  wrap_wp_expr_mdata
-  wrap_outer_mdata
+  run_tac wrapWpExprMData
+  run_tac wrapOuterMData
   c0_mstep
-  wrap_wp_expr_mdata
-  wrap_outer_mdata
+  run_tac wrapWpExprMData
+  run_tac wrapOuterMData
   c0_msteps!
   exact hQ
 
@@ -278,8 +274,8 @@ theorem c0_steps_non_strict_mdata (Γ : Env) (x : BitVec 32) (m : Mem 64)
     (Q : Post [i32]) (X : XPost) (hQ : Q (x + 5#32, ()) m) :
     wp Γ Q X (.let_ (op2 (.add i32) (Arg.imm x) (Arg.imm 5#32)) fun (y, _) =>
       .ret (Arg.var y, ())) m := by
-  wrap_wp_expr_mdata
-  wrap_outer_mdata
+  run_tac wrapWpExprMData
+  run_tac wrapOuterMData
   c0_msteps
   exact hQ
 
@@ -291,8 +287,8 @@ theorem c0_to_group_strips_inner_mdata (Γ : Env) (x : BitVec 32) (m : Mem 64)
         fun (J, _) =>
           .let_ (op2 (.add i32) (Arg.var y) (Arg.imm 3#32)) fun (z, _) =>
             .jump J (Arg.var z, ())) m := by
-  wrap_wp_expr_mdata
-  wrap_outer_mdata
+  run_tac wrapWpExprMData
+  run_tac wrapOuterMData
   c0_mto_group
   refine wp_unroll_group fun _ _ => ?_
   c0_msteps
@@ -305,8 +301,8 @@ theorem c0_split_strips_inner_mdata (Γ : Env) (c : Bool) (x : BitVec 32) (m : M
         (.let_ (op2 (.add i32) (Arg.var y) (Arg.imm 1#32)) fun (z, _) => .ret (Arg.var z, ()))
         (.let_ (op2 (.add i32) (Arg.var y) (Arg.imm 2#32)) fun (z, _) => .ret (Arg.var z, ())))
       m := by
-  wrap_wp_expr_mdata
-  wrap_outer_mdata
+  run_tac wrapWpExprMData
+  run_tac wrapOuterMData
   c0_msplit
   · c0_msteps; simpa using hT
   · c0_msteps; simpa using hF
@@ -315,7 +311,7 @@ theorem c0_steps_unshadowed_stops_on_inner_mdata (Γ : Env) (x : BitVec 32) (m :
     (Q : Post [i32]) (X : XPost) (hQ : Q (x + 5#32, ()) m) :
     wp Γ Q X (.let_ (op2 (.add i32) (Arg.imm x) (Arg.imm 5#32)) fun (y, _) =>
       .ret (Arg.var y, ())) m := by
-  wrap_wp_expr_mdata
+  run_tac wrapWpExprMData
   run_tac expectTacticFail (← `(tactic| c0_step))
   c0_msteps
   exact hQ

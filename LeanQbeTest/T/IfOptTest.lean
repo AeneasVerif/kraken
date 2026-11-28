@@ -1,9 +1,9 @@
 module
 
-public import LeanQbe.T.IfOptLemmas
-public import LeanQbe.T.SimplifyGroupPlanLemmas
-public import LeanQbe.T.FlatLemmas
-public import LeanQbe.T.WPLemmas
+import LeanQbe.T.IfOptLemmas
+import LeanQbe.T.SimplifyGroupPlanLemmas
+import LeanQbe.T.FlatLemmas
+import LeanQbe.T.WPLemmas
 meta import LeanQbe.T.IfOpt
 meta import LeanQbe.T.SimplifyGroupPlan
 
@@ -20,7 +20,7 @@ meta import LeanQbe.T.SimplifyGroupPlan
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.IfOptTest
 

@@ -27,7 +27,7 @@ open LeanQbe.T.Examples.Bitblast.Ref
 open LeanQbe.T.Examples.Bitblast.Src
 open LeanQbe.T.Examples.Bitblast.Src.OpsShiftMul
 
-@[expose] public section
+public section
 
 /-! ## 1. Header Frame, Slice Bounds, and Semantic Combinators -/
 
@@ -37,18 +37,19 @@ abbrev BVHdrState.OpsFrame (h1 h2 : BVHdrState) : Prop :=
   Modifies [.aig_len, .lits_len, .oom] h1 h2
 
 /-- Exact runtime slice validity check matching `OpsCore.bv_slice_ok(h, off, w)`. -/
-def sliceOkBool (hdr : BVHdrState) (off w : BitVec 32) : Bool :=
+@[expose] def sliceOkBool (hdr : BVHdrState) (off w : BitVec 32) : Bool :=
   decide (hdr.lits_len.toNat ≤ hdr.lits_cap.toNat ∧
     (0 < w.toNat → hdr.lits_ptr ≠ 0#64) ∧
     off.toNat ≤ hdr.lits_len.toNat ∧
     w.toNat ≤ hdr.lits_len.toNat - off.toNat)
 
 /-- Well-formedness of a `w`-literal slice at `litsPool[off ..< off + w]` with respect to `g`. -/
-def SliceLitsWf (g : Aig) (litsPool : List (BitVec 32)) (off w : Nat) : Prop :=
+@[expose] def SliceLitsWf (g : Aig) (litsPool : List (BitVec 32)) (off w : Nat) : Prop :=
   ∀ j < w, ((litsPool.getD (off + j) 0#32) >>> 1).toNat < g.A + 1 + g.nodes.size
 
 /-- Variable-shift bitvector semantics indexed by C0 opcode (`19` = shl, `20` = ushr, `21` =
 ashr). -/
+@[expose]
 def bvShiftSem (op : BitVec 32) {w nw : Nat} (va : BitVec w) (vb : BitVec nw) : BitVec w :=
   if op = 19#32 then va <<< vb
   else if op = 20#32 then va >>> vb
@@ -57,7 +58,7 @@ def bvShiftSem (op : BitVec 32) {w nw : Nat} (va : BitVec w) (vb : BitVec nw) : 
 /-! ## 2. Extern Specifications (`bv_slice_ok`, `bv_blast_add`) -/
 
 /-- Canonical spec for extern `bv_slice_ok(h, off, w)`. -/
-def smBvSliceOkSpec : Spec [i64, i32, i32] [.bool] :=
+@[expose] def smBvSliceOkSpec : Spec [i64, i32, i32] [.bool] :=
   fun ⟨h, off, w, ⟨⟩⟩ m Q _X =>
     ∃ (hdr : BVHdrState) (R : Mem 64 → Prop),
       (bvHdrMem h hdr ⋆ R) m ∧
@@ -65,7 +66,7 @@ def smBvSliceOkSpec : Spec [i64, i32, i32] [.bool] :=
 
 /-- Shared canonical body for binary AIG-allocating `lits`-slice operations taking `(h, aOff,
 aw, bOff, bw)` with opcode check `opOk`, input WF guard, and output semantic combinator `sem`. -/
-def bvBlastBinOpSpecBody (h : BitVec 64) (aOff aw bOff bw : BitVec 32) (opOk : Bool)
+@[expose] def bvBlastBinOpSpecBody (h : BitVec 64) (aOff aw bOff bw : BitVec 32) (opOk : Bool)
     (sem : BitVec aw.toNat → BitVec bw.toNat → BitVec aw.toNat)
     (requireOk : Bool) (m : Mem 64) (Q : Post [i32]) : Prop :=
   ∃ (hdr : BVHdrState) (g : Aig) (aigWords : List (BitVec 64))
@@ -112,14 +113,14 @@ def bvBlastBinOpSpecBody (h : BitVec 64) (aOff aw bOff bw : BitVec 32) (opOk : B
       Q (ret, ⟨⟩) m'
 
 /-- Canonical spec for extern `bv_blast_add(h, a_off, b_off, w)`. -/
-def smBvBlastAddSpec : Spec [i64, i32, i32, i32] [i32] :=
+@[expose] def smBvBlastAddSpec : Spec [i64, i32, i32, i32] [i32] :=
   fun ⟨h, aOff, bOff, w, ⟨⟩⟩ m Q _X =>
     bvBlastBinOpSpecBody h aOff w bOff w true (· + ·) true m Q
 
 /-! ## 3. Canonical Specifications — `OpsShiftMul` (`12` fns) -/
 
 /-- Canonical spec for `bv_copy_lits(h, dst_off, src_off, w)`. -/
-def bvCopyLitsSpec : Spec [i64, i32, i32, i32] [] :=
+@[expose] def bvCopyLitsSpec : Spec [i64, i32, i32, i32] [] :=
   fun ⟨h, dstOff, srcOff, w, ⟨⟩⟩ m Q _X =>
     ∃ (hdr : BVHdrState) (litsPool : List (BitVec 32)) (R : Mem 64 → Prop),
       litsPool.length < 2 ^ 32 ∧
@@ -138,7 +139,7 @@ def bvCopyLitsSpec : Spec [i64, i32, i32, i32] [] :=
 
 /-- Shared canonical spec body for pure `lits`-reindexing operators (`replicate`, `rotl`, `rotr`,
 `ashrc`, `reverse`). -/
-def bvLitsPureOpBody (h : BitVec 64) (ok : BVHdrState → Bool) (outW : BitVec 32)
+@[expose] def bvLitsPureOpBody (h : BitVec 64) (ok : BVHdrState → Bool) (outW : BitVec 32)
     (idxFn : Nat → Nat) (m : Mem 64) (Q : Post [i32]) : Prop :=
   ∃ (hdr : BVHdrState) (litsPool : List (BitVec 32)) (R : Mem 64 → Prop),
     litsPool.length = hdr.lits_cap.toNat ∧
@@ -163,7 +164,7 @@ def bvLitsPureOpBody (h : BitVec 64) (ok : BVHdrState → Bool) (outW : BitVec 3
       Q (ret, ⟨⟩) m'
 
 /-- Canonical spec for `bv_blast_replicate(h, a_off, aw, n)`. -/
-def bvBlastReplicateSpec : Spec [i64, i32, i32, i32] [i32] :=
+@[expose] def bvBlastReplicateSpec : Spec [i64, i32, i32, i32] [i32] :=
   fun ⟨h, aOff, aw, n, ⟨⟩⟩ m Q _X =>
     bvLitsPureOpBody h
       (fun hdr => decide (hdr.oom = 0#32 ∧ sliceOkBool hdr aOff aw = true ∧
@@ -172,7 +173,7 @@ def bvBlastReplicateSpec : Spec [i64, i32, i32, i32] [i32] :=
       (fun j => aOff.toNat + j % aw.toNat) m Q
 
 /-- Canonical spec for `bv_blast_rotl(h, a_off, w, n)`. -/
-def bvBlastRotlSpec : Spec [i64, i32, i32, i32] [i32] :=
+@[expose] def bvBlastRotlSpec : Spec [i64, i32, i32, i32] [i32] :=
   fun ⟨h, aOff, w, n, ⟨⟩⟩ m Q _X =>
     bvLitsPureOpBody h
       (fun hdr => decide (hdr.oom = 0#32 ∧ sliceOkBool hdr aOff w = true ∧
@@ -184,7 +185,7 @@ def bvBlastRotlSpec : Spec [i64, i32, i32, i32] [i32] :=
       m Q
 
 /-- Canonical spec for `bv_blast_rotr(h, a_off, w, n)`. -/
-def bvBlastRotrSpec : Spec [i64, i32, i32, i32] [i32] :=
+@[expose] def bvBlastRotrSpec : Spec [i64, i32, i32, i32] [i32] :=
   fun ⟨h, aOff, w, n, ⟨⟩⟩ m Q _X =>
     bvLitsPureOpBody h
       (fun hdr => decide (hdr.oom = 0#32 ∧ sliceOkBool hdr aOff w = true ∧
@@ -197,7 +198,7 @@ def bvBlastRotrSpec : Spec [i64, i32, i32, i32] [i32] :=
       m Q
 
 /-- Canonical spec for `bv_blast_ashrc(h, a_off, w, n)`. -/
-def bvBlastAshrcSpec : Spec [i64, i32, i32, i32] [i32] :=
+@[expose] def bvBlastAshrcSpec : Spec [i64, i32, i32, i32] [i32] :=
   fun ⟨h, aOff, w, n, ⟨⟩⟩ m Q _X =>
     bvLitsPureOpBody h
       (fun hdr => decide (hdr.oom = 0#32 ∧ sliceOkBool hdr aOff w = true ∧
@@ -207,7 +208,7 @@ def bvBlastAshrcSpec : Spec [i64, i32, i32, i32] [i32] :=
       m Q
 
 /-- Canonical spec for `bv_blast_reverse(h, a_off, w)`. -/
-def bvBlastReverseSpec : Spec [i64, i32, i32] [i32] :=
+@[expose] def bvBlastReverseSpec : Spec [i64, i32, i32] [i32] :=
   fun ⟨h, aOff, w, ⟨⟩⟩ m Q _X =>
     bvLitsPureOpBody h
       (fun hdr => decide (hdr.oom = 0#32 ∧ sliceOkBool hdr aOff w = true ∧
@@ -217,34 +218,34 @@ def bvBlastReverseSpec : Spec [i64, i32, i32] [i32] :=
       m Q
 
 /-- Canonical spec for `bv_blast_shift_var(h, a_off, w, b_off, nw, op)`. -/
-def bvBlastShiftVarSpec : Spec [i64, i32, i32, i32, i32, i32] [i32] :=
+@[expose] def bvBlastShiftVarSpec : Spec [i64, i32, i32, i32, i32, i32] [i32] :=
   fun ⟨h, aOff, w, bOff, nw, op, ⟨⟩⟩ m Q _X =>
     bvBlastBinOpSpecBody h aOff w bOff nw
       (decide (op = 19#32 ∨ op = 20#32 ∨ op = 21#32))
       (bvShiftSem op) false m Q
 
 /-- Canonical spec for `bv_blast_shl(h, a_off, w, b_off, nw)`. -/
-def bvBlastShlSpec : Spec [i64, i32, i32, i32, i32] [i32] :=
+@[expose] def bvBlastShlSpec : Spec [i64, i32, i32, i32, i32] [i32] :=
   fun ⟨h, aOff, w, bOff, nw, ⟨⟩⟩ m Q _X =>
     bvBlastBinOpSpecBody h aOff w bOff nw true (· <<< ·) false m Q
 
 /-- Canonical spec for `bv_blast_ushr(h, a_off, w, b_off, nw)`. -/
-def bvBlastUshrSpec : Spec [i64, i32, i32, i32, i32] [i32] :=
+@[expose] def bvBlastUshrSpec : Spec [i64, i32, i32, i32, i32] [i32] :=
   fun ⟨h, aOff, w, bOff, nw, ⟨⟩⟩ m Q _X =>
     bvBlastBinOpSpecBody h aOff w bOff nw true (· >>> ·) false m Q
 
 /-- Canonical spec for `bv_blast_ashr(h, a_off, w, b_off, nw)`. -/
-def bvBlastAshrSpec : Spec [i64, i32, i32, i32, i32] [i32] :=
+@[expose] def bvBlastAshrSpec : Spec [i64, i32, i32, i32, i32] [i32] :=
   fun ⟨h, aOff, w, bOff, nw, ⟨⟩⟩ m Q _X =>
     bvBlastBinOpSpecBody h aOff w bOff nw true BitVec.sshiftRight' false m Q
 
 /-- Canonical spec for `bv_blast_mul(h, a_off, b_off, w)`. -/
-def bvBlastMulSpec : Spec [i64, i32, i32, i32] [i32] :=
+@[expose] def bvBlastMulSpec : Spec [i64, i32, i32, i32] [i32] :=
   fun ⟨h, aOff, bOff, w, ⟨⟩⟩ m Q _X =>
     bvBlastBinOpSpecBody h aOff w bOff w true (· * ·) false m Q
 
 /-- Canonical spec for `bv_blast_clz(h, a_off, w)`. -/
-def bvBlastClzSpec : Spec [i64, i32, i32] [i32] :=
+@[expose] def bvBlastClzSpec : Spec [i64, i32, i32] [i32] :=
   fun ⟨h, aOff, w, ⟨⟩⟩ m Q _X =>
     ∃ (hdr : BVHdrState) (g : Aig) (aigWords : List (BitVec 64))
       (htSlots litsPool : List (BitVec 32)) (R : Mem 64 → Prop),
@@ -283,7 +284,7 @@ def bvBlastClzSpec : Spec [i64, i32, i32] [i32] :=
 /-! ## 4. Closed `20`-Row `opsShiftMulSpecTable` and `opsShiftMulEnv` -/
 
 /-- Specification rows for the `12` defined functions of `opsShiftMulFns`. -/
-def opsShiftMulFnSpecTable : List SpecEntry :=
+@[expose] def opsShiftMulFnSpecTable : List SpecEntry :=
   [ ⟨"bv_copy_lits", [i64, i32, i32, i32], [], bvCopyLitsSpec, true⟩
   , ⟨"bv_blast_replicate", [i64, i32, i32, i32], [i32], bvBlastReplicateSpec, true⟩
   , ⟨"bv_blast_rotl", [i64, i32, i32, i32], [i32], bvBlastRotlSpec, true⟩
@@ -298,7 +299,7 @@ def opsShiftMulFnSpecTable : List SpecEntry :=
   , ⟨"bv_blast_clz", [i64, i32, i32], [i32], bvBlastClzSpec, true⟩ ]
 
 /-- Specification rows for the `8` externs of `opsShiftMulExterns`. -/
-def opsShiftMulExternSpecTable : List SpecEntry :=
+@[expose] def opsShiftMulExternSpecTable : List SpecEntry :=
   [ ⟨"bv_mk_and", [i64, i32, i32], [i32], bvMkAndSpec, true⟩
   , ⟨"bv_aig_or", [i64, i32, i32], [i32], bvAigOrSpec, true⟩
   , ⟨"bv_aig_ite", [i64, i32, i32, i32], [i32], bvAigIteSpec, true⟩
@@ -309,11 +310,11 @@ def opsShiftMulExternSpecTable : List SpecEntry :=
   , ⟨"bv_blast_add", [i64, i32, i32, i32], [i32], smBvBlastAddSpec, true⟩ ]
 
 /-- Full `20`-row specification table for `opsShiftMulModule`. -/
-def opsShiftMulSpecTable : List SpecEntry :=
+@[expose] def opsShiftMulSpecTable : List SpecEntry :=
   opsShiftMulFnSpecTable ++ opsShiftMulExternSpecTable
 
 /-- Closed canonical `Env` for `opsShiftMulModule`. -/
-def opsShiftMulEnv : Env := Env.ofTable opsShiftMulSpecTable
+@[expose] def opsShiftMulEnv : Env := Env.ofTable opsShiftMulSpecTable
 
 end
 

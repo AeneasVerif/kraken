@@ -1,14 +1,14 @@
 module
 
-public import LeanQbe.T.Amd64.PrintAsm0
-public import LeanQbe.T.Amd64.PrintAsm0Lemmas
-public import LeanQbe.T.Amd64.Isa
-public import LeanQbe.T.Frontend.C0.Elab
-public import LeanQbe.T.Frontend.C0.ToFlat
-public import LeanQbe.T.LeanLCNF.Lower1
-public import LeanQbe.T.Main
-public import LeanQbe.T.Spill
-public import Kraken.X64.PrintATT
+import LeanQbe.T.Amd64.PrintAsm0
+import LeanQbe.T.Amd64.PrintAsm0Lemmas
+import LeanQbe.T.Amd64.Isa
+import LeanQbe.T.Frontend.C0.Elab
+import LeanQbe.T.Frontend.C0.ToFlat
+import LeanQbe.T.LeanLCNF.Lower1
+import LeanQbe.T.Main
+import LeanQbe.T.Spill
+import Kraken.X64.PrintATT
 meta import Lean
 meta import LeanQbe.T.Amd64.PrintAsm0
 meta import LeanQbe.T.Amd64.PrintAsm0Lemmas
@@ -40,7 +40,7 @@ Verifies `LeanQbe.T.Amd64.PrintAsm0` and `LeanQbe.T.Amd64.PrintAsm0Lemmas`:
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.PrintAsm0Test
 

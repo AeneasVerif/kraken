@@ -1,19 +1,19 @@
 module
 
-public import LeanQbeTest.T.LcnfE2EDemos
-public import LeanQbe.T.Amd64.LcnfC0FullCertX64
-public import LeanQbe.T.Amd64.LcnfC0RecDemoCertX64
-public import LeanQbe.T.Amd64.LcnfC0TreeDemoCertX64
-public import LeanQbe.T.Amd64.TargLemmas
-public import LeanQbe.T.MainCertFlat
+import LeanQbeTest.T.LcnfE2EDemos
+import LeanQbe.T.Amd64.LcnfC0FullCertX64
+import LeanQbe.T.Amd64.LcnfC0RecDemoCertX64
+import LeanQbe.T.Amd64.LcnfC0TreeDemoCertX64
+import LeanQbe.T.Amd64.TargLemmas
+import LeanQbe.T.MainCertFlat
 meta import Lean
-meta import LeanQbe.T.MainCertElab
-meta import LeanQbe.T.MainCertFlatElab
-public meta import LeanQbe.T.Amd64.Targ
-public meta import LeanQbe.T.Amd64.LcnfC0FullCertX64
-public meta import LeanQbeTest.T.LcnfE2EDemos
-public meta import LeanQbe.T.LeanLCNF.LcnfC0LinkKit
-public meta import Kraken.X64.Syntax
+import LeanQbe.T.MainCertElab
+import LeanQbe.T.MainCertFlatElab
+meta import LeanQbe.T.Amd64.Targ
+meta import LeanQbe.T.Amd64.LcnfC0FullCertX64
+meta import LeanQbeTest.T.LcnfE2EDemos
+meta import LeanQbe.T.LeanLCNF.LcnfC0LinkKit
+meta import Kraken.X64.Syntax
 
 /-!
 # End-to-End SysV x86-64 `lean_fn_compiled` Certificates (`LcnfE2ECertX64`)
@@ -31,7 +31,7 @@ proofs in `LcnfE2EDemos` while reusing pre-verified `rtC0CoreCert`, `recDemoX64C
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.LcnfE2ECertX64
 

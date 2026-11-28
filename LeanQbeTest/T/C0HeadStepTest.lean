@@ -1,13 +1,12 @@
 module
 
-public import LeanQbe.T.Frontend.C0
-public import LeanQbe.T.Logic.C0HeadStep
-public import LeanQbe.T.Examples.Kissat.PlainPropLemmas1
-public import LeanQbe.T.Examples.Kissat.PlainReduceLemmas1
-public import LeanQbe.T.Examples.LratBytesDimacsLemmas
+import LeanQbe.T.Frontend.C0
+import LeanQbe.T.Logic.C0HeadStep
+import LeanQbe.T.Examples.Kissat.PlainPropLemmas1
+import LeanQbe.T.Examples.Kissat.PlainReduceLemmas1
+import LeanQbe.T.Examples.LratBytesDimacsLemmas
 meta import LeanQbe.T.Frontend.C0
 meta import LeanQbe.T.Logic.C0StepAttr
-meta import LeanQbe.T.Logic.C0HeadStep
 
 /-!
 # Verification Suite for `C0HeadStep` and Two-Level `(footprintHead, AddrKey)` Indexing
@@ -447,7 +446,7 @@ end KissatRealBench
 
 section C0HeadStepHelpers
 
-local elab "wrap_goal_mdata" : tactic => do
+private meta def wrapGoalMData : Lean.Elab.Tactic.TacticM Unit := do
   let g ← Lean.Elab.Tactic.getMainGoal
   let ty ← Lean.instantiateMVars (← g.getType)
   let g' ← g.change (Lean.mkMData {} ty) (checkDefEq := false)
@@ -490,7 +489,7 @@ theorem c0_split_mdata_wp {Γ : Env} {Q : Post [i32]} {X : XPost}
     wp Γ Q X
       (.let_ (op2 (.add i32) (Arg.var x) (Arg.imm 1#32)) fun (y, _) =>
         .jnz (Arg.var c) (.ret (Arg.var y, ())) (.ret (Arg.imm 0#32, ()))) m := by
-  wrap_goal_mdata
+  run_tac wrapGoalMData
   c0_split
   · exact ht hc
   · exact hf hc
@@ -506,7 +505,7 @@ theorem c0_to_group_mdata_wp {Γ : Env} {Q : Post [i32]} {X : XPost}
         .group (sig := [[i32]])
           (fun L => Blocks.cons (fun p => .jump L.1 (Arg.var p.1, ())) .nil)
           (fun L => .jump L.1 (Arg.var y, ()))) m := by
-  wrap_goal_mdata
+  run_tac wrapGoalMData
   c0_to_group
   exact hL m
 

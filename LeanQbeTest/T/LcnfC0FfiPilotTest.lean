@@ -4,11 +4,11 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 module
 
-public meta import LeanQbe.T.LeanLCNF.LcnfC0FfiPilotProof
-public meta import LeanQbeTest.T.LcnfC0FfiPilotCertX64
-public meta import LeanQbe.T.InterpKissat
-public meta import LeanQbe.T.PrintQbe
-public meta import LeanQbe.T.PrintCpp
+meta import LeanQbe.T.LeanLCNF.LcnfC0FfiPilotProof
+meta import LeanQbeTest.T.LcnfC0FfiPilotCertX64
+meta import LeanQbe.T.InterpKissat
+meta import LeanQbe.T.PrintQbe
+meta import LeanQbe.T.PrintCpp
 
 /-!
 # Shard `F3` SysV x86-64 + Generic Verification & Axiom Audit (`LcnfC0FfiPilotTest`)

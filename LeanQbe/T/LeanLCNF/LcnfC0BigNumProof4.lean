@@ -1,8 +1,8 @@
 module
 
 public import LeanQbe.T.LeanLCNF.LcnfC0BigNumProof3
-import all Kraken.Mem
-import all Kraken.Separation
+import Kraken.Mem
+import Kraken.Separation
 
 /-!
 # Top-Level `Nat` Arithmetic Dispatcher (`lcnf_nat_arith_wp`, `Milestone R1`, Part 4)

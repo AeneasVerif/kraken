@@ -1,12 +1,12 @@
 module
 
-public import LeanQbe.T.LeanLCNF.LcnfC0Full
-public import LeanQbe.T.LeanLCNF.LcnfC0FullProof
-public import LeanQbe.T.LeanLCNF.Demo
-public import LeanQbe.T.LeanLCNF.Coverage
-public import LeanQbe.T.LeanLCNF.Lower1
-public import LeanQbe.T.InterpKissat
-public import LeanQbe.T.PrintCpp
+import LeanQbe.T.LeanLCNF.LcnfC0Full
+import LeanQbe.T.LeanLCNF.LcnfC0FullProof
+import LeanQbe.T.LeanLCNF.Demo
+import LeanQbe.T.LeanLCNF.Coverage
+import LeanQbe.T.LeanLCNF.Lower1
+import LeanQbe.T.InterpKissat
+import LeanQbe.T.PrintCpp
 meta import LeanQbe.T.LeanLCNF.LcnfC0Full
 meta import LeanQbe.T.LeanLCNF.LcnfC0FullProof
 meta import LeanQbe.T.LeanLCNF.Demo
@@ -30,7 +30,7 @@ meta import LeanQbe.T.PrintCpp
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.LcnfC0FullTest
 

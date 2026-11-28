@@ -1,6 +1,6 @@
 module
 
-public import LeanQbe.T.Arm64.KissatPlain
+import LeanQbe.T.Arm64.KissatPlain
 meta import LeanQbe.T.Examples.Kissat.PlainLemmas
 
 /-!
@@ -16,7 +16,7 @@ non-vacuity (`plainCert.host`), unconditional. Imports `Kraken.AArch64` only (ne
 
 set_option autoImplicit false
 
-public section
+section
 
 open Std.Sat
 open LeanQbe.T LeanQbe.T.Examples.LratBytes LeanQbe.T.Examples.Kissat

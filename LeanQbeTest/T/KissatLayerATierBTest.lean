@@ -1,9 +1,9 @@
 module
 
-public import LeanQbe.T.Examples.Kissat.Ref.Substitute
-public import LeanQbe.T.Examples.Kissat.Ref.Gates
-public import LeanQbe.T.Examples.Kissat.Ref.Factor
-public import LeanQbe.T.Examples.Kissat.Proof.Ref.Factor
+import LeanQbe.T.Examples.Kissat.Ref.Substitute
+import LeanQbe.T.Examples.Kissat.Ref.Gates
+import LeanQbe.T.Examples.Kissat.Ref.Factor
+import LeanQbe.T.Examples.Kissat.Proof.Ref.Factor
 meta import LeanQbe.T.Examples.Kissat.Ref.Sat
 meta import LeanQbe.T.Examples.Kissat.Ref.Substitute
 meta import LeanQbe.T.Examples.Kissat.Ref.Gates
@@ -25,7 +25,7 @@ Executable `#guard` / `#eval` checks, closed end-to-end theorems, and single-lin
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace KissatTierBTest
 

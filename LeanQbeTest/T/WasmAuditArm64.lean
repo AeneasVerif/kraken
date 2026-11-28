@@ -1,13 +1,12 @@
 module
 
-public import LeanQbeTest.T.WasmAuditSpec
-public import LeanQbeTest.T.WasmCertKit
-public import LeanQbe.T.Arm64.TargLemmas
-public import LeanQbe.T.MainCertElab
-public meta import LeanQbeTest.T.WasmAuditSpec
-public meta import LeanQbe.T.Arm64.TargLemmas
-public meta import LeanQbe.T.MainCertElab
-public meta import Kraken.AArch64.Syntax
+import LeanQbeTest.T.WasmAuditSpec
+import LeanQbeTest.T.WasmCertKit
+import LeanQbe.T.Arm64.TargLemmas
+import LeanQbe.T.MainCertElab
+meta import LeanQbeTest.T.WasmAuditSpec
+meta import LeanQbe.T.Arm64.TargLemmas
+meta import Kraken.AArch64.Syntax
 
 /-!
 # Kraken AArch64 WebAssembly Memory Safety Audit (`WasmAuditArm64`)

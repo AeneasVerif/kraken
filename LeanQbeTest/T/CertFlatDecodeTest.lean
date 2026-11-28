@@ -4,9 +4,9 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 module
 
-public import LeanQbe.T.MainCertCore
-public import LeanQbe.T.Amd64.TargLemmas
-public import LeanQbeTest.T.CertFlatDecodeFixture
+import LeanQbe.T.MainCertCore
+import LeanQbe.T.Amd64.TargLemmas
+import LeanQbeTest.T.CertFlatDecodeFixture
 import LeanQbe.T.FlatLemmas
 meta import Lean
 meta import LeanQbe.T.MainCertElab
@@ -28,7 +28,7 @@ meta import LeanQbe.T.Amd64.Targ
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.CertFlatDecodeTest
 

@@ -1,6 +1,6 @@
 module
 
-public import LeanQbe.T.Arm64.FrameLemmas
+import LeanQbe.T.Arm64.FrameLemmas
 import Kraken.AArch64.Parser
 
 /-!
@@ -21,7 +21,7 @@ Standalone downstream module verifying:
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.Arm64FrameTest
 

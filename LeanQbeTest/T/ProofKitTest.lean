@@ -1,10 +1,10 @@
 module
 
-public import LeanQbe.T.Frontend.C0
-public import LeanQbe.T.FlatLemmas
-public import LeanQbe.T.Logic.C0Step
-public import LeanQbe.T.Logic.C0HeadStep
-public import LeanQbe.T.Logic.ProofKit
+import LeanQbe.T.Frontend.C0
+import LeanQbe.T.FlatLemmas
+import LeanQbe.T.Logic.C0Step
+import LeanQbe.T.Logic.C0HeadStep
+import LeanQbe.T.Logic.ProofKit
 meta import LeanQbe.T.Frontend.C0
 meta import LeanQbe.T.Logic.ProofKit
 
@@ -14,7 +14,7 @@ meta import LeanQbe.T.Logic.ProofKit
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.ProofKitTest
 
@@ -59,7 +59,7 @@ theorem bv_c0_trunc_and_shift_bv (x : BitVec 64) (k : BitVec 64)
 
 /-! ## 2. `state_frame` and `state_frame!` checks -/
 
-public section
+section
 
 structure MiniCfg where
   mv : Nat

@@ -1,13 +1,12 @@
 module
 
-public import LeanQbeTest.T.WasmBulkMemTest
-public import LeanQbeTest.T.WasmCertKit
-public import LeanQbe.T.Arm64.TargLemmas
-public import LeanQbe.T.MainCertElab
-public meta import LeanQbeTest.T.WasmBulkMemTest
-public meta import LeanQbe.T.Arm64.TargLemmas
-public meta import LeanQbe.T.MainCertElab
-public meta import Kraken.AArch64.Syntax
+import LeanQbeTest.T.WasmBulkMemTest
+import LeanQbeTest.T.WasmCertKit
+import LeanQbe.T.Arm64.TargLemmas
+import LeanQbe.T.MainCertElab
+meta import LeanQbeTest.T.WasmBulkMemTest
+meta import LeanQbe.T.Arm64.TargLemmas
+meta import Kraken.AArch64.Syntax
 
 /-!
 # Kraken AArch64 WebAssembly Bulk-Memory & Growth Certificate (`WasmBulkMemArm64`)
@@ -23,7 +22,7 @@ This module imports only `Kraken.AArch64` (`LeanQbe.T.Arm64.*`), never `Kraken.X
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.WasmBulkMemArm64
 

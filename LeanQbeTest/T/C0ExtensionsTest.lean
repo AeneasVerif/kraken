@@ -1,9 +1,9 @@
 module
 
-public import LeanQbe.T.Frontend.C0
-public import LeanQbe.T.PrintCpp
-public import LeanQbe.T.FlatLemmas
-public import LeanQbe.T.Flat
+import LeanQbe.T.Frontend.C0
+import LeanQbe.T.PrintCpp
+import LeanQbe.T.FlatLemmas
+import LeanQbe.T.Flat
 meta import LeanQbe.T.Frontend.C0
 meta import LeanQbe.T.PrintCpp
 meta import LeanQbe.T.Flat

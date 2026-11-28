@@ -32,7 +32,7 @@ open LeanQbe.T.Examples.Bitblast.Src
 open LeanQbe.T.Examples.Bitblast.Ref
 open LeanQbe.T.Examples.Bitblast.Ref.BVProg
 
-@[expose] public section
+public section
 
 abbrev blastHdrLitsRest (cfg : BVWorkspaceCfg) (progPtr : BitVec 64) (progBytes : List UInt8)
     (atomBases sliceOffs : List (BitVec 32)) (aigWords : List (BitVec 64))

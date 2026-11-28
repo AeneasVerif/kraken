@@ -1,8 +1,8 @@
 module
 
-public import LeanQbe.T.Logic.SlabLayoutElab
-public import LeanQbe.T.Logic.SepTree
-public import LeanQbe.T.Logic.SlabChain
+import LeanQbe.T.Logic.SlabLayoutElab
+import LeanQbe.T.Logic.SepTree
+import LeanQbe.T.Logic.SlabChain
 meta import LeanQbe.T.Logic.SlabLayoutElab
 
 /-!
@@ -19,7 +19,7 @@ namespace LeanQbeTest.T.SlabLayoutTest
 
 open LeanQbe.T
 
-public section
+section
 
 structure SlicedCore where
   arenaLen : Nat
@@ -59,7 +59,7 @@ def lensArena : C0Lens SlicedState (List (BitVec 32)) :=
 
 end
 
-public section
+section
 
 theorem sliced_lens_comp_get (s : SlicedState) :
     lensArena.get s = s.core.arena := by rfl

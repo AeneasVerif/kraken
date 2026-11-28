@@ -1,12 +1,12 @@
 module
 
-public import LeanQbe.T.LeanLCNF.LcnfC0Strings
-public import LeanQbe.T.LeanLCNF.LcnfC0StringsSpec
-public import LeanQbe.T.LeanLCNF.LcnfC0StringsProof
-public import LeanQbe.T.LeanLCNF.Lower
-public import LeanQbe.T.InterpKissat
-public import LeanQbe.T.PrintCpp
-public import LeanQbe.T.PrintQbe
+import LeanQbe.T.LeanLCNF.LcnfC0Strings
+import LeanQbe.T.LeanLCNF.LcnfC0StringsSpec
+import LeanQbe.T.LeanLCNF.LcnfC0StringsProof
+import LeanQbe.T.LeanLCNF.Lower
+import LeanQbe.T.InterpKissat
+import LeanQbe.T.PrintCpp
+import LeanQbe.T.PrintQbe
 meta import LeanQbe.T.LeanLCNF.LcnfC0Strings
 meta import LeanQbe.T.LeanLCNF.LcnfC0StringsSpec
 meta import LeanQbe.T.LeanLCNF.LcnfC0StringsProof
@@ -29,7 +29,7 @@ meta import LeanQbe.T.PrintQbe
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.LcnfC0StringsTest
 

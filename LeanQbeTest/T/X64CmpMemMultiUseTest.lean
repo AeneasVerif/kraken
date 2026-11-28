@@ -1,10 +1,10 @@
 module
 
-public import LeanQbe.T.Amd64.TargLemmas
-public import LeanQbe.T.Main
-public import LeanQbe.T.MainLemmas
-public import LeanQbe.T.RegaLemmas
-public import LeanQbeTest.T.RegaTestKit
+import LeanQbe.T.Amd64.TargLemmas
+import LeanQbe.T.Main
+import LeanQbe.T.MainLemmas
+import LeanQbe.T.RegaLemmas
+import LeanQbeTest.T.RegaTestKit
 meta import LeanQbe.T.Amd64.TargLemmas
 meta import LeanQbe.T.Main
 meta import LeanQbeTest.T.RegaTestKit

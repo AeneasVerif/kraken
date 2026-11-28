@@ -1,9 +1,9 @@
 module
 
-public import LeanQbe.T.IfOptLemmas
-public import LeanQbe.T.SimplifyGroupPlanLemmas
-public import LeanQbe.T.WPLemmas
-public import LeanQbe.T.FlatLemmas
+import LeanQbe.T.IfOptLemmas
+import LeanQbe.T.SimplifyGroupPlanLemmas
+import LeanQbe.T.WPLemmas
+import LeanQbe.T.FlatLemmas
 
 /-!
 # Tests of `LeanQbe.T.IfOpt` and `LeanQbe.T.SimplifyGroupPlan`

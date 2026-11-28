@@ -4,7 +4,7 @@ public import LeanQbe.T.Bootstrap0.Compiler0
 public import LeanQbeBootstrap0Test.Dummies0
 public import LeanQbe.T.Bootstrap0.Bridge0
 public import LeanQbe.T.Bootstrap0.Mod0
-public import LeanQbe.T.Bootstrap0.Splice0
+import LeanQbe.T.Bootstrap0.Splice0
 public import LeanQbe.T.Bootstrap0.Cert
 public import Kraken.X64.PrintATT
 meta import LeanQbe.T.Bootstrap0.Compiler0

@@ -4,7 +4,8 @@ public import LeanQbe.T.Bedrock2.Phoas
 public import LeanQbe.T.Bedrock2.Flat
 public import LeanQbe.T.Bedrock2.ToT
 public import Kraken.Bedrock2.Semantics
-import all Kraken.Mem
+import Kraken.Mem
+import LeanQbe.T.ZeroPeelLemmas1
 
 /-!
 # `Kraken.Bedrock2` Frontend Translator and Exact `Exec ↔ Cmd.wp` Agreement
@@ -245,25 +246,6 @@ theorem accessSize_pos (sz : AccessSize) : 0 < sz.bytes := by
 theorem accessSize_le8 (sz : AccessSize) : sz.bytes ≤ 8 := by
   cases sz <;> decide
 
-private theorem list_mapM_id_length {α : Type} {xs : List (Option α)} {ys : List α}
-    (h : List.mapM id xs = some ys) : ys.length = xs.length := by
-  induction xs generalizing ys with
-  | nil =>
-      simp only [List.mapM_nil, Option.pure_def, Option.some.injEq] at h
-      subst h; rfl
-  | cons x xs ih =>
-      simp only [List.mapM_cons, Option.bind_eq_bind, Option.bind_eq_some_iff, id_eq] at h
-      rcases h with ⟨a, _, ys', hys', hp⟩
-      simp only [Option.pure_def, Option.some.injEq] at hp
-      subst hp
-      exact congrArg Nat.succ (ih hys')
-
-theorem loadBytes_length {w : Nat} {m : Mem w} {a : BitVec w} {n : Nat} {bs : List UInt8}
-    (h : m.loadBytes a n = some bs) : bs.length = n := by
-  unfold Mem.loadBytes at h
-  have hl := list_mapM_id_length h
-  simpa [List.length_map, List.length_range] using hl
-
 private theorem pow256_eq_pow2 (n : Nat) : (256 : Int) ^ n = (2 : Int) ^ (8 * n) := by
   induction n with
   | zero => rfl
@@ -277,15 +259,23 @@ private theorem pow256_eq_pow2 (n : Nat) : (256 : Int) ^ n = (2 : Int) ^ (8 * n)
 theorem loadVal_sz_eq_load? (sz : AccessSize) (m : Mem 64) (a : BitVec 64) :
     (loadVal m (accessTy sz) a).map (fun v => BitVec.setWidth 64 v) =
       Kraken.Bedrock2.load? sz m a := by
-  dsimp only [loadVal, ofBits, Kraken.Bedrock2.load?, Mem.loadInt]
+  dsimp only [loadVal, ofBits, Kraken.Bedrock2.load?]
   rw [accessTy_bytes]
   dsimp only [accessTy]
-  cases hlb : m.loadBytes a sz.bytes with
+  cases hli : m.loadInt a sz.bytes with
   | none => rfl
-  | some bs =>
+  | some z =>
+      have hok : storeOk m (accessTy sz) a := ⟨z, by rw [accessTy_bytes]; exact hli⟩
+      have hall := (ZeroPeel.storeOk_iff_forall_mem m (accessTy sz) a).1 hok
+      rw [accessTy_bytes] at hall
+      have hsz : sz.bytes ≤ 2 ^ 64 := by cases sz <;> decide
+      obtain ⟨bs, mRest, hlen, _, hsp⟩ := mem_split_At m a sz.bytes hsz fun i hi => by
+        simpa [Std.ExtHashMap.get?_eq_getElem?] using hall i hi
+      have hli2 := Mem.loadInt_sep bs a sz.bytes (Eq mRest) m (split_iff_sep.1 hsp) hlen hsz
+      have hz : z = Int.ofBytes bs := Option.some.inj (hli.symm.trans hli2)
+      subst hz
       simp only [Option.map_some, Option.bind_some]
       congr 1
-      have hlen : bs.length = sz.bytes := loadBytes_length hlb
       have hge0 : 0 ≤ Int.ofBytes bs := Int.ofBytes_ge_zero bs
       have hlt : Int.ofBytes bs < (2 : Int) ^ (8 * sz.bytes) := by
         have h1 := Int.ofBytes_lt bs
@@ -321,10 +311,7 @@ theorem store?_iff_storeOk_storeMem (sz : AccessSize) (m : Mem 64) (a v : BitVec
     Kraken.Bedrock2.store? sz m a v = some m' ↔
       storeOk m (accessTy sz) a ∧
         m' = storeMem m (accessTy sz) a (BitVec.setWidth (8 * sz.bytes) v) := by
-  dsimp only [Kraken.Bedrock2.store?, storeOk, storeMem, Mem.loadInt]
-  rw [accessTy_bytes]
-  dsimp only [accessTy]
-  simp only [Option.map_eq_some_iff]
+  have hsz : sz.bytes ≤ 2 ^ 64 := by cases sz <;> decide
   have hbytes : Int.toBytes sz.bytes (v.toNat : Int) =
       Int.toBytes sz.bytes
         (BitVec.setWidth (8 * sz.bytes)
@@ -333,52 +320,54 @@ theorem store?_iff_storeOk_storeMem (sz : AccessSize) (m : Mem 64) (a v : BitVec
         BitVec.setWidth (8 * sz.bytes) v := rfl
     have hsw : BitVec.setWidth (8 * sz.bytes) (BitVec.setWidth (8 * sz.bytes) v) =
         BitVec.setWidth (8 * sz.bytes) v := by
-      apply BitVec.eq_of_toNat_eq
-      simp
-    rw [htb, hsw]
-    rw [← Int.toBytes_emod sz.bytes (v.toNat : Int)]
-    rw [← Int.toBytes_emod sz.bytes (BitVec.setWidth (8 * sz.bytes) v).toInt]
+      apply BitVec.eq_of_toNat_eq; simp
+    rw [htb, hsw, ← Int.toBytes_emod sz.bytes (v.toNat : Int),
+      ← Int.toBytes_emod sz.bytes (BitVec.setWidth (8 * sz.bytes) v).toInt]
     congr 1
     simp only [Int.take, BitVec.toInt_setWidth]
     exact (Int.bmod_emod).symm
+  have hstoreEq : ∀ (bs : List UInt8) (mRest : Mem 64), bs.length = sz.bytes →
+      split m (bs.At a) mRest →
+      m.storeInt a sz.bytes (v.toNat : Int) =
+        storeMem m (accessTy sz) a (BitVec.setWidth (8 * sz.bytes) v) := by
+    intro bs mRest hlen hsp
+    have hsep := split_iff_sep.1 hsp
+    have h1 := Mem.storeInt_sep a sz.bytes bs (Eq mRest) m ⟨hsep, hlen⟩ (v.toNat : Int)
+    have h2 : (Eq ((Int.toBytes sz.bytes (v.toNat : Int)).At a) ⋆ Eq mRest)
+        (storeMem m (accessTy sz) a (BitVec.setWidth (8 * sz.bytes) v)) := by
+      dsimp only [storeMem]; rw [accessTy_bytes]; dsimp only [accessTy]
+      rw [hbytes]
+      exact Mem.storeInt_sep a sz.bytes bs (Eq mRest) m ⟨hsep, hlen⟩ _
+    exact (split_iff_sep.2 h1).1.symm.trans (split_iff_sep.2 h2).1
+  dsimp only [Kraken.Bedrock2.store?]
+  simp only [Option.map_eq_some_iff]
   constructor
   · rintro ⟨bs, hlb, rfl⟩
-    refine ⟨⟨Int.ofBytes bs, bs, hlb, rfl⟩, ?_⟩
-    dsimp only [Mem.storeInt]
-    rw [hbytes]
-  · rintro ⟨⟨_, bs, hlb, _⟩, rfl⟩
-    refine ⟨bs, hlb, ?_⟩
-    dsimp only [Mem.storeInt]
-    rw [hbytes]
-
-private theorem loadBytes_cons_some_get? {w : Nat} {m : Mem w} {a : BitVec w} {n : Nat}
-    (hn : 0 < n) {bs : List UInt8} (h : m.loadBytes a n = some bs) :
-    (m.get? a).isSome = true := by
-  obtain ⟨n', rfl⟩ := Nat.exists_eq_succ_of_ne_zero (Nat.ne_of_gt hn)
-  unfold Mem.loadBytes at h
-  rw [List.range_succ_eq_map, List.map_cons, List.mapM_cons] at h
-  simp only [BitVec.add_zero, Option.bind_eq_bind, Option.bind_eq_some_iff, id_eq] at h
-  rcases h with ⟨b, hb, _⟩
-  rw [hb]
-  rfl
+    obtain ⟨bs', mRest, hlen, _, hsp⟩ := mem_split_At m a sz.bytes hsz fun i hi => by
+      rw [Std.ExtHashMap.mem_iff_isSome_getElem?.mp (Mem.mem_of_loadBytes hlb hi)]
+    refine ⟨⟨Int.ofBytes bs', ?_⟩, hstoreEq bs' mRest hlen hsp⟩
+    rw [accessTy_bytes]
+    exact Mem.loadInt_sep bs' a sz.bytes (Eq mRest) m (split_iff_sep.1 hsp) hlen hsz
+  · rintro ⟨hok, rfl⟩
+    have hall := (ZeroPeel.storeOk_iff_forall_mem m (accessTy sz) a).1 hok
+    rw [accessTy_bytes] at hall
+    obtain ⟨bs', mRest, hlen, _, hsp⟩ := mem_split_At m a sz.bytes hsz fun i hi => by
+      simpa [Std.ExtHashMap.get?_eq_getElem?] using hall i hi
+    exact ⟨bs', Mem.loadBytes_sep bs' a sz.bytes (Eq mRest) m (split_iff_sep.1 hsp) hlen hsz,
+      hstoreEq bs' mRest hlen hsp⟩
 
 theorem exists_lt_of_load?_listAt {sz : AccessSize} {t : List UInt8} {idx v : BitVec 64}
     (h : Kraken.Bedrock2.load? sz (t.At 0) idx = some v) :
     ∃ j < t.length, idx = BitVec.ofNat 64 j := by
-  simp only [Kraken.Bedrock2.load?, Mem.loadInt, Option.map_eq_some_iff] at h
-  rcases h with ⟨i, ⟨bs, hlb, _⟩, _⟩
-  have hsome := loadBytes_cons_some_get? (accessSize_pos sz) hlb
-  rw [Std.ExtHashMap.get?_eq_getElem?, ← Std.ExtHashMap.mem_iff_isSome_getElem?] at hsome
-  unfold List.At at hsome
-  rw [Std.ExtHashMap.mem_ofList] at hsome
-  have hmem : idx ∈ (List.mapIdx (fun i b => ((0 : BitVec 64) + BitVec.ofNat 64 i, b)) t).map
-      Prod.fst := List.contains_iff_mem.mp hsome
-  rw [List.mem_map] at hmem
-  rcases hmem with ⟨⟨k, b⟩, hkb, rfl⟩
-  rw [List.mem_mapIdx] at hkb
-  rcases hkb with ⟨j, hj, hpair⟩
-  have hk : (0 : BitVec 64) + BitVec.ofNat 64 j = k := congrArg Prod.fst hpair
-  exact ⟨j, hj, by dsimp only; rw [← hk]; simp⟩
+  simp only [Kraken.Bedrock2.load?, Option.map_eq_some_iff] at h
+  rcases h with ⟨i, hi, _⟩
+  have hok : storeOk (t.At 0) (accessTy sz) idx := ⟨i, by rw [accessTy_bytes]; exact hi⟩
+  have hall := (ZeroPeel.storeOk_iff_forall_mem (t.At 0) (accessTy sz) idx).1 hok
+  have h0 := hall 0 (by rw [accessTy_bytes]; exact accessSize_pos sz)
+  rw [BitVec.add_zero, Std.ExtHashMap.get?_eq_getElem?,
+    ← Std.ExtHashMap.mem_iff_isSome_getElem?] at h0
+  rcases (mem_At_iff t 0 idx).1 h0 with ⟨j, hj, heq⟩
+  exact ⟨j, hj, by simpa using heq⟩
 
 theorem shamt64_eq (b : BitVec 64) : Kraken.Bedrock2.shamt b = b.toNat % 64 := rfl
 

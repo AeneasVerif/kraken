@@ -1,7 +1,7 @@
 module
 
 public import LeanQbe.T.LeanLCNF.LcnfC0ContainersCow
-import all Kraken.Separation
+import Kraken.Separation
 
 /-!
 # Soundness Proofs for `LcnfC0Containers`, Part 2: `ByteArray` (`tag 248`, `m_other = 1`)

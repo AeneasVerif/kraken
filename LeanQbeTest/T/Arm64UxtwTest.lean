@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.Arm64.TargLemmas
 public import LeanQbe.T.Arm64.IselLemmas4
 meta import LeanQbe.T.Arm64.Isel
-public meta import Kraken.AArch64.Print
+meta import Kraken.AArch64.Print
 
 /-!
 # AArch64 `UXTW` (`zext 32 64`) Index & Address Folding Tests (`Arm64UxtwTest`)
@@ -25,15 +25,15 @@ open LeanQbe.T LeanQbe.T.Arm64
 
 /-! ## 1. Helper predicates & negative/positive builder checks -/
 
-meta def isAddUxtwDir : Directive → Bool
+def isAddUxtwDir : Directive → Bool
   | .instr { operation := .ADD_e _ _ (.ext { ext := { type := .UXTW, .. }, .. }), .. } => true
   | _ => false
 
-meta def hasMemUxtwOff : AddrExpr → Bool
+def hasMemUxtwOff : AddrExpr → Bool
   | { off := .reg { ext := { type := .UXTW, .. }, .. }, .. } => true
   | _ => false
 
-meta def isMemUxtwDir : Directive → Bool
+def isMemUxtwDir : Directive → Bool
   | .instr { operation := .LDR _ (.addr a), .. }
   | .instr { operation := .LDRSW _ (.addr a), .. }
   | .instr { operation := .LDRB _ a, .. }
@@ -45,7 +45,7 @@ meta def isMemUxtwDir : Directive → Bool
   | .instr { operation := .STRH _ a, .. } => hasMemUxtwOff a
   | _ => false
 
-meta def isUbfiz32Dir : Directive → Bool
+def isUbfiz32Dir : Directive → Bool
   | .instr { operation := .UBFM _ _ _ 31, .. } => true
   | _ => false
 
@@ -158,7 +158,7 @@ meta def isUbfiz32Dir : Directive → Bool
 
 /-! ## 2. Printer sanity checks (`uxtw`) -/
 
-meta def renderDirs : Option (List Directive × FlagMask) → List String
+private meta def renderDirs : Option (List Directive × FlagMask) → List String
   | some (ds, _) => ds.map Kraken.AArch64.Print.directive
   | none => []
 

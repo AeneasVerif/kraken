@@ -1,9 +1,9 @@
 module
 
-public import LeanQbe.T.Examples.Kissat.Ref.FailedLit
-public import LeanQbe.T.Examples.Kissat.Ref.Collect
-public import LeanQbe.T.Examples.Kissat.Proof.Ref.FailedLit
-public import LeanQbe.T.Examples.Kissat.Proof.Ref.Collect
+import LeanQbe.T.Examples.Kissat.Ref.FailedLit
+import LeanQbe.T.Examples.Kissat.Ref.Collect
+import LeanQbe.T.Examples.Kissat.Proof.Ref.FailedLit
+import LeanQbe.T.Examples.Kissat.Proof.Ref.Collect
 meta import LeanQbe.T.Examples.Kissat.Ref.Sat
 meta import LeanQbe.T.Examples.Kissat.Ref.Minimize
 meta import LeanQbe.T.Examples.Kissat.Ref.MinimizeDfs
@@ -34,7 +34,7 @@ open LeanQbe.T.Examples.Kissat.Ref
 
 /-! ## 1. Iterative `minimize` (`LayerAMinimize1` & `LayerAMinimize2`) -/
 
-public def lazyMinCdcl : CdclState :=
+def lazyMinCdcl : CdclState :=
   -- Variables 0..6:
   -- x0 (0): unit @ level 0, trail[0]
   -- x1 (2): decision @ level 1, trail[1]
@@ -54,7 +54,7 @@ public def lazyMinCdcl : CdclState :=
     level := 2
     inconsistent := false }
 
-public def lazyMinInit : MinState :=
+def lazyMinInit : MinState :=
   MinState.ofCdcl lazyMinCdcl #[0, 2, 4]
 
 #guard lazyMinInit.varTrailPos 4 == 4 && lazyMinInit.varTrailPos 2 == 2
@@ -161,7 +161,7 @@ private def failedLitExecCdcl : CdclState :=
 
 /-! ## 3. Clause sweep, binary promotion, partition, and `reduceAndCollect` (`LayerACollect`) -/
 
-public def collectRichState : CdclState :=
+def collectRichState : CdclState :=
   -- x0 (0): unit @ level 0 (so lit 0 is root-true, lit 1 is root-false)
   -- x1 (2): decision @ level 1
   -- x2 (4): large 0 [1, 3, 4] @ level 1 -> root-false lit 1 stripped -> [3, 4] -> binary.
@@ -220,7 +220,7 @@ public def collectRichState : CdclState :=
 
 /-! ## 4. `flushRootReasons` executable checks & closed non-vacuity corollaries -/
 
-public def coreFlushF0 : CNF Nat :=
+def coreFlushF0 : CNF Nat :=
   cnfOfClauses [[0], [1, 2], [1, 3, 4], [1, 7, 8]]
 
 private def coreFlushRun : CdclState :=
@@ -231,7 +231,7 @@ private def coreFlushRun : CdclState :=
     | _ => s0
   | _ => initState coreFlushF0
 
-public def coreFlushManual : CdclState :=
+def coreFlushManual : CdclState :=
   let s0 := initState coreFlushF0
   let s1 := assignLit s0 0 s0.level (.large 0)
   let s2 := assignLit s1 2 s1.level (.binary 1)
@@ -308,7 +308,7 @@ private theorem collectRich_rsl {i : Nat} (hi : i < collectRichState.trail.size)
   collectRich_rs ⟨i, Nat.lt_of_lt_of_eq hi collectRich_sz⟩
 
 /-- Closed proof that `lazyMinCdcl` satisfies `LazyTrailInv` (even without `levels_mono`). -/
-public theorem nv_lazyMin_inv : LazyTrailInv lazyMinCdcl := by
+theorem nv_lazyMin_inv : LazyTrailInv lazyMinCdcl := by
   refine ⟨?_, ?_, ?_, ?_, ?_, ?_, fun h => by simp [lazyMinCdcl] at h⟩
   · have hfin : ∀ i j : Fin 7,
         litVar lazyMinCdcl.trail[i.1] = litVar lazyMinCdcl.trail[j.1] → i = j := by decide
@@ -423,11 +423,11 @@ public theorem nv_lazyMin_inv : LazyTrailInv lazyMinCdcl := by
       · exact absurd rfl hxne
     | _ + 7 => exact absurd (Nat.lt_of_lt_of_eq hi lazyMin_sz) (by omega)
 
-public def lazyMinStateC : MinState :=
+def lazyMinStateC : MinState :=
   MinState.ofCdcl { lazyMinCdcl with f0 := lazyMinCdcl.f0.add (cnfClause [3, 5, 13]) } #[0, 2, 4]
 
 /-- Closed corollary instantiating `minimize_worklist_sound` on `lazyMinStateC` and `[3, 5, 13]`. -/
-public theorem nv_minimize_sound :
+theorem nv_minimize_sound :
     let res := minimizeClauseWorklist lazyMinStateC 10 [3, 5, 13]
     MinBaseInv res.2 ∧
     lazyMinStateC.cdcl.f0.EntailsClause (cnfClause res.1) ∧
@@ -475,7 +475,7 @@ public theorem nv_minimize_sound :
 
 /-- Closed proof that `collectRichState` satisfies `LazyTrailInv`, `ReasonLevelsPos`, and
 `ReasonHasNonRootAntecedent`. -/
-public theorem nv_collectRich_inv :
+theorem nv_collectRich_inv :
     LazyTrailInv collectRichState ∧
     ReasonLevelsPos collectRichState ∧
     ReasonHasNonRootAntecedent collectRichState := by
@@ -605,7 +605,7 @@ public theorem nv_collectRich_inv :
 
 /-- Closed corollary instantiating `sweepClauses_sound` (`RefTargetSound`) and
 `reduceAndCollect_sound` on `collectRichState`. -/
-public theorem nv_collectRich_sound :
+theorem nv_collectRich_sound :
     let sw := sweepClauses (markGarbageIf collectRichState fun cid _ => cid == 3)
     let res := reduceAndCollect collectRichState fun cid _ => cid == 3
     RefTargetSound (markGarbageIf collectRichState fun cid _ => cid == 3) sw.1 sw.2.1 sw.2.2 ∧
@@ -620,7 +620,7 @@ public theorem nv_collectRich_sound :
 
 /-- Closed end-to-end corollary connecting `Core` transitions (`initState` + `assignLit` +
 `decideLit`) through `flushRoot_of_trailInv` to `reduceAndCollect_sound`. -/
-public theorem nv_core_flush_reduce :
+theorem nv_core_flush_reduce :
     let sf := flushRootReasons coreFlushManual
     let res := reduceAndCollect sf fun _ _ => false
     LazyTrailInv sf ∧ ReasonLevelsPos sf ∧ ReasonHasNonRootAntecedent sf ∧
@@ -685,10 +685,10 @@ public theorem nv_core_flush_reduce :
 
 /-! ## 5. Single-line `#print axioms` checks -/
 
-public abbrev ax_min_lit := @LeanQbe.T.Examples.Kissat.Ref.minimizeLiteralWorklist_sound
-public abbrev ax_ana_fl := @LeanQbe.T.Examples.Kissat.Ref.analyzeFailedLiteralExec_sound
-public abbrev ax_part_irred := @LeanQbe.T.Examples.Kissat.Ref.partitionIrredFirst_sound
-public abbrev ax_act_rsn := @LeanQbe.T.Examples.Kissat.Ref.activeReason_not_rootSatisfied
+abbrev ax_min_lit := @LeanQbe.T.Examples.Kissat.Ref.minimizeLiteralWorklist_sound
+abbrev ax_ana_fl := @LeanQbe.T.Examples.Kissat.Ref.analyzeFailedLiteralExec_sound
+abbrev ax_part_irred := @LeanQbe.T.Examples.Kissat.Ref.partitionIrredFirst_sound
+abbrev ax_act_rsn := @LeanQbe.T.Examples.Kissat.Ref.activeReason_not_rootSatisfied
 
 #print axioms LeanQbe.T.Examples.Kissat.Ref.seedRemovable_preserves
 #print axioms LeanQbe.T.Examples.Kissat.Ref.cut_delete_sound

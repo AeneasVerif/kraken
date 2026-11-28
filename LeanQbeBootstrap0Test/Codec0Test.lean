@@ -1,13 +1,13 @@
 module
 
-public import LeanQbe.T.Bootstrap0.Codec0
-public import LeanQbe.T.Bootstrap0.Codec0Lemmas
-public import LeanQbeBootstrap0Test.Dummies0
-public import LeanQbe.T.Bootstrap0.Bridge0
-public import LeanQbe.T.Bootstrap0.Mod0
-public import LeanQbe.T.Bootstrap0.Splice0
-public import LeanQbe.T.Amd64.Targ
-public import LeanQbeBootstrap0Test.Bootstrap0CleanTest
+import LeanQbe.T.Bootstrap0.Codec0
+import LeanQbe.T.Bootstrap0.Codec0Lemmas
+import LeanQbeBootstrap0Test.Dummies0
+import LeanQbe.T.Bootstrap0.Bridge0
+import LeanQbe.T.Bootstrap0.Mod0
+import LeanQbe.T.Bootstrap0.Splice0
+import LeanQbe.T.Amd64.Targ
+import LeanQbeBootstrap0Test.Bootstrap0CleanTest
 meta import LeanQbe.T.Bootstrap0.Codec0
 meta import LeanQbe.T.Bootstrap0.Codec0Lemmas
 meta import LeanQbeBootstrap0Test.Dummies0
@@ -31,7 +31,7 @@ Validates `Codec0` end-to-end:
 
 set_option autoImplicit false
 
-@[expose] public section
+section
 
 namespace LeanQbeBootstrap0Test.Codec0Test
 

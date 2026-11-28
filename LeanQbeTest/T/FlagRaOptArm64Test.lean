@@ -1,16 +1,16 @@
 module
 
-public import LeanQbe.T.Arm64.TargLemmas
-public import LeanQbe.T.Examples.Bignum
-public import LeanQbe.T.Spill
-public import LeanQbeTest.T.RegaTestKit
-public import LeanQbeTest.T.Arm64DirPreds
+import LeanQbe.T.Arm64.TargLemmas
+import LeanQbe.T.Examples.Bignum
+import LeanQbe.T.Spill
+import LeanQbeTest.T.RegaTestKit
+import LeanQbeTest.T.Arm64DirPreds
 meta import LeanQbe.T.Arm64.TargLemmas
 meta import LeanQbe.T.Examples.Bignum
 meta import LeanQbe.T.Spill
 meta import LeanQbeTest.T.RegaTestKit
 meta import LeanQbeTest.T.Arm64DirPreds
-public meta import Kraken.AArch64.Print
+meta import Kraken.AArch64.Print
 
 /-!
 # Flag Fusion, Flag-Coloring Fixpoint & Per-Call Live-Range Splitting on AArch64
@@ -28,7 +28,7 @@ Kraken ISAs are never co-imported. Every check compiles through the verified `Re
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.FlagRaOptArm64Test
 

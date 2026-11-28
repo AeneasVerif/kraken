@@ -1,7 +1,7 @@
 module
 
-public import LeanQbe.T.ZeroPeel
-public import LeanQbe.T.Examples.LratBytesProg
+import LeanQbe.T.ZeroPeel
+import LeanQbe.T.Examples.LratBytesProg
 
 /-!
 # Kernel-Reducibility Tests for `LeanQbe.T.ZeroPeel` (No `import all`)
@@ -16,7 +16,7 @@ Verifies under normal `public import LeanQbe.T.ZeroPeel` (zero `import all`) tha
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbe.T.ZeroPeelKernelTest
 

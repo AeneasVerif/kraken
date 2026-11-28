@@ -4,8 +4,8 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 module
 
-public import LeanQbe.T.Examples.Kissat.Src.InlPolicy
-public import LeanQbe.T.Examples.Kissat.Build.Common.CertParamCommon
+import LeanQbe.T.Examples.Kissat.Src.InlPolicy
+import LeanQbe.T.Examples.Kissat.Build.Common.CertParamCommon
 import LeanQbe.T.FlatLemmas
 
 /-!
@@ -21,7 +21,7 @@ Verifies:
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.KissatBuildCommonTest
 

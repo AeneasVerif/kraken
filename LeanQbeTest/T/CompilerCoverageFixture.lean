@@ -2,26 +2,26 @@ module
 
 public import LeanQbe.T.MainFlat
 public import LeanQbe.T.MainCertInline
-public meta import Lean
-public meta import LeanQbe.T.MainFlat
-public meta import LeanQbe.T.MainCertInline
-public meta import LeanQbe.T.OptFlatCfg
-public meta import LeanQbe.T.OptFlatMem
-public meta import LeanQbe.T.OptFlatValue
-public meta import LeanQbe.T.OptFlatAddrRange
-public meta import LeanQbe.T.OptFlatPathCond
-public meta import LeanQbe.T.CondThreadOpt
-public meta import LeanQbe.T.Licm
-public meta import LeanQbe.T.LoopRotate
-public meta import LeanQbe.T.TailDup
-public meta import LeanQbe.T.ZeroPeel
-public meta import LeanQbe.T.Peel
-public meta import LeanQbe.T.SimplifyGroupPlan
-public meta import LeanQbe.T.AddrRangeOpt
-public meta import LeanQbe.T.Legal
-public meta import LeanQbe.T.LegalBase
-public meta import LeanQbe.T.Flat
-public meta import LeanQbe.T.FlatDirect
+meta import Lean
+meta import LeanQbe.T.MainFlat
+meta import LeanQbe.T.MainCertInline
+meta import LeanQbe.T.OptFlatCfg
+meta import LeanQbe.T.OptFlatMem
+meta import LeanQbe.T.OptFlatValue
+meta import LeanQbe.T.OptFlatAddrRange
+meta import LeanQbe.T.OptFlatPathCond
+meta import LeanQbe.T.CondThreadOpt
+meta import LeanQbe.T.Licm
+meta import LeanQbe.T.LoopRotate
+meta import LeanQbe.T.TailDup
+meta import LeanQbe.T.ZeroPeel
+meta import LeanQbe.T.Peel
+meta import LeanQbe.T.SimplifyGroupPlan
+meta import LeanQbe.T.AddrRangeOpt
+meta import LeanQbe.T.Legal
+meta import LeanQbe.T.LegalBase
+meta import LeanQbe.T.Flat
+meta import LeanQbe.T.FlatDirect
 
 /-!
 # Shared Compiler Coverage Fixture (`CompilerCoverageFixture`)
@@ -708,7 +708,7 @@ def callsFnInlined? : Option Fn :=
 /-- Fails if the exported transitive closure of `compileModuleFlat`, `earlyOptFlat`, or
 `midStageFlat` contains `.opaqueInfo`, `WellFounded.fix`/`Classical.choice`, or any unexpected
 non-theorem `.axiomInfo` constant that could stall `Lean.Kernel.whnf`. -/
-meta def auditMainFlatClosure : Lean.MetaM Unit := do
+private meta def auditMainFlatClosure : Lean.MetaM Unit := do
   let env ← Lean.getEnv
   let roots : List Lean.Name :=
     [`LeanQbe.T.compileModuleFlat, `LeanQbe.T.earlyOptFlat, `LeanQbe.T.midStageFlat]
@@ -743,5 +743,7 @@ meta def auditMainFlatClosure : Lean.MetaM Unit := do
     throwError "MainFlat exported closure pulls non-kernel-reducible WF/choice: {wfOrChoice}"
   if !badAxioms.isEmpty then
     throwError "MainFlat exported closure has unexpected non-theorem axioms: {badAxioms}"
+
+#eval auditMainFlatClosure
 
 end LeanQbeTest.T.CompilerCoverage

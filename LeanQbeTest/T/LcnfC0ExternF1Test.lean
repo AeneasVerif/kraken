@@ -1,18 +1,18 @@
 module
 
-public import LeanQbe.T.MainCertProof
-public import LeanQbe.T.Amd64.TargLemmas
-public import LeanQbe.T.LeanLCNF.C0Extern
-public import LeanQbe.T.PrintCpp
-public import LeanQbe.T.PrintQbe
-public meta import Lean
-public meta import LeanQbe.T.MainCertElab
-public meta import LeanQbe.T.Amd64.Targ
-public meta import LeanQbe.T.LeanLCNF.Lower
-public meta import LeanQbe.T.LeanLCNF.C0Extern
-public meta import LeanQbe.T.Bootstrap0.Splice0
-public meta import LeanQbe.T.PrintCpp
-public meta import LeanQbe.T.PrintQbe
+import LeanQbe.T.MainCertProof
+import LeanQbe.T.Amd64.TargLemmas
+import LeanQbe.T.LeanLCNF.C0Extern
+import LeanQbe.T.PrintCpp
+import LeanQbe.T.PrintQbe
+meta import Lean
+import LeanQbe.T.MainCertElab
+meta import LeanQbe.T.Amd64.Targ
+meta import LeanQbe.T.LeanLCNF.Lower
+meta import LeanQbe.T.LeanLCNF.C0Extern
+meta import LeanQbe.T.Bootstrap0.Splice0
+meta import LeanQbe.T.PrintCpp
+meta import LeanQbe.T.PrintQbe
 
 /-!
 # Shard `F1` Verification Tests (`LinkedCert.weakenNoExit` Amd64 & `C0Extern`)
@@ -32,7 +32,7 @@ Exercises `LCNF↔C0 FFI` Shard `F1` (Arm64 companion is `LcnfC0ExternF1Arm64Tes
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.LcnfC0ExternF1Test
 
@@ -150,26 +150,26 @@ theorem weakenCheck_rejects_bad_exit :
 
 /-! ## 2. `C0Extern` Lean Stubs, Borrow-Parity Validation, Lowering & Splicing -/
 
-@[noinline] def stubBaPtr (ba : @& ByteArray) : USize :=
+@[noinline] public def stubBaPtr (ba : @& ByteArray) : USize :=
   ba.size.toUSize
 
-@[noinline] def stubBaLen (ba : @& ByteArray) : USize :=
+@[noinline] public def stubBaLen (ba : @& ByteArray) : USize :=
   ba.size.toUSize
 
-@[noinline] def stubCarveScratch (req : USize) : USize :=
+@[noinline] public def stubCarveScratch (req : USize) : USize :=
   req + 8
 
-@[noinline] def stubRestoreScratch (saved : USize) : Unit :=
+@[noinline] public def stubRestoreScratch (saved : USize) : Unit :=
   let _ := saved
   ()
 
-@[noinline] def stubSentinelIdx (w : USize) : USize :=
+@[noinline] public def stubSentinelIdx (w : USize) : USize :=
   w
 
-@[noinline] def stubBaToNatS (ba : @& ByteArray) : Nat :=
+@[noinline] public def stubBaToNatS (ba : @& ByteArray) : Nat :=
   ba.size
 
-@[noinline] def f1Caller (ba : @& ByteArray) (w : USize) : USize :=
+@[noinline] public def f1Caller (ba : @& ByteArray) (w : USize) : USize :=
   let ptr := stubBaPtr ba
   let len := stubBaLen ba
   let sv := stubCarveScratch len
@@ -177,7 +177,7 @@ theorem weakenCheck_rejects_bad_exit :
   let n := stubBaToNatS ba
   ptr + len + sv + s + n.toUSize
 
-@[noinline] def pureAddDemo (x y : USize) : USize :=
+@[noinline] public def pureAddDemo (x y : USize) : USize :=
   x + y
 
 def demoExts : List C0Extern :=
@@ -306,14 +306,14 @@ theorem pure_validate_rejects_borrow_mismatch :
     throwError "PrintQbe.module failed on lcnfTModuleWithExts"
 
 /--
-info: 'LeanQbeTest.T.LcnfC0ExternF1Test.x64WeakCert' depends on axioms:
-[propext, Classical.choice, Quot.sound]
+info: '_private.LeanQbeTest.T.LcnfC0ExternF1Test.0.LeanQbeTest.T.LcnfC0ExternF1Test.x64WeakCert'
+depends on axioms: [propext, Classical.choice, Quot.sound]
 -/
 #guard_msgs (whitespace := lax) in #print axioms x64WeakCert
 
 /--
-info: 'LeanQbeTest.T.LcnfC0ExternF1Test.x64ComposedCert' depends on axioms:
-[propext, Classical.choice, Quot.sound]
+info: '_private.LeanQbeTest.T.LcnfC0ExternF1Test.0.LeanQbeTest.T.LcnfC0ExternF1Test.x64ComposedCert'
+depends on axioms: [propext, Classical.choice, Quot.sound]
 -/
 #guard_msgs (whitespace := lax) in #print axioms x64ComposedCert
 
@@ -324,8 +324,8 @@ info: 'LeanQbeTest.T.LcnfC0ExternF1Test.demoTfs_lower' depends on axioms:
 #guard_msgs (whitespace := lax) in #print axioms demoTfs_lower
 
 /--
-info: 'LeanQbeTest.T.LcnfC0ExternF1Test.demoTfs_fns_wf' depends on axioms:
-[propext, Classical.choice, Quot.sound]
+info: '_private.LeanQbeTest.T.LcnfC0ExternF1Test.0.LeanQbeTest.T.LcnfC0ExternF1Test.demoTfs_fns_wf'
+depends on axioms: [propext, Classical.choice, Quot.sound]
 -/
 #guard_msgs (whitespace := lax) in #print axioms demoTfs_fns_wf
 

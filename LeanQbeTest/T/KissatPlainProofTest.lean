@@ -1,6 +1,6 @@
 module
 
-public import LeanQbe.T.Examples.Kissat.PlainLemmas
+import LeanQbe.T.Examples.Kissat.PlainLemmas
 meta import LeanQbe.T.Examples.Kissat.PlainLemmas
 import LeanQbe.T.Logic.MemLemmas
 

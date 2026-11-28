@@ -1,13 +1,13 @@
 module
 
-public import LeanQbe.T.MainCertCore
-public import LeanQbe.T.MainCertFlat
-public import LeanQbe.T.Arm64.TargLemmas
-public import LeanQbeTest.T.CompilerCoverageFixture
-public meta import Lean
-public meta import LeanQbe.T.MainCertElab
-public meta import LeanQbe.T.MainCertFlatElab
-public meta import LeanQbe.T.Arm64.Targ
+import LeanQbe.T.MainCertCore
+import LeanQbe.T.MainCertFlat
+import LeanQbe.T.Arm64.TargLemmas
+import LeanQbeTest.T.CompilerCoverageFixture
+meta import Lean
+import LeanQbe.T.MainCertElab
+import LeanQbe.T.MainCertFlatElab
+meta import LeanQbe.T.Arm64.Targ
 
 /-!
 # AAPCS64 Arm64 Compiler Coverage Ops & Parity Test (`CompilerCoverageArm64OpsTest`)
@@ -20,7 +20,7 @@ rejected), kernel `code = rfl` and `bounds = rfl` parity, and `<= std3` axioms.
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.CompilerCoverageArm64OpsTest
 

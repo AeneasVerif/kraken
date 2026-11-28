@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.LeanLCNF.LcnfC0Rt
 public import LeanQbe.T.Logic.C0Step
 public import LeanQbe.T.Logic.SlabChain
-import all Kraken.Separation
+import Kraken.Separation
 
 /-!
 # Separation-Logic Contracts and Heap Invariants for `LcnfC0Rt` (Milestone R0)
@@ -104,11 +104,12 @@ theorem region_to_array64 {a : BitVec 64} :
   | k + 1, hk, m, h => by
     have heq : 8 * (k + 1) = 8 + 8 * k := by omega
     rw [heq, region_split (by omega)] at h
-    rcases h with ⟨m1, m2, hu, hd, hr1, hr2⟩
-    obtain ⟨v, hc1⟩ := region_to_cell64 hr1
-    obtain ⟨xs, hlen, hxs⟩ := region_to_array64 (a := a + 8) k (by omega) hr2
-    refine ⟨v :: xs, by simp [hlen], ?_⟩
-    exact ⟨m1, m2, hu, hd, hc1, hxs⟩
+    have h1 := sep_mono2 (fun _ => region_to_cell64)
+      (fun _ => region_to_array64 (a := a + 8) k (by omega)) m h
+    obtain ⟨v, hv⟩ := sep_ex_l.mp h1
+    obtain ⟨xs, hxs⟩ := sep_ex_r.mp hv
+    obtain ⟨hlen, harr⟩ := sep_pure_r.mp hxs
+    exact ⟨v :: xs, by simp [hlen], harr⟩
 
 /-! ## 2. Small Size-Class Freelists and `large_free` Segments -/
 
@@ -140,12 +141,15 @@ theorem region_to_smallFreeNode {bytes : Nat} {p : BitVec 64} {m : Mem 64}
     ∃ curNxt : BitVec 64, smallFreeNode bytes p curNxt m := by
   have heq0 : bytes = 16 + (bytes - 16) := by omega
   rw [heq0, region_split (by omega)] at h
-  rcases h with ⟨m12, m3, hu12, hd12, hr12, hr3⟩
-  have hr12' : region p (8 + 8) m12 := hr12
-  rw [region_split (by decide)] at hr12'
-  rcases hr12' with ⟨m1, m2, hu1, hd1, hr1, hr2⟩
-  obtain ⟨v, hc2⟩ := region_to_cell64 hr2
-  exact ⟨v, m12, m3, hu12, hd12, ⟨m1, m2, hu1, hd1, hr1, hc2⟩, hr3⟩
+  have h1 : ((region p 8 ⋆ region (p + 8#64) 8) ⋆ region (p + 16#64) (bytes - 16)) m :=
+    sep_mono (fun _ hr12 => region_split (a := p) (n1 := 8) (n2 := 8) (by decide) ▸ hr12) h
+  have h2 : ((region p 8 ⋆ fun f => ∃ v, cell64 (p + 8#64) v f) ⋆
+      region (p + 16#64) (bytes - 16)) m :=
+    sep_mono (fun _ hx => sep_mono_r (fun _ => region_to_cell64) hx) h1
+  have h3 : ((fun f => ∃ v, (region p 8 ⋆ cell64 (p + 8#64) v) f) ⋆
+      region (p + 16#64) (bytes - 16)) m :=
+    sep_mono (fun _ hx => sep_ex_r.mp hx) h2
+  exact sep_ex_l.mp h3
 
 /-- Singly-linked freelist for size class `bytes = 8 * cls` (`2 ≤ cls < 64`). -/
 def smallFreeList (bytes : Nat) : BitVec 64 → List (BitVec 64) → Mem 64 → Prop
@@ -277,9 +281,8 @@ theorem largeSeg_append {hd mid endPtr : BitVec 64} :
     rw [emp_sep] at hm2
     rwa [heq]
   | (p, b) :: xs, ys, m, hm => by
-    have hmid : mid = largeSegNext endPtr ys := by
-      rcases hm with ⟨_, _, _, _, _, hy⟩
-      exact largeSeg_hd_eq_next hy
+    have hmid : mid = largeSegNext endPtr ys :=
+      (sep_pure_r.mp (sep_mono_r (fun _ hy => ⟨largeSeg_hd_eq_next hy, hy⟩) hm)).1
     have hnext : largeSegNext mid xs = largeSegNext endPtr (xs ++ ys) := by
       cases xs with
       | nil => exact hmid

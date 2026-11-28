@@ -1,13 +1,13 @@
 module
 
 public import LeanQbe.T.MainLemmas
-public import LeanQbe.T.MainSplice
-public import LeanQbe.T.FlatLemmas
+import LeanQbe.T.MainSplice
+import LeanQbe.T.FlatLemmas
 import LeanQbe.T.RegaLemmas3
 public import LeanQbeTest.T.RegaLitmusTarget
-public meta import Lean
-public meta import LeanQbe.T.MainSplice
-public meta import LeanQbeTest.T.RegaLitmusTarget
+meta import Lean
+meta import LeanQbe.T.Main
+meta import LeanQbeTest.T.RegaLitmusTarget
 
 /-!
 # End-to-End Driver, `Compiled` Certificate Harness, & `TargetInit` Test

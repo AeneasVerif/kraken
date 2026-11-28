@@ -1,12 +1,12 @@
 module
 
-public import LeanQbe.T.OptLemmas
-public import LeanQbe.T.MainInline
-public import LeanQbe.T.WPLemmas
-public import LeanQbe.T.FlatLemmas
-public import LeanQbe.T.Logic.Rules
-public import LeanQbe.T.Examples.UnionFind
-public import LeanQbe.T.Examples.UnionFindLemmas
+import LeanQbe.T.OptLemmas
+import LeanQbe.T.MainInline
+import LeanQbe.T.WPLemmas
+import LeanQbe.T.FlatLemmas
+import LeanQbe.T.Logic.Rules
+import LeanQbe.T.Examples.UnionFind
+import LeanQbe.T.Examples.UnionFindLemmas
 
 /-!
 # Tests of `LeanQbe.T.Opt`
@@ -24,7 +24,7 @@ Exercises the `Fold → Copy → Gvn → Fold → Dce` optimization pipeline and
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbe.T.OptTest
 

@@ -3,11 +3,12 @@ module
 public import LeanQbe.T.LinkSccLemmas2
 public import LeanQbe.T.Examples.LinkRec
 public import LeanQbeTest.T.LinkRecTest
-public import LeanQbe.T.MainSplice
-public meta import Lean
-public meta import LeanQbe.T.MainSplice
-public meta import LeanQbe.T.Examples.LinkRec
-public meta import LeanQbeTest.T.RegaLitmusTarget
+import LeanQbe.T.MainSplice
+import LeanQbe.T.FlatLemmas
+meta import Lean
+meta import LeanQbe.T.Main
+meta import LeanQbe.T.Examples.LinkRec
+meta import LeanQbeTest.T.RegaLitmusTarget
 
 /-!
 # Tests for Well-Founded SCC Module Linking

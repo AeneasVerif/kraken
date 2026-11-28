@@ -1,11 +1,11 @@
 module
 
-public import LeanQbe.T.Amd64.TargLemmas
-public import LeanQbe.T.Amd64.PrintAsm0
-public import LeanQbe.T.Amd64.IselLemmas5
-public import LeanQbe.T.RegaLemmas4
-public import LeanQbe.T.Spill
-public import LeanQbe.T.MainFlatLemmas
+import LeanQbe.T.Amd64.TargLemmas
+import LeanQbe.T.Amd64.PrintAsm0
+import LeanQbe.T.Amd64.IselLemmas5
+import LeanQbe.T.RegaLemmas4
+import LeanQbe.T.Spill
+import LeanQbe.T.MainFlatLemmas
 meta import Lean
 meta import LeanQbe.T.Amd64.TargLemmas
 meta import LeanQbe.T.Amd64.PrintAsm0
@@ -27,7 +27,7 @@ Verifies Rank 8 P1 x86-64 ISel optimizations end to end on `x64Target`:
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.X64TestJsLeaTest
 

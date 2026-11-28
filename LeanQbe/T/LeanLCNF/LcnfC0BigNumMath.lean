@@ -5,8 +5,8 @@ public import LeanQbe.T.Logic.Bytes
 public import LeanQbe.T.Logic.C0Step
 public import LeanQbe.T.Logic.MemLemmas
 public import LeanQbe.T.Logic.Rules
-import all Kraken.Mem
-import all Kraken.Separation
+import Kraken.Mem
+import Kraken.Separation
 
 /-!
 # Algebraic, Bitwise & Separation-Logic Lemmas for Pure C0 `BigNum` (`Milestone R1`)

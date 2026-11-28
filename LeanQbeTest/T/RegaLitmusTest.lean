@@ -1,8 +1,10 @@
 module
 
-public import LeanQbeTest.T.RegaLitmusProgs
-public import LeanQbe.T.RegaLemmas
-import all Kraken.Mem
+import LeanQbeTest.T.RegaLitmusProgs
+import LeanQbe.T.RegaLemmas
+import LeanQbe.T.Bedrock2.Phoas
+import LeanQbe.T.ZeroPeelLemmas1
+import Kraken.Mem
 
 /-!
 # `Rega` Litmus Witnesses (`*_nonvacuous`) and `lowerFn_correct` Hooks
@@ -18,7 +20,7 @@ import all Kraken.Mem
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbe.T.RegaLitmus
 open LeanQbe.T
@@ -28,26 +30,81 @@ open LeanQbe.T
 abbrev FMem : Type := BitVec 64 → Option UInt8
 
 def fmemOps : MemOps FMem :=
-  ⟨fun f k => f k, fun f a bs k => if (k - a).toNat < bs.length then bs[(k - a).toNat]? else f k⟩
+  ⟨fun f a n => (((List.range n).map fun i => f (a + BitVec.ofNat 64 i)).mapM id).map Int.ofBytes,
+   fun f a bs k => if (k - a).toNat < bs.length then bs[(k - a).toNat]? else f k⟩
 
 def MemRel (m : Mem 64) (f : FMem) : Prop := ∀ k, m.get? k = f k
 
 def SRel (s : MData) (t : MDataG FMem) : Prop :=
   s.gpr = t.gpr ∧ s.vec = t.vec ∧ s.cf = t.cf ∧ s.zf = t.zf ∧ s.of = t.of ∧ MemRel s.mem t.mem
 
-theorem loadValG_rel {m : Mem 64} {f : FMem} (hm : MemRel m f) (t : Ty) (a : BitVec 64) :
-    loadValG memOps m t a = loadValG fmemOps f t a := by
-  have hm' : ∀ k, m.get? k = f k := hm
-  simp only [loadValG, memOps, fmemOps, hm']
+private theorem list_mapM_id_map_some {α : Type} (xs : List α) :
+    (xs.map some).mapM id = some xs := by
+  induction xs with
+  | nil => rfl
+  | cons x xs ih => simp [ih]
+
+private theorem list_mapM_id_none_of_mem {α : Type} {xs : List (Option α)} (h : none ∈ xs) :
+    xs.mapM id = none := by
+  induction xs with
+  | nil => cases h
+  | cons x xs ih =>
+    rcases List.mem_cons.mp h with rfl | h'
+    · rfl
+    · cases x with
+      | none => rfl
+      | some a => simp [ih h']
+
+private theorem loadInt_rel {m : Mem 64} {f : FMem} (hm : MemRel m f) (a : BitVec 64) (n : Nat)
+    (hn : n ≤ 2 ^ 64) : m.loadInt a n = fmemOps.loadInt f a n := by
+  cases hall : (List.range n).all fun i => (m[a + BitVec.ofNat 64 i]?).isSome with
+  | true =>
+    have hall' : ∀ i < n, (m[a + BitVec.ofNat 64 i]?).isSome = true := fun i hi =>
+      List.all_eq_true.mp hall i (List.mem_range.mpr hi)
+    obtain ⟨bs, mRest, hlen, hget, hsp⟩ := Bedrock2.mem_split_At m a n hn hall'
+    have hlhs := Mem.loadInt_sep bs a n (Eq mRest) m (Bedrock2.split_iff_sep.1 hsp) hlen hn
+    have hmap : ((List.range n).map fun i => f (a + BitVec.ofNat 64 i)) = bs.map some := by
+      apply List.ext_getElem (by simp [hlen])
+      intro i hi1 hi2
+      simp only [List.getElem_map, List.getElem_range]
+      have hi : i < n := by simpa using hi1
+      rw [← hm, Std.ExtHashMap.get?_eq_getElem?, hget i hi, List.getElem?_eq_getElem (by omega)]
+    simp only [fmemOps, hmap, list_mapM_id_map_some, Option.map_some, hlhs]
+  | false =>
+    have hex : ∃ i < n, m[a + BitVec.ofNat 64 i]? = none := by
+      simp only [List.all_eq_false, List.mem_range, Bool.not_eq_true] at hall
+      obtain ⟨i, hi, hns⟩ := hall
+      cases hg : m[a + BitVec.ofNat 64 i]? with
+      | none => exact ⟨i, hi, hg⟩
+      | some _ => simp [hg] at hns
+    obtain ⟨i, hi, hnone⟩ := hex
+    have hlhs : m.loadInt a n = none := by
+      cases hli : m.loadInt a n with
+      | none => rfl
+      | some z =>
+        exfalso
+        have htb : (Ty.bits (8 * n)).bytes = n := by simp [Ty.bytes, Ty.size]; omega
+        have hok : storeOk m (.bits (8 * n)) a := ⟨z, by rw [htb]; exact hli⟩
+        have hmem := (ZeroPeel.storeOk_iff_forall_mem m (.bits (8 * n)) a).1 hok i (by omega)
+        rw [Std.ExtHashMap.get?_eq_getElem?, hnone] at hmem
+        simp at hmem
+    have hmemNone : none ∈ ((List.range n).map fun j => f (a + BitVec.ofNat 64 j)) := by
+      refine List.mem_map.mpr ⟨i, List.mem_range.mpr hi, ?_⟩
+      rw [← hm, Std.ExtHashMap.get?_eq_getElem?, hnone]
+    simp only [fmemOps, list_mapM_id_none_of_mem hmemNone, Option.map_none, hlhs]
+
+theorem loadValG_rel {m : Mem 64} {f : FMem} (hm : MemRel m f) (t : Ty) (a : BitVec 64)
+    (ht : t.bytes ≤ 2 ^ 64) : loadValG memOps m t a = loadValG fmemOps f t a := by
+  simp only [loadValG, memOps, loadInt_rel hm a t.bytes ht]
 
 theorem put_rel {m : Mem 64} {f : FMem} (hm : MemRel m f) (a : BitVec 64) (bs : List UInt8)
     (hl : bs.length ≤ 2 ^ 64) : MemRel (memOps.put m a bs) (fmemOps.put f a bs) := by
   intro k
   have hk := hm k
   rw [Std.ExtHashMap.get?_eq_getElem?] at hk
-  simp only [memOps, fmemOps, Mem.storeBytes]
-  rw [Std.ExtHashMap.get?_eq_getElem?, Std.ExtHashMap.union_eq, Std.ExtHashMap.getElem?_union,
-    get?_At bs a k hl, hk]
+  simp only [memOps, fmemOps]
+  rw [Bedrock2.storeBytes_eq_union m a bs hl, Std.ExtHashMap.get?_eq_getElem?,
+    Std.ExtHashMap.union_eq, Std.ExtHashMap.getElem?_union, get?_At bs a k hl, hk]
   generalize (k - a).toNat = j
   by_cases h : j < bs.length
   · simp only [h, ↓reduceIte, List.getElem?_eq_getElem h, Option.some_or]
@@ -55,9 +112,10 @@ theorem put_rel {m : Mem 64} {f : FMem} (hm : MemRel m f) (a : BitVec 64) (bs : 
 
 theorem i64_bytes_le : (i64).bytes ≤ 2 ^ 64 := by simp [Ty.bytes, Ty.size]
 
-/-- Stores of types wider than the address space are excluded from the simulation. -/
+/-- Loads and stores of types wider than the address space are excluded from the simulation. -/
 def instrOk : Instr → Bool
   | .st t _ _ => Nat.ble t.bytes (2 ^ 64)
+  | .ld t _ _ => Nat.ble t.bytes (2 ^ 64)
   | _ => true
 
 theorem storeMemG_rel {m : Mem 64} {f : FMem} (hm : MemRel m f) {t : Ty} (a : BitVec 64)
@@ -77,7 +135,7 @@ theorem loadWords_rel {m : Mem 64} {f : FMem} (hm : MemRel m f) (a : BitVec 64) 
     loadWords memOps m a k = loadWords fmemOps f a k := by
   induction k generalizing a with
   | zero => rfl
-  | succ k ih => simp only [loadWords, loadValG_rel hm, ih]
+  | succ k ih => simp only [loadWords, loadValG_rel hm i64 _ i64_bytes_le, ih]
 
 def ORel : Option (MData × Nat) → Option (MDataG FMem × Nat) → Prop
   | none, none => True
@@ -93,14 +151,15 @@ theorem execI_rel {h : LHost} {s : MData} {t : MDataG FMem} {pc : Nat} {i : Inst
   change MemRel m f at hm
   cases i with
   | ld ty d a =>
+    simp only [instrOk, Nat.ble_eq] at hi
     have ha : (⟨g, v, c, z, o, m⟩ : MData).addr a = (⟨g, v, c, z, o, f⟩ : MDataG FMem).addr a := by
       cases a <;> rfl
-    simp only [execI, loadValG_rel hm, ha]
+    simp only [execI, loadValG_rel hm ty _ hi, ha]
     cases loadValG fmemOps f ty _ with
     | none => trivial
     | some x => exact ⟨⟨rfl, rfl, rfl, rfl, rfl, hm⟩, rfl⟩
   | ret =>
-    simp only [execI, loadValG_rel hm]
+    simp only [execI, loadValG_rel hm i64 _ i64_bytes_le]
     cases loadValG fmemOps f i64 _ with
     | none => trivial
     | some x => exact ⟨⟨rfl, rfl, rfl, rfl, rfl, hm⟩, rfl⟩

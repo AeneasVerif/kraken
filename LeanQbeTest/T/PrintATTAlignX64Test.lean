@@ -1,15 +1,15 @@
 module
 
-public import LeanQbe.T.Amd64.PrintATTAlign
-public import LeanQbe.T.Amd64.DebugAsm
-public import LeanQbe.T.Amd64.Targ
-public import LeanQbe.T.Examples.LitmusProgs
-public import LeanQbe.T.Examples.Bignum
-public import LeanQbe.T.Examples.ChaCha
-public import LeanQbe.T.Examples.LratBytes
-public import LeanQbe.T.Driver
-public import LeanQbe.T.Notation
-public import Kraken.X64.PrintATT
+import LeanQbe.T.Amd64.PrintATTAlign
+import LeanQbe.T.Amd64.DebugAsm
+import LeanQbe.T.Amd64.Targ
+import LeanQbe.T.Examples.LitmusProgs
+import LeanQbe.T.Examples.Bignum
+import LeanQbe.T.Examples.ChaCha
+import LeanQbe.T.Examples.LratBytes
+import LeanQbe.T.Driver
+import LeanQbe.T.Notation
+import Kraken.X64.PrintATT
 meta import LeanQbe.T.Amd64.PrintATTAlign
 meta import LeanQbe.T.Amd64.DebugAsm
 meta import LeanQbe.T.Amd64.Targ
@@ -36,7 +36,7 @@ Unit and compiled-IR `#guard` checks for `LeanQbe.T.Amd64.PrintATTAlign`:
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.PrintATTAlignX64Test
 

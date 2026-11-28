@@ -1,6 +1,6 @@
 module
 
-public import LeanQbe.T.Arm64.LratBytes
+import LeanQbe.T.Arm64.LratBytes
 import LeanQbe.T.Logic.MemLemmas
 
 /-!
@@ -41,7 +41,7 @@ This module imports only `Kraken.AArch64` (`LeanQbe.T.Arm64.*`), never `Kraken.X
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LratAuditArm64
 

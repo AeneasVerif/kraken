@@ -1,18 +1,18 @@
 module
 
-public import LeanQbe.T.Arm64.TargLemmas
-public import LeanQbe.T.MainLemmas
-public import LeanQbe.T.Spill
-public import LeanQbeTest.T.Arm64DirPreds
-public import LeanQbeTest.T.Arm64UxtwTest
-public import LeanQbeTest.T.RegaTestKit
+import LeanQbe.T.Arm64.TargLemmas
+import LeanQbe.T.MainLemmas
+import LeanQbe.T.Spill
+import LeanQbeTest.T.Arm64DirPreds
+import LeanQbeTest.T.Arm64UxtwTest
+import LeanQbeTest.T.RegaTestKit
 meta import LeanQbe.T.Arm64.TargLemmas
 meta import LeanQbe.T.MainLemmas
 meta import LeanQbe.T.Spill
 meta import LeanQbeTest.T.Arm64DirPreds
 meta import LeanQbeTest.T.Arm64UxtwTest
 meta import LeanQbeTest.T.RegaTestKit
-public meta import Kraken.AArch64.Print
+meta import Kraken.AArch64.Print
 
 /-!
 # End-to-End AArch64 `Rega`/`Live` `.zext 32 64` + `UXTW` Fusion Tests
@@ -30,7 +30,7 @@ Verifies full `Live` -> `Rega` -> `Arm64.Isel` lowering (`checkCompile` + emitte
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.Arm64ZextAddrTest
 

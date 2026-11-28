@@ -4,11 +4,11 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 module
 
-public import LeanQbe.T.AddrRangeOptLemmas
-public import LeanQbe.T.OptFlatAddrRangeLemmas
-public import LeanQbe.T.OptLemmas
-public import LeanQbe.T.MainLemmas
-public import LeanQbe.T.Arm64.TargLemmas
+import LeanQbe.T.AddrRangeOptLemmas
+import LeanQbe.T.OptFlatAddrRangeLemmas
+import LeanQbe.T.OptLemmas
+import LeanQbe.T.MainLemmas
+import LeanQbe.T.Arm64.TargLemmas
 import LeanQbe.T.Driver
 import LeanQbe.T.Arm64.Targ
 import LeanQbe.T.MainInline
@@ -40,7 +40,7 @@ Verifies `LegalTarget.foldAddrDisp` (`true` on `armLegalTarget`, `false` on `x64
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.AddrDispHoistTest
 

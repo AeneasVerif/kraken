@@ -1,9 +1,9 @@
 module
 
-public import LeanQbe.T.Frontend.C0
-public import LeanQbe.T.PrintCpp
-public import LeanQbe.T.FlatLemmas
-public import LeanQbe.T.Logic.Rules
+import LeanQbe.T.Frontend.C0
+import LeanQbe.T.PrintCpp
+import LeanQbe.T.FlatLemmas
+import LeanQbe.T.Logic.Rules
 meta import LeanQbe.T.Frontend.C0
 meta import LeanQbe.T.PrintCpp
 
@@ -21,7 +21,7 @@ Covers:
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.C0Test
 

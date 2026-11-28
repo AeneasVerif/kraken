@@ -2,7 +2,7 @@ module
 
 public import LeanQbe.T.Wasm.Safety
 public import LeanQbe.T.MainCertProof
-public import LeanQbe.T.MainCertElab
+import LeanQbe.T.MainCertElab
 public import LeanQbe.T.MainCertScc
 meta import LeanQbe.T.Module
 

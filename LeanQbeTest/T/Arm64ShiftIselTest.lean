@@ -1,6 +1,6 @@
 module
 
-public import LeanQbe.T.Arm64.IselShiftLemmas
+import LeanQbe.T.Arm64.IselShiftLemmas
 meta import LeanQbe.T.Logic.ProofKit
 import Kraken.AArch64.Parser
 
@@ -12,7 +12,7 @@ Covers all 5 opcodes × 2 widths × 3 shift modes (`add`/`sub`/`and`/`or`/`xor` 
 upper-half zeroing witnesses, and standard-axiom verification.
 -/
 
-public section
+section
 
 namespace LeanQbeTest.T.Arm64ShiftIselTest
 

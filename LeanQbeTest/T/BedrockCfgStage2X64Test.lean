@@ -1,21 +1,20 @@
 module
 
-public import LeanQbe.T.Unified.CfgRecoveryBridge
-public import LeanQbe.T.MainCertProof
-public import LeanQbe.T.Amd64.TargLemmas
-public import LeanQbe.T.MainSplice
-public import LeanQbe.T.Logic.ProofKit
-public import LeanQbeTest.T.BedrockCfgStage2Test
+import LeanQbe.T.Unified.CfgRecoveryBridge
+import LeanQbe.T.MainCertProof
+import LeanQbe.T.Amd64.TargLemmas
+import LeanQbe.T.MainSplice
+import LeanQbe.T.Logic.ProofKit
+import LeanQbeTest.T.BedrockCfgStage2Test
 import LeanQbe.T.FlatLemmas
 import LeanQbe.T.Logic.MemLemmas
-public meta import Lean
-public meta import LeanQbe.T.MainCertElab
-public meta import LeanQbe.T.MainSplice
-public meta import LeanQbe.T.Amd64.Targ
-public meta import LeanQbe.T.Unified.CfgRecovery
-public meta import LeanQbe.T.Unified.CfgContify
-public meta import LeanQbe.T.BedrockWord.Core
-public meta import LeanQbeTest.T.BedrockCfgStage2Test
+meta import Lean
+import LeanQbe.T.MainCertElab
+meta import LeanQbe.T.Amd64.Targ
+meta import LeanQbe.T.Unified.CfgRecovery
+meta import LeanQbe.T.Unified.CfgContify
+meta import LeanQbe.T.BedrockWord.Core
+meta import LeanQbeTest.T.BedrockCfgStage2Test
 
 /-!
 # Concrete SysV x86-64 Stage-2 CFG Recovery Bridge Tests (`BedrockCfgStage2X64Test`)
@@ -29,7 +28,7 @@ Compiles Examples 1, 2a, 2b, 3 (`.memTableRo` & `.memTableGuarded`), and 6 (Stag
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.BedrockCfgStage2X64Test
 

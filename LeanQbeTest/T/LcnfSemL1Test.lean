@@ -1,14 +1,14 @@
 module
 
-public import LeanQbe.T.LeanLCNF.LExprSem
-public import LeanQbe.T.LeanLCNF.Lower1
-public import LeanQbe.T.LeanLCNF.LcnfC0Demo
-public import LeanQbe.T.LeanLCNF.LcnfC0LoopDemo
-public import LeanQbe.T.LeanLCNF.LcnfC0ArrayDemo
-public import LeanQbe.T.LeanLCNF.LcnfC0RecDemo
-public import LeanQbe.T.LeanLCNF.LcnfC0TreeDemo
-public import LeanQbe.T.LeanLCNF.LcnfC0MutRecDemo
-public import LeanQbe.T.Bootstrap0.Splice0
+import LeanQbe.T.LeanLCNF.LExprSem
+import LeanQbe.T.LeanLCNF.Lower1
+import LeanQbe.T.LeanLCNF.LcnfC0Demo
+import LeanQbe.T.LeanLCNF.LcnfC0LoopDemo
+import LeanQbe.T.LeanLCNF.LcnfC0ArrayDemo
+import LeanQbe.T.LeanLCNF.LcnfC0RecDemo
+import LeanQbe.T.LeanLCNF.LcnfC0TreeDemo
+import LeanQbe.T.LeanLCNF.LcnfC0MutRecDemo
+import LeanQbe.T.Bootstrap0.Splice0
 meta import LeanQbe.T.LeanLCNF.Lower1
 meta import LeanQbe.T.Bootstrap0.Splice0
 
@@ -26,7 +26,7 @@ meta import LeanQbe.T.Bootstrap0.Splice0
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.LcnfSemL1Test
 

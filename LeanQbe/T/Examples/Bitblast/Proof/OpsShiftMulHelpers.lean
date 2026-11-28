@@ -30,30 +30,30 @@ open LeanQbe.T.ProofUtil
 open Std.ExtHashMap
 open LeanQbe.T.Examples.Bitblast.Ref
 
-@[expose] public section
+public section
 
 /-! ## 1. Pure Semantic Helper Definitions -/
 
 /-- Evaluates a `w`-literal slice of `litsPool` starting at `off` in AIG `g` under `ρ`. -/
-def evalPoolSlice (g : Aig) (ρ : Nat → Bool) (litsPool : List (BitVec 32))
+@[expose] def evalPoolSlice (g : Aig) (ρ : Nat → Bool) (litsPool : List (BitVec 32))
     (off w : Nat) : BitVec w :=
   (BitVec.ofBoolListLE
     ((List.range w).map fun j => g.evalLit ρ (UInt32.ofBitVec (litsPool.getD (off + j) 0#32)))).cast
     (by simp)
 
 /-- Boolean OR scan of `p i` over `[lo, hi)` by structural recursion on `hi`. -/
-def anyOrBool (p : Nat → Bool) (lo : Nat) : Nat → Bool
+@[expose] def anyOrBool (p : Nat → Bool) (lo : Nat) : Nat → Bool
   | 0 => false
   | hi + 1 => if lo ≤ hi then anyOrBool p lo hi || p hi else false
 
 /-- Iterative prefix-recurrence for `BitVec.clz`, indexing the bit position `curr` scanned so
 far (`0 .. w`). -/
-def clzAux {w : Nat} (x : BitVec w) : Nat → BitVec w
+@[expose] def clzAux {w : Nat} (x : BitVec w) : Nat → BitVec w
   | 0 => BitVec.ofNat w w
   | k + 1 => if x.getLsbD k = true then BitVec.ofNat w (w - 1 - k) else clzAux x k
 
 /-- Partial shift value denoted by `out` after `pow` doubling stages of `bv_blast_shift_var`. -/
-def bvShiftCur {w nw : Nat} (op : BitVec 32) (va : BitVec w) (vb : BitVec nw)
+@[expose] def bvShiftCur {w nw : Nat} (op : BitVec 32) (va : BitVec w) (vb : BitVec nw)
     (pow : Nat) : BitVec w :=
   bvShiftSem op va (BitVec.ofNat nw (vb.toNat % 2 ^ pow))
 

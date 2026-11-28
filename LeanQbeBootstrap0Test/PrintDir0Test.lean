@@ -1,14 +1,14 @@
 module
 
-public import LeanQbe.T.Bootstrap0.PrintDir0
-public import LeanQbe.T.Bootstrap0.PrintDir0Lemmas
-public import LeanQbe.T.Bootstrap0.Bridge0
-public import LeanQbe.T.Bootstrap0.Compiler0
-public import LeanQbeBootstrap0Test.Dummies0
-public import LeanQbe.T.LeanLCNF.Lower1
-public import LeanQbe.T.Amd64.PrintAsm0
-public import Kraken.X64.PrintATT
-public import LeanQbeBootstrap0Test.Bootstrap0CleanTest
+import LeanQbe.T.Bootstrap0.PrintDir0
+import LeanQbe.T.Bootstrap0.PrintDir0Lemmas
+import LeanQbe.T.Bootstrap0.Bridge0
+import LeanQbe.T.Bootstrap0.Compiler0
+import LeanQbeBootstrap0Test.Dummies0
+import LeanQbe.T.LeanLCNF.Lower1
+import LeanQbe.T.Amd64.PrintAsm0
+import Kraken.X64.PrintATT
+import LeanQbeBootstrap0Test.Bootstrap0CleanTest
 meta import Lean
 meta import LeanQbe.T.Bootstrap0.PrintDir0
 meta import LeanQbe.T.Bootstrap0.PrintDir0Lemmas
@@ -33,7 +33,7 @@ Verifies `LeanQbe.T.Bootstrap0.PrintDir0` and `LeanQbe.T.Bootstrap0.PrintDir0Lem
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeBootstrap0Test.PrintDir0Test
 

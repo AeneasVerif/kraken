@@ -1,11 +1,13 @@
 module
 
-public import LeanQbe.T.LinkLfp
-public import LeanQbeTest.T.LinkSccTest
-public meta import Lean
-public meta import LeanQbe.T.MainSplice
-public meta import LeanQbe.T.Examples.LinkRec
-public meta import LeanQbeTest.T.RegaLitmusTarget
+import LeanQbe.T.LinkLfp
+import LeanQbeTest.T.LinkSccTest
+meta import Lean
+meta import LeanQbe.T.Main
+import LeanQbe.T.MainSplice
+import LeanQbe.T.FlatLemmas
+meta import LeanQbe.T.Examples.LinkRec
+meta import LeanQbeTest.T.RegaLitmusTarget
 
 /-!
 # Tests for `LeanQbe.T.LinkLfp` (`Env.lfp` + Kleene Approximants + `link_scc_static`)

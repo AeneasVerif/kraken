@@ -4,9 +4,9 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 module
 
-public import LeanQbe.T.InlinePlan
-public import LeanQbe.T.Main
-public import LeanQbe.T.MainFlat
+import LeanQbe.T.InlinePlan
+import LeanQbe.T.Main
+import LeanQbe.T.MainFlat
 
 /-!
 # Subsystem-Aligned Build Oracle Serializer (`SegCertOracleCommon`)
@@ -23,7 +23,7 @@ Pure compiled `IO` oracle library (zero `*Lemmas*`, zero `Lean` meta, zero arch 
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.SegCertOracle
 

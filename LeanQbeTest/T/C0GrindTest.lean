@@ -1,7 +1,7 @@
 module
 
-public import LeanQbe.T.Logic.C0Grind
-public import LeanQbe.T.Logic.SepTree
+import LeanQbe.T.Logic.C0Grind
+import LeanQbe.T.Logic.SepTree
 
 /-!
 # `C0GrindTest`: Realistic Spatial-Noise Test Suite for `c0_grind` & `c0_bv_bit_grind`
@@ -25,7 +25,7 @@ namespace LeanQbeTest.T.C0GrindTest
 
 open LeanQbe.T LeanQbe.T.C0Grind Std.ExtHashMap
 
-public section
+section
 
 /-! ## Shared 25-Atom `Mem 64` Spatial + `wp` / `Expr` Noise Fixture -/
 

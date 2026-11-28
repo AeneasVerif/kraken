@@ -1,15 +1,15 @@
 module
 
-public import LeanQbe.T.MainCertProof
-public import LeanQbe.T.Arm64.TargLemmas
-public import LeanQbe.T.Logic.MemLemmas
+import LeanQbe.T.MainCertProof
+import LeanQbe.T.Arm64.TargLemmas
+import LeanQbe.T.Logic.MemLemmas
 import LeanQbe.T.BenchmarkCertKit
-public import LeanQbeTest.T.Common.Fixtures
+import LeanQbeTest.T.Common.Fixtures
 import LeanQbe.T.FlatLemmas
-public meta import Lean
-public meta import LeanQbe.T.MainCertElab
-public meta import LeanQbe.T.Arm64.Targ
-public meta import LeanQbeTest.T.Common.Fixtures
+meta import Lean
+import LeanQbe.T.MainCertElab
+meta import LeanQbe.T.Arm64.Targ
+meta import LeanQbeTest.T.Common.Fixtures
 
 /-!
 # Chunked Native Compilation Certificate Test on AAPCS64 Arm64 (`MainCert`)

@@ -6,7 +6,10 @@ public import LeanQbe.T.WPLemmas
 public import LeanQbe.T.WfLemmas
 public import LeanQbe.T.Logic.MemLemmas
 public import Kraken.Bedrock2.Memory
-import all Kraken.Separation
+import Kraken.Bedrock2.SemanticsLemmas
+import Kraken.Separation
+import LeanQbe.T.ZeroPeelLemmas1
+import LeanQbe.T.OpsLemmas
 
 /-!
 # Structured Bedrock2 in Typed PHOAS (`LeanQbe.T.Bedrock2.Phoas`)
@@ -295,12 +298,146 @@ theorem anybytes_iff_region {a : BitVec 64} {n : Nat} {m : Mem 64} :
   · rintro ⟨⟨bs, hlen, rfl⟩, hle⟩; exact ⟨bs, rfl, hlen, hle⟩
 
 theorem split_iff_sep {m m1 m2 : Mem 64} : split m m1 m2 ↔ (Eq m1 ⋆ Eq m2) m :=
-  ⟨fun ⟨hu, hi⟩ => ⟨m1, m2, hu, hi, rfl, rfl⟩,
-   fun ⟨_, _, hu, hi, rfl, rfl⟩ => ⟨hu, hi⟩⟩
+  Kraken.Bedrock2.split_iff_sep
 
 theorem split_sep {m m1 m2 : Mem 64} {P Q : Mem 64 → Prop}
     (hs : split m m1 m2) (h1 : P m1) (h2 : Q m2) : (P ⋆ Q) m :=
-  ⟨m1, m2, hs.1, hs.2, h1, h2⟩
+  sep_mono2 (fun _ h => h ▸ h1) (fun _ h => h ▸ h2) m (split_iff_sep.mp hs)
+
+theorem sep_elim_split {P Q : Mem 64 → Prop} {m : Mem 64} (h : (P ⋆ Q) m) :
+    ∃ m1 m2, split m m1 m2 ∧ P m1 ∧ Q m2 := by
+  have h1 : ((fun f => ∃ m1, P m1 ∧ Eq m1 f) ⋆ (fun f => ∃ m2, Q m2 ∧ Eq m2 f)) m :=
+    sep_mono2 (fun f hf => ⟨f, hf, rfl⟩) (fun f hf => ⟨f, hf, rfl⟩) m h
+  obtain ⟨m1, hm1⟩ := sep_ex_l.mp h1
+  obtain ⟨hp1, hm2⟩ := sep_pure_l.mp hm1
+  obtain ⟨m2, hm3⟩ := sep_ex_r.mp hm2
+  obtain ⟨hq2, hm4⟩ := sep_pure_r.mp hm3
+  exact ⟨m1, m2, split_iff_sep.mpr hm4, hp1, hq2⟩
+
+private def eraseRange (m : Mem 64) (a : BitVec 64) : Nat → Mem 64
+  | 0 => m
+  | k + 1 => (eraseRange m a k).erase (a + BitVec.ofNat 64 k)
+
+private theorem getElem?_eraseRange_of_lt (m : Mem 64) (a : BitVec 64) :
+    ∀ {n i : Nat}, i < n → (eraseRange m a n)[a + BitVec.ofNat 64 i]? = none
+  | 0, _, hi => absurd hi (Nat.not_lt_zero _)
+  | k + 1, i, hi => by
+    simp only [eraseRange, Std.ExtHashMap.getElem?_erase]
+    by_cases h : i = k
+    · subst h; simp
+    · simp [getElem?_eraseRange_of_lt m a (by omega : i < k)]
+
+private theorem getElem?_eraseRange_of_not_mem (m : Mem 64) (a k : BitVec 64) :
+    ∀ {n : Nat}, (∀ i < n, k ≠ a + BitVec.ofNat 64 i) → (eraseRange m a n)[k]? = m[k]?
+  | 0, _ => rfl
+  | j + 1, h => by
+    simp only [eraseRange, Std.ExtHashMap.getElem?_erase,
+      beq_false_of_ne (Ne.symm (h j (by omega))), Bool.false_eq_true, ↓reduceIte]
+    exact getElem?_eraseRange_of_not_mem m a k (fun i hi => h i (by omega))
+
+theorem mem_split_At (m : Mem 64) (a : BitVec 64) (n : Nat) (hn : n ≤ 2 ^ 64)
+    (hall : ∀ i < n, (m[a + BitVec.ofNat 64 i]?).isSome = true) :
+    ∃ (bs : List UInt8) (mRest : Mem 64),
+      bs.length = n ∧ (∀ i < n, m[a + BitVec.ofNat 64 i]? = bs[i]?) ∧
+        split m (bs.At a) mRest := by
+  let bs : List UInt8 := (List.range n).map fun i => (m[a + BitVec.ofNat 64 i]?).getD 0
+  have hlen : bs.length = n := by simp [bs]
+  have hbytes : ∀ i < n, m[a + BitVec.ofNat 64 i]? = bs[i]? := fun i hi => by
+    rcases Option.isSome_iff_exists.1 (hall i hi) with ⟨b, hb⟩; simp [bs, hi, hb]
+  refine ⟨bs, eraseRange m a n, hlen, hbytes, ?_, ?_⟩
+  · apply Std.ExtHashMap.ext_getElem?; intro k
+    rw [Std.ExtHashMap.union_eq, Std.ExtHashMap.getElem?_union]
+    by_cases hk : k ∈ bs.At a
+    · rcases (mem_At_iff bs a k).1 hk with ⟨i, hi, rfl⟩
+      rw [getElem?_eraseRange_of_lt m a (by omega), Option.none_or,
+        ← Std.ExtHashMap.get?_eq_getElem?, get?_At_idx bs a i (by omega) (by omega),
+        hbytes i (by omega)]
+    · rw [Std.ExtHashMap.getElem?_eq_none hk, getElem?_eraseRange_of_not_mem m a k
+        (fun i hi heq => hk ((mem_At_iff bs a k).2 ⟨i, by omega, heq⟩))]
+      cases m[k]? <;> rfl
+  · apply Std.ExtHashMap.eq_empty_iff_forall_not_mem.2; intro k hk
+    rw [Std.ExtHashMap.inter_eq, Std.ExtHashMap.mem_inter_iff] at hk
+    rcases (mem_At_iff bs a k).1 hk.1 with ⟨i, hi, rfl⟩
+    have hnone := getElem?_eraseRange_of_lt m a (by omega : i < n)
+    have hsome := Std.ExtHashMap.mem_iff_isSome_getElem?.1 hk.2
+    rw [hnone] at hsome; cases hsome
+
+theorem loadVal_i8_eq_getElem? (m : Mem 64) (p : BitVec 64) :
+    loadVal m i8 p = m[p]?.map UInt8.toBitVec := by
+  cases hmp : m[p]? with
+  | none =>
+    exact loadVal_of_unmapped m i8 p
+      ⟨0, by decide, by rw [Std.ExtHashMap.get?_eq_getElem?]; simpa using hmp⟩
+  | some b =>
+    obtain ⟨bs, mRest, hlen, hbytes, hsp⟩ := mem_split_At m p 1 (by decide) fun i hi => by
+      have : i = 0 := by omega
+      subst this; simp [hmp]
+    rcases bs with _ | ⟨b0, _ | _⟩ <;> simp at hlen
+    have hb0 : b0 = b := by
+      have h0 := hbytes 0 (by decide)
+      simp [hmp] at h0; exact h0.symm
+    subst hb0
+    have hli := Mem.loadInt_sep [b0] p 1 (Eq mRest) m (split_iff_sep.1 hsp) rfl (by decide)
+    dsimp only [loadVal]; rw [show i8.bytes = 1 from rfl, hli]
+    simp only [Option.bind_some, Option.map_some, ofBits, Option.some.injEq]
+    apply BitVec.eq_of_toNat_eq; simp [Int.ofBytes]
+
+theorem storeBytes_eq_union (m : Mem 64) :
+    ∀ (a : BitVec 64) (bs : List UInt8), bs.length ≤ 2 ^ 64 →
+      m.storeBytes a bs = m.union (bs.At a)
+  | a, [], _ => by
+    rw [ZeroPeel.storeBytes_nil]; apply Std.ExtHashMap.ext_getElem?; intro k
+    have hnot : k ∉ ([] : List UInt8).At a := fun hk => by
+      rcases (mem_At_iff [] a k).1 hk with ⟨_, hi, _⟩; simp at hi
+    rw [Std.ExtHashMap.union_eq, Std.ExtHashMap.getElem?_union,
+      Std.ExtHashMap.getElem?_eq_none hnot]; cases m[k]? <;> rfl
+  | a, b :: bs, hlen => by
+    have h1 : m.storeBytes a [b] = m.union ([b].At a) := by
+      have hb : Int.toBytes 1 ((toBits i8 b.toBitVec).setWidth (8 * 1)).toInt = [b] := by
+        have ht := UInt8.toBytes_ofBytes [b] (by simp)
+        have ho : UInt8.ofBytes [b] = b := by
+          cases b with | ofBitVec v =>
+          exact congrArg UInt8.ofBitVec (BitVec.eq_of_toNat_eq (by simp [Int.ofBytes]))
+        rw [ho] at ht; simpa [UInt8.toBytes, toBits, i8] using ht
+      rw [show m.storeBytes a [b] = storeMem m i8 a b.toBitVec by
+        rw [ZeroPeel.storeMem_eq_storeBytes, show i8.bytes = 1 from rfl, hb]]
+      apply Std.ExtHashMap.ext_getElem?; intro p
+      have hi8 : loadVal (storeMem m i8 a b.toBitVec) i8 p =
+          loadVal (m.union ([b].At a)) i8 p := by
+        by_cases hp : p = a
+        · subst hp
+          rw [loadVal_storeMem m i8 p b.toBitVec (by decide), loadVal_i8_eq_getElem?,
+            Std.ExtHashMap.union_eq, Std.ExtHashMap.getElem?_union, get?_At [b] p p (by simp)]
+          simp
+        · rw [loadVal_storeMem_disjoint m i8 i8 a p b.toBitVec (fun i j hi hj => by
+            have : i = 0 := by change i < 1 at hi; omega
+            have : j = 0 := by change j < 1 at hj; omega
+            subst ‹i = 0›; subst ‹j = 0›; simpa using hp),
+            loadVal_i8_eq_getElem?, loadVal_i8_eq_getElem?, Std.ExtHashMap.union_eq,
+            Std.ExtHashMap.getElem?_union]
+          have hnot : p ∉ [b].At a := fun hk => by
+            rcases (mem_At_iff [b] a p).1 hk with ⟨i, hi, rfl⟩
+            simp at hi; subst hi; exact hp (by simp)
+          rw [Std.ExtHashMap.getElem?_eq_none hnot]; cases m[p]? <;> rfl
+      rw [loadVal_i8_eq_getElem?, loadVal_i8_eq_getElem?, Std.ExtHashMap.union_eq] at hi8
+      rw [Std.ExtHashMap.union_eq]
+      cases h1 : (storeMem m i8 a b.toBitVec)[p]? <;> cases h2 : (m ∪ [b].At a)[p]? <;>
+        simp [h1, h2] at hi8 ⊢
+      case some.some u1 u2 => cases u1; cases u2; simpa using hi8
+    have hcons : b :: bs = [b] ++ bs := rfl
+    rw [hcons, ← ZeroPeel.storeBytes_append m a [b] bs (by simp at hlen ⊢; omega), h1,
+      storeBytes_eq_union _ _ bs (by simp at hlen; omega),
+      List.At_append [b] bs a (by simp at hlen ⊢; omega)]
+    apply Std.ExtHashMap.ext_getElem?; intro k
+    simp only [Std.ExtHashMap.union_eq, Std.ExtHashMap.getElem?_union]
+    cases (bs.At (a + BitVec.ofNat 64 [b].length))[k]? <;> cases ([b].At a)[k]? <;> rfl
+
+theorem storeMem_eq_union (m : Mem 64) (t : Ty) (a : BitVec 64) (v : Val t)
+    (hb : t.bytes ≤ 2 ^ 64) :
+    storeMem m t a v =
+      m.union ((Int.toBytes t.bytes ((toBits t v).setWidth (8 * t.bytes)).toInt).At a) := by
+  rw [ZeroPeel.storeMem_eq_storeBytes,
+    storeBytes_eq_union _ _ _ (by rw [Int.toBytes_length]; exact hb)]
 
 theorem anybytes8_exists_cell64 {a : BitVec 64} {m : Mem 64} (h : anybytes a 8 m) :
     ∃ v : BitVec 64, cell64 a v m := by

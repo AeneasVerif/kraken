@@ -1,11 +1,11 @@
 module
 
-public import LeanQbe.T.CondThreadOptLemmas
-public import LeanQbe.T.FlatLemmas
-public import LeanQbe.T.WPLemmas
-public import LeanQbe.T.Main
-public import LeanQbe.T.Examples.LratBytes
-public import LeanQbe.T.Examples.Kissat.Plain
+import LeanQbe.T.CondThreadOptLemmas
+import LeanQbe.T.FlatLemmas
+import LeanQbe.T.WPLemmas
+import LeanQbe.T.Main
+import LeanQbe.T.Examples.LratBytes
+import LeanQbe.T.Examples.Kissat.Plain
 meta import LeanQbe.T.CondThreadOpt
 meta import LeanQbe.T.Main
 meta import LeanQbe.T.Examples.LratBytes

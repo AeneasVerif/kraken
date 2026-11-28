@@ -1,8 +1,8 @@
 module
 
-public import LeanQbe.T.LeanLCNF.Sem.LowerSound4
-public import LeanQbe.T.LeanLCNF.LcnfC0Demo
-public import LeanQbe.T.LeanLCNF.LcnfC0LoopDemo
+import LeanQbe.T.LeanLCNF.Sem.LowerSound4
+import LeanQbe.T.LeanLCNF.LcnfC0Demo
+import LeanQbe.T.LeanLCNF.LcnfC0LoopDemo
 
 /-!
 # End-to-End Lowering Soundness Smoke Tests (`LcnfLowerSoundTest`)
@@ -15,7 +15,7 @@ on a concrete first-order module exercising `.fap`, `.jp`, `.jmp`, and `.ret`.
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.LcnfLowerSoundTest
 

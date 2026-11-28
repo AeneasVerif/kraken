@@ -1,14 +1,14 @@
 module
 
-public import LeanQbe.T.MainCertCore
-public import LeanQbe.T.MainCertFlat
-public import LeanQbe.T.Amd64.TargLemmas
-public import LeanQbeTest.T.CompilerCoverageFixture
-public meta import Lean
-public meta import LeanQbe.T.MainCertElab
-public meta import LeanQbe.T.MainCertFlatElab
-public meta import LeanQbe.T.Amd64.Targ
-public meta import LeanQbe.T.MainFlat
+import LeanQbe.T.MainCertCore
+import LeanQbe.T.MainCertFlat
+import LeanQbe.T.Amd64.TargLemmas
+import LeanQbeTest.T.CompilerCoverageFixture
+meta import Lean
+import LeanQbe.T.MainCertElab
+import LeanQbe.T.MainCertFlatElab
+meta import LeanQbe.T.Amd64.Targ
+meta import LeanQbe.T.MainFlat
 
 /-!
 # SysV x64 Compiler Coverage Opt/Ctrl & Parity Test (`CompilerCoverageX64OptTest`)
@@ -21,7 +21,7 @@ audit (`auditMainFlatClosure`), and `<= std3` axioms.
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.CompilerCoverageX64OptTest
 
@@ -44,8 +44,6 @@ noncomputable def covX64OptFlatCast :
       (covOptSrcMod.optInlinePolicy covPol)
       [(⟨"cov_ext", [i64], [i64]⟩, 0)] ["cov_ext_exit"] 0 2048 :=
   covX64OptFlat.castModule covOptMod.eq
-
-#eval auditMainFlatClosure
 
 #print axioms x64_opt_code_eq
 #print axioms x64_opt_bounds_eq

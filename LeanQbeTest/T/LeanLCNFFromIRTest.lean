@@ -1,11 +1,11 @@
 module
 
-public import LeanQbe.T.LeanLCNF.FromIR
-public import LeanQbe.T.LeanLCNF.Lower1
-public import LeanQbe.T.LeanLCNF.Demo
-public import LeanQbe.T.FlatLemmas
-public import LeanQbe.T.PrintCpp
-public import LeanQbe.T.PrintQbe
+import LeanQbe.T.LeanLCNF.FromIR
+import LeanQbe.T.LeanLCNF.Lower1
+import LeanQbe.T.LeanLCNF.Demo
+import LeanQbe.T.FlatLemmas
+import LeanQbe.T.PrintCpp
+import LeanQbe.T.PrintQbe
 meta import Lean
 meta import LeanQbe.T.LeanLCNF.FromIR
 meta import LeanQbe.T.LeanLCNF.Lower1
@@ -44,13 +44,13 @@ lcnf_ir_of_lean! irSmallMod
    LeanQbe.T.LeanLCNF.Demo.sortBench,
    LeanQbe.T.LeanLCNF.Demo.usizeSum]
 
-public def irSmallTfs : List TFlatFn :=
+def irSmallTfs : List TFlatFn :=
   (lowerModule irSmallMod).toOption.getD []
 
-public def irSmallFns : List Fn :=
+def irSmallFns : List Fn :=
   Frontend.C0.tflatFnsToFns irSmallTfs
 
-public theorem ir_demo_wf : ∀ f ∈ irSmallFns, f.Wf :=
+theorem ir_demo_wf : ∀ f ∈ irSmallFns, f.Wf :=
   Frontend.C0.tflatFnsToFns_wf irSmallTfs
 
 #guard irSmallMod.decls.length ≥ 60

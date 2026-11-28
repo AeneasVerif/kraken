@@ -1,13 +1,13 @@
 module
 
-public import LeanQbe.T.Amd64.TargLemmas
-public import LeanQbe.T.Amd64.IselLemmas5
-public import LeanQbe.T.Amd64.IselVecLemmas3
-public import LeanQbe.T.Amd64.FrameLemmas
-public import LeanQbe.T.Amd64.IselStepRules
-public import LeanQbe.T.Amd64.LinkRec
-public import LeanQbe.T.Amd64.Litmus
-public import LeanQbeTest.T.MainLinkAmd64Test
+import LeanQbe.T.Amd64.TargLemmas
+import LeanQbe.T.Amd64.IselLemmas5
+import LeanQbe.T.Amd64.IselVecLemmas3
+import LeanQbe.T.Amd64.FrameLemmas
+import LeanQbe.T.Amd64.IselStepRules
+import LeanQbe.T.Amd64.LinkRec
+import LeanQbe.T.Amd64.Litmus
+import LeanQbeTest.T.MainLinkAmd64Test
 import LeanQbe.T.Logic.MemLemmas
 
 /-!
@@ -49,7 +49,7 @@ This module imports only `Kraken.X64` (`LeanQbe.T.Amd64.*`), never `Kraken.AArch
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace CompilerAuditX64
 

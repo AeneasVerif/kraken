@@ -2,7 +2,7 @@ module
 
 public import LeanQbe.T.Examples.LratBytesSpec
 import Kraken.SeparationTactics
-import all Kraken.Separation
+import Kraken.Separation
 import LeanQbe.T.Logic.C0HeadStep
 meta import LeanQbe.T.Logic.C0HeadStep
 import LeanQbe.T.Logic.ControlComb
@@ -867,16 +867,14 @@ theorem lbRupCheck_correct (Γ : Env) :
         wsRupRest c pcur cur0 ptrs PoolUsed poolRem ⋆ Eq (prfBytes.At prf_ptr) ⋆ R)) m := by
     change (region c.tb c.tRaw ⋆ _) m
     exact sep_cast hm_u (by dsimp only [pcur, cur0, wsRupRest]; ac_rfl)
-  obtain ⟨f_t, f_o, hu_t, hd_t, hf_t, hf_o⟩ := hm_tb
   have hmv_lt := c.hmv; unfold dimacsBound at hmv_lt
-  obtain ⟨tf0, htf0_len, htf0_arr⟩ := region_to_int4Array (c.mv + 1) (by omega) hf_t
+  obtain ⟨tf0, hm_tf0⟩ := sep_ex_l.mp
+    (sep_mono (fun _ => region_to_int4Array (c.mv + 1) (by omega)) hm_tb)
+  obtain ⟨htf0_len, hm_tf0⟩ := sep_pure_l.mp hm_tf0
   have hm_arr :
       ((byte1Array c.vb (assignBytes c.mv Assignment.empty) ⋆ int4Array c.tb ([] ++ tf0)) ⋆
       (wsRupRest c pcur cur0 ptrs PoolUsed poolRem ⋆ Eq (prfBytes.At prf_ptr) ⋆ R)) m := by
-    simpa only [List.nil_append] using sep_ac (show (int4Array c.tb tf0 ⋆
-      (byte1Array c.vb (assignBytes c.mv Assignment.empty) ⋆
-        wsRupRest c pcur cur0 ptrs PoolUsed poolRem ⋆ Eq (prfBytes.At prf_ptr) ⋆ R)) m from
-      ⟨f_t, f_o, hu_t, hd_t, htf0_arr, hf_o⟩)
+    simpa only [List.nil_append] using sep_ac hm_tf0
   have hm_ps0 : (Eq (prfBytes.At prf_ptr) ⋆
       PState c.mv c.vb c.tb c.tb Assignment.empty [] tf0 (c.mv + 1) ⋆
       wsRupRest c pcur cur0 ptrs PoolUsed poolRem ⋆ R) m :=

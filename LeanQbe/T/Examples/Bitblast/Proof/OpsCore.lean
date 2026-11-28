@@ -28,10 +28,10 @@ open LeanQbe.T.Examples.Bitblast.Src.OpsCore
 
 /-! ## Canonical Spec Tables & Environment -/
 
-@[expose] public section
+public section
 
 /-- Canonical `SpecEntry` rows for the 6 AIG/literal externs imported by `OpsCore`. -/
-def opsCoreAigExternSpecs : List SpecEntry :=
+@[expose] def opsCoreAigExternSpecs : List SpecEntry :=
   [ { name := "bv_mk_and", as := [i64, i32, i32], rs := [i32],
       spec := bvMkAndSpec, noExit := true }
   , { name := "bv_aig_not", as := [i32], rs := [i32],
@@ -46,7 +46,7 @@ def opsCoreAigExternSpecs : List SpecEntry :=
       spec := bvLitsAllocSpec, noExit := true } ]
 
 /-- Canonical `SpecEntry` rows matching `OpsCore.opsCoreFns` order. -/
-def opsCoreOwnSpecTable : List SpecEntry :=
+@[expose] def opsCoreOwnSpecTable : List SpecEntry :=
   [ { name := "bv_slice_ok", as := [i64, i32, i32], rs := [.bool],
       spec := bvSliceOkSpec, noExit := true }
   , { name := "bv_blast_extract", as := [i64, i32, i32, i32, i32], rs := [i32],
@@ -78,7 +78,7 @@ def opsCoreOwnSpecTable : List SpecEntry :=
 def opsCoreSpecTable : List SpecEntry := opsCoreOwnSpecTable ++ opsCoreAigExternSpecs
 
 /-- Canonical environment built from `opsCoreSpecTable`. -/
-def opsCoreEnv : Env := Env.ofTable opsCoreSpecTable
+@[expose] def opsCoreEnv : Env := Env.ofTable opsCoreSpecTable
 
 end
 

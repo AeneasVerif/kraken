@@ -1,13 +1,13 @@
 module
 
-public import LeanQbe.T.MainLinkReuse
-public import LeanQbeTest.T.MainLinkAmd64Test
+import LeanQbe.T.MainLinkReuse
+import LeanQbeTest.T.MainLinkAmd64Test
 import LeanQbe.T.FlatLemmas
-public meta import Lean
-public meta import LeanQbeTest.T.MainLinkAmd64Test
-public meta import LeanQbe.T.MainSplice
-public meta import LeanQbe.T.MainLinkSplice
-public meta import LeanQbe.T.Amd64.Targ
+meta import Lean
+meta import LeanQbeTest.T.MainLinkAmd64Test
+import LeanQbe.T.MainSplice
+import LeanQbe.T.MainLinkSplice
+meta import LeanQbe.T.Amd64.Targ
 
 /-!
 # Callee-Pruned Chunk Reuse Test on SysV x64 (`MainLinkReuse`)
@@ -28,7 +28,7 @@ a full `LinkedCert`. In case 2 it also gives the end-to-end `Defined ∧ FnSpec`
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.MainLinkReuseAmd64Test
 
@@ -210,14 +210,19 @@ theorem certC_doubleBump_fnSpec :
 /-- info: 'LeanQbe.T.CompiledChunk.relink' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms LeanQbe.T.CompiledChunk.relink
 
-/-- info: 'LeanQbeTest.T.MainLinkReuseAmd64Test.certB' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms certB
-
 /--
-info: 'LeanQbeTest.T.MainLinkReuseAmd64Test.certC_doubleBump_fnSpec' depends on axioms: [propext,
- Classical.choice,
- Quot.sound]
+info: '_private.LeanQbeTest.T.MainLinkReuseAmd64Test.0.LeanQbeTest.T.MainLinkReuseAmd64Test.certB'
+depends on axioms: [propext, Classical.choice, Quot.sound]
 -/
-#guard_msgs in #print axioms certC_doubleBump_fnSpec
+#guard_msgs (whitespace := lax) in #print axioms certB
 
 end LeanQbeTest.T.MainLinkReuseAmd64Test
+
+private theorem certC_doubleBump_ax : True :=
+  (fun _ => trivial) @LeanQbeTest.T.MainLinkReuseAmd64Test.certC_doubleBump_fnSpec
+
+/--
+info: '_private.LeanQbeTest.T.MainLinkReuseAmd64Test.0.certC_doubleBump_ax'
+depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs (whitespace := lax) in #print axioms certC_doubleBump_ax

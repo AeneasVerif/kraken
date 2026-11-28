@@ -1,8 +1,8 @@
 module
 
 public import LeanQbe.T.LeanLCNF.LcnfC0BigNumProof3
-import all Kraken.Mem
-import all Kraken.Separation
+import Kraken.Mem
+import Kraken.Separation
 
 /-!
 # Signed `Int` Add/Sub/Cmp Proofs (`lcnf_int_addsub_cmp_wp`, `Milestone R1`, Part 7)

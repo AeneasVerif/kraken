@@ -546,10 +546,10 @@ end
 
 /-! ## 3. Shared Loop & Stage Invariant Predicates (`@[expose]`) -/
 
-@[expose] public section
+public section
 
 /-- Invariant at exit from the Phase 2 doubling loop / entry to Phase 3 high-bit saturation. -/
-def ShiftStageInv (aOff w bOff nw op : BitVec 32)
+@[expose] def ShiftStageInv (aOff w bOff nw op : BitVec 32)
     (hdr0 : BVHdrState) (g0 : Aig) (lp0 : List (BitVec 32))
     (R : Mem 64 → Prop)
     (st : Nat × BVHdrState × Aig × List (BitVec 64) × List (BitVec 32) × List (BitVec 32))
@@ -569,7 +569,7 @@ def ShiftStageInv (aOff w bOff nw op : BitVec 32)
     array (t := i32) hdrS.ht_ptr htS ⋆ array (t := i32) hdr0.lits_ptr lpS ⋆ R) mS
 
 /-- Invariant across iterations `p` of the Phase 2 power-of-two doubling loop. -/
-def ShiftPhase2Inv (aOff w bOff nw op : BitVec 32)
+@[expose] def ShiftPhase2Inv (aOff w bOff nw op : BitVec 32)
     (hdr0 : BVHdrState) (g0 : Aig) (lp0 : List (BitVec 32))
     (R : Mem 64 → Prop)
     (st : Nat × BVHdrState × Aig × List (BitVec 64) × List (BitVec 32) × List (BitVec 32))
@@ -589,7 +589,7 @@ def ShiftPhase2Inv (aOff w bOff nw op : BitVec 32)
     array (t := i32) hdrP.ht_ptr htP ⋆ array (t := i32) hdr0.lits_ptr lpP ⋆ R) mP
 
 /-- Invariant across bit index `j` of the inner `tmp[j] = ite(...)` loop in Phase 2. -/
-def ShiftInnerInv (aOff w bOff nw op : BitVec 32)
+@[expose] def ShiftInnerInv (aOff w bOff nw op : BitVec 32)
     (hdr0 : BVHdrState) (g0 : Aig) (lp0 : List (BitVec 32))
     (R : Mem 64 → Prop) (p : Nat)
     (st : Nat × BVHdrState × Aig × List (BitVec 64) × List (BitVec 32) × List (BitVec 32))
@@ -616,7 +616,7 @@ def ShiftInnerInv (aOff w bOff nw op : BitVec 32)
     array (t := i32) hdrJ.ht_ptr htJ ⋆ array (t := i32) hdr0.lits_ptr lpJ ⋆ R) mJ
 
 /-- Invariant across index `k` of the Phase 3 `any_hi` OR-reduction loop. -/
-def ShiftOrInv (aOff w bOff nw op : BitVec 32)
+@[expose] def ShiftOrInv (aOff w bOff nw op : BitVec 32)
     (hdr0 : BVHdrState) (g0 : Aig) (lp0 : List (BitVec 32))
     (R : Mem 64 → Prop) (p0 : Nat)
     (st : Nat × BitVec 32 × BVHdrState × Aig × List (BitVec 64) × List (BitVec 32))
@@ -638,7 +638,7 @@ def ShiftOrInv (aOff w bOff nw op : BitVec 32)
     array (t := i32) hdrK.ht_ptr htK ⋆ array (t := i32) hdr0.lits_ptr lpS ⋆ R) mK
 
 /-- Invariant across bit index `j` of the final Phase 3 saturation `ite` loop. -/
-def ShiftFillInv (aOff w bOff nw op : BitVec 32)
+@[expose] def ShiftFillInv (aOff w bOff nw op : BitVec 32)
     (hdr0 : BVHdrState) (g0 : Aig) (lp0 : List (BitVec 32))
     (R : Mem 64 → Prop) (p0 : Nat) (anyHiLit fill : BitVec 32)
     (st : Nat × BVHdrState × Aig × List (BitVec 64) × List (BitVec 32) × List (BitVec 32))
@@ -667,7 +667,7 @@ def ShiftFillInv (aOff w bOff nw op : BitVec 32)
     array (t := i32) hdrL.ht_ptr htL ⋆ array (t := i32) hdr0.lits_ptr lpL ⋆ R) mL
 
 /-- Postcondition at the shared `return out;` join point of `bv_blast_shift_var`. -/
-def ShiftDoneInv (aOff w bOff nw op : BitVec 32)
+@[expose] def ShiftDoneInv (aOff w bOff nw op : BitVec 32)
     (hdr0 : BVHdrState) (g0 : Aig) (lp0 : List (BitVec 32))
     (R : Mem 64 → Prop) (hptr : BitVec 64) (mF : Mem 64) : Prop :=
   ∃ (hdrF : BVHdrState) (gF : Aig) (awF : List (BitVec 64)) (htF lpF : List (BitVec 32)),

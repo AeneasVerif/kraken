@@ -1,8 +1,8 @@
 module
 
-public import LeanQbe.T.Amd64.TargLemmas
-public import LeanQbe.T.Amd64.IselLemmas5
-public import LeanQbe.T.Main
+import LeanQbe.T.Amd64.TargLemmas
+import LeanQbe.T.Amd64.IselLemmas5
+import LeanQbe.T.Main
 meta import LeanQbe.T.Amd64.TargLemmas
 meta import LeanQbe.T.Amd64.Isel
 meta import LeanQbe.T.Main
@@ -26,7 +26,7 @@ Self-contained x86-64 test module (`Kraken.X64` only, never Arm64):
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.SlotCmpRmwX64Test
 

@@ -6,7 +6,7 @@ public import LeanQbe.T.LeanLCNF.LcnfC0StringsProof1
 public import LeanQbe.T.LeanLCNF.LcnfC0ContainersProof1
 public import LeanQbe.T.LeanLCNF.LcnfC0ContainersProof2
 public import LeanQbe.T.LeanLCNF.LcnfC0ContainersProof3
-import all Kraken.Separation
+import Kraken.Separation
 
 /-!
 # Soundness Proofs for `LcnfC0Strings`, Part 2: String Push, Append, and Cmp Ops
@@ -224,9 +224,8 @@ theorem bytes1_merge_region {a : BitVec 64} {b : UInt8} {rem : Nat}
     (hm : (bytes a [b] ⋆ region (a + 1#64) rem ⋆ R) m) :
     (region a (1 + rem) ⋆ R) m := by
   have hm' : (bytes a [b] ⋆ (region (a + 1#64) rem ⋆ R)) m := sep_cast hm (by ac_rfl)
-  have hr1 : (region a 1 ⋆ (region (a + 1#64) rem ⋆ R)) m := by
-    obtain ⟨m1, m2, rfl, hd, hb1, hr⟩ := hm'
-    exact ⟨m1, m2, rfl, hd, bytes_to_region hb1, hr⟩
+  have hr1 : (region a 1 ⋆ (region (a + 1#64) rem ⋆ R)) m :=
+    sep_mono (fun _ hb1 => bytes_to_region hb1) hm'
   have hmg := region_merge_eq (a := a) (n1 := 1) (n2 := rem) (n := 1 + rem) rfl hfit
   rw [show a + BitVec.ofNat 64 1 = a + 1#64 from rfl] at hmg
   have hr1' : ((region a 1 ⋆ region (a + 1#64) rem) ⋆ R) m := sep_cast hr1 (by ac_rfl)

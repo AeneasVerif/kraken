@@ -1,22 +1,22 @@
 module
 
-public import LeanQbe.T.OptLemmas
-public import LeanQbe.T.LicmLemmas
-public import LeanQbe.T.LoopRotateLemmas
-public import LeanQbe.T.DceParamLemmas
-public import LeanQbe.T.SimplifyGroupPlanLemmas
-public import LeanQbe.T.LegalLemmas
-public import LeanQbe.T.LegalCheck3
-public import LeanQbe.T.RegaLemmas4
-public import LeanQbe.T.AbiLemmas
-public import LeanQbe.T.MainLemmas
-public import LeanQbe.T.MainLink
-public import LeanQbe.T.LinkRecLemmas
-public import LeanQbe.T.SccLemmas
-public import LeanQbe.T.LinkSccLemmas2
-public import LeanQbe.T.LinkLfp
-public import LeanQbe.T.IselStepAttr
-public import LeanQbe.T.Examples.LinkRec
+import LeanQbe.T.OptLemmas
+import LeanQbe.T.LicmLemmas
+import LeanQbe.T.LoopRotateLemmas
+import LeanQbe.T.DceParamLemmas
+import LeanQbe.T.SimplifyGroupPlanLemmas
+import LeanQbe.T.LegalLemmas
+import LeanQbe.T.LegalCheck3
+import LeanQbe.T.RegaLemmas4
+import LeanQbe.T.AbiLemmas
+import LeanQbe.T.MainLemmas
+import LeanQbe.T.MainLink
+import LeanQbe.T.LinkRecLemmas
+import LeanQbe.T.SccLemmas
+import LeanQbe.T.LinkSccLemmas2
+import LeanQbe.T.LinkLfp
+import LeanQbe.T.IselStepAttr
+import LeanQbe.T.Examples.LinkRec
 meta import LeanQbe.T.Module
 meta import LeanQbe.T.LinkRec
 meta import LeanQbe.T.Examples.LinkRec
@@ -69,7 +69,7 @@ linking (`LinkRec`).
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace CompilerAuditSpec
 

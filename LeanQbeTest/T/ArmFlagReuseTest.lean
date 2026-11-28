@@ -1,10 +1,10 @@
 module
 
-public import LeanQbe.T.Arm64.TargLemmas
-public import LeanQbe.T.Spill
-public import LeanQbeTest.T.RegaTestKit
-public import LeanQbeTest.T.Arm64DirPreds
-public import LeanQbeTest.T.MainFlatParityArm64Test
+import LeanQbe.T.Arm64.TargLemmas
+import LeanQbe.T.Spill
+import LeanQbeTest.T.RegaTestKit
+import LeanQbeTest.T.Arm64DirPreds
+import LeanQbeTest.T.MainFlatParityArm64Test
 meta import Lean
 meta import LeanQbe.T.Arm64.Isel
 meta import LeanQbe.T.Arm64.IselFlagHooks
@@ -30,7 +30,7 @@ Verifies all 5 Wave-5 `W5-1a` hooks wired on `armGpr` (`T/Arm64/Isel.lean`):
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.ArmFlagReuseTest
 

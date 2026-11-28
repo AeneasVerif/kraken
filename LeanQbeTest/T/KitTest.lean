@@ -1,10 +1,10 @@
 module
 
-public import LeanQbe.T.FlatLemmas
-public import LeanQbe.T.Logic.Rules
-public import LeanQbe.T.Logic.ZeroTerm
-public import LeanQbe.T.Notation
-public import LeanQbeTest.T.Examples
+import LeanQbe.T.FlatLemmas
+import LeanQbe.T.Logic.Rules
+import LeanQbe.T.Logic.ZeroTerm
+import LeanQbe.T.Notation
+import LeanQbeTest.T.Examples
 
 /-!
 # Proof-kit verification tests (`LeanQbe.T.Logic`)
@@ -18,7 +18,7 @@ lane specs (`vpaddd`, `vpternlogd`, `vprord`, `vpsrld`, `lane_liftCmp`, `lane_bl
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbe.T.Test.KitTest
 

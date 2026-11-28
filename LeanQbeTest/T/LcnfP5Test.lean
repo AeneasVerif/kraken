@@ -1,10 +1,10 @@
 module
 
-public import LeanQbe.T.LeanLCNF.Lower1
-public import LeanQbe.T.LeanLCNF.Coverage
-public import LeanQbe.T.FlatLemmas
-public import LeanQbe.T.PrintCpp
-public import LeanQbe.T.PrintQbe
+import LeanQbe.T.LeanLCNF.Lower1
+import LeanQbe.T.LeanLCNF.Coverage
+import LeanQbe.T.FlatLemmas
+import LeanQbe.T.PrintCpp
+import LeanQbe.T.PrintQbe
 meta import LeanQbe.T.LeanLCNF.Lower1
 meta import LeanQbe.T.LeanLCNF.Coverage
 meta import LeanQbe.T.PrintCpp

@@ -1,7 +1,7 @@
 module
 
 public import LeanQbe.T.LeanLCNF.LcnfC0ContainersSpec
-import all Kraken.Separation
+import Kraken.Separation
 
 /-!
 # Soundness Proofs for `LcnfC0Containers`, Part 1: Memory Lemmas, RC Ownership & Core Helpers
@@ -237,25 +237,21 @@ theorem region_pop_byte {a : BitVec 64} {rem : Nat} (hrem : 0 < rem) (hfit : rem
     ∃ v0 : BitVec 8, (cell (t := i8) a v0 ⋆ region (a + 1#64) (rem - 1)) m := by
   have heq : rem = 1 + (rem - 1) := by omega
   rw [heq, region_split (by omega)] at hm
-  obtain ⟨f1, f2, hu, hd, hf1, hf2⟩ := hm
-  rcases hf1 with ⟨bs, hbsLen, hmem⟩
-  rcases bs with _ | ⟨b0, _ | _⟩ <;> simp at hbsLen
-  have hcell : cell (t := i8) a (BitVec.ofNat 8 b0.toNat) f1 := by
-    rw [← bytes_singleton_eq_cell8]
-    exact hmem.symm
-  refine ⟨BitVec.ofNat 8 b0.toNat, f1, f2, hu, hd, hcell, ?_⟩
-  simpa using hf2
+  have hr1 : ∀ f, region a 1 f → ∃ v0 : BitVec 8, cell (t := i8) a v0 f := by
+    rintro f ⟨bs, hbsLen, hmem⟩
+    rcases bs with _ | ⟨b0, _ | _⟩ <;> simp at hbsLen
+    refine ⟨BitVec.ofNat 8 b0.toNat, ?_⟩
+    rw [← bytes_singleton_eq_cell8]; exact hmem.symm
+  exact sep_ex_l.mp (sep_mono hr1 hm)
 
 theorem region_pop_store_byte {a : BitVec 64} {rem : Nat} (v : BitVec 8)
     {R : Mem 64 → Prop} {m : Mem 64} (hrem : 0 < rem) (hfit : rem ≤ 2 ^ 64)
     (hm : (region a rem ⋆ R) m) :
     storeOk m i8 a ∧
       (bytes a [UInt8.ofNat v.toNat] ⋆ region (a + 1#64) (rem - 1) ⋆ R) (storeMem m i8 a v) := by
-  obtain ⟨f1, f2, hu, hd, hf1, hf2⟩ := hm
-  obtain ⟨v0, hv0⟩ := region_pop_byte hrem hfit hf1
-  have hm1 : (cell (t := i8) a v0 ⋆ (region (a + 1#64) (rem - 1) ⋆ R)) m := by
-    rw [← sep_assoc]
-    exact ⟨f1, f2, hu, hd, hv0, hf2⟩
+  obtain ⟨v0, hv0⟩ := sep_ex_l.mp (sep_mono (fun _ => region_pop_byte hrem hfit) hm)
+  change ((cell (t := i8) a v0 ⋆ region (a + 1#64) (rem - 1)) ⋆ R) m at hv0
+  have hm1 : (cell (t := i8) a v0 ⋆ (region (a + 1#64) (rem - 1) ⋆ R)) m := sep_ac hv0
   obtain ⟨hok, hst⟩ := store_cell (t := i8) v (by decide) hm1
   refine ⟨hok, ?_⟩
   have hvEq : v = BitVec.ofNat 8 (UInt8.ofNat v.toNat).toNat := by

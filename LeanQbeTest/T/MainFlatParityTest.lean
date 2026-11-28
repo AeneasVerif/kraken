@@ -1,9 +1,9 @@
 module
 
-public import LeanQbeTest.T.MainFlatParityFixtures
-public import LeanQbe.T.OptFlatValue
-public import LeanQbe.T.Amd64.Targ
-public import LeanQbe.T.Amd64.PrintAsm0
+import LeanQbeTest.T.MainFlatParityFixtures
+import LeanQbe.T.OptFlatValue
+import LeanQbe.T.Amd64.Targ
+import LeanQbe.T.Amd64.PrintAsm0
 import LeanQbe.T.FlatDirectLemmas
 import LeanQbe.T.OptFlatValueLemmas
 import LeanQbe.T.RegaFlatLemmas
@@ -24,7 +24,7 @@ loop `TFlatFn`s, Litmus programs, and Kissat C0 schedule functions, and audits a
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.MainFlatParityTest
 

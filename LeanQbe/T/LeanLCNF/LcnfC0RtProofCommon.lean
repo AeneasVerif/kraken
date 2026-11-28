@@ -4,7 +4,7 @@ public import LeanQbe.T.LeanLCNF.LcnfC0RtSpec
 import LeanQbe.T.Logic.C0HeadStep
 import LeanQbe.T.Logic.ProofKit
 import LeanQbe.T.Logic.ControlComb
-import all Kraken.Separation
+import Kraken.Separation
 
 /-!
 # Shared Proof Infrastructure for `LcnfC0Rt`
@@ -596,19 +596,15 @@ theorem preservesMeta_trans {a b c : RtC0State}
 
 theorem cell64_conflict (a v1 v2 : BitVec 64) (R1 R2 : Mem 64 → Prop) (m : Mem 64)
     (h : ((cell64 a v1 ⋆ R1) ⋆ (cell64 a v2 ⋆ R2)) m) : False := by
-  obtain ⟨m1, m2, rfl, hd, h1, h2⟩ := h
-  have hl1 : loadVal m1 i64 a = some v1 := loadVal_cell64 h1
-  have hl2 : loadVal m2 i64 a = some v2 := loadVal_cell64 h2
-  have check : ∀ (k : Mem 64) (v : BitVec 64), loadVal k i64 a = some v → a ∈ k := by
-    intro k v hl
-    by_cases ha : a ∈ k
-    · exact ha
-    · exfalso
-      have hnone : Std.ExtHashMap.get? k (a + BitVec.ofNat 64 0) = none := by
-        rw [BitVec.add_zero]; exact Std.ExtHashMap.getElem?_eq_none ha
-      have := loadVal_of_unmapped k i64 a ⟨0, by decide, hnone⟩; rw [this] at hl; contradiction
-  have hmem : a ∈ m1.inter m2 := Std.ExtHashMap.mem_inter_iff.mpr ⟨check m1 v1 hl1, check m2 v2 hl2⟩
-  rw [hd] at hmem; exact (Std.ExtHashMap.not_mem_empty (a := a)) hmem
+  have h1 : (cell64 a v1 ⋆ (R1 ⋆ (cell64 a v2 ⋆ R2))) m := sep_cast h (by ac_rfl)
+  have h2 : (cell64 a v2 ⋆ (R2 ⋆ (cell64 a v1 ⋆ R1))) m := sep_cast h (by ac_rfl)
+  have h12 : v1 = v2 := Option.some.inj ((loadVal_cell64 h1).symm.trans (loadVal_cell64 h2))
+  have hst := (store_cell64 (v1 + 1#64) h1).2
+  have hst2 : (cell64 a v2 ⋆ (R2 ⋆ (cell64 a (v1 + 1#64) ⋆ R1)))
+      (storeMem m i64 a (v1 + 1#64)) := sep_cast hst (by ac_rfl)
+  have hne : v1 + 1#64 = v2 :=
+    Option.some.inj ((loadVal_cell64 hst).symm.trans (loadVal_cell64 hst2))
+  subst h12; simp at hne
 
 theorem lcnfObjMem_eq_header_body (o : LcnfObj) :
     lcnfObjMem o = (cell64 o.addr o.header ⋆ lcnfObjBody o) := by

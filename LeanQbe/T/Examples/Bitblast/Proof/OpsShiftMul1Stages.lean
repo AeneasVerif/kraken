@@ -37,9 +37,9 @@ open LeanQbe.T.Examples.Bitblast.Src.OpsShiftMul
 
 /-! ## 1. Exposed Sub-Expressions for `bv_blast_shift_var` -/
 
-@[expose] public section
+public section
 
-@[inline] def svCmp (c : CmpOp) (ty : Ty) (x y : Arg Val ty)
+@[expose, inline] def svCmp (c : CmpOp) (ty : Ty) (x y : Arg Val ty)
     (k : Val ty.mask → Expr Val Cont [i32]) : Expr Val Cont [i32] :=
   Expr.let_ { sig := [ty, ty], code := OpCode.cmp c ty, args := (x, y, ()) } (fun p => k p.fst)
 
@@ -47,7 +47,7 @@ open LeanQbe.T.Examples.Bitblast.Src.OpsShiftMul
     (k : Val i32 → Expr Val Cont [i32]) : Expr Val Cont [i32] :=
   Expr.let_ { sig := [i32, i32], code := code, args := (x, y, ()) } (fun p => k p.fst)
 
-@[inline] def svAdd64 (x y : Arg Val i64)
+@[expose, inline] def svAdd64 (x y : Arg Val i64)
     (k : Val i64 → Expr Val Cont [i32]) : Expr Val Cont [i32] :=
   Expr.let_ { sig := [i64, i64], code := OpCode.add i64, args := (x, y, ()) } (fun p => k p.fst)
 
@@ -78,7 +78,8 @@ open LeanQbe.T.Examples.Bitblast.Src.OpsShiftMul
     fun p1 =>
   svAdd64 (Arg.var litsPtr) (Arg.var p1.fst) k
 
-@[inline] def svLoadOom (h : Val i64) (k : Val i32 → Expr Val Cont [i32]) : Expr Val Cont [i32] :=
+@[expose, inline] def svLoadOom (h : Val i64) (k : Val i32 → Expr Val Cont [i32]) :
+    Expr Val Cont [i32] :=
   svAdd64 (Arg.var h) (Arg.imm 120) fun p0 => Expr.load i32 (Arg.var p0) k
 
 @[inline] def svDist64 (pow : Val i32)
@@ -373,7 +374,10 @@ theorem bv_blast_shift_var_split_eq (h : Val i64) (aOff w bOff nw op : Val i32) 
                    (Expr.ret (Arg.imm 4294967295, ())))
                 (Expr.jump Js.fst ()))
              (Expr.jump Js.fst ()))
-          (Expr.jump Js.fst ()) := rfl
+          (Expr.jump Js.fst ()) := by
+  dsimp only [bv_blast_shift_var_body, shiftVarPhase2Expr, shiftVarTailExpr, shiftVarInnerExpr,
+    shiftVarSbitExpr, shiftVarFillExpr, svCmp, svBin, svAdd64, svShl64, svZext, svTrunc,
+    svLoadLit, svAddrLit, svLoadOom, svDist64]
 
 theorem shiftVar_sbit_wp {Γ : Env} {Q : Post [i32]} {X : XPost} {mJ : Mem 64}
     {h : BitVec 64} {aOff w bOff nw op : BitVec 32} {p j : Nat} {dist : BitVec 32}

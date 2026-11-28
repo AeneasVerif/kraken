@@ -1,7 +1,7 @@
 module
 
-public import LeanQbe.T.Amd64.IselVecLemmas3
-public import LeanQbe.T.Examples.ChaCha
+import LeanQbe.T.Amd64.IselVecLemmas3
+import LeanQbe.T.Examples.ChaCha
 import Kraken.X64.Parser
 
 /-!
@@ -24,7 +24,7 @@ Standalone downstream test suite verifying `x64Vec` and `x64VecSpec`:
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.Amd64VecTest
 

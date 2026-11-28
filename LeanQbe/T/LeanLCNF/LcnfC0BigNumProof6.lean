@@ -1,8 +1,8 @@
 module
 
 public import LeanQbe.T.LeanLCNF.LcnfC0BigNumProof3
-import all Kraken.Mem
-import all Kraken.Separation
+import Kraken.Mem
+import Kraken.Separation
 
 /-!
 # Signed `Int` Conversion Proofs (`lcnf_int_conv_wp`, `Milestone R1`, Part 6)
@@ -64,8 +64,16 @@ private theorem lcnfObjMem_cell64 {o : LcnfObj} {R : Mem 64 → Prop} {m : Mem 6
 
 private theorem lcnfObjMem_mem_head {o : LcnfObj} {R : Mem 64 → Prop} {m : Mem 64}
     (h : (lcnfObjMem o ⋆ R) m) : o.addr ∈ m := by
-  rcases lcnfObjMem_cell64 h with ⟨P, m1, m2, hun, _, hm1, _⟩
-  exact hun ▸ Std.ExtHashMap.mem_union_of_left (mem_of_cell64 hm1)
+  rcases lcnfObjMem_cell64 h with ⟨P, h1⟩
+  have hl := loadVal_cell64 h1
+  by_cases ha : o.addr ∈ m
+  · exact ha
+  · exfalso
+    have hnone : Std.ExtHashMap.get? m (o.addr + BitVec.ofNat 64 0) = none := by
+      rw [BitVec.add_zero, Std.ExtHashMap.get?_eq_getElem?]
+      exact Std.ExtHashMap.getElem?_eq_none ha
+    rw [loadVal_of_unmapped m i64 o.addr ⟨0, by decide, hnone⟩] at hl
+    contradiction
 
 private theorem lcnfHeap_addr_nodup : ∀ {objs : List LcnfObj} {R : Mem 64 → Prop} {m : Mem 64},
     (lcnfHeap objs ⋆ R) m → (objs.map LcnfObj.addr).Nodup
@@ -81,12 +89,30 @@ private theorem lcnfHeap_addr_nodup : ∀ {objs : List LcnfObj} {R : Mem 64 → 
     rcases List.mem_map.mp hmem with ⟨o', ho', had⟩
     have ⟨idx, hlt, hidx⟩ := List.mem_iff_getElem.mp ho'
     rw [lcnfHeap_focus os hlt, hidx, sep_assoc (lcnfObjMem o')] at h
-    rcases h with ⟨m1, m2, _, hinter, hm1, hm2⟩
-    have ha1 : o.addr ∈ m1 := lcnfObjMem_mem_head (R := emp) (by rw [sep_emp]; exact hm1)
-    have ha2 : o.addr ∈ m2 := had ▸ lcnfObjMem_mem_head hm2
-    have hai : o.addr ∈ m1.inter m2 := Std.ExtHashMap.mem_inter_iff.mpr ⟨ha1, ha2⟩
-    rw [hinter] at hai
-    exact Std.ExtHashMap.not_mem_empty hai
+    have hc1 : ∀ f, lcnfObjMem o f → ∃ P, (cell64 o.addr o.header ⋆ P) f :=
+      fun _ hf => lcnfObjMem_cell64 (R := emp) (by rw [sep_emp]; exact hf)
+    have hc2 : ∀ f, lcnfObjMem o' f → ∃ P, (cell64 o'.addr o'.header ⋆ P) f :=
+      fun _ hf => lcnfObjMem_cell64 (R := emp) (by rw [sep_emp]; exact hf)
+    obtain ⟨P1, h1⟩ := sep_ex_l.mp (sep_mono hc1 h)
+    let Rest := lcnfHeap (List.take idx os) ⋆ lcnfHeap (List.drop (idx + 1) os) ⋆ R
+    change ((cell64 o.addr o.header ⋆ P1) ⋆ (lcnfObjMem o' ⋆ Rest)) m at h1
+    have h1' : (lcnfObjMem o' ⋆ ((cell64 o.addr o.header ⋆ P1) ⋆ Rest)) m :=
+      sep_cast h1 (by ac_rfl)
+    obtain ⟨P2, h2⟩ := sep_ex_l.mp (sep_mono hc2 h1')
+    change ((cell64 o'.addr o'.header ⋆ P2) ⋆ ((cell64 o.addr o.header ⋆ P1) ⋆ Rest)) m at h2
+    have h2' : (cell64 o.addr o.header ⋆ (P1 ⋆ (cell64 o.addr o'.header ⋆ (P2 ⋆ Rest)))) m := by
+      rw [had] at h2; exact sep_cast h2 (by ac_rfl)
+    have h3 : (cell64 o.addr o'.header ⋆ (P2 ⋆ (cell64 o.addr o.header ⋆ (P1 ⋆ Rest)))) m :=
+      sep_cast h2' (by ac_rfl)
+    have heq : o.header = o'.header :=
+      Option.some.inj ((loadVal_cell64 h2').symm.trans (loadVal_cell64 h3))
+    have hst := (store_cell64 (o.header + 1#64) h2').2
+    have hst' : (cell64 o.addr o'.header ⋆ (P2 ⋆ (cell64 o.addr (o.header + 1#64) ⋆
+        (P1 ⋆ Rest)))) (storeMem m i64 o.addr (o.header + 1#64)) :=
+      sep_cast hst (by ac_rfl)
+    have hne : o.header + 1#64 = o'.header :=
+      Option.some.inj ((loadVal_cell64 hst).symm.trans (loadVal_cell64 hst'))
+    rw [← heq] at hne; simp at hne
 
 private theorem mem_addr_nodup_eq {objs : List LcnfObj} (hnd : (objs.map LcnfObj.addr).Nodup) :
     ∀ {o1 o2 : LcnfObj}, o1 ∈ objs → o2 ∈ objs → o1.addr = o2.addr → o1 = o2 := by

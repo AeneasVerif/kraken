@@ -1,7 +1,7 @@
 module
 
-public import LeanQbe.T.LeanLCNF.LcnfC0LoopDemo
-public import LeanQbe.T.LeanLCNF.LcnfC0LoopDemoProof
+import LeanQbe.T.LeanLCNF.LcnfC0LoopDemo
+import LeanQbe.T.LeanLCNF.LcnfC0LoopDemoProof
 meta import Lean
 meta import LeanQbe.T.LeanLCNF.LcnfC0LoopDemo
 meta import LeanQbe.T.LeanLCNF.LcnfC0LoopDemoProof
@@ -18,7 +18,7 @@ meta import LeanQbe.T.LeanLCNF.LcnfC0LoopDemoProof
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.LcnfC0LoopDemoTest
 

@@ -7,7 +7,7 @@ public import LeanQbe.T.LeanLCNF.LcnfC0StringsProof2
 public import LeanQbe.T.LeanLCNF.LcnfC0ContainersProof1
 public import LeanQbe.T.LeanLCNF.LcnfC0ContainersProof2
 public import LeanQbe.T.LeanLCNF.LcnfC0ContainersProof3
-import all Kraken.Separation
+import Kraken.Separation
 
 /-!
 # Soundness Proofs for `LcnfC0Strings`, Part 3a: String<->List and `lcnf_ba_data`

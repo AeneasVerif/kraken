@@ -1,7 +1,7 @@
 module
 
 public import LeanQbe.T.LeanLCNF.LcnfC0ContainersCow
-import all Kraken.Separation
+import Kraken.Separation
 
 /-!
 # Soundness Proofs for `LcnfC0Containers`, Part 3: `Array` (`tag 246`)
@@ -74,9 +74,8 @@ private theorem cell64_merge_region {a v : BitVec 64} {n : Nat} (hfit : 8 + n �
     (hm : (cell64 a v ⋆ region (a + 8#64) n ⋆ R) m) :
     (region a (8 + n) ⋆ R) m := by
   have hm' : (cell64 a v ⋆ (region (a + 8#64) n ⋆ R)) m := sep_cast hm (by ac_rfl)
-  obtain ⟨m1, m2, hu, hd, hcell, hrest⟩ := hm'
   have hr : (region a 8 ⋆ (region (a + 8#64) n ⋆ R)) m :=
-    ⟨m1, m2, hu, hd, cell64_to_region hcell, hrest⟩
+    sep_mono (fun _ => cell64_to_region) hm'
   have hr' : ((region a 8 ⋆ region (a + 8#64) n) ⋆ R) m := sep_cast hr (by ac_rfl)
   rw [← @region_split a 8 n hfit] at hr'
   exact hr'

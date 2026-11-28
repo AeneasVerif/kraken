@@ -1,8 +1,8 @@
 module
 
-public import LeanQbe.T.Arm64.LcnfC0FullCertArm64
-public import LeanQbe.T.Arm64.TargLemmas
-public import LeanQbe.T.Logic.MemLemmas
+import LeanQbe.T.Arm64.LcnfC0FullCertArm64
+import LeanQbe.T.Arm64.TargLemmas
+import LeanQbe.T.Logic.MemLemmas
 import LeanQbe.T.Bedrock2.Phoas
 meta import Lean
 meta import LeanQbe.T.Arm64.LcnfC0FullCertArm64
@@ -24,7 +24,7 @@ meta import LeanQbe.T.Arm64.LcnfC0FullCertArm64
 
 set_option autoImplicit false
 
-public section
+section
 
 namespace LeanQbeTest.T.LcnfC0FullCertArm64Test
 

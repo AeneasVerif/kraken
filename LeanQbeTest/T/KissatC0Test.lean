@@ -1,11 +1,11 @@
 module
 
-public import LeanQbe.T.Examples.Kissat.Solver
-public import LeanQbe.T.Examples.LratBytes
-public import LeanQbe.T.PrintCpp
-public import LeanQbe.T.PrintQbe
-public import LeanQbe.T.Legal
-public import LeanQbeTest.T.KissatC0Harness
+import LeanQbe.T.Examples.Kissat.Solver
+import LeanQbe.T.Examples.LratBytes
+import LeanQbe.T.PrintCpp
+import LeanQbe.T.PrintQbe
+import LeanQbe.T.Legal
+import LeanQbeTest.T.KissatC0Harness
 meta import LeanQbe.T.Examples.Kissat.Solver
 meta import LeanQbe.T.Examples.LratBytes
 meta import LeanQbe.T.PrintCpp

@@ -6,7 +6,7 @@ module
 
 public import LeanQbe.T.MainCertCore
 public import LeanQbe.T.MainCertProof
-public import LeanQbe.T.FlatLemmas
+import LeanQbe.T.FlatLemmas
 public import LeanQbe.T.Arm64.TargLemmas
 public import LeanQbe.T.Arm64.KissatPlainBounds
 public import LeanQbe.T.Arm64.KissatPlainCert

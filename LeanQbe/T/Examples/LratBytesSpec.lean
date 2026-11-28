@@ -5,8 +5,8 @@ public import LeanQbe.T.Logic.ZeroTerm
 public import LeanQbe.T.Logic.Rules
 public import LeanQbe.T.FlatLemmas
 public import Kraken.Bedrock2.Test.LratTrimCheckProof
-import all Kraken.Mem
-import all Kraken.Separation
+import Kraken.Mem
+import Kraken.Separation
 
 /-!
 # Shared specifications and pure executable mirror for `LeanQbe.T.Examples.LratBytes`

@@ -2,8 +2,8 @@ module
 
 public import LeanQbe.T.LeanLCNF.LcnfC0BigNumProof1
 public import LeanQbe.T.LeanLCNF.LcnfC0BigNumProof2
-import all Kraken.Mem
-import all Kraken.Separation
+import Kraken.Mem
+import Kraken.Separation
 import LeanQbe.T.Logic.ProofKit
 import LeanQbe.T.Logic.C0HeadStep
 meta import LeanQbe.T.Logic.ProofKit
