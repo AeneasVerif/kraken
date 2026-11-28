@@ -1,5 +1,6 @@
 module
 
+public import LeanQbe.T.Examples.Kissat.Build.Common.CertParamCommon
 public import LeanQbe.T.Examples.Kissat.Core
 public import LeanQbe.T.Examples.Kissat.CoreLemmas
 public import LeanQbe.T.Examples.Kissat.CoreLemmas1
@@ -426,6 +427,7 @@ public import LeanQbe.T.Examples.Kissat.Src.Full
 public import LeanQbe.T.Examples.Kissat.Src.Gates
 public import LeanQbe.T.Examples.Kissat.Src.Header
 public import LeanQbe.T.Examples.Kissat.Src.Heap
+public import LeanQbe.T.Examples.Kissat.Src.InlPolicy
 public import LeanQbe.T.Examples.Kissat.Src.Internal
 public import LeanQbe.T.Examples.Kissat.Src.Kitten
 public import LeanQbe.T.Examples.Kissat.Src.Learn
