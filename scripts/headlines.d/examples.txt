@@ -11,3 +11,11 @@ LeanQbeTest.T.AriscaTest LeanQbeTest.T.AriscaTest.u_array_4_drop_rejectedB
 LeanQbe.T.Examples.Arisca.Proof.Full LeanQbe.T.Examples.Arisca.Proof.ariscaModule_ok
 LeanQbe.T.Examples.Arisca.Proof.Full LeanQbe.T.Examples.Arisca.Proof.arisca_check_bytes_sound
 LeanQbe.T.Examples.Arisca.Proof.Full LeanQbe.T.Examples.Arisca.Proof.arisca_check_bytes_nv
+LeanQbe.T.Amd64.Arisca LeanQbe.T.Amd64.Arisca.module_fnspec
+LeanQbe.T.Amd64.Arisca LeanQbe.T.Amd64.Arisca.check_bytes_x64_correct
+LeanQbe.T.Amd64.Arisca LeanQbe.T.Amd64.Arisca.check_bytes_x64_sound
+LeanQbe.T.Amd64.Arisca LeanQbe.T.Amd64.Arisca.x64_nonvacuous
+LeanQbe.T.Arm64.Arisca LeanQbe.T.Arm64.Arisca.module_fnspec
+LeanQbe.T.Arm64.Arisca LeanQbe.T.Arm64.Arisca.check_bytes_arm64_correct
+LeanQbe.T.Arm64.Arisca LeanQbe.T.Arm64.Arisca.check_bytes_arm64_sound
+LeanQbe.T.Arm64.Arisca LeanQbe.T.Arm64.Arisca.arm64_nonvacuous

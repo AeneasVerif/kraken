@@ -1,6 +1,7 @@
 module
 
 public import LeanQbe.T.CoreHub
+public import LeanQbe.T.Amd64.Arisca
 public import LeanQbe.T.Amd64.AriscaCert
 public import LeanQbe.T.Amd64.AriscaCertBounds
 public import LeanQbe.T.Amd64.AriscaCertS0

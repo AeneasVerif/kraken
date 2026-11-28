@@ -10,6 +10,7 @@ public import LeanQbe.T.Examples.Arisca.Build.CertCommon
 public import LeanQbe.T.Examples.Arisca.Build.Flat
 public import LeanQbe.T.Examples.Arisca.Proof.Arena
 public import LeanQbe.T.Examples.Arisca.Proof.Arith
+public import LeanQbe.T.Examples.Arisca.Proof.CertBridge
 public import LeanQbe.T.Examples.Arisca.Proof.Driver0
 public import LeanQbe.T.Examples.Arisca.Proof.Driver0Base
 public import LeanQbe.T.Examples.Arisca.Proof.Driver1
