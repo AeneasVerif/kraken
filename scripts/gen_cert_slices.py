@@ -48,6 +48,7 @@ DEFAULT_FILE_OVERHEAD = 100.0
 DEFAULT_MAX_DIRS = 450
 M6_MAX_DIRS = 600
 M6_NV_WORK_LEN = 6144
+PREFIX_EVAL_MAX_FNS = 200
 
 # Worst-case axiom report text suffix length:
 #   '<ns>.<name>' depends on axioms: [propext, Classical.choice, Quot.sound]
@@ -450,6 +451,7 @@ class ModulePreset:
     default_max_slice_size: int | None = None
     default_workers: int | None = None
     default_flat: bool = False
+    default_bounds_json: str | None = None
 
 
 MODULE_PRESETS: dict[str, ModulePreset] = {
@@ -860,6 +862,8 @@ class CertConfig:
     bounds_literals: (
         dict[str, dict[int, tuple[tuple[str, tuple[str, ...], tuple[str, ...], int], ...]]] | None
     ) = None
+    bounds_json_sources: tuple[str, ...] = ()
+    allow_prefix_eval: bool = False
     tree_groups: int = 0
     max_slice_weight: float | None = None
     flat: bool = False
@@ -2121,7 +2125,7 @@ def render_bounds(cfg: CertConfig, arch: ArchSpec) -> str:
 
 
 def _format_lean_ty(ty: str) -> str:
-    """Format a Lean `Ty` literal concisely (`i64`, `i32`, `.bool`, etc.)."""
+    """Format a Lean `Ty` literal concisely (`i64`, `i32`, `.bool`, `f64`, etc.)."""
     s = ty.strip()
     aliases = {
         "i64": "i64",
@@ -2133,19 +2137,53 @@ def _format_lean_ty(ty: str) -> str:
         "i8": "i8",
         "u8": "i8",
         "bool": ".bool",
-        "f32": ".f32",
-        "f64": ".f64",
+        ".bool": ".bool",
+        "f16": "f16",
+        "f32": "f32",
+        "f64": "f64",
+        "f128": "f128",
     }
     return aliases.get(s, s)
 
 
 def _parse_bound_entry(raw: dict[str, object]) -> tuple[str, tuple[str, ...], tuple[str, ...], int]:
-    """Parse one `{name, as, rs, bound}` JSON record into a normalized tuple."""
+    """Parse one `{name, as, rs/bs, bound}` JSON record into a normalized tuple."""
     name = str(raw["name"])
-    as_tys = tuple(_format_lean_ty(str(t)) for t in raw.get("as", []))  # type: ignore[union-attr]
-    rs_tys = tuple(_format_lean_ty(str(t)) for t in raw.get("rs", []))  # type: ignore[union-attr]
+    as_raw = raw.get("as", [])
+    rs_raw = raw.get("rs", raw.get("bs", []))
+    as_tys = tuple(_format_lean_ty(str(t)) for t in as_raw)  # type: ignore[union-attr]
+    rs_tys = tuple(_format_lean_ty(str(t)) for t in rs_raw)  # type: ignore[union-attr]
     bound = int(raw["bound"])  # type: ignore[arg-type]
     return (name, as_tys, rs_tys, bound)
+
+
+def discover_default_bounds_json(
+    root: Path,
+    preset: ModulePreset | None,
+    prefix: str,
+) -> tuple[Path | None, dict[str, Path]]:
+    """Locate default bounds JSON file(s) for a preset/prefix under `root`.
+
+    Checks, in order:
+      1. `preset.default_bounds_json` (if configured on the preset and present on disk).
+      2. `<root>/bench/kissat/<prefix>_bounds.json` (combined or shared JSON).
+      3. Per-arch `<root>/bench/kissat/<prefix>_bounds_{x64,amd64,arm64}.json`.
+    """
+    candidates: list[Path] = []
+    if preset and preset.default_bounds_json:
+        candidates.append(root / preset.default_bounds_json)
+    candidates.append(root / "bench" / "kissat" / f"{prefix}_bounds.json")
+    for cand in candidates:
+        if cand.is_file():
+            return cand, {}
+    per_arch: dict[str, Path] = {}
+    for arch_key, suffixes in (("amd64", ("x64", "amd64")), ("arm64", ("arm64",))):
+        for suf in suffixes:
+            cand = root / "bench" / "kissat" / f"{prefix}_bounds_{suf}.json"
+            if cand.is_file():
+                per_arch[arch_key] = cand
+                break
+    return None, per_arch
 
 
 def load_bounds_json(
@@ -2313,6 +2351,13 @@ def render_slice(cfg: CertConfig, arch: ArchSpec, sl: SliceRange) -> str:
                 "",
             ]
         else:
+            if cfg.total_fns > PREFIX_EVAL_MAX_FNS and not cfg.allow_prefix_eval:
+                raise ValueError(
+                    f"refusing O(N^2) per-slice eval_prefix_ext! for {cfg.prefix} "
+                    f"({cfg.total_fns} fns > {PREFIX_EVAL_MAX_FNS}) on {arch.key} slice "
+                    f"{sl.index} without bounds JSON; pass --bounds-json <path> or "
+                    "--allow-prefix-eval"
+                )
             eval_args = [
                 arch.targ,
                 arch.lt,
@@ -5708,11 +5753,49 @@ def build_config(args: argparse.Namespace) -> CertConfig:
         if args.no_bounds_import is not None
         else (preset.default_no_bounds_import if preset else False)
     )
+    allow_prefix_eval: bool = bool(getattr(args, "allow_prefix_eval", False))
+    bounds_literals: (
+        dict[str, dict[int, tuple[tuple[str, tuple[str, ...], tuple[str, ...], int], ...]]] | None
+    ) = None
+    bounds_json_sources: list[str] = []
     if args.bounds_json:
+        bpath = Path(args.bounds_json)
         no_bounds_import = True
-    bounds_literals = (
-        load_bounds_json(Path(args.bounds_json), slices, total_fns) if args.bounds_json else None
-    )
+        bounds_literals = load_bounds_json(bpath, slices, total_fns)
+        bounds_json_sources.append(str(bpath))
+    elif args.no_bounds_import is not False:
+        auto_shared, auto_per_arch = discover_default_bounds_json(root, preset, prefix)
+        if auto_shared is not None:
+            no_bounds_import = True
+            bounds_literals = load_bounds_json(auto_shared, slices, total_fns)
+            bounds_json_sources.append(str(auto_shared))
+        elif auto_per_arch:
+            no_bounds_import = True
+            merged_lits: dict[
+                str, dict[int, tuple[tuple[str, tuple[str, ...], tuple[str, ...], int], ...]]
+            ] = {}
+            for arch_k, apath in sorted(auto_per_arch.items()):
+                loaded = load_bounds_json(apath, slices, total_fns)
+                if arch_k in loaded:
+                    merged_lits[arch_k] = loaded[arch_k]
+                bounds_json_sources.append(str(apath))
+            if merged_lits:
+                bounds_literals = merged_lits
+
+    has_fresh_tail_slice = any(sl.start > 0 and sl.reuse_src_index is None for sl in slices)
+    if (
+        no_bounds_import
+        and has_fresh_tail_slice
+        and bounds_literals is None
+        and total_fns > PREFIX_EVAL_MAX_FNS
+        and not allow_prefix_eval
+    ):
+        raise ValueError(
+            f"refusing O(N^2) per-slice eval_prefix_ext! for {prefix} "
+            f"({total_fns} fns > {PREFIX_EVAL_MAX_FNS}) without --bounds-json; "
+            "dump bounds via KissatBoundsDump{X64,Arm64} and pass --bounds-json <path> "
+            f"(or place bench/kissat/{prefix}_bounds.json), or opt in with --allow-prefix-eval"
+        )
     tree_groups: int = (
         args.tree_groups
         if args.tree_groups is not None
@@ -5793,6 +5876,8 @@ def build_config(args: argparse.Namespace) -> CertConfig:
         prune_ext=prune_ext,
         no_bounds_import=no_bounds_import,
         bounds_literals=bounds_literals,
+        bounds_json_sources=tuple(bounds_json_sources),
+        allow_prefix_eval=allow_prefix_eval,
         tree_groups=tree_groups,
         max_slice_weight=args.max_slice_weight,
         flat=flat,
@@ -5971,7 +6056,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--bounds-json",
         help=(
             "Optional JSON file providing per-slice/per-fn bounds for pure literal "
-            "`slice{k}Ext` (N2)."
+            "`slice{k}Ext` (N2). Auto-loaded from `bench/kissat/<Prefix>_bounds*.json` "
+            "when present."
+        ),
+    )
+    ap.add_argument(
+        "--allow-prefix-eval",
+        action="store_true",
+        help=(
+            f"Allow O(N^2) per-slice `eval_prefix_ext!` for > {PREFIX_EVAL_MAX_FNS}-fn "
+            "modules when no `--bounds-json` is provided."
         ),
     )
     ap.add_argument(

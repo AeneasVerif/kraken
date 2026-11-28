@@ -170,7 +170,9 @@ class GenCertSlicesTest(unittest.TestCase):
         self.assertLess(pl_cfg.after_stats.cost_max_mean, pl_cfg.before_stats.cost_max_mean)
         self._assert_hygiene(gcs.build_plan(pl_cfg, ["amd64", "arm64"]))
 
-        fid_args = gcs.parse_args(["--module", "FullFidelity", "--root", str(REPO_ROOT), "--dry-run"])
+        fid_args = gcs.parse_args(
+            ["--module", "FullFidelity", "--allow-prefix-eval", "--root", str(REPO_ROOT), "--dry-run"]
+        )
         fid_cfg = gcs.build_config(fid_args)
         self.assertEqual(fid_cfg.total_fns, 469)
         self._assert_hygiene(gcs.build_plan(fid_cfg, ["amd64", "arm64"]))
@@ -719,6 +721,7 @@ class GenCertSlicesTest(unittest.TestCase):
                 [
                     "--module",
                     "FullFidelity",
+                    "--allow-prefix-eval",
                     "--pin-cuts",
                     str(cuts_path),
                     "--root",
@@ -787,7 +790,7 @@ class GenCertSlicesTest(unittest.TestCase):
     def test_n2_n4_n6_no_bounds_literal_micro_slices_and_tree(self) -> None:
         # 1. FullFidelity preset defaults to FullFidelityInlData + pruneExt + no-bounds-import.
         fid_args = gcs.parse_args(
-            ["--module", "FullFidelity", "--root", str(REPO_ROOT), "--dry-run"]
+            ["--module", "FullFidelity", "--allow-prefix-eval", "--root", str(REPO_ROOT), "--dry-run"]
         )
         fid_cfg = gcs.build_config(fid_args)
         self.assertEqual(fid_cfg.inl_mod, "LeanQbe.T.Examples.Kissat.FullFidelityInlData")
@@ -877,6 +880,7 @@ class GenCertSlicesTest(unittest.TestCase):
             [
                 "--module",
                 "FullFidelityStep7",
+                "--allow-prefix-eval",
                 "--max-slice-weight",
                 "1200",
                 "--slice-size",
@@ -935,7 +939,10 @@ class GenCertSlicesTest(unittest.TestCase):
         # 1. FullFidelityStep11 preset defaults: flat=True, chunk_size=1, workers=2,
         #    max_dirs=600, tree_groups=8, prune_ext=True, materialized FullFidelityStep11Inl.
         s11_args = gcs.parse_args(
-            ["--module", "FullFidelityStep11", "--root", str(REPO_ROOT), "--dry-run"]
+            [
+                "--module", "FullFidelityStep11", "--allow-prefix-eval",
+                "--root", str(REPO_ROOT), "--dry-run",
+            ]
         )
         s11_cfg = gcs.build_config(s11_args)
         self.assertEqual(s11_cfg.prefix, "KissatFidelityStep11")
@@ -992,7 +999,10 @@ class GenCertSlicesTest(unittest.TestCase):
         # 3. --no-flat disables flat imports/options on FullFidelityStep11; --flat enables on M6.
         nf_cfg = gcs.build_config(
             gcs.parse_args(
-                ["--module", "FullFidelityStep11", "--no-flat", "--root", str(REPO_ROOT), "--dry-run"]
+                [
+                    "--module", "FullFidelityStep11", "--no-flat", "--allow-prefix-eval",
+                    "--root", str(REPO_ROOT), "--dry-run",
+                ]
             )
         )
         self.assertFalse(nf_cfg.flat)
@@ -1028,7 +1038,10 @@ class GenCertSlicesTest(unittest.TestCase):
         # 4. FullFidelityStep12 unified 517-fn preset defaults & dry-run hygiene.
         s12_cfg = gcs.build_config(
             gcs.parse_args(
-                ["--module", "step12", "--root", str(REPO_ROOT), "--dry-run"]
+                [
+                    "--module", "step12", "--allow-prefix-eval",
+                    "--root", str(REPO_ROOT), "--dry-run",
+                ]
             )
         )
         self.assertEqual(s12_cfg.prefix, "KissatFidelityStep12")
@@ -1044,6 +1057,107 @@ class GenCertSlicesTest(unittest.TestCase):
             "fidStep12Cert",
             s12_files["LeanQbe/T/Amd64/KissatFidelityStep12Cert.lean"],
         )
+
+    def test_p0_bounds_json_default_discovery_and_prefix_eval_guard(self) -> None:
+        # 1. > 200-fn preset with no_bounds_import refuses O(N^2) eval_prefix_ext! by default.
+        for mod in ("FullFidelity", "FullFidelityStep11", "FullFidelityStep12"):
+            with self.assertRaisesRegex(ValueError, "--allow-prefix-eval"):
+                gcs.build_config(
+                    gcs.parse_args(["--module", mod, "--root", str(REPO_ROOT), "--dry-run"])
+                )
+
+        # 2. <= 200-fn module with --no-bounds-import is NOT blocked.
+        pl_cfg = gcs.build_config(
+            gcs.parse_args(
+                ["--module", "Plain", "--no-bounds-import", "--root", str(REPO_ROOT), "--dry-run"]
+            )
+        )
+        self.assertTrue(pl_cfg.no_bounds_import)
+        pl_files = dict(gcs.build_plan(pl_cfg, ["amd64", "arm64"]))
+        self._assert_hygiene(list(pl_files.items()))
+        self.assertIn("eval_prefix_ext! slice2Ext", pl_files["LeanQbe/T/Amd64/KissatPlainCert2.lean"])
+
+        # 3. Auto-discovers bench/kissat/<Prefix>_bounds_{x64,arm64}.json and uses pure literals
+        #    without needing --allow-prefix-eval, supporting both `rs` and `bs` + `f64`/`bool`.
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_root = Path(tmp)
+            bdir = tmp_root / "bench" / "kissat"
+            bdir.mkdir(parents=True)
+            rows_x64 = [
+                {
+                    "name": f"fn_{i}",
+                    "as": ["i64", "bool"] if i == 0 else ["i64"],
+                    "rs": ["f64"] if i == 0 else ["i64"],
+                    "bound": 32 + i,
+                    "callees": (["fn_0", f"fn_{i - 1}"] if i > 0 else []),
+                }
+                for i in range(210)
+            ]
+            rows_arm = [
+                {
+                    "name": f"fn_{i}",
+                    "as": ["i64", "bool"] if i == 0 else ["i64"],
+                    "bs": ["f64"] if i == 0 else ["i64"],
+                    "bound": 48 + i,
+                    "callees": (["fn_0", f"fn_{i - 1}"] if i > 0 else []),
+                }
+                for i in range(210)
+            ]
+            (bdir / "KissatAuto_bounds_x64.json").write_text(
+                json.dumps(rows_x64), encoding="utf-8"
+            )
+            (bdir / "KissatAuto_bounds_arm64.json").write_text(
+                json.dumps(rows_arm), encoding="utf-8"
+            )
+            auto_cfg = gcs.build_config(
+                gcs.parse_args(
+                    [
+                        "--prefix", "KissatAuto",
+                        "--stem", "auto",
+                        "--total-fns", "210",
+                        "--uniform",
+                        "--slice-size", "12",
+                        "--cert-style", "slices",
+                        "--no-bounds-import",
+                        "--root", str(tmp_root),
+                        "--dry-run",
+                    ]
+                )
+            )
+            self.assertEqual(len(auto_cfg.bounds_json_sources), 2)
+            auto_files = dict(gcs.build_plan(auto_cfg, ["amd64", "arm64"]))
+            self._assert_hygiene(list(auto_files.items()))
+            for arch_dir in ("Amd64", "Arm64"):
+                self.assertNotIn(f"LeanQbe/T/{arch_dir}/KissatAutoBounds.lean", auto_files)
+                s2 = auto_files[f"LeanQbe/T/{arch_dir}/KissatAutoCert2.lean"]
+                self.assertNotIn("eval_prefix_ext!", s2)
+                self.assertIn("private def slice2Ext : List (SigEntry × Nat) := [", s2)
+            self.assertIn('(("fn_0", [i64, .bool], [f64]), 32)', auto_files["LeanQbe/T/Amd64/KissatAutoCert2.lean"])
+            self.assertIn('(("fn_11", [i64], [i64]), 43)', auto_files["LeanQbe/T/Amd64/KissatAutoCert2.lean"])
+            self.assertIn('(("fn_0", [i64, .bool], [f64]), 48)', auto_files["LeanQbe/T/Arm64/KissatAutoCert2.lean"])
+            self.assertIn('(("fn_11", [i64], [i64]), 59)', auto_files["LeanQbe/T/Arm64/KissatAutoCert2.lean"])
+            self.assertEqual(gcs._format_lean_ty("f64"), "f64")
+            self.assertEqual(gcs._format_lean_ty("f32"), "f32")
+            self.assertEqual(gcs._format_lean_ty("bool"), ".bool")
+
+            # 4. Partial-arch bounds JSON refuses silent fallback to eval_prefix_ext! on uncovered arch.
+            (bdir / "KissatAuto_bounds_arm64.json").unlink()
+            partial_cfg = gcs.build_config(
+                gcs.parse_args(
+                    [
+                        "--prefix", "KissatAuto",
+                        "--stem", "auto",
+                        "--total-fns", "210",
+                        "--cert-style", "slices",
+                        "--no-bounds-import",
+                        "--root", str(tmp_root),
+                        "--dry-run",
+                    ]
+                )
+            )
+            self._assert_hygiene(gcs.build_plan(partial_cfg, ["amd64"]))
+            with self.assertRaisesRegex(ValueError, "--allow-prefix-eval"):
+                gcs.build_plan(partial_cfg, ["arm64"])
 
 
 if __name__ == "__main__":
