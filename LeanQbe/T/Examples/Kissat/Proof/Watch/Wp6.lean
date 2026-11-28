@@ -5,6 +5,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 module
 
 public import LeanQbe.T.Examples.Kissat.Proof.Watch.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Watch.Helpers
 public import LeanQbe.T.Examples.Kissat.Proof.Watch.Wp5a
 public import LeanQbe.T.Examples.Kissat.Src.Watch
 
@@ -39,43 +40,6 @@ open scoped FullArenaTactics
 
 public section
 
-private theorem getElem_bv32_congr {xs : List (BitVec 32)} {i j : Nat} (h : i = j)
-    (hi : i < xs.length) (hj : j < xs.length) : xs[i]'hi = xs[j]'hj := by
-  subst h; rfl
-
-private theorem modeWatchesInv_eq_watches {F_cur : List (List Nat)} {k : FullCoreState}
-    (h : k.dense_mode = 0#64) : ModeWatchesInv F_cur k = WatchesInv F_cur k := by
-  unfold ModeWatchesInv; simp [h]
-
-private theorem modeWatchesInv_eq_dense {F_cur : List (List Nat)} {k : FullCoreState}
-    (h : k.dense_mode ≠ 0#64) : ModeWatchesInv F_cur k = DenseWatchesInv F_cur k := by
-  unfold ModeWatchesInv; simp [h]
-
-private theorem bv64_sub1_toNat (x : BitVec 64) (h0 : 0 < x.toNat) :
-    (x - 1).toNat = x.toNat - 1 := by
-  have hle : (1 : BitVec 64) ≤ x := by
-    rw [BitVec.le_def]; exact Nat.succ_le_of_lt h0
-  exact BitVec.toNat_sub_of_le hle
-
-private theorem fullMem_num_binary_refl {c : FullCfg} {s : FullState} {fl : List (BitVec 32)}
-    {R : Mem 64 → Prop} {m : Mem 64}
-    (h : (FullMem c { s with core := { s.core with flags := fl } } ⋆ R) m) :
-    (FullMem c { s with core := { s.core with
-      flags := fl, num_binary := s.core.num_binary } } ⋆ R) m := h
-
-private theorem dbs_shl1 {c : FullCfg} {k : FullCoreState} {lit : Val i32}
-    (hlen : k.LengthsOk c) (_hlit : lit.toNat < 2 * k.cur_vars) :
-    (BitVec.setWidth 64 lit <<< 1).toNat = 2 * lit.toNat ∧
-    (BitVec.setWidth 64 lit <<< 1 + 1).toNat = 2 * lit.toNat + 1 := by
-  have hcv := hlen.cur_vars_le; have hcmax := c.hmaxv; unfold dimacsBound at hcmax
-  have h1 : (1 : BitVec 64).toNat = 1 := rfl
-  have hshl : (BitVec.setWidth 64 lit <<< 1).toNat = 2 * lit.toNat := by
-    rw [BitVec.toNat_shiftLeft, BitVec.toNat_setWidth,
-      Nat.mod_eq_of_lt (show lit.toNat < 2 ^ 64 by omega),
-      Nat.shiftLeft_eq, Nat.pow_one, Nat.mod_eq_of_lt (by omega), Nat.mul_comm]
-  refine ⟨hshl, ?_⟩
-  rw [BitVec.toNat_add, hshl, h1, Nat.mod_eq_of_lt (by omega)]
-
 private theorem watchBoundary_fwd {wstk : List (BitVec 32)} {p rem q e : Nat}
     (hq : WatchBoundary wstk p rem q) (he : WatchBoundary wstk p rem e) (hlt : q < e)
     {w0 : BitVec 32} (hw0 : wstk[q]? = some w0) (hlg : w0 &&& 0x80000000#32 = 0#32) :
@@ -98,46 +62,6 @@ private theorem watchBoundary_fwd {wstk : List (BitVec 32)} {p rem q e : Nat}
     | here => have := (watchBoundary_le rest).1; omega
     | bin hw' hbin' _ => rw [hw0'] at hw'; cases hw'; exact absurd hlg' hbin'
     | large _ _ _ _ rest' => exact ih rest' (by omega) hw0
-
-private theorem watchSliceOk_congr_core {F_cur : List (List Nat)}
-    {k k' : FullCoreState} {lit p rem : Nat}
-    (hcv : k'.cur_vars = k.cur_vars) (harena : k'.arena = k.arena)
-    (hal : k'.arena_len = k.arena_len)
-    (hw : ∀ idx, idx < rem → k'.wstk[p + idx]? = k.wstk[p + idx]?)
-    (hs : WatchSliceOk F_cur k lit p rem) : WatchSliceOk F_cur k' lit p rem := by
-  induction hs with
-  | empty => exact .empty
-  | bin hw0 hbin hne hlt hent rest ih =>
-    refine .bin ?_ hbin hne (by omega) hent (ih (fun idx hidx => by
-      rw [Nat.add_assoc]; exact hw (1 + idx) (by omega)))
-    simpa using (hw 0 (by omega)).trans hw0
-  | large hw0 hcref hlg hclt hmem rest ih =>
-    refine .large ?_ ?_ hlg hclt ?_ (ih (fun idx hidx => by
-      rw [Nat.add_assoc]; exact hw (2 + idx) (by omega)))
-    · simpa using (hw 0 (by omega)).trans hw0
-    · exact (hw 1 (by omega)).trans hcref
-    · unfold fullArenaClauseRefsCore at hmem ⊢
-      rwa [harena, hal]
-
-private theorem denseWatchSliceOk_congr_core {F_cur : List (List Nat)}
-    {k k' : FullCoreState} {lit p rem : Nat}
-    (hcv : k'.cur_vars = k.cur_vars) (harena : k'.arena = k.arena)
-    (hal : k'.arena_len = k.arena_len)
-    (hw : ∀ idx, idx < rem → k'.wstk[p + idx]? = k.wstk[p + idx]?)
-    (hs : DenseWatchSliceOk F_cur k lit p rem) : DenseWatchSliceOk F_cur k' lit p rem := by
-  induction hs with
-  | empty => exact .empty
-  | bin hw0 hbin hne hlt hent rest ih =>
-    refine .bin ?_ hbin hne (by omega) hent (ih (fun idx hidx => by
-      rw [Nat.add_assoc]; exact hw (1 + idx) (by omega)))
-    simpa using (hw 0 (by omega)).trans hw0
-  | occ hw0 hcref hlg hlen3 hclt hmem rest ih =>
-    refine .occ ?_ ?_ hlg hlen3 hclt ?_ (ih (fun idx hidx => by
-      rw [Nat.add_assoc]; exact hw (2 + idx) (by omega)))
-    · simpa using (hw 0 (by omega)).trans hw0
-    · exact (hw 1 (by omega)).trans hcref
-    · unfold fullArenaClauseRefsCore at hmem ⊢
-      rwa [harena, hal]
 
 private def DbsShiftInv (k0 : FullCoreState) (off sz q0 q : Nat)
     (wstk : List (BitVec 32)) : Prop :=
@@ -165,6 +89,55 @@ private theorem dbs_shift_step {k0 : FullCoreState} {off sz q0 q : Nat}
       rw [← List.getElem?_eq_getElem hq_lt, hidx1, hpost q (Nat.le_refl _)]
     · rw [List.getElem?_set_ne (Ne.symm hcur)]; exact hmid idx h1 (by omega)
   · intro idx hidx; rw [List.getElem?_set_ne (by omega)]; exact hpost idx (by omega)
+
+private theorem dbs_other_mono {F_cur : List (List Nat)} {c : FullCfg} {k0 k' : FullCoreState}
+    {lit off sz : Nat} (hlit : lit < 2 * k0.cur_vars) (hoff : fullWatchOffCore k0 lit = off)
+    (hsz : fullWatchSizeCore k0 lit = sz) (hsz_pos : 0 < sz)
+    (hcv_eq : k'.cur_vars = k0.cur_vars) (hdm_eq : k'.dense_mode = k0.dense_mode)
+    (hare : fullArenaClauseRefsCore k' = fullArenaClauseRefsCore k0)
+    (hlay_fn : WatchStackLayout k0 → WatchStackLayout k')
+    (hoth_wv : ∀ l < 2 * k0.cur_vars, l ≠ lit →
+      fullWatchOffCore k' l = fullWatchOffCore k0 l ∧
+      fullWatchSizeCore k' l = fullWatchSizeCore k0 l)
+    (hkeep : ∀ idx < c.wcap, (lit < 2 * k0.cur_vars → idx < off ∨ off + sz ≤ idx) →
+      k'.wstk[idx]? = k0.wstk[idx]?)
+    (hcap : WatchStackLayout k0 →
+      ∀ l < 2 * k0.cur_vars, fullWatchOffCore k0 l + fullWatchSizeCore k0 l ≤ c.wcap)
+    (hsl : WatchSliceOk F_cur k0 lit off sz → WatchSliceOk F_cur k' lit off (sz - 1))
+    (hdsl : DenseWatchSliceOk F_cur k0 lit off sz →
+      DenseWatchSliceOk F_cur k' lit off (sz - 1))
+    (hoff' : fullWatchOffCore k' lit = off) (hsz' : fullWatchSizeCore k' lit = sz - 1)
+    (hmode : ModeWatchesInv F_cur k0) : ModeWatchesInv F_cur k' := by
+  have hmono : WatchStackLayout k0 → ∀ l < 2 * k0.cur_vars, l ≠ lit →
+      ∀ idx, fullWatchOffCore k0 l ≤ idx →
+        idx < fullWatchOffCore k0 l + fullWatchSizeCore k0 l → k'.wstk[idx]? = k0.wstk[idx]? :=
+    fun hlay0 l hl hne idx hi1 hi2 => by
+      have hbd := hcap hlay0 l hl
+      rcases hlay0.disjoint l lit hl hlit hne (by omega)
+          (by rw [hsz]; exact hsz_pos) with hd | hd <;>
+        (simp only [hoff, hsz] at hd; exact hkeep idx (by omega) (fun _ => by omega))
+  by_cases hdm : k0.dense_mode = 0#64
+  · rw [modeWatchesInv_eq_watches hdm] at hmode
+    rw [modeWatchesInv_eq_watches (hdm_eq.trans hdm)]
+    refine ⟨hlay_fn hmode.layout, fun l hl => ?_⟩
+    have hl0 : l < 2 * k0.cur_vars := hcv_eq ▸ hl
+    by_cases hll : l = lit
+    · subst hll; rw [hoff', hsz']; exact hsl (by rw [← hoff, ← hsz]; exact hmode.slices _ hl0)
+    · obtain ⟨ho, hs⟩ := hoth_wv l hl0 hll; rw [ho, hs]
+      exact WatchSliceOk.mono (k := k0) (k' := k') (Std.Sat.CNF.entails_refl (cnfOfClauses F_cur))
+        (Nat.le_of_eq hcv_eq.symm) (fun _ r => hare ▸ r) (hmono hmode.layout l hl0 hll)
+        (hmode.slices l hl0)
+  · rw [modeWatchesInv_eq_dense hdm] at hmode
+    rw [modeWatchesInv_eq_dense (hdm_eq.symm ▸ hdm)]
+    refine ⟨hlay_fn hmode.layout, fun l hl => ?_⟩
+    have hl0 : l < 2 * k0.cur_vars := hcv_eq ▸ hl
+    by_cases hll : l = lit
+    · subst hll; rw [hoff', hsz']; exact hdsl (by rw [← hoff, ← hsz]; exact hmode.slices _ hl0)
+    · obtain ⟨ho, hs⟩ := hoth_wv l hl0 hll; rw [ho, hs]
+      exact DenseWatchSliceOk.mono (k := k0) (k' := k')
+        (Std.Sat.CNF.entails_refl (cnfOfClauses F_cur))
+        (Nat.le_of_eq hcv_eq.symm) (fun _ r => hare ▸ r) (hmono hmode.layout l hl0 hll)
+        (hmode.slices l hl0)
 
 private theorem dbs_shift_post {c : FullCfg} {s : FullState} {lit : Val i32}
     {off sz q0 : Nat} {wstk1 : List (BitVec 32)} {w0 : BitVec 32} {R : Mem 64 → Prop}
@@ -301,86 +274,26 @@ private theorem dbs_shift_post {c : FullCfg} {s : FullState} {lit : Val i32}
     (fun _ => ⟨by simpa [fullWatchOff, hoff_c0] using hoff_eq,
       by dsimp only [fullWatchSize]; rw [hsz_eq, hsz_c0]; omega⟩)
     (fun l hl hne => hoth_wv l hl hne)
-    (fun idx hi hc => by
-      have hoff_s : fullWatchOff s lit.toNat = off := hoff_c0
-      have hsz_s : fullWatchSize s lit.toNat = sz := hsz_c0
-      rw [hoff_s, hsz_s] at hc
-      exact hkeep idx hi hc)
+    (fun idx hi hc => by rw [← hoff_c0, ← hsz_c0] at hkeep; exact hkeep idx hi hc)
   · intro F_cur hs
-    have hoff_s : fullWatchOff s lit.toNat = off := hoff_c0
-    have hsz_s : fullWatchSize s lit.toNat = sz := hsz_c0
-    rw [hoff_s, hsz_s] at hs
+    rw [show fullWatchOff s lit.toNat = off from hoff_c0,
+      show fullWatchSize s lit.toNat = sz from hsz_c0] at hs
     rw [show fullWatchOff { s with core := _ } lit.toNat = off from hoff_eq,
       show fullWatchSize { s with core := _ } lit.toNat = sz - 1 from hsz_eq]
     exact hsl_out F_cur hs
   · intro F_cur hs
-    have hoff_s : fullWatchOff s lit.toNat = off := hoff_c0
-    have hsz_s : fullWatchSize s lit.toNat = sz := hsz_c0
-    rw [hoff_s, hsz_s] at hs
+    rw [show fullWatchOff s lit.toNat = off from hoff_c0,
+      show fullWatchSize s lit.toNat = sz from hsz_c0] at hs
     rw [show fullWatchOff { s with core := _ } lit.toNat = off from hoff_eq,
       show fullWatchSize { s with core := _ } lit.toNat = sz - 1 from hsz_eq]
     exact hdsl_out F_cur hs
   · exact hlay_fn
   · intro F_cur hmode
-    let k' : FullCoreState := { s.core with
-      wvec := wvec', wstk := wstk', wusable := s.core.wusable + 1#64 }
-    have hdm_k' : k'.dense_mode = s.core.dense_mode := rfl
-    change ModeWatchesInv F_cur k'
-    by_cases hdm : s.core.dense_mode = 0#64
-    · rw [modeWatchesInv_eq_watches hdm] at hmode
-      rw [modeWatchesInv_eq_watches (hdm_k'.trans hdm)]
-      refine ⟨hlay_fn hmode.layout, fun l hl => ?_⟩
-      by_cases hll : l = lit.toNat
-      · subst hll
-        change WatchSliceOk F_cur k' lit.toNat (fullWatchOffCore k' lit.toNat)
-          (fullWatchSizeCore k' lit.toNat)
-        rw [show fullWatchOffCore k' lit.toNat = off from hoff_eq,
-          show fullWatchSizeCore k' lit.toNat = sz - 1 from hsz_eq]
-        have h := hmode.slices lit.toNat hl
-        rw [hoff_c0, hsz_c0] at h
-        exact hsl_out F_cur h
-      · obtain ⟨ho, hs⟩ := hoth_wv l hl hll
-        have hwo : fullWatchOffCore k' l = fullWatchOffCore s.core l := by
-          simpa [fullWatchOff] using ho
-        have hws : fullWatchSizeCore k' l = fullWatchSizeCore s.core l := by
-          simpa [fullWatchSize] using hs
-        rw [hwo, hws]
-        exact @watchSliceOk_congr_core F_cur s.core k' l
-          (fullWatchOffCore s.core l) (fullWatchSizeCore s.core l) rfl rfl rfl (fun idx hidx => by
-          have hbd_l := hmode.layout.bounds l hl
-          have hd := hmode.layout.disjoint l lit.toNat hl hlit hll
-            (Nat.lt_of_le_of_lt (Nat.zero_le _) hidx) (by rw [hsz_c0]; omega)
-          rw [hoff_c0, hsz_c0] at hd
-          rcases hd with hd | hd
-          · exact hkeep _ (by omega) (fun _ => Or.inl (by omega))
-          · exact hkeep _ (by omega) (fun _ => Or.inr (by omega))) (hmode.slices l hl)
-    · rw [modeWatchesInv_eq_dense hdm] at hmode
-      rw [modeWatchesInv_eq_dense (hdm_k'.symm ▸ hdm)]
-      refine ⟨hlay_fn hmode.layout, fun l hl => ?_⟩
-      by_cases hll : l = lit.toNat
-      · subst hll
-        change DenseWatchSliceOk F_cur k' lit.toNat (fullWatchOffCore k' lit.toNat)
-          (fullWatchSizeCore k' lit.toNat)
-        rw [show fullWatchOffCore k' lit.toNat = off from hoff_eq,
-          show fullWatchSizeCore k' lit.toNat = sz - 1 from hsz_eq]
-        have h := hmode.slices lit.toNat hl
-        rw [hoff_c0, hsz_c0] at h
-        exact hdsl_out F_cur h
-      · obtain ⟨ho, hs⟩ := hoth_wv l hl hll
-        have hwo : fullWatchOffCore k' l = fullWatchOffCore s.core l := by
-          simpa [fullWatchOff] using ho
-        have hws : fullWatchSizeCore k' l = fullWatchSizeCore s.core l := by
-          simpa [fullWatchSize] using hs
-        rw [hwo, hws]
-        exact @denseWatchSliceOk_congr_core F_cur s.core k' l
-          (fullWatchOffCore s.core l) (fullWatchSizeCore s.core l) rfl rfl rfl (fun idx hidx => by
-          have hbd_l := hmode.layout.bounds l hl
-          have hd := hmode.layout.disjoint l lit.toNat hl hlit hll
-            (Nat.lt_of_le_of_lt (Nat.zero_le _) hidx) (by rw [hsz_c0]; omega)
-          rw [hoff_c0, hsz_c0] at hd
-          rcases hd with hd | hd
-          · exact hkeep _ (by omega) (fun _ => Or.inl (by omega))
-          · exact hkeep _ (by omega) (fun _ => Or.inr (by omega))) (hmode.slices l hl)
+    exact dbs_other_mono (k' := { s.core with
+      wvec := wvec', wstk := wstk', wusable := s.core.wusable + 1#64 })
+      hlit hoff_c0 hsz_c0 (by omega) rfl rfl rfl hlay_fn
+      hoth_wv hkeep (fun hlay l hl => Nat.le_trans (hlay.bounds l hl) hwle)
+      (hsl_out F_cur) (hdsl_out F_cur) hoff_eq hsz_eq hmode
   · exact hm
 
 theorem full_delete_bin_side_wp (Γ : Env) (_hΓ : Γ.Sat Spec.specs)
@@ -405,7 +318,9 @@ theorem full_delete_bin_side_wp (Γ : Env) (_hΓ : Γ.Sat Spec.specs)
         s.core.wlen := hbd_fn hlit
     have hwv0 : 2 * lit.toNat < s.core.wvec.length := by omega
     have hwv1 : 2 * lit.toNat + 1 < s.core.wvec.length := by omega
-    have hsh := dbs_shl1 hlen.core_ok hlit
+    have hsh : (BitVec.setWidth 64 lit <<< 1).toNat = 2 * lit.toNat ∧
+        (BitVec.setWidth 64 lit <<< 1 + 1).toNat = 2 * lit.toNat + 1 :=
+      ⟨bv64_shl1_lit lit, bv64_shl1_add1_lit lit⟩
     have hmod_wv0 : (BitVec.setWidth 64 lit <<< 1).toNat < s.core.wvec.length := by
       rw [hsh.1]; exact hwv0
     have hmod_wv1 : (BitVec.setWidth 64 lit <<< 1 + 1).toNat < s.core.wvec.length := by
@@ -443,7 +358,7 @@ theorem full_delete_bin_side_wp (Γ : Env) (_hΓ : Γ.Sat Spec.specs)
           have hidx_eq : (2 * lit.toNat + (1 : BitVec 64).toNat) % 2 ^ 64 =
               2 * lit.toNat + 1 := by
             rw [h1_64, Nat.mod_eq_of_lt (by omega)]
-          have hget := getElem_bv32_congr hidx_eq (by rw [hidx_eq]; exact hwv1) hwv1
+          have hget := list_getElem_congr (by rw [hidx_eq]; exact hwv1) hidx_eq
           rw [BitVec.toNat_setWidth, hget, Nat.mod_eq_of_lt (by omega), hsz_wv, hz]; rfl))
         omega
       have h_end_eq :
@@ -540,7 +455,7 @@ theorem full_delete_bin_side_wp (Γ : Env) (_hΓ : Γ.Sat Spec.specs)
                       (s.core.wvec[(BitVec.setWidth 64 lit <<< OfNat.ofNat 1).toNat]'hmod_wv0) +
                     BitVec.setWidth 64 (s.core.wvec[2 * lit.toNat + 1]'hwv1) - 1).toNat =
                   off + sz - 1 := by
-                rw [bv64_sub1_toNat _ (by rw [hsum64]; omega), hsum64]
+                rw [bv64_sub1_nat (by rw [hsum64]; omega), hsum64]
               have hend_lt : off + sz - 1 < wstk1.length := by omega
               have hsh1 := hsh.2
               c0_hsteps
@@ -549,7 +464,7 @@ theorem full_delete_bin_side_wp (Γ : Env) (_hΓ : Γ.Sat Spec.specs)
                       (BitVec.setWidth 64 (s.core.wvec[2 * lit.toNat + 1]'hwv1) - 1) =
                     BitVec.ofNat 32 (sz - 1) := by
                 apply BitVec.eq_of_toNat_eq
-                rw [BitVec.toNat_setWidth, bv64_sub1_toNat _ (by rw [hsz64]; exact hsz_pos),
+                rw [BitVec.toNat_setWidth, bv64_sub1_nat (by rw [hsz64]; exact hsz_pos),
                   hsz64, BitVec.toNat_ofNat,
                   Nat.mod_eq_of_lt (Nat.lt_trans (Nat.sub_lt hsz_pos (by decide)) hsz_lt32)]
               have hm_next := ‹(FullMem c _ ⋆ R) _›
@@ -750,44 +665,8 @@ theorem full_delete_binary_wp (Γ : Env) (hΓ : Γ.Sat Spec.specs)
                     · exact ⟨{ hlen2.core_ok with flags_len := hfl' }, hlen2.scratch_ok⟩
                     · exact ⟨hlay2.bounds, hlay2.pos_off, hlay2.disjoint, hlay2.no_sentinel⟩
                     · intro F_cur hmode
-                      have hm2_inv := hmode_fn2 F_cur (hmode_fn1 F_cur hmode)
-                      let k2 : FullCoreState := { s.core with
-                        flags := flags', wvec := wvec2, wstk := wstk2, wusable := wu2,
-                        num_binary := nb' }
-                      have h12_cv : k2.cur_vars = s2.core.cur_vars := rfl
-                      have h12_ar : k2.arena = s2.core.arena := rfl
-                      have h12_al : k2.arena_len = s2.core.arena_len := rfl
-                      have h12_ws : k2.wstk = s2.core.wstk := rfl
-                      have h12_wv : k2.wvec = s2.core.wvec := rfl
-                      have h12_off : ∀ l, fullWatchOffCore k2 l =
-                          fullWatchOffCore s2.core l := fun l => by
-                        unfold fullWatchOffCore; rw [h12_wv]
-                      have h12_sz : ∀ l, fullWatchSizeCore k2 l =
-                          fullWatchSizeCore s2.core l := fun l => by
-                        unfold fullWatchSizeCore; rw [h12_wv]
-                      have hdm_s2 : s2.core.dense_mode = s.core.dense_mode := rfl
-                      have hdm_k2 : k2.dense_mode = s.core.dense_mode := rfl
-                      change ModeWatchesInv F_cur s2.core at hm2_inv
-                      change ModeWatchesInv F_cur k2
-                      by_cases hdm : s.core.dense_mode = 0#64
-                      · rw [modeWatchesInv_eq_watches (hdm_s2.trans hdm)] at hm2_inv
-                        rw [modeWatchesInv_eq_watches (hdm_k2.trans hdm)]
-                        refine ⟨⟨hlay2.bounds, hlay2.pos_off, hlay2.disjoint, hlay2.no_sentinel⟩,
-                          fun l hl => ?_⟩
-                        rw [h12_off l, h12_sz l]
-                        exact @watchSliceOk_congr_core F_cur s2.core k2 l
-                          (fullWatchOffCore s2.core l) (fullWatchSizeCore s2.core l)
-                          h12_cv h12_ar h12_al (fun _ _ => by rw [h12_ws])
-                          (hm2_inv.slices l hl)
-                      · rw [modeWatchesInv_eq_dense (hdm_s2.symm ▸ hdm)] at hm2_inv
-                        rw [modeWatchesInv_eq_dense (hdm_k2.symm ▸ hdm)]
-                        refine ⟨⟨hlay2.bounds, hlay2.pos_off, hlay2.disjoint, hlay2.no_sentinel⟩,
-                          fun l hl => ?_⟩
-                        rw [h12_off l, h12_sz l]
-                        exact @denseWatchSliceOk_congr_core F_cur s2.core k2 l
-                          (fullWatchOffCore s2.core l) (fullWatchSizeCore s2.core l)
-                          h12_cv h12_ar h12_al (fun _ _ => by rw [h12_ws])
-                          (hm2_inv.slices l hl)
+                      exact (hmode_fn2 F_cur (hmode_fn1 F_cur hmode)).with_wstk rfl rfl rfl rfl rfl
+                        fun _ h => h
                   · intro J_ret hJ_ret
                     c0_hsplit <;> c0_hsteps
                     · have hm_new := ‹(FullMem c { s2 with core := { s2.core with
@@ -795,8 +674,7 @@ theorem full_delete_binary_wp (Γ : Env) (hΓ : Γ.Sat Spec.specs)
                       exact hJ_ret _ ⟨_, _, by rw [List.length_set, hfl1], hm_new⟩
                     · have hm_old := ‹(FullMem c { s2 with core := { s2.core with
                           flags := flags1.set _ _ } } ⋆ R) _›
-                      exact hJ_ret _ ⟨_, _, by rw [List.length_set, hfl1],
-                        fullMem_num_binary_refl hm_old⟩
+                      exact hJ_ret _ ⟨_, _, by rw [List.length_set, hfl1], hm_old⟩
                 · intro J_b hJ_b
                   c0_hsplit <;> c0_hsteps <;>
                     (have hm_new := ‹(FullMem c { s2 with core := { s2.core with

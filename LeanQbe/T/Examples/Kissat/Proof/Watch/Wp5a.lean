@@ -5,6 +5,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 module
 
 public import LeanQbe.T.Examples.Kissat.Proof.Watch.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Watch.Helpers
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Arena
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Arena1
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Tactics1
@@ -95,61 +96,44 @@ private theorem bitvec_toBytes_byte {w : Nat} (b : BitVec w) (k : Nat) (hk : 8 *
 theorem cell32_pair_eq_cell64 (a : BitVec 64) (x y : Val i32) :
     (cell a x ⋆ cell (a + 4) y) = cell64 a (pack64 x y) := by
   have hpxy := pack64_toNat x y
-  have hdiv_step : ∀ (z : Int) (m : Nat),
-      (z / (256 : Int) ^ m) / 256 = z / (256 : Int) ^ (m + 1) := by
-    intro z m
+  have hd (n : Nat) (z : Int) :
+      (z / (256 : Int) ^ n) / 256 = z / (256 : Int) ^ (n + 1) := by
     rw [Int.ediv_ediv]
-    have hnn : 0 ≤ (256 : Int) ^ m := Int.pow_nonneg (by decide)
-    have hnl : ¬ (256 : Int) ^ m < 0 := Int.not_lt.mpr hnn
-    simp [hnl, Int.pow_succ]
-  have hd2 : ∀ z : Int, z / 256 / 256 = z / (256 : Int) ^ 2 := fun z => by
-    have h := hdiv_step z 1; rwa [Int.pow_one] at h
-  have hd3 : ∀ z : Int, z / 256 / 256 / 256 = z / (256 : Int) ^ 3 := fun z => by
-    rw [hd2 z]; exact hdiv_step z 2
-  have hd4 : ∀ z : Int, z / 256 / 256 / 256 / 256 = z / (256 : Int) ^ 4 := fun z => by
-    rw [hd3 z]; exact hdiv_step z 3
-  have hd5 : ∀ z : Int, z / 256 / 256 / 256 / 256 / 256 = z / (256 : Int) ^ 5 := fun z => by
-    rw [hd4 z]; exact hdiv_step z 4
-  have hd6 : ∀ z : Int, z / 256 / 256 / 256 / 256 / 256 / 256 = z / (256 : Int) ^ 6 :=
-    fun z => by rw [hd5 z]; exact hdiv_step z 5
-  have hd7 : ∀ z : Int, z / 256 / 256 / 256 / 256 / 256 / 256 / 256 = z / (256 : Int) ^ 7 :=
-    fun z => by rw [hd6 z]; exact hdiv_step z 6
+    simp [Int.not_lt.mpr (Int.pow_nonneg (by decide : (0 : Int) ≤ 256)), Int.pow_succ]
+  have hd2 (z : Int) : z / 256 / 256 = z / (256 : Int) ^ 2 := by
+    simpa only [Int.pow_one] using hd 1 z
+  have hd3 (z : Int) : z / 256 / 256 / 256 = z / (256 : Int) ^ 3 := hd2 z ▸ hd 2 z
+  have hd4 (z : Int) : z / 256 / 256 / 256 / 256 = z / (256 : Int) ^ 4 := hd3 z ▸ hd 3 z
+  have hd5 (z : Int) : z / 256 / 256 / 256 / 256 / 256 = z / (256 : Int) ^ 5 := hd4 z ▸ hd 4 z
+  have hd6 (z : Int) : z / 256 / 256 / 256 / 256 / 256 / 256 = z / (256 : Int) ^ 6 :=
+    hd5 z ▸ hd 5 z
+  have hd7 (z : Int) : z / 256 / 256 / 256 / 256 / 256 / 256 / 256 = z / (256 : Int) ^ 7 :=
+    hd6 z ▸ hd 6 z
+  have hb32_0 (b : BitVec 32) : (b.toInt.take 8).toNat = b.toNat % 256 := by
+    simpa using bitvec_toBytes_byte b 0 (by decide)
+  have hb32_1 (b : BitVec 32) : ((b.toInt / 256).take 8).toNat = (b.toNat / 256) % 256 := by
+    simpa using bitvec_toBytes_byte b 1 (by decide)
+  have hb64_0 : ((pack64 x y).toInt.take 8).toNat = (x.toNat + 2 ^ 32 * y.toNat) % 256 := by
+    simpa [hpxy] using bitvec_toBytes_byte (pack64 x y) 0 (by decide)
+  have hb64_1 :
+      (((pack64 x y).toInt / 256).take 8).toNat = ((x.toNat + 2 ^ 32 * y.toNat) / 256) % 256 := by
+    simpa [hpxy] using bitvec_toBytes_byte (pack64 x y) 1 (by decide)
+  have hb64 (k : Nat) (hk : 8 * (k + 1) ≤ 64) :
+      (((pack64 x y).toInt / ((256 : Int) ^ k)).take 8).toNat =
+        ((x.toNat + 2 ^ 32 * y.toNat) / 256 ^ k) % 256 := by
+    simpa [hpxy] using bitvec_toBytes_byte (pack64 x y) k hk
   have hbytes : Int.toBytes 4 x.toInt ++ Int.toBytes 4 y.toInt =
       Int.toBytes 8 (pack64 x y).toInt := by
     simp only [Int.toBytes.eq_2, Int.toBytes.eq_1, List.cons_append, List.nil_append,
       List.cons.injEq, and_true]
-    rw [hd7 (pack64 x y).toInt, hd6 (pack64 x y).toInt, hd5 (pack64 x y).toInt,
-      hd4 (pack64 x y).toInt, hd3 (pack64 x y).toInt, hd2 (pack64 x y).toInt,
-      hd3 x.toInt, hd2 x.toInt, hd3 y.toInt, hd2 y.toInt]
-    have h0 := bitvec_toBytes_byte x 0 (by decide)
-    have h1 := bitvec_toBytes_byte x 1 (by decide)
-    have h2 := bitvec_toBytes_byte x 2 (by decide)
-    have h3 := bitvec_toBytes_byte x 3 (by decide)
-    have g0 := bitvec_toBytes_byte y 0 (by decide)
-    have g1 := bitvec_toBytes_byte y 1 (by decide)
-    have g2 := bitvec_toBytes_byte y 2 (by decide)
-    have g3 := bitvec_toBytes_byte y 3 (by decide)
-    have p0 := bitvec_toBytes_byte (pack64 x y) 0 (by decide)
-    have p1 := bitvec_toBytes_byte (pack64 x y) 1 (by decide)
-    have p2 := bitvec_toBytes_byte (pack64 x y) 2 (by decide)
-    have p3 := bitvec_toBytes_byte (pack64 x y) 3 (by decide)
-    have p4 := bitvec_toBytes_byte (pack64 x y) 4 (by decide)
-    have p5 := bitvec_toBytes_byte (pack64 x y) 5 (by decide)
-    have p6 := bitvec_toBytes_byte (pack64 x y) 6 (by decide)
-    have p7 := bitvec_toBytes_byte (pack64 x y) 7 (by decide)
-    rw [Int.pow_zero, Int.ediv_one, Nat.pow_zero, Nat.div_one] at h0 g0 p0
-    rw [Int.pow_one, Nat.pow_one] at h1 g1 p1
-    rw [hpxy] at p0 p1 p2 p3 p4 p5 p6 p7
+    rw [hd7, hd6, hd5, hd4, hd3, hd2, hd3, hd2, hd3, hd2]
     have hx := x.isLt; have hy := y.isLt
-    refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩ <;> apply congrArg Nat.toUInt8
-    · rw [h0, p0]; omega
-    · rw [h1, p1]; omega
-    · rw [h2, p2]; omega
-    · rw [h3, p3]; omega
-    · rw [g0, p4]; omega
-    · rw [g1, p5]; omega
-    · rw [g2, p6]; omega
-    · rw [g3, p7]; omega
+    refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩ <;> apply congrArg Nat.toUInt8 <;>
+      simp only [hb32_0, hb32_1, bitvec_toBytes_byte x 2 (by decide),
+        bitvec_toBytes_byte x 3 (by decide), bitvec_toBytes_byte y 2 (by decide),
+        bitvec_toBytes_byte y 3 (by decide), hb64_0, hb64_1, hb64 2 (by decide),
+        hb64 3 (by decide), hb64 4 (by decide), hb64 5 (by decide), hb64 6 (by decide),
+        hb64 7 (by decide)] <;> omega
   have heq1 : cell (t := i32) a x = Eq ((Int.toBytes 4 x.toInt).At a) := rfl
   have heq2 : cell (t := i32) (a + 4) y = Eq ((Int.toBytes 4 y.toInt).At (a + 4)) := rfl
   have heq3 : cell64 a (pack64 x y) = Eq ((Int.toBytes 8 (pack64 x y).toInt).At a) := rfl
@@ -282,22 +266,6 @@ namespace WatchMemTactics
   exact ⟨hok, ArrayField.unfocus .wstk hst⟩
 
 end WatchMemTactics
-
-theorem wvec_set_size_off_self {wvec : List (BitVec 32)} {lit : Nat}
-    (_h1 : 2 * lit + 1 < wvec.length) (sz' : BitVec 32) :
-    (wvec.set (2 * lit + 1) sz')[2 * lit]?.getD 0#32 = wvec[2 * lit]?.getD 0#32 := by
-  rw [List.getElem?_set_ne (by omega)]
-
-theorem wvec_set_size_sz_self {wvec : List (BitVec 32)} {lit : Nat}
-    (h1 : 2 * lit + 1 < wvec.length) (sz' : BitVec 32) :
-    (wvec.set (2 * lit + 1) sz')[2 * lit + 1]?.getD 0#32 = sz' := by
-  rw [List.getElem?_set_self h1, Option.getD_some]
-
-theorem wvec_set_size_other {wvec : List (BitVec 32)} {lit l : Nat}
-    (hne : l ≠ lit) (sz' : BitVec 32) :
-    (wvec.set (2 * lit + 1) sz')[2 * l]?.getD 0#32 = wvec[2 * l]?.getD 0#32 ∧
-    (wvec.set (2 * lit + 1) sz')[2 * l + 1]?.getD 0#32 = wvec[2 * l + 1]?.getD 0#32 := by
-  exact ⟨by rw [List.getElem?_set_ne (by omega)], by rw [List.getElem?_set_ne (by omega)]⟩
 
 theorem watchStackLayout_shrink {c : FullCfg} {k : FullCoreState} (hlay : WatchStackLayout k)
     (hlen : k.LengthsOk c) {lit cnt : Nat} (hlit : lit < 2 * k.cur_vars)
@@ -471,60 +439,48 @@ theorem watchSliceOk_erase {F : List (List Nat)} {k k' : FullCoreState} {lit p r
     (hsh : ∀ idx, q ≤ idx → idx < p + rem - d → k'.wstk[idx]? = k.wstk[idx + d]?) :
     WatchSliceOk F k' lit p (rem - d) := by
   induction hslice with
-  | empty =>
-    have := watchBoundary_le hbd
-    rcases hd_match with ⟨rfl, _⟩ | ⟨rfl, _⟩ <;> omega
+  | empty => have := watchBoundary_le hbd; rcases hd_match with ⟨rfl, _⟩ | ⟨rfl, _⟩ <;> omega
   | @bin p rem' w0 hw hbin hns hlt hent hrest ih =>
-    have hq_le : p ≤ q := (watchBoundary_le hbd).1
-    rcases Nat.eq_or_lt_of_le hq_le with rfl | hpq
-    · rcases hd_match with ⟨rfl, _⟩ | ⟨rfl, w', c', hw', _, hlg, _⟩
+    rcases Nat.eq_or_lt_of_le (watchBoundary_le hbd).1 with rfl | hpq
+    · rcases hd_match with ⟨rfl, _⟩ | ⟨rfl, w', _, hw', _, hlg, _⟩
       · simpa using fullWatchSlice_relocate (Std.Sat.CNF.entails_refl (cnfOfClauses F)) hcur hare
           (fun idx hidx => by
-            simpa [Nat.add_assoc, Nat.add_comm 1 idx] using
-              hsh (p + idx) (by omega) (by omega))
+            simpa [Nat.add_assoc, Nat.add_comm 1 idx] using hsh (p + idx) (by omega) (by omega))
           hrest
       · rw [hw] at hw'; cases hw'; exact absurd hlg hbin
     · have hbd' : WatchBoundary k.wstk (p + 1) rem' q := by
         cases hbd with
         | here => omega
-        | @bin _ _ _ _ hw' _ rest => exact rest
-        | @large _ _ _ _ _ hw0' _ hlg' _ _ =>
-          rw [hw] at hw0'; cases hw0'; contradiction
+        | bin _ _ rest => exact rest
+        | large hw0' _ _ _ _ => rw [hw] at hw0'; cases hw0'; contradiction
       have hbd_le := watchBoundary_le hbd'
-      have hw' : k'.wstk[p]? = some w0 := by rw [hpre p (Nat.le_refl p) hpq, hw]
-      have hrest' := ih hbd' (by omega)
-        (fun idx h1 h2 => hpre idx (by omega) h2)
-        (fun idx h1 h2 => hsh idx h1 (by omega))
       have hsub : rem' + 1 - d = (rem' - d) + 1 := by
         rcases hd_match with ⟨rfl, _⟩ | ⟨rfl, _⟩ <;> omega
       rw [hsub]
-      exact WatchSliceOk.bin hw' hbin hns (Nat.lt_of_lt_of_le hlt (by omega)) hent hrest'
+      exact WatchSliceOk.bin (by rw [hpre p (Nat.le_refl p) hpq, hw]) hbin hns
+        (Nat.lt_of_lt_of_le hlt (by omega)) hent (ih hbd' (by omega)
+          (fun idx h1 h2 => hpre idx (by omega) h2) (fun idx h1 h2 => hsh idx h1 (by omega)))
   | @large p rem' w0 cref hw0 hw1 hlg hlt haref hrest ih =>
-    have hq_le : p ≤ q := (watchBoundary_le hbd).1
-    rcases Nat.eq_or_lt_of_le hq_le with rfl | hpq
-    · rcases hd_match with ⟨rfl, w', hw', hbin'⟩ | ⟨rfl, _⟩
+    rcases Nat.eq_or_lt_of_le (watchBoundary_le hbd).1 with rfl | hpq
+    · rcases hd_match with ⟨rfl, w', hw', _⟩ | ⟨rfl, _⟩
       · rw [hw0] at hw'; cases hw'; contradiction
       · simpa using fullWatchSlice_relocate (Std.Sat.CNF.entails_refl (cnfOfClauses F)) hcur hare
           (fun idx hidx => by
-            simpa [Nat.add_assoc, Nat.add_comm 2 idx] using
-              hsh (p + idx) (by omega) (by omega))
+            simpa [Nat.add_assoc, Nat.add_comm 2 idx] using hsh (p + idx) (by omega) (by omega))
           hrest
     · have hbd' : WatchBoundary k.wstk (p + 2) rem' q := by
         cases hbd with
         | here => omega
-        | @bin _ _ _ _ hw' hbin' _ => rw [hw0] at hw'; cases hw'; contradiction
-        | @large _ _ _ _ _ _ _ _ _ rest => exact rest
+        | bin hw' _ _ => rw [hw0] at hw'; cases hw'; contradiction
+        | large _ _ _ _ rest => exact rest
       have hbd_le := watchBoundary_le hbd'
-      have hw0' : k'.wstk[p]? = some w0 := by rw [hpre p (Nat.le_refl p) (by omega), hw0]
-      have hw1' : k'.wstk[p + 1]? = some cref := by
-        rw [hpre (p + 1) (by omega) (by omega), hw1]
-      have hrest' := ih hbd' (by omega)
-        (fun idx h1 h2 => hpre idx (by omega) h2)
-        (fun idx h1 h2 => hsh idx h1 (by omega))
       have hsub : rem' + 2 - d = (rem' - d) + 2 := by
         rcases hd_match with ⟨rfl, _⟩ | ⟨rfl, _⟩ <;> omega
       rw [hsub]
-      exact WatchSliceOk.large hw0' hw1' hlg hlt (hare _ haref) hrest'
+      exact WatchSliceOk.large (by rw [hpre p (Nat.le_refl p) (by omega), hw0])
+        (by rw [hpre (p + 1) (by omega) (by omega), hw1]) hlg hlt (hare _ haref)
+        (ih hbd' (by omega) (fun idx h1 h2 => hpre idx (by omega) h2)
+          (fun idx h1 h2 => hsh idx h1 (by omega)))
 
 theorem denseWatchSliceOk_erase {F : List (List Nat)} {k k' : FullCoreState} {lit p rem q d : Nat}
     (hcur : k.cur_vars ≤ k'.cur_vars)
@@ -538,62 +494,218 @@ theorem denseWatchSliceOk_erase {F : List (List Nat)} {k k' : FullCoreState} {li
     (hsh : ∀ idx, q ≤ idx → idx < p + rem - d → k'.wstk[idx]? = k.wstk[idx + d]?) :
     DenseWatchSliceOk F k' lit p (rem - d) := by
   induction hslice with
-  | empty =>
-    have := watchBoundary_le hbd
-    rcases hd_match with ⟨rfl, _⟩ | ⟨rfl, _⟩ <;> omega
+  | empty => have := watchBoundary_le hbd; rcases hd_match with ⟨rfl, _⟩ | ⟨rfl, _⟩ <;> omega
   | @bin p rem' w0 hw hbin hns hlt hent hrest ih =>
-    have hq_le : p ≤ q := (watchBoundary_le hbd).1
-    rcases Nat.eq_or_lt_of_le hq_le with rfl | hpq
-    · rcases hd_match with ⟨rfl, _⟩ | ⟨rfl, w', c', hw', _, hlg, _⟩
+    rcases Nat.eq_or_lt_of_le (watchBoundary_le hbd).1 with rfl | hpq
+    · rcases hd_match with ⟨rfl, _⟩ | ⟨rfl, w', _, hw', _, hlg, _⟩
       · simpa using DenseWatchSliceOk.relocate (Std.Sat.CNF.entails_refl (cnfOfClauses F)) hcur
-          hare
-          (fun idx hidx => by
-            simpa [Nat.add_assoc, Nat.add_comm 1 idx] using
-              hsh (p + idx) (by omega) (by omega))
+          hare (fun idx hidx => by
+            simpa [Nat.add_assoc, Nat.add_comm 1 idx] using hsh (p + idx) (by omega) (by omega))
           hrest
       · rw [hw] at hw'; cases hw'; exact absurd hlg hbin
     · have hbd' : WatchBoundary k.wstk (p + 1) rem' q := by
         cases hbd with
         | here => omega
-        | @bin _ _ _ _ hw' _ rest => exact rest
-        | @large _ _ _ _ _ hw0' _ hlg' _ _ =>
-          rw [hw] at hw0'; cases hw0'; contradiction
+        | bin _ _ rest => exact rest
+        | large hw0' _ _ _ _ => rw [hw] at hw0'; cases hw0'; contradiction
       have hbd_le := watchBoundary_le hbd'
-      have hw' : k'.wstk[p]? = some w0 := by rw [hpre p (Nat.le_refl p) hpq, hw]
-      have hrest' := ih hbd' (by omega)
-        (fun idx h1 h2 => hpre idx (by omega) h2)
-        (fun idx h1 h2 => hsh idx h1 (by omega))
       have hsub : rem' + 1 - d = (rem' - d) + 1 := by
         rcases hd_match with ⟨rfl, _⟩ | ⟨rfl, _⟩ <;> omega
       rw [hsub]
-      exact DenseWatchSliceOk.bin hw' hbin hns (Nat.lt_of_lt_of_le hlt (by omega)) hent hrest'
+      exact DenseWatchSliceOk.bin (by rw [hpre p (Nat.le_refl p) hpq, hw]) hbin hns
+        (Nat.lt_of_lt_of_le hlt (by omega)) hent (ih hbd' (by omega)
+          (fun idx h1 h2 => hpre idx (by omega) h2) (fun idx h1 h2 => hsh idx h1 (by omega)))
   | @occ p rem' w0 cref hw0 hw1 hlg hge3 hlt haref hrest ih =>
-    have hq_le : p ≤ q := (watchBoundary_le hbd).1
-    rcases Nat.eq_or_lt_of_le hq_le with rfl | hpq
-    · rcases hd_match with ⟨rfl, w', hw', hbin'⟩ | ⟨rfl, _⟩
+    rcases Nat.eq_or_lt_of_le (watchBoundary_le hbd).1 with rfl | hpq
+    · rcases hd_match with ⟨rfl, w', hw', _⟩ | ⟨rfl, _⟩
       · rw [hw0] at hw'; cases hw'; contradiction
       · simpa using DenseWatchSliceOk.relocate (Std.Sat.CNF.entails_refl (cnfOfClauses F)) hcur
-          hare
-          (fun idx hidx => by
-            simpa [Nat.add_assoc, Nat.add_comm 2 idx] using
-              hsh (p + idx) (by omega) (by omega))
+          hare (fun idx hidx => by
+            simpa [Nat.add_assoc, Nat.add_comm 2 idx] using hsh (p + idx) (by omega) (by omega))
           hrest
     · have hbd' : WatchBoundary k.wstk (p + 2) rem' q := by
         cases hbd with
         | here => omega
-        | @bin _ _ _ _ hw' hbin' _ => rw [hw0] at hw'; cases hw'; contradiction
-        | @large _ _ _ _ _ _ _ _ _ rest => exact rest
+        | bin hw' _ _ => rw [hw0] at hw'; cases hw'; contradiction
+        | large _ _ _ _ rest => exact rest
       have hbd_le := watchBoundary_le hbd'
-      have hw0' : k'.wstk[p]? = some w0 := by rw [hpre p (Nat.le_refl p) (by omega), hw0]
-      have hw1' : k'.wstk[p + 1]? = some cref := by
-        rw [hpre (p + 1) (by omega) (by omega), hw1]
-      have hrest' := ih hbd' (by omega)
-        (fun idx h1 h2 => hpre idx (by omega) h2)
-        (fun idx h1 h2 => hsh idx h1 (by omega))
       have hsub : rem' + 2 - d = (rem' - d) + 2 := by
         rcases hd_match with ⟨rfl, _⟩ | ⟨rfl, _⟩ <;> omega
       rw [hsub]
-      exact DenseWatchSliceOk.occ hw0' hw1' hlg hge3 hlt (hare _ haref) hrest'
+      exact DenseWatchSliceOk.occ (by rw [hpre p (Nat.le_refl p) (by omega), hw0])
+        (by rw [hpre (p + 1) (by omega) (by omega), hw1]) hlg hge3 hlt (hare _ haref)
+        (ih hbd' (by omega) (fun idx h1 h2 => hpre idx (by omega) h2)
+          (fun idx h1 h2 => hsh idx h1 (by omega)))
+
+theorem bv32_ushr31_of_bin {w0 : BitVec 32} (hb : w0 &&& 0x80000000#32 ≠ 0#32) :
+    w0 >>> 31 = 1#32 := by
+  have hlt := w0.isLt
+  have hge : 0x80000000 ≤ w0.toNat := by
+    refine Classical.byContradiction fun hlt' => hb ?_
+    apply BitVec.eq_of_toNat_eq; apply Nat.eq_of_testBit_eq; intro k
+    rw [BitVec.toNat_and, Nat.testBit_and, show (0x80000000#32).toNat = 2 ^ 31 from rfl,
+      show (0#32 : BitVec 32).toNat = 0 from rfl, Nat.zero_testBit]
+    by_cases hk : k = 31
+    · subst hk
+      rw [Nat.testBit_eq_decide_div_mod_eq]
+      simp [show w0.toNat / 2 ^ 31 = 0 by omega]
+    · rw [Nat.testBit_two_pow, decide_eq_false (Ne.symm hk)]; simp
+  apply BitVec.eq_of_toNat_eq
+  rw [BitVec.toNat_ushiftRight, Nat.shiftRight_eq_div_pow,
+    show (1#32 : BitVec 32).toNat = 1 from rfl]
+  omega
+
+theorem bv32_ushr31_of_lt {w0 : BitVec 32} (hlt : w0.toNat < 2147483648) :
+    w0 >>> 31 = 0#32 := by
+  apply BitVec.eq_of_toNat_eq
+  rw [BitVec.toNat_ushiftRight, Nat.shiftRight_eq_div_pow,
+    show (0#32 : BitVec 32).toNat = 0 from rfl]
+  omega
+
+theorem bv64_ofNat_add_const (x k : Nat) (hx : x + k < 2 ^ 64) :
+    BitVec.ofNat 64 x + BitVec.ofNat 64 k = BitVec.ofNat 64 (x + k) := by
+  apply BitVec.eq_of_toNat_eq
+  simp only [BitVec.toNat_add, BitVec.toNat_ofNat,
+    Nat.mod_eq_of_lt (by omega : x < 2 ^ 64), Nat.mod_eq_of_lt (by omega : k < 2 ^ 64),
+    Nat.mod_eq_of_lt hx]
+
+theorem pop_tail_fin {c : FullCfg} {s : FullState} {lit cnt : Val i32}
+    {wstk' : List (BitVec 32)} {R : Mem 64 → Prop} {m : Mem 64} {Q : Post []}
+    (hlen : s.LengthsOk c) (hlay : WatchStackLayout s.core)
+    (hlit : lit.toNat < 2 * s.core.cur_vars)
+    (hcnt_le : cnt.toNat ≤ fullWatchSize s lit.toNat)
+    (hwlen' : wstk'.length = s.core.wstk.length)
+    (hpre : ∀ idx,
+      idx < fullWatchOffCore s.core lit.toNat + (fullWatchSizeCore s.core lit.toNat - cnt.toNat) →
+      wstk'[idx]? = s.core.wstk[idx]?)
+    (hpost : ∀ idx, fullWatchOffCore s.core lit.toNat + fullWatchSizeCore s.core lit.toNat ≤ idx →
+      idx < s.core.wstk.length → wstk'[idx]? = s.core.wstk[idx]?)
+    (hwv1 : 2 * lit.toNat + 1 < s.core.wvec.length)
+    (hsz_lt : fullWatchSizeCore s.core lit.toNat - cnt.toNat < 2 ^ 32)
+    (hm : (FullMem c { s with core := { s.core with
+      wvec := s.core.wvec.set (2 * lit.toNat + 1)
+        (BitVec.ofNat 32 (fullWatchSizeCore s.core lit.toNat - cnt.toNat))
+      wstk := wstk', wusable := s.core.wusable + BitVec.zeroExtend 64 cnt } } ⋆ R) m)
+    (hQ : ∀ (wvec' wstk' : List (BitVec 32)) (wusable' : BitVec 64) (m' : Mem 64),
+      let s' : FullState :=
+        { s with core := { s.core with wvec := wvec', wstk := wstk', wusable := wusable' } }
+      s'.LengthsOk c → WatchStackLayout s'.core →
+      (∀ l < 2 * s.core.cur_vars, l ≠ lit.toNat →
+        fullWatchOff s' l = fullWatchOff s l ∧ fullWatchSize s' l = fullWatchSize s l ∧
+        ∀ idx < fullWatchSize s l,
+          s'.core.wstk[fullWatchOff s' l + idx]? = s.core.wstk[fullWatchOff s l + idx]?) →
+      fullWatchOff s' lit.toNat = fullWatchOff s lit.toNat →
+      fullWatchSize s' lit.toNat = fullWatchSize s lit.toNat - cnt.toNat →
+      (∀ idx < fullWatchSize s lit.toNat - cnt.toNat,
+        s'.core.wstk[fullWatchOff s' lit.toNat + idx]? =
+          s.core.wstk[fullWatchOff s lit.toNat + idx]?) →
+      (FullMem c s' ⋆ R) m' → Q () m') : Q () m := by
+  let off := fullWatchOffCore s.core lit.toNat
+  let sz := fullWatchSizeCore s.core lit.toNat
+  have hother : ∀ l < 2 * s.core.cur_vars, l ≠ lit.toNat → ∀ idx < fullWatchSizeCore s.core l,
+      wstk'[fullWatchOffCore s.core l + idx]? = s.core.wstk[fullWatchOffCore s.core l + idx]? := by
+    intro l hl hne idx hidx
+    by_cases hsz0 : sz = 0
+    · have hbd_l := hlay.bounds l hl
+      have hwl_le := hlen.core_ok.wlen_le
+      have hws_len := hlen.core_ok.wstk_len_arr
+      by_cases hlt_off : fullWatchOffCore s.core l + idx < off + (sz - cnt.toNat)
+      · exact hpre _ hlt_off
+      · exact hpost _ (by omega) (by omega)
+    · rcases hlay.disjoint l lit.toNat hl hlit hne
+          (Nat.lt_of_le_of_lt (Nat.zero_le _) hidx) (by omega) with hle_l | hle_r
+      · exact hpre _ (by omega)
+      · have hbd_l := hlay.bounds l hl
+        have hwl_le := hlen.core_ok.wlen_le
+        have hws_len := hlen.core_ok.wstk_len_arr
+        exact hpost _ (by omega) (by omega)
+  have hnosent : ∀ idx < sz - cnt.toNat, wstk'[off + idx]? ≠ some 0xFFFFFFFF#32 :=
+    fun idx hidx => by
+      rw [hpre (off + idx) (by omega)]; exact hlay.no_sentinel lit.toNat hlit idx (by omega)
+  let wvec' := s.core.wvec.set (2 * lit.toNat + 1) (BitVec.ofNat 32 (sz - cnt.toNat))
+  let k' : FullCoreState := { s.core with
+    wvec := wvec', wstk := wstk', wusable := s.core.wusable + BitVec.zeroExtend 64 cnt }
+  have hlay' := watchStackLayout_shrink hlay hlen.core_ok hlit hcnt_le hother hnosent
+    (wlen' := s.core.wlen) (wusable' := s.core.wusable + BitVec.zeroExtend 64 cnt)
+    (nb' := s.core.num_binary) (Nat.le_refl _)
+  have hlen_core' : k'.LengthsOk c :=
+    { hlen.core_ok with wvec_len := by rw [List.length_set, hlen.core_ok.wvec_len]
+                        wstk_len_arr := by rw [hwlen', hlen.core_ok.wstk_len_arr] }
+  have hoff_lit : fullWatchOffCore k' lit.toNat = off :=
+    congrArg BitVec.toNat (wvec_set_size_off_self hwv1 _)
+  have hsz_lit : fullWatchSizeCore k' lit.toNat = sz - cnt.toNat := by
+    dsimp only [fullWatchSizeCore, k', wvec']
+    rw [wvec_set_size_sz_self hwv1, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hsz_lt]
+  refine hQ wvec' wstk' (s.core.wusable + BitVec.zeroExtend 64 cnt) m
+    ⟨hlen_core', hlen.scratch_ok⟩ hlay' (fun l hl hne => ?_) hoff_lit hsz_lit
+    (fun idx hidx => by
+      change idx < sz - cnt.toNat at hidx
+      change wstk'[fullWatchOffCore k' lit.toNat + idx]? = _
+      rw [hoff_lit]; exact hpre (off + idx) (by omega)) hm
+  have hw' := wvec_set_size_other (wvec := s.core.wvec) hne (BitVec.ofNat 32 (sz - cnt.toNat))
+  have hoff_eq : fullWatchOff { s with core := k' } l = fullWatchOff s l :=
+    congrArg BitVec.toNat hw'.1
+  have hsz_eq : fullWatchSize { s with core := k' } l = fullWatchSize s l :=
+    congrArg BitVec.toNat hw'.2
+  exact ⟨hoff_eq, hsz_eq, fun idx hidx => by rw [hoff_eq]; exact hother l hl hne idx hidx⟩
+
+theorem unwatch_tail_bv {c : FullCfg} {k : FullCoreState} (hlen : k.LengthsOk c) {lit : Val i32}
+    (hlit : lit.toNat < 2 * k.cur_vars)
+    (hbounds : fullWatchOffCore k lit.toNat + fullWatchSizeCore k lit.toNat ≤ k.wlen)
+    (hsz2 : 2 ≤ fullWatchSizeCore k lit.toNat) {wstk_len : Nat}
+    (hwl : fullWatchOffCore k lit.toNat + fullWatchSizeCore k lit.toNat ≤ wstk_len) :
+    let off := fullWatchOffCore k lit.toNat
+    let sz := fullWatchSizeCore k lit.toNat
+    let h0 : (BitVec.setWidth 64 lit <<< 1).toNat < k.wvec.length := (wvec_shl1_lt hlen hlit).2.2.1
+    let h1 : (BitVec.setWidth 64 lit <<< 1 + 1).toNat < k.wvec.length :=
+      (wvec_shl1_lt hlen hlit).2.2.2.1
+    (BitVec.setWidth 64 (k.wvec[(BitVec.setWidth 64 lit <<< 1).toNat]'h0) +
+      BitVec.setWidth 64 (k.wvec[(BitVec.setWidth 64 lit <<< 1 + 1).toNat]'h1) - 2).toNat =
+      off + sz - 2 ∧
+    (BitVec.setWidth 64 (k.wvec[(BitVec.setWidth 64 lit <<< 1).toNat]'h0) +
+      BitVec.setWidth 64 (k.wvec[(BitVec.setWidth 64 lit <<< 1 + 1).toNat]'h1) - 1).toNat =
+      off + sz - 1 ∧
+    BitVec.setWidth 32
+      (BitVec.setWidth 64 (k.wvec[(BitVec.setWidth 64 lit <<< 1 + 1).toNat]'h1) - 2) =
+      BitVec.ofNat 32 (sz - 2) ∧
+    (BitVec.setWidth 64 (k.wvec[(BitVec.setWidth 64 lit <<< 1).toNat]'h0) +
+      BitVec.setWidth 64 (k.wvec[(BitVec.setWidth 64 lit <<< 1 + 1).toNat]'h1) - 2).toNat <
+      wstk_len ∧
+    (BitVec.setWidth 64 (k.wvec[(BitVec.setWidth 64 lit <<< 1).toNat]'h0) +
+      BitVec.setWidth 64 (k.wvec[(BitVec.setWidth 64 lit <<< 1 + 1).toNat]'h1) - 1).toNat <
+      wstk_len := by
+  intro off sz h0 h1
+  have hlt := wvec_shl1_lt hlen hlit
+  have hwv0 := hlt.1; have hwv1 := hlt.2.1
+  have hwl_le := hlen.wlen_le; have hwc := c.hwcap; unfold dimacsBound at hwc
+  have hend := wvec_end_add_eq hlen hlit h0 h1
+  have hg1 : k.wvec[(BitVec.setWidth 64 lit <<< 1 + 1).toNat]'h1 = k.wvec[2 * lit.toNat + 1]'hwv1 :=
+    list_getElem_congr h1 (bv64_shl1_add1_lit lit)
+  have hsz_lt : sz < 2 ^ 32 := (k.wvec[2 * lit.toNat + 1]?.getD 0#32).isLt
+  have h64 : off + sz < 2 ^ 64 := by omega
+  have hm2 : (BitVec.setWidth 64 (k.wvec[(BitVec.setWidth 64 lit <<< 1).toNat]'h0) +
+      BitVec.setWidth 64 (k.wvec[(BitVec.setWidth 64 lit <<< 1 + 1).toNat]'h1) - 2).toNat =
+      off + sz - 2 := by
+    rw [BitVec.toNat_sub, hend, show (2 : BitVec 64).toNat = 2 from rfl]
+    dsimp only [off, sz] at *; simp only [Nat.reducePow] at *; omega
+  have hm1 : (BitVec.setWidth 64 (k.wvec[(BitVec.setWidth 64 lit <<< 1).toNat]'h0) +
+      BitVec.setWidth 64 (k.wvec[(BitVec.setWidth 64 lit <<< 1 + 1).toNat]'h1) - 1).toNat =
+      off + sz - 1 := by
+    rw [BitVec.toNat_sub, hend, show (1 : BitVec 64).toNat = 1 from rfl]
+    dsimp only [off, sz] at *; simp only [Nat.reducePow] at *; omega
+  have hw1_val : BitVec.setWidth 32
+      (BitVec.setWidth 64 (k.wvec[(BitVec.setWidth 64 lit <<< 1 + 1).toNat]'h1) - 2) =
+      BitVec.ofNat 32 (sz - 2) := by
+    rw [hg1]; apply BitVec.eq_of_toNat_eq
+    have hlt_v0 := (k.wvec[2 * lit.toNat + 1]'hwv1).isLt
+    have hge2 : 2 ≤ (k.wvec[2 * lit.toNat + 1]'hwv1).toNat := by
+      simpa [sz, fullWatchSizeCore, List.getElem?_eq_getElem hwv1, Option.getD_some] using hsz2
+    simp only [sz, fullWatchSizeCore, List.getElem?_eq_getElem hwv1, Option.getD_some,
+      BitVec.toNat_setWidth, BitVec.toNat_sub, BitVec.toNat_ofNat, Nat.reducePow,
+      show (2 : BitVec 64).toNat = 2 from rfl]
+    rw [Nat.mod_eq_of_lt (by omega : (k.wvec[2 * lit.toNat + 1]'hwv1).toNat < 18446744073709551616)]
+    omega
+  exact ⟨hm2, hm1, hw1_val, by rw [hm2]; omega, by rw [hm1]; omega⟩
 
 end
 

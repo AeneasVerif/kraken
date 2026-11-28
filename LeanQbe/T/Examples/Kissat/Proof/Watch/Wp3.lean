@@ -5,8 +5,8 @@ Released under Apache 2.0 license as described in the file LICENSE.
 module
 
 public import LeanQbe.T.Examples.Kissat.Proof.Watch.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Watch.Helpers
 public import LeanQbe.T.Examples.Kissat.Proof.Watch.Wp3a
-public import LeanQbe.T.Examples.Kissat.Proof.Watch.Wp3b
 public import LeanQbe.T.Examples.Kissat.Src.Watch
 
 import LeanQbe.T.Examples.Kissat.Proof.Spec.Arena
@@ -15,11 +15,12 @@ import LeanQbe.T.Examples.Kissat.Proof.Spec.Tactics
 import LeanQbe.T.Examples.Kissat.Proof.Spec.Tactics1
 import LeanQbe.T.Examples.Kissat.Proof.Spec.MemBridges
 import LeanQbe.T.Logic.C0HeadStep
+import LeanQbe.T.Logic.C0Grind
 
 /-! # Watch WP Proofs Part 3: `full_watch_push_slow_m6_wp`
 
 Proves `Func.wp Γ full_watch_push_slow_m6_body fullWatchPushSpec` cleanly on flat
-`Src.Watch` using `CanonicalEnv` (`Γ.Sat Spec.specs`) and `Proof.Watch.Wp3{a,b}` helpers. -/
+`Src.Watch` using `CanonicalEnv` (`Γ.Sat Spec.specs`) and `Proof.Watch.Wp3a` helpers. -/
 
 set_option autoImplicit false
 
@@ -27,6 +28,7 @@ namespace LeanQbe.T.Examples.Kissat.Proof.Watch
 
 open Std.ExtHashMap
 open LeanQbe.T
+open LeanQbe.T.C0Grind
 open LeanQbe.T.ProofUtil
 open LeanQbe.T.Examples.Kissat
 open LeanQbe.T.Examples.Kissat.Ref
@@ -34,6 +36,30 @@ open LeanQbe.T.Examples.Kissat.Src.Watch
 open LeanQbe.T.Examples.Kissat.Proof.Spec
 open Kraken.Bedrock2.Test
 open scoped FullArenaTactics
+
+local macro "solve_wpush_append " hstk_len:term " ; "
+    hpre2:tactic " ; " hrw2:tactic " ; " hrw1:tactic : tactic =>
+  let cnt := Lean.mkIdent `cnt
+  let hc := Lean.mkIdent `hc
+  let hc12 := Lean.mkIdent `hc12
+  let c := Lean.mkIdent `c
+  let R := Lean.mkIdent `R
+  let hrm := Lean.mkIdent `hrm
+  `(tactic| (
+    intro Jx hJx; c0_hstraight; c0_hsplit
+    · have hc2 : ($cnt).toNat = 2 := bv32_eq_nat 2 (by decide) $hc
+      clear $hc; $hpre2
+      have $hrm := ‹(FullMem $c _ ⋆ $R) _›; try dsimp only at $hrm:ident
+      $hrw2
+      exact hJx () _ (wpush_append_set2 $hstk_len (by omega) hc2 $hrm)
+    · have hc1 : ($cnt).toNat = 1 := by
+        rcases $hc12:term with h1 | h2
+        · exact h1
+        · exact absurd (BitVec.eq_of_toNat_eq (by simp [h2])) $hc
+      clear $hc
+      have $hrm := ‹(FullMem $c _ ⋆ $R) _›; try dsimp only at $hrm:ident
+      $hrw1
+      exact hJx () _ (wpush_append_set1 $hstk_len (by omega) hc1 $hrm)))
 
 public section
 
@@ -47,10 +73,13 @@ theorem full_watch_push_slow_m6_wp (Γ : Env) (hΓ : Γ.Sat Spec.specs) :
   have hwlen32 : s.core.wlen < 2 ^ 32 := Nat.lt_of_le_of_lt hlen.core_ok.wlen_le hwcap32
   c0_hstraight; c0_hsplit
   · c0_hstraight
+    have hge : 2 * s.core.cur_vars ≤ lit.toNat := by
+      simpa [Nat.mod_eq_of_lt (by omega : 2 * s.core.cur_vars < 2 ^ 64)] using hc
     exact wpush_fail_post hQ s.core.wvec s.core.wstk s.scratch.wsort s.core.wlen s.core.wusable
-      hlen hlay (watchPresAll_refl s) (Or.inl (by bv_omega)) hm
+      hlen hlay (watchPresAll_refl s) (Or.inl hge) hm
   · c0_hstraight
-    have hlit : lit.toNat < 2 * s.core.cur_vars := by bv_omega
+    have hlit : lit.toNat < 2 * s.core.cur_vars := by
+      simpa [Nat.mod_eq_of_lt (by omega : 2 * s.core.cur_vars < 2 ^ 64)] using hc
     apply wp_join_group (fun _ m0 => m0 = m ∧ (cnt.toNat = 1 ∨ cnt.toNat = 2))
     rotate_left 1
     · intro J hJ; c0_hstraight; c0_hsplit
@@ -58,9 +87,9 @@ theorem full_watch_push_slow_m6_wp (Γ : Env) (hΓ : Γ.Sat Spec.specs) :
         · c0_hstraight
           exact wpush_fail_post hQ s.core.wvec s.core.wstk s.scratch.wsort s.core.wlen
             s.core.wusable hlen hlay (watchPresAll_refl s)
-            (Or.inr (Or.inl ⟨by bv_omega, by bv_omega⟩)) hm
-        · c0_hstraight; exact hJ () m ⟨rfl, Or.inr (by bv_omega)⟩
-      · c0_hstraight; exact hJ () m ⟨rfl, Or.inl (by bv_omega)⟩
+            (Or.inr (Or.inl ⟨bv32_ne_nat 1 (by decide) ‹_›, bv32_ne_nat 2 (by decide) ‹_›⟩)) hm
+        · c0_hstraight; exact hJ () m ⟨rfl, Or.inr (bv32_eq_nat 2 (by decide) ‹_›)⟩
+      · c0_hstraight; exact hJ () m ⟨rfl, Or.inl (bv32_eq_nat 1 (by decide) ‹_›)⟩
     · rintro J ⟨⟩ m0 ⟨rfl, hc12⟩
       c0_hstraight
       apply wp_join_group (fun _ m1 => ∃ s1 : FullState, WPushInvState c s R s1 m1)
@@ -70,8 +99,12 @@ theorem full_watch_push_slow_m6_wp (Γ : Env) (hΓ : Γ.Sat Spec.specs) :
           · c0_hstraight
             exact wpush_fail_post hQ s.core.wvec s.core.wstk s.scratch.wsort s.core.wlen
               s.core.wusable hlen hlay (watchPresAll_refl s) (Or.inr (Or.inr (Or.inl rfl))) hm
-          · have hw0_eq : s.core.wlen = 0 := by bv_omega
-            have hcap1 : 1 ≤ c.wcap := by bv_omega
+          · have hw0_eq : s.core.wlen = 0 := by
+              have hto := congrArg BitVec.toNat ‹BitVec.ofNat 64 s.core.wlen = 0#64›
+              simpa [Nat.mod_eq_of_lt (by omega : s.core.wlen < 2 ^ 64)] using hto
+            have hcap1 : 1 ≤ c.wcap := by
+              have hcl : c.wcap < 2 ^ 64 := by omega
+              rw [Nat.mod_eq_of_lt hcl, show (1 : BitVec 64).toNat = 1 from rfl] at hc; omega
             have hws_pos : 0 < s.core.wstk.length := by rw [hlen.core_ok.wstk_len_arr]; omega
             c0_hstraight
             obtain ⟨hlen1, hlay1, hpres1⟩ := wpush_init_wlen0 hlen hlay hw0_eq hcap1
@@ -79,7 +112,10 @@ theorem full_watch_push_slow_m6_wp (Γ : Env) (hΓ : Γ.Sat Spec.specs) :
               ⟨s.core.wvec, s.core.wstk.set 0 0#32, s.scratch.wsort, 1, s.core.wusable, rfl⟩,
               ?_⟩⟩
             simpa [BitVec.toNat_ofNat] using ‹(FullMem c _ ⋆ R) _›
-        · c0_hstraight; exact hJ1 (false, ()) _ ⟨s, wpush_inv_state_self hlen hlay (by bv_omega) hm⟩
+        · have hwlen_pos : 1 ≤ s.core.wlen := by
+            have hne : s.core.wlen ≠ 0 := fun h => hc (BitVec.eq_of_toNat_eq (by simp [h]))
+            omega
+          c0_hstraight; exact hJ1 (false, ()) _ ⟨s, wpush_inv_state_self hlen hlay hwlen_pos hm⟩
       · rintro J1 ⟨b_init, ⟨⟩⟩ m1 ⟨s1, hinv1⟩
         have hinv1_keep := hinv1
         obtain ⟨hlen1, hlay1, _, _, _, hm1⟩ := hinv1
@@ -97,11 +133,8 @@ theorem full_watch_push_slow_m6_wp (Γ : Env) (hΓ : Γ.Sat Spec.specs) :
           · rintro J3 ⟨⟩ m1' rfl; c0_hstraight; c0_hsplit
             · c0_hstraight
               c0_hcall (Spec.has_full_wstack_defrag_m6 hΓ)
-              · refine ⟨c, s1, R, rfl, hlen1, hlay1, hm1, fun wv' ws' wl' wso' m' => ?_⟩
-                intro _ hlen' hlay' hw1' hpres' hm'
-                c0_hstraight
-                exact hJ2 (true, ()) m' ⟨_, wpush_inv_state_defrag hinv1_keep hlen' hlay' hw1'
-                  hpres' hm'⟩
+              exact wpush_defrag_call hinv1_keep fun wv' ws' wl' wso' m' hinv' => by
+                c0_hstraight; exact hJ2 (true, ()) m' ⟨_, hinv'⟩
             · c0_hstraight; exact hJ2 (b_init, ()) m1' ⟨s1, hinv1_keep⟩
         · rintro J2 ⟨b_def, ⟨⟩⟩ m2 ⟨s2, hinv2⟩
           have hinv2_keep := hinv2
@@ -109,16 +142,15 @@ theorem full_watch_push_slow_m6_wp (Γ : Env) (hΓ : Γ.Sat Spec.specs) :
           obtain ⟨hlen2, hlay2, hpres2, hwlen2, ⟨wv2, ws2, wso2, wl2, wu2, hs2_eq⟩, hm2⟩ := hinv2
           have hlit2 : lit.toNat < 2 * s2.core.cur_vars := hcv2 ▸ hlit
           obtain ⟨hwv_lt0, hwv_lt1, hwv_lt0_bv, hwv_lt1_bv, hj0, hj1, hm0_, hm1_⟩ :=
-            wpush_wvec_lt hlen2 hlit2
+            wvec_shl1_lt hlen2.core_ok hlit2
           c0_hstraight
           apply wp_join_group (fun _ m3 => m3 = m2 ∧ 0 < wOff s2.core.wvec lit.toNat)
           rotate_left 1
-          · intro JA hJA; c0_hstraight
-            c0_hsplit
+          · intro JA hJA; c0_hstraight; c0_hsplit
             · c0_hstraight; c0_hsplit
               · c0_hstraight
                 have hsz2_0 : wSz s2.core.wvec lit.toNat = 0 :=
-                  wpush_list_zext64_eq_zero hwv_lt1 hj1 hm1_ ‹_›
+                  list_zext64_eq_zero hwv_lt1 hj1 hm1_ ‹_›
                 apply wp_join_group (fun _ m3 => ∃ s3 : FullState, WPushInvState c s R s3 m3 ∧
                   wSz s3.core.wvec lit.toNat = 0 ∧
                   (c.wcap - s3.core.wlen < cnt.toNat → s3.core.wusable = 0#64))
@@ -127,67 +159,63 @@ theorem full_watch_push_slow_m6_wp (Γ : Env) (hΓ : Γ.Sat Spec.specs) :
                   · c0_hstraight; c0_hsplit
                     · c0_hstraight
                       c0_hcall (Spec.has_full_wstack_defrag_m6 hΓ)
-                      · refine ⟨c, s2, R, rfl, hlen2, hlay2, hm2, fun wv' ws' wl' wso' m' => ?_⟩
-                        intro _ hlen' hlay' hw1' hpres' hm'
+                      exact wpush_defrag_call hinv2_keep fun wv' ws' wl' wso' m' hinv3 => by
                         c0_hstraight
-                        have hinv3 := wpush_inv_state_defrag hinv2_keep hlen' hlay' hw1' hpres' hm'
                         have hsz3 : wSz wv' lit.toNat = 0 := by
-                          have hpe := (hpres' lit.toNat hlit2).1
-                          change wSz wv' lit.toNat = wSz s2.core.wvec lit.toNat at hpe; omega
+                          have hpe := (hinv3.2.2.1.2 lit.toNat hlit).1
+                          have hpe2 := (hpres2.2 lit.toNat hlit).1
+                          change wSz wv' lit.toNat = fullWatchSize s lit.toNat at hpe
+                          change wSz s2.core.wvec lit.toNat = fullWatchSize s lit.toNat at hpe2
+                          omega
                         exact hJA1 () m' ⟨_, hinv3, hsz3, fun _ => rfl⟩
                     · c0_hstraight
                       exact hJA1 () m2 ⟨s2, hinv2_keep, hsz2_0,
-                        fun _ => wpush_bv64_eq_zero_of_not_pos (by bv_omega)⟩
-                  · c0_hstraight; have hwle2 := hlen2.core_ok.wlen_le
-                    exact hJA1 () m2 ⟨s2, hinv2_keep, hsz2_0, fun hgt => by exfalso; bv_omega⟩
+                        fun _ => bv64_eq_zero_of_not_pos_nat (by simpa using hc)⟩
+                  · c0_hstraight
+                    exact hJA1 () m2 ⟨s2, hinv2_keep, hsz2_0, fun hgt => by
+                      have hfit := wpush_fit_of_cmp hlen2.core_ok.wlen_le hc
+                      omega⟩
                 · rintro JA1 ⟨⟩ m3 ⟨s3, hinv3, hsz3, hwu3⟩
                   have ⟨hcv3, hwl3_32, _⟩ := wpush_inv_core_eq hinv3
                   obtain ⟨hlen3, hlay3, hpres3, hwlen3, ⟨wv3, ws3, wso3, wl3, wu3, hs3_eq⟩,
                     hm3⟩ := hinv3
                   have hwle3 := hlen3.core_ok.wlen_le
                   c0_hstraight; c0_hsplit
-                  · c0_hstraight; have hwu0 := hwu3 (by bv_omega); subst hs3_eq
+                  · c0_hstraight
+                    have hlt_w := wpush_fit_lt_of_cmp hwle3 hc
+                    have hwu0 := hwu3 hlt_w; subst hs3_eq
                     exact wpush_fail_post hQ wv3 ws3 wso3 wl3 wu3 hlen3 hlay3 hpres3
                       (Or.inr (Or.inr (Or.inr hwu0))) hm3
-                  · have hfit3 : s3.core.wlen + cnt.toNat ≤ c.wcap := by bv_omega
+                  · have hfit3 := wpush_fit_of_cmp hwle3 hc
                     have hwstk_lt0 : s3.core.wlen < s3.core.wstk.length := by
                       rw [hlen3.core_ok.wstk_len_arr]; omega
                     c0_hstraight
                     apply wp_join_group (fun _ m4 => ∃ wstk4 : List (BitVec 32),
                         WPushAppendInv c s3 R s3.core.wlen w0 w1 cnt s3.core.wstk wstk4 m4)
                     rotate_left 1
-                    · intro J4 hJ4; c0_hstraight; c0_hsplit
-                      · have hc2 : cnt.toNat = 2 := by bv_omega
-                        have hwstk_lt1 : s3.core.wlen + 1 <
+                    · solve_wpush_append hlen3.core_ok.wstk_len_arr ;
+                        (have hwstk_lt1 : s3.core.wlen + 1 <
                             (s3.core.wstk.set s3.core.wlen w0).length := by
                           simp [hlen3.core_ok.wstk_len_arr]; omega
-                        c0_hstraight
-                        obtain ⟨hof_wl, hof_wl1⟩ :=
-                          wpush_caseA_wlen_bv (by omega : s3.core.wlen < c.wcap)
-                        have hm_new := ‹(FullMem c _ ⋆ R) _›; dsimp only at hm_new
-                        simp only [hof_wl, hof_wl1] at hm_new
-                        exact hJ4 () _ (wpush_append_set2 hlen3.core_ok.wstk_len_arr (by omega) hc2
-                          hm_new)
-                      · have hcnt1 : cnt.toNat = 1 := by
-                          rcases hc12 with h2 | h2; exact h2; exfalso; bv_omega
-                        obtain ⟨hof_wl, _⟩ :=
-                          wpush_caseA_wlen_bv (by omega : s3.core.wlen < c.wcap)
-                        have hm_new := ‹(FullMem c _ ⋆ R) _›; dsimp only at hm_new
-                        simp only [hof_wl] at hm_new
-                        exact hJ4 () _ (wpush_append_set1 hlen3.core_ok.wstk_len_arr (by omega)
-                          hcnt1 hm_new)
+                         c0_hstraight) ;
+                        (obtain ⟨hof_wl, hof_wl1⟩ :=
+                           wpush_caseA_wlen_bv (by omega : s3.core.wlen < c.wcap)
+                         simp only [hof_wl, hof_wl1] at hrm) ;
+                        (obtain ⟨hof_wl, _⟩ :=
+                           wpush_caseA_wlen_bv (by omega : s3.core.wlen < c.wcap)
+                         simp only [hof_wl] at hrm)
                     · rintro J4 ⟨⟩ m4 ⟨wstk4, hws4_len, hws4_lt, hat0_4, hat1_4, hm4⟩
                       obtain ⟨hwv3_lt0, hwv3_lt1, hwl_add, hwl_32, hso3_len⟩ :=
                         wpush_caseA_fin_setup hs3_eq hlen3 (hcv3 ▸ hlit) hc12 hfit3
                       c0_hstraight; have hres_m := ‹(FullMem c _ ⋆ R) _›
-                      simp only [wpush_lit2, wpush_lit2p1, hwl_add, hwl_32] at hres_m
+                      simp only [bv64_shl1_lit, bv64_shl1_add1_lit, hwl_add, hwl_32] at hres_m
                       rw [full_state_update_wpush_no_wu hs3_eq] at hres_m
                       exact wpush_caseA_fin hQ hlen hlen3 hlay3 hpres3 hlit hc12 hw0 hw1
                         (Or.inr hsz3) hwlen3 hfit3 wu3 (wsort' := wso3) hws4_len hso3_len
                         (fun i hi => hws4_lt i (Or.inl hi)) hat0_4 hat1_4 _ rfl hres_m
-              · c0_hstraight; exact hJA () m2 ⟨rfl, wpush_list_zext64_pos hwv_lt0 hj0 hm0_ ‹_›⟩
+              · c0_hstraight; exact hJA () m2 ⟨rfl, list_zext64_pos hwv_lt0 hj0 hm0_ ‹_›⟩
             · c0_hstraight; exact hJA () m2 ⟨rfl, hlay2.pos_off lit.toNat hlit2
-                (wpush_list_zext64_pos hwv_lt1 hj1 hm1_ ‹_›)⟩
+                (list_zext64_pos hwv_lt1 hj1 hm1_ ‹_›)⟩
           · rintro JA ⟨⟩ m3 ⟨rfl, hoff_pos⟩; c0_hstraight
             apply wp_join_group (fun _ m4 => m4 = m3)
             rotate_left 1
@@ -197,98 +225,69 @@ theorem full_watch_push_slow_m6_wp (Γ : Env) (hΓ : Γ.Sat Spec.specs) :
                 rotate_left 1
                 · intro JC hJC; c0_hstraight; c0_hsplit
                   · have hbc_eq := hc; clear hc; c0_hstraight; c0_hsplit
-                    · obtain ⟨hoff_eq, hfitB, hpos_eq, hpos_lt⟩ := wpush_caseB_bounds hlen2 hlay2
-                        hlit2 hwv_lt0 hwv_lt1 hwv_lt0_bv hwv_lt1_bv hj0 hj1 hbc_eq hc hc12
-                      clear hc
-                      c0_hstraight
+                    · obtain ⟨hoff_eq, hfitB, hpos_eq, hpos_lt⟩ := wpush_caseB_bounds
+                        hlen2 hwv_lt0 hwv_lt1 hwv_lt0_bv hwv_lt1_bv hj0 hj1 hbc_eq hc hc12
+                      clear hc; c0_hstraight
                       apply wp_join_group (fun _ mw => ∃ wstk' : List (BitVec 32),
                         WPushAppendInv c s2 R s2.core.wlen w0 w1 cnt s2.core.wstk wstk' mw)
                       rotate_left 1
-                      · intro JB hJB; c0_hstraight; c0_hsplit
-                        · have hc2' : cnt.toNat = 2 := by
-                            have := congrArg BitVec.toNat hc; simpa using this
-                          clear hc
-                          obtain ⟨hpos1_eq, _, hpos1_lt, _⟩ := wpush_case_pos1_lt hlen2 hwv_lt0
-                            hwv_lt1 hwv_lt0_bv hwv_lt1_bv hj0 hj1 hpos_eq (by omega) w0
-                          c0_hstraight
-                          have hresB := ‹(FullMem c _ ⋆ R) _›; dsimp only at hresB
-                          simp only [hpos_eq, hpos1_eq] at hresB
-                          exact hJB () _ (wpush_append_set2 hlen2.core_ok.wstk_len_arr (by omega)
-                            hc2' hresB)
-                        · have hcnt1 : cnt.toNat = 1 := by
-                            have hne : cnt.toNat ≠ 2 := fun h2 =>
-                              hc (BitVec.eq_of_toNat_eq (by simp [h2]))
-                            omega
-                          clear hc
-                          have hresB := ‹(FullMem c _ ⋆ R) _›; simp only [hpos_eq] at hresB
-                          exact hJB () _ (wpush_append_set1 hlen2.core_ok.wstk_len_arr (by omega)
-                            hcnt1 hresB)
+                      · solve_wpush_append hlen2.core_ok.wstk_len_arr ;
+                          (obtain ⟨hpos1_eq, _, hpos1_lt, _⟩ := wpush_case_pos1_lt hlen2
+                             hwv_lt0 hwv_lt1 hwv_lt0_bv hwv_lt1_bv hj0 hj1 hpos_eq (by omega) w0
+                           c0_hstraight) ;
+                          (simp only [hpos_eq, hpos1_eq] at hrm) ;
+                          (simp only [hpos_eq] at hrm)
                       · rintro JB ⟨⟩ mw ⟨wstk', hwl', hpres', hat0', hat1', hmw⟩; c0_hstraight
                         have hres_m := ‹(FullMem c _ ⋆ R) _›; dsimp only at hres_m
-                        obtain ⟨hsz_rw, hadd3⟩ := wpush_caseB_mem_rw hlen2 hlay2 hlit2 hwv_lt0
-                          hwv_lt1 hwv_lt0_bv hwv_lt1_bv hoff_eq hfitB hc12
-                        simp only [wpush_lit2, wpush_lit2p1] at hres_m
+                        obtain ⟨hsz_rw, hadd3⟩ := wpush_caseB_mem_rw
+                          hlen2 hlay2 hlit2 hwv_lt0 hwv_lt1 hoff_eq hfitB hc12
+                        simp only [bv64_shl1_lit, bv64_shl1_add1_lit] at hres_m
                         rw [hsz_rw, hadd3] at hres_m
-                        exact wpush_caseB_s3 hQ hlen hlen2 hlay2 hpres2 hs2_eq hlit hc12 hw0 hw1
-                          hoff_pos hoff_eq hfitB hwl' (fun i hi => hpres' i (Or.inl hi)) hat0'
-                          hat1' hres_m
+                        rw [wpush_state_upd (wu' := s2.core.wusable) hs2_eq] at hres_m
+                        exact wpush_caseB_fin hQ hlen hlen2 hlay2 hpres2 hlit hc12 hw0 hw1
+                          hoff_pos hoff_eq hfitB s2.core.wusable (wsort' := wso2) hwl'
+                          (hs2_eq ▸ hlen2).scratch_ok.wsort_len (fun i hi => hpres' i (Or.inl hi))
+                          hat0' hat1' _ rfl hres_m
                     · clear hc; exact hJC () m3 rfl
                   · clear hc; exact hJC () m3 rfl
                 · rintro JC ⟨⟩ m4 rfl; c0_hstraight; c0_hsplit
-                  · obtain ⟨hpos_eq, hleC, hpos_lt, hpos_lt_m⟩ := wpush_caseC_bounds hlen2 hlay2
-                      hlit2 hwv_lt0 hwv_lt1 hwv_lt0_bv hwv_lt1_bv hj0 hj1 hc hc12; clear hc
+                  · obtain ⟨hpos_eq, hleC, hpos_lt, hpos_lt_m⟩ := wpush_caseC_bounds hlen2
+                      hlay2 hlit2 hwv_lt0 hwv_lt1 hwv_lt0_bv hwv_lt1_bv hj0 hj1 hc hc12; clear hc
                     c0_hstraight; c0_hsplit
-                    · have hsent0' := wpush_caseC_sent0 hwv_lt0 hwv_lt1 hj0 hj1 hpos_lt_m hc
-                      clear hc
-                      c0_hstraight
+                    · have hsent0' := wpush_caseC_sent0 hwv_lt1 hj0 hj1 hpos_lt_m hc
+                      clear hc; c0_hstraight
                       apply wp_join_group (fun _ mw => mw = m4 ∧ ∀ k < cnt.toNat,
                         s2.core.wstk[wOff s2.core.wvec lit.toNat + wSz s2.core.wvec lit.toNat +
                           k]? = some 0xFFFFFFFF#32)
                       rotate_left 1
                       · intro JC2 hJC2; c0_hstraight; c0_hsplit
-                        · have hcnt1 : cnt.toNat = 1 := by
-                            have := congrArg BitVec.toNat hc; simpa using this
-                          clear hc
-                          exact hJC2 () m4 ⟨rfl, fun k hk => by
+                        · have hcnt1 : cnt.toNat = 1 := bv32_eq_nat 1 (by decide) hc
+                          clear hc; exact hJC2 () m4 ⟨rfl, fun k hk => by
                             have : k = 0 := by omega
                             rw [this, Nat.add_zero]; exact hsent0'⟩
                         · have hcnt2 : cnt.toNat = 2 := by
-                            have hne1 : cnt.toNat ≠ 1 := fun h =>
-                              hc (BitVec.eq_of_toNat_eq (by simp [h])); omega
+                            have := bv32_ne_nat 1 (by decide) hc; omega
                           clear hc
                           obtain ⟨hpos1_eq, hpos1_lt, _, hpos1_lt_m⟩ := wpush_case_pos1_lt hlen2
                             hwv_lt0 hwv_lt1 hwv_lt0_bv hwv_lt1_bv hj0 hj1 hpos_eq
                             (by have := hlen2.core_ok.wlen_le; omega) w0
                           c0_hstraight; c0_hsplit
-                          · exact hJC2 () m4 ⟨rfl, wpush_caseC_sent1 hwv_lt0 hwv_lt1 hj0 hj1
-                              hcnt2 hpos1_lt_m hsent0' hc⟩
+                          · exact hJC2 () m4 ⟨rfl,
+                              wpush_caseC_sent1 hwv_lt1 hj0 hj1 hcnt2 hpos1_lt_m hsent0' hc⟩
                           · clear hc; exact hJD () m4 rfl
                       · rintro JC2 ⟨⟩ mw ⟨rfl, hsent⟩
-                        have hposC_lt := hpos_lt; c0_hstraight
+                        have hposC_lt := hpos_lt; have hwle2 := hlen2.core_ok.wlen_le; c0_hstraight
                         let pC := wOff s2.core.wvec lit.toNat + wSz s2.core.wvec lit.toNat
                         apply wp_join_group (fun _ mw2 => ∃ wstk' : List (BitVec 32),
                           WPushAppendInv c s2 R pC w0 w1 cnt s2.core.wstk wstk' mw2)
                         rotate_left 1
-                        · intro JC3 hJC3; c0_hstraight; c0_hsplit
-                          · have hc2' : cnt.toNat = 2 := by
-                              have := congrArg BitVec.toNat hc; simpa using this
-                            clear hc
-                            obtain ⟨hpos1_eq, _, hpos1_lt, _⟩ := wpush_case_pos1_lt hlen2 hwv_lt0
-                              hwv_lt1 hwv_lt0_bv hwv_lt1_bv hj0 hj1 hpos_eq
-                              (by have := hlen2.core_ok.wlen_le; omega) w0
-                            c0_hstraight
-                            have hresC := ‹(FullMem c _ ⋆ R) _›; dsimp only at hresC
-                            simp only [hpos_eq, hpos1_eq] at hresC
-                            exact hJC3 () _ (wpush_append_set2 hlen2.core_ok.wstk_len_arr
-                              (by have := hlen2.core_ok.wlen_le; omega) hc2' hresC)
-                          · have hcnt1 : cnt.toNat = 1 := by
-                              have hne : cnt.toNat ≠ 2 := fun h2 =>
-                                hc (BitVec.eq_of_toNat_eq (by simp [h2]))
-                              omega
-                            clear hc
-                            have hresC := ‹(FullMem c _ ⋆ R) _›; simp only [hpos_eq] at hresC
-                            exact hJC3 () _ (wpush_append_set1 hlen2.core_ok.wstk_len_arr
-                              (by have := hlen2.core_ok.wlen_le; omega) hcnt1 hresC)
+                        · solve_wpush_append hlen2.core_ok.wstk_len_arr ;
+                            (obtain ⟨hpos1_eq, _, hpos1_lt, _⟩ := wpush_case_pos1_lt hlen2
+                               hwv_lt0 hwv_lt1 hwv_lt0_bv hwv_lt1_bv hj0 hj1 hpos_eq
+                               (by have := hlen2.core_ok.wlen_le; omega) w0
+                             c0_hstraight) ;
+                            (simp only [hpos_eq, hpos1_eq] at hrm) ;
+                            (simp only [hpos_eq] at hrm)
                         · rintro JC3 ⟨⟩ mw2 ⟨wstk', hwl', hpres', hat0', hat1', hmw2⟩; c0_hstraight
                           apply wp_join_group (fun _ mw3 => ∃ wu' : BitVec 64,
                             (FullMem c { s2 with core := { s2.core with
@@ -298,30 +297,32 @@ theorem full_watch_push_slow_m6_wp (Γ : Env) (hΓ : Γ.Sat Spec.specs) :
                           rotate_left 1
                           · intro Jwu hJwu; c0_hstraight; c0_hsplit
                             · clear hc; c0_hstraight; have hrm := ‹(FullMem c _ ⋆ R) _›
-                              dsimp only at hrm; simp only [wpush_lit2p1] at hrm
+                              dsimp only at hrm; simp only [bv64_shl1_add1_lit] at hrm
                               rw [wpush_bv_sz_add_cnt hwv_lt1 (by omega) (by omega)] at hrm
                               exact hJwu () _ ⟨_, hrm⟩
                             · clear hc; have hrm := ‹(FullMem c _ ⋆ R) _›
-                              dsimp only at hrm; simp only [wpush_lit2p1] at hrm
+                              dsimp only at hrm; simp only [bv64_shl1_add1_lit] at hrm
                               rw [wpush_bv_sz_add_cnt hwv_lt1 (by omega) (by omega)] at hrm
                               exact hJwu () _ ⟨_, hrm⟩
                           · rintro Jwu ⟨⟩ mw3 ⟨wu', hres_m⟩; c0_hstraight
-                            exact wpush_caseC_s3 hQ hlen hlen2 hlay2 hpres2 hs2_eq hlit hc12
-                              hw0 hw1 hoff_pos hleC hsent hwl' hpres' hat0' hat1' hres_m
+                            dsimp only at hres_m
+                            rw [wpush_state_upd (wlen' := s2.core.wlen) hs2_eq] at hres_m
+                            exact wpush_caseC_fin hQ hlen hlen2 hlay2 hpres2 hlit hc12
+                              hw0 hw1 hoff_pos hleC hsent wu' (wsort' := wso2) hwl'
+                              (hs2_eq ▸ hlen2).scratch_ok.wsort_len hpres' hat0' hat1' _ rfl hres_m
                     · clear hc; exact hJD () m4 rfl
                   · clear hc; exact hJD () m4 rfl
               · clear hc; exact hJD () m3 rfl
-            · -- Case D: reallocate and relocate slice to `wlen`
-              rintro JD ⟨⟩ m4 rfl; c0_hstraight
+            · rintro JD ⟨⟩ m4 rfl; c0_hstraight
               apply wp_join_group (ts := [i64]) (fun nc1 mw => mw = m4 ∧
                 nc1.fst.toNat = if wSz s2.core.wvec lit.toNat = 0 then 2 else
                   2 * wSz s2.core.wvec lit.toNat)
               rotate_left 1
               · intro Jnc1 hJnc1; c0_hstraight; c0_hsplit
                 · have hsz_eq : wSz s2.core.wvec lit.toNat = 0 :=
-                    wpush_list_zext64_eq_zero hwv_lt1 hj1 hm1_ hc
+                    list_zext64_eq_zero hwv_lt1 hj1 hm1_ hc
                   clear hc; exact hJnc1 (2#64, ()) m4 ⟨rfl, by simp [hsz_eq]⟩
-                · c0_hstraight; exact hJnc1 _ m4 ⟨rfl, wpush_nc1_nz hwv_lt1 hj1 hwv_lt1_bv hc⟩
+                · c0_hstraight; exact hJnc1 _ m4 ⟨rfl, wpush_nc1_nz hwv_lt1 hwv_lt1_bv hj1 hc⟩
               · rintro Jnc1 ⟨nc1, ⟨⟩⟩ mw ⟨rfl, hnc1⟩; c0_hstraight
                 have hsz_le : wSz s2.core.wvec lit.toNat ≤ c.wcap := by
                   have hbd := hlay2.bounds lit.toNat hlit2; have := hlen2.core_ok.wlen_le
@@ -331,7 +332,8 @@ theorem full_watch_push_slow_m6_wp (Γ : Env) (hΓ : Γ.Sat Spec.specs) :
                   nc2.fst.toNat ≤ max 2 (2 * c.wcap) + 2)
                 rotate_left 1
                 · intro Jnc2 hJnc2
-                  have ⟨hlt_fn, hge_fn⟩ := wpush_nc2_cmp hwv_lt1 hj1 hwv_lt1_bv hc12 hnc1 hsz_le
+                  have ⟨hlt_fn, hge_fn⟩ :=
+                    wpush_nc2_cmp hwv_lt1 hwv_lt1_bv hj1 hc12 hnc1 hsz_le
                   c0_hstraight; c0_hsplit
                   · exact hJnc2 _ mw ⟨rfl, hlt_fn hc⟩
                   · exact hJnc2 _ mw ⟨rfl, hge_fn hc⟩
@@ -354,17 +356,20 @@ theorem full_watch_push_slow_m6_wp (Γ : Env) (hΓ : Γ.Sat Spec.specs) :
                       · intro Jd2 hJd2; c0_hstraight; c0_hsplit
                         · clear hc; c0_hstraight
                           c0_hcall (Spec.has_full_wstack_defrag_m6 hΓ)
-                          · refine ⟨c, s2, R, rfl, hlen2, hlay2, hm2, fun wv' ws' wl' wso' m5 => ?_⟩
-                            intro _ h1 h2 h3 h4 hm5
-                            have hinv3 := wpush_inv_state_defrag hinv2_keep h1 h2 h3 h4 hm5
-                            obtain ⟨hwv3_0, hwv3_1, _, _, _, _, _, _⟩ := wpush_wvec_lt h1 hlit2
+                          exact wpush_defrag_call hinv2_keep fun wv' ws' wl' wso' m5 hinv3 => by
+                            have hm5 := hinv3.2.2.2.2.2
+                            obtain ⟨hwv3_0, hwv3_1, _, _, _, _, _, _⟩ :=
+                              wvec_shl1_lt hinv3.1.core_ok (hinv3.2.2.1.1 ▸ hlit)
                             c0_hstraight
                             refine hJd2 _ m5 ⟨_, hinv3, rfl, ?_, ?_⟩
-                            · simp only [wpush_lit2]; exact wpush_getElem_toNat hwv3_0 rfl
-                            · simp only [wpush_lit2p1]; exact wpush_getElem_toNat hwv3_1 rfl
-                        · exact hJd2 _ mw2 ⟨s2, hinv2_keep, wpush_bv64_eq_zero_of_not_pos hc,
-                            by simp only [wpush_lit2]; exact wpush_getElem_toNat hwv_lt0 rfl,
-                            by simp only [wpush_lit2p1]; exact wpush_getElem_toNat hwv_lt1 rfl⟩
+                            · simp only [bv64_shl1_lit]
+                              exact list_getElem_toNat_getD hwv3_0 rfl
+                            · simp only [bv64_shl1_add1_lit]
+                              exact list_getElem_toNat_getD hwv3_1 rfl
+                        · exact hJd2 _ mw2 ⟨s2, hinv2_keep, bv64_eq_zero_of_not_pos_nat hc,
+                            by simp only [bv64_shl1_lit]; exact list_getElem_toNat_getD hwv_lt0 rfl,
+                            by simp only [bv64_shl1_add1_lit]
+                               exact list_getElem_toNat_getD hwv_lt1 rfl⟩
                       · rintro Jd2 ⟨off3, sz3, ⟨⟩⟩ m5 ⟨s3, hinv3, hwu3, hoff3, hsz3⟩
                         obtain ⟨hlen3, hlay3, hpres3, hwlen3, ⟨wv3, ws3, wso3, wl3, wu3, hs3_eq⟩,
                           hm3⟩ := hinv3
@@ -393,8 +398,8 @@ theorem full_watch_push_slow_m6_wp (Γ : Env) (hΓ : Γ.Sat Spec.specs) :
                               hoff3, hsz3, by omega, hle3, hv3_lo⟩
                     · have hleD := wpush_fit_of_cmp hlen2.core_ok.wlen_le hc; clear hc
                       refine hJdf _ mw2 ⟨s2, hinv2_keep, ?_, ?_, BitVec.isLt _, hleD, hnc2_lo⟩
-                      · simp only [wpush_lit2]; exact wpush_getElem_toNat hwv_lt0 rfl
-                      · simp only [wpush_lit2p1]; exact wpush_getElem_toNat hwv_lt1 rfl
+                      · simp only [bv64_shl1_lit]; exact list_getElem_toNat_getD hwv_lt0 rfl
+                      · simp only [bv64_shl1_add1_lit]; exact list_getElem_toNat_getD hwv_lt1 rfl
                   · rintro Jdf ⟨off3, sz3, ncap3, ⟨⟩⟩ m5 ⟨s3, hinv3, hoff3, hsz3, _, hfit3, hlo3⟩
                     dsimp only at hoff3 hsz3 hfit3 hlo3
                     obtain ⟨hlen3, hlay3, hpres3, hwlen3, ⟨wv3, ws3, wso3, wl3, wu3, hs3_eq⟩,
@@ -419,8 +424,7 @@ theorem full_watch_push_slow_m6_wp (Γ : Env) (hΓ : Γ.Sat Spec.specs) :
                           hrm
                         exact hIH _ _ _ (by rw [hn_eq]; exact hdec) hnext
                       · have hk_ge : ¬ k_bv.toNat < sz3.toNat := by simpa [BitVec.ult] using hc
-                        clear hc
-                        have hk_eq : k_bv.toNat = sz3.toNat := by omega
+                        clear hc; have hk_eq : k_bv.toNat = sz3.toNat := by omega
                         have hk_bv_eq : k_bv = sz3 := BitVec.eq_of_toNat_eq hk_eq
                         obtain ⟨hp0_eq, hp0_lt⟩ := wpush_reloc_p0_bounds (s3 := s3)
                           hcp_len hk_eq (by omega)
@@ -430,25 +434,15 @@ theorem full_watch_push_slow_m6_wp (Γ : Env) (hΓ : Γ.Sat Spec.specs) :
                           WPushAppendInv c s3 R (s3.core.wlen + sz3.toNat) w0 w1 cnt wstk_cp
                             wstk_w mw2)
                         rotate_left 1
-                        · intro Jw1 hJw1; c0_hstraight; c0_hsplit
-                          · have hc2' : cnt.toNat = 2 := by
-                              have := congrArg BitVec.toNat hc; simpa using this
-                            clear hc
-                            have hp1_eq := wpush_bv64_add_off_sz_1 hp0_eq (by omega)
-                            have hp1_lt : (BitVec.ofNat 64 s3.core.wlen + k_bv + 1#64).toNat <
-                                (wstk_cp.set (s3.core.wlen + sz3.toNat) w0).length := by
-                              have h1bv : (1#64 : BitVec 64) = 1 := rfl
-                              rw [List.length_set, h1bv, hk_bv_eq, hp1_eq, hcp_len]; omega
-                            c0_hstraight
-                            have hrm1 := ‹(FullMem c _ ⋆ R) _›; dsimp only at hrm1
-                            rw [hp1_eq] at hrm1
-                            exact hJw1 () _ (wpush_append_set2 hcp_len (by omega) hc2' hrm1)
-                          · have hcnt1 : cnt.toNat = 1 := by
-                              have hne : cnt.toNat ≠ 2 := fun h =>
-                                hc (BitVec.eq_of_toNat_eq (by simp [h]))
-                              omega
-                            clear hc
-                            exact hJw1 () _ (wpush_append_set1 hcp_len (by omega) hcnt1 hrm0)
+                        · solve_wpush_append hcp_len ;
+                            (have hp1_eq := wpush_bv64_add_off_sz_1 hp0_eq (by omega)
+                             have hp1_lt : (BitVec.ofNat 64 s3.core.wlen + k_bv + 1#64).toNat <
+                                 (wstk_cp.set (s3.core.wlen + sz3.toNat) w0).length := by
+                               have h1bv : (1#64 : BitVec 64) = 1 := rfl
+                               rw [List.length_set, h1bv, hk_bv_eq, hp1_eq, hcp_len]; omega
+                             c0_hstraight) ;
+                            (rw [hp1_eq] at hrm) ;
+                            (skip)
                         · rintro Jw1 ⟨⟩ mw2 ⟨wstk_w, hwl_w, hpr_w, h0_w, h1_w, hmw2⟩; c0_hstraight
                           apply wp_loop_group (ts := [i64])
                             (WPushRelocFillInv c s3 R sz3 ncap3 w0 w1 cnt wstk_cp)
@@ -469,13 +463,30 @@ theorem full_watch_push_slow_m6_wp (Γ : Env) (hΓ : Γ.Sat Spec.specs) :
                             · have hj_ge : ¬ j_bv.toNat < ncap3.toNat := by
                                 simpa [BitVec.ult] using hc
                               clear hc; have hj_eq_n : j_bv.toNat = ncap3.toNat := by omega
-                              obtain ⟨hwv3_0, hwv3_1, _, _, _, _, _, _⟩ := wpush_wvec_lt hlen3 hlit3
+                              obtain ⟨hwv3_0, hwv3_1, _, _, _, _, _, _⟩ :=
+                                wvec_shl1_lt hlen3.core_ok hlit3
                               c0_hstraight
                               have hrmf := ‹(FullMem c _ ⋆ R) _›; dsimp only at hrmf
-                              simp only [wpush_lit2, wpush_lit2p1] at hrmf
-                              exact wpush_reloc_s3_post hQ hlen hlen3 hlay3 hpres3 hs3_eq hlit hc12
-                                hw0 hw1 hwlen3 hsz3 hlo3 hfit3 (by rw [← hk_eq]; exact hcp_inv)
-                                hfl_len hpr_f h0_f h1_f hrmf
+                              have hw2 : (sz3 + cnt.setWidth 64).setWidth 32 =
+                                  BitVec.ofNat 32 (wSz s3.core.wvec lit.toNat + cnt.toNat) := by
+                                apply BitVec.eq_of_toNat_eq; simp [hsz3]
+                              have hw3 : (BitVec.ofNat 64 s3.core.wlen + ncap3).toNat =
+                                  s3.core.wlen + ncap3.toNat := by
+                                have := hlen3.core_ok.wlen_le
+                                rw [BitVec.toNat_add, BitVec.toNat_ofNat,
+                                  Nat.mod_eq_of_lt (by omega : s3.core.wlen < 2 ^ 64),
+                                  Nat.mod_eq_of_lt (by omega)]
+                              simp only [bv64_shl1_lit, bv64_shl1_add1_lit, bv32_ofNat_64,
+                                hw2, hw3] at hrmf
+                              rw [wpush_state_upd hs3_eq] at hrmf
+                              exact wpush_reloc_fin hQ hlen hlen3 hlay3 hpres3 hlit hc12 hw0 hw1
+                                hwlen3 hlo3 hfit3 _ (wsort' := wso3)
+                                (by rw [← hsz3, ← hk_eq]; exact hcp_inv) hfl_len
+                                (hs3_eq ▸ hlen3).scratch_ok.wsort_len
+                                (fun i hi => hpr_f i (by rwa [← hsz3] at hi))
+                                (by rwa [hsz3] at h0_f)
+                                (fun h => by rw [hsz3] at h1_f; exact h1_f h)
+                                _ rfl hrmf
                           · intro Jfl hJfl; c0_hstraight
                             exact hJfl _ _ mw2 (wpush_reloc_fill_init hlen3
                               (by rw [hsz3]; exact hlo3) (by omega) hwl_w

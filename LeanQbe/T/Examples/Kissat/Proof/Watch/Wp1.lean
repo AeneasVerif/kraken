@@ -5,7 +5,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 module
 
 public import LeanQbe.T.Examples.Kissat.Proof.Watch.Spec
-public import LeanQbe.T.Examples.Kissat.Proof.Watch.Wp0
+public import LeanQbe.T.Examples.Kissat.Proof.Watch.Helpers
 public import LeanQbe.T.Examples.Kissat.Src.Watch
 
 import LeanQbe.T.Logic.C0HeadStep
@@ -67,21 +67,17 @@ private theorem countEqUpTo_mono {f : BitVec 32 → Nat} {xs : List (BitVec 32)}
     {b a m : Nat} (ham : a ≤ m) :
     countEqUpTo f xs a b ≤ countEqUpTo f xs m b := by
   induction m with
-  | zero =>
-    have ha0 : a = 0 := by omega
-    subst ha0; exact Nat.le_refl _
+  | zero => simp [show a = 0 by omega]
   | succ k ih =>
     by_cases hak : a = k + 1
     · subst hak; exact Nat.le_refl _
-    · by_cases hklen : k < xs.length
-      · have := countEqUpTo_succ f xs hklen b
-        have := ih (by omega)
-        omega
+    · have := ih (by omega)
+      by_cases hklen : k < xs.length
+      · have := countEqUpTo_succ f xs hklen b; omega
       · have h1 : countEqUpTo f xs (k + 1) b = countEqUpTo f xs k b := by
-          unfold countEqUpTo
-          rw [List.take_of_length_le (l := xs) (i := k + 1) (by omega),
-            List.take_of_length_le (l := xs) (i := k) (by omega)]
-        rw [h1]; exact ih (by omega)
+          simp [countEqUpTo, List.take_of_length_le (by omega : k + 1 ≥ xs.length),
+            List.take_of_length_le (by omega : k ≥ xs.length)]
+        omega
 
 private theorem countLt_succ_bkt (f : BitVec 32 → Nat) (xs : List (BitVec 32))
     (k b : Nat) :
@@ -92,24 +88,18 @@ private theorem countLt_succ_bkt (f : BitVec 32 → Nat) (xs : List (BitVec 32))
   | cons a t ih =>
     simp only [List.filter_cons]
     by_cases h1 : f a < b
-    · have h2 : f a < b + 1 := by omega
-      have h3 : (f a == b) = false := beq_false_of_ne (by omega)
-      simp [h1, h2, h3, ih]; omega
+    · have h3 : (f a == b) = false := beq_false_of_ne (by omega)
+      simp [h1, show f a < b + 1 by omega, h3, ih]; omega
     · by_cases h2 : f a = b
-      · subst h2
-        have h3 : f a < f a + 1 := Nat.lt_succ_self _
-        simp [h1, h3, ih]; omega
-      · have h3 : ¬ (f a < b + 1) := by omega
-        have h4 : (f a == b) = false := beq_false_of_ne h2
-        simp [h1, h3, h4, ih]
+      · subst h2; simp [h1, Nat.lt_succ_self _, ih]; omega
+      · have h4 : (f a == b) = false := beq_false_of_ne h2
+        simp [h1, show ¬ (f a < b + 1) by omega, h4, ih]
 
 private theorem countLt_mono {f : BitVec 32 → Nat} {xs : List (BitVec 32)}
     {n a b : Nat} (hab : a ≤ b) :
     countLt f xs n a ≤ countLt f xs n b := by
   induction b with
-  | zero =>
-    have ha0 : a = 0 := by omega
-    subst ha0; exact Nat.le_refl _
+  | zero => simp [show a = 0 by omega]
   | succ k ih =>
     by_cases hak : a = k + 1
     · subst hak; exact Nat.le_refl _
@@ -120,8 +110,7 @@ private theorem countLt_eq_length {f : BitVec 32 → Nat} {xs : List (BitVec 32)
     countLt f xs n B = n := by
   have h1 : (xs.take n).filter (fun x => f x < B) = xs.take n := by
     rw [List.filter_eq_self]
-    intro x hx
-    obtain ⟨j, hj, rfl⟩ := List.getElem_of_mem hx
+    intro x hx; obtain ⟨j, hj, rfl⟩ := List.getElem_of_mem hx
     have hjn : j < n := by simp [hle] at hj; exact hj
     rw [List.getElem_take]
     have hjf := hf j hjn
@@ -134,72 +123,60 @@ private theorem countLt_add_countEq_lt {f : BitVec 32 → Nat} {xs : List (BitVe
     (hf : ∀ i < n, f (xs[i]?.getD 0#32) < 256) :
     bktPlace f xs n j < n := by
   unfold bktPlace
-  let b := f (xs[j]?.getD 0#32)
-  have hb : b < 256 := hf j hj
-  have hs := countLt_succ_bkt f xs n b
-  have hsucc : countEqUpTo f xs j b + 1 ≤ countEqUpTo f xs (j + 1) b :=
-    countEqUpTo_succ_self f xs (Nat.lt_of_lt_of_le hj hle)
-  have hmono := countEqUpTo_mono (f := f) (xs := xs) (b := b) (by omega : j + 1 ≤ n)
-  have htot := countLt_mono (f := f) (xs := xs) (n := n) (by omega : b + 1 ≤ 256)
-  rw [countLt_eq_length hle hf] at htot
-  rw [hs] at htot
-  change countLt f xs n b + countEqUpTo f xs j b < n
+  have hb := hf j hj
+  have hs := countLt_succ_bkt f xs n (f (xs[j]?.getD 0#32))
+  have hsucc := countEqUpTo_succ_self f xs (Nat.lt_of_lt_of_le hj hle)
+  have hmono :=
+    countEqUpTo_mono (f := f) (xs := xs) (b := f (xs[j]?.getD 0#32)) (by omega : j + 1 ≤ n)
+  have htot := countLt_mono (f := f) (xs := xs) (n := n) (by omega : f (xs[j]?.getD 0#32) + 1 ≤ 256)
+  rw [countLt_eq_length hle hf, hs] at htot; omega
+
+private theorem bktPlace_lt_of_f_lt {f : BitVec 32 → Nat} {xs : List (BitVec 32)}
+    {n a b : Nat} (ha : a < n) (_hb : b < n) (hle : n ≤ xs.length)
+    (hlt : f (xs[a]?.getD 0#32) < f (xs[b]?.getD 0#32)) :
+    bktPlace f xs n a < bktPlace f xs n b := by
+  unfold bktPlace
+  have := countEqUpTo_succ_self f xs (by omega : a < xs.length)
+  have := countEqUpTo_mono (f := f) (xs := xs) (b := f (xs[a]?.getD 0#32)) (by omega : a + 1 ≤ n)
+  have := countLt_succ_bkt f xs n (f (xs[a]?.getD 0#32))
+  have := countLt_mono (f := f) (xs := xs) (n := n)
+    (by omega : f (xs[a]?.getD 0#32) + 1 ≤ f (xs[b]?.getD 0#32))
   omega
 
 private theorem bktPlace_inj {f : BitVec 32 → Nat} {xs : List (BitVec 32)}
     {n i j : Nat} (hij : i < j) (hj : j < n) (hle : n ≤ xs.length)
     (_hf : ∀ k < n, f (xs[k]?.getD 0#32) < 256) :
     bktPlace f xs n i ≠ bktPlace f xs n j := by
-  unfold bktPlace
-  let bi := f (xs[i]?.getD 0#32)
-  let bj := f (xs[j]?.getD 0#32)
-  change countLt f xs n bi + countEqUpTo f xs i bi ≠ countLt f xs n bj + countEqUpTo f xs j bj
-  rcases Nat.lt_trichotomy bi bj with hlt | heq | hgt
-  · have hsucc : countEqUpTo f xs i bi + 1 ≤ countEqUpTo f xs (i + 1) bi :=
-      countEqUpTo_succ_self f xs (by omega)
-    have h1 := countEqUpTo_mono (f := f) (xs := xs) (b := bi) (by omega : i + 1 ≤ n)
-    have h2 := countLt_succ_bkt f xs n bi
-    have h3 := countLt_mono (f := f) (xs := xs) (n := n) (show bi + 1 ≤ bj from hlt)
+  rcases Nat.lt_trichotomy (f (xs[i]?.getD 0#32)) (f (xs[j]?.getD 0#32)) with hlt | heq | hgt
+  · exact Nat.ne_of_lt (bktPlace_lt_of_f_lt (by omega) hj hle hlt)
+  · unfold bktPlace; rw [heq]
+    have := countEqUpTo_succ_self f xs (by omega : i < xs.length)
+    rw [heq] at this
+    have := countEqUpTo_mono (f := f) (xs := xs) (b := f (xs[j]?.getD 0#32)) (by omega : i + 1 ≤ j)
     omega
-  · rw [heq]
-    have hsucc : countEqUpTo f xs i bj + 1 ≤ countEqUpTo f xs (i + 1) bj := by
-      simpa only [bi, bj, heq] using countEqUpTo_succ_self f xs (by omega : i < xs.length)
-    have h1 := countEqUpTo_mono (f := f) (xs := xs) (b := bj) (by omega : i + 1 ≤ j)
-    omega
-  · have hsucc : countEqUpTo f xs j bj + 1 ≤ countEqUpTo f xs (j + 1) bj :=
-      countEqUpTo_succ_self f xs (by omega)
-    have h1 := countEqUpTo_mono (f := f) (xs := xs) (b := bj) (by omega : j + 1 ≤ n)
-    have h2 := countLt_succ_bkt f xs n bj
-    have h3 := countLt_mono (f := f) (xs := xs) (n := n) (show bj + 1 ≤ bi from hgt)
-    omega
+  · exact Nat.ne_of_gt (bktPlace_lt_of_f_lt hj (by omega) hle hgt)
 
 private theorem radix_mod_split (key : BitVec 32 → Nat) (sh : Nat) (x : BitVec 32) :
     key x % 2 ^ (sh + 8) = ((key x / 2 ^ sh) % 256) * 2 ^ sh + key x % 2 ^ sh := by
   have hpow : 2 ^ (sh + 8) = 2 ^ sh * 256 := Nat.pow_add 2 sh 8
-  have hdiv2 : key x / 2 ^ sh = (key x % 2 ^ (sh + 8)) / 2 ^ sh +
-      256 * (key x / 2 ^ (sh + 8)) := by
+  have hpos : 0 < 2 ^ sh := Nat.pos_of_ne_zero (by simp)
+  have hlt : (key x % 2 ^ (sh + 8)) % 2 ^ sh < 2 ^ sh := Nat.mod_lt _ hpos
+  have hdiv2 : key x / 2 ^ sh = (key x % 2 ^ (sh + 8)) / 2 ^ sh + 256 * (key x / 2 ^ (sh + 8)) := by
     have hm1 := Nat.div_add_mod (key x) (2 ^ (sh + 8))
     have hm2 := Nat.div_add_mod (key x % 2 ^ (sh + 8)) (2 ^ sh)
-    have h1 : key x = 2 ^ sh * ((key x % 2 ^ (sh + 8)) / 2 ^ sh +
-        256 * (key x / 2 ^ (sh + 8))) + (key x % 2 ^ (sh + 8)) % 2 ^ sh := by
-      rw [Nat.mul_add, ← Nat.mul_assoc, ← hpow]
-      omega
-    have hlt : (key x % 2 ^ (sh + 8)) % 2 ^ sh < 2 ^ sh :=
-      Nat.mod_lt _ (Nat.pos_of_ne_zero (by simp))
-    calc key x / 2 ^ sh
-        = (2 ^ sh * ((key x % 2 ^ (sh + 8)) / 2 ^ sh + 256 * (key x / 2 ^ (sh + 8))) +
-            (key x % 2 ^ (sh + 8)) % 2 ^ sh) / 2 ^ sh := by rw [← h1]
-      _ = (key x % 2 ^ (sh + 8)) / 2 ^ sh + 256 * (key x / 2 ^ (sh + 8)) := by
-        rw [Nat.mul_add_div (Nat.pos_of_ne_zero (by simp)), Nat.div_eq_of_lt hlt, Nat.add_zero]
+    conv => lhs; rw [show key x = 2 ^ sh * ((key x % 2 ^ (sh + 8)) / 2 ^ sh +
+      256 * (key x / 2 ^ (sh + 8))) + (key x % 2 ^ (sh + 8)) % 2 ^ sh by
+        rw [Nat.mul_add, ← Nat.mul_assoc, ← hpow]; omega]
+    rw [Nat.mul_add_div hpos, Nat.div_eq_of_lt hlt, Nat.add_zero]
   have hlt_b : (key x % 2 ^ (sh + 8)) / 2 ^ sh < 256 := by
-    rw [Nat.div_lt_iff_lt_mul (Nat.pos_of_ne_zero (by simp))]
+    rw [Nat.div_lt_iff_lt_mul hpos]
     calc key x % 2 ^ (sh + 8) < 2 ^ (sh + 8) := Nat.mod_lt _ (Nat.pos_of_ne_zero (by simp))
       _ = 256 * 2 ^ sh := by rw [hpow, Nat.mul_comm]
   have hf_eq : (key x / 2 ^ sh) % 256 = (key x % 2 ^ (sh + 8)) / 2 ^ sh := by
     rw [hdiv2, Nat.add_mul_mod_self_left, Nat.mod_eq_of_lt hlt_b]
-  have hmod_eq : key x % 2 ^ sh = (key x % 2 ^ (sh + 8)) % 2 ^ sh := by
-    rw [← Nat.mod_mod_of_dvd (key x) (Nat.pow_dvd_pow 2 (by omega : sh ≤ sh + 8))]
-  have hm := Nat.div_add_mod (key x % 2 ^ (sh + 8)) (2 ^ sh)
+  have hmod_eq : key x % 2 ^ sh = (key x % 2 ^ (sh + 8)) % 2 ^ sh :=
+    (Nat.mod_mod_of_dvd (key x) (Nat.pow_dvd_pow 2 (by omega : sh ≤ sh + 8))).symm
+  have := Nat.div_add_mod (key x % 2 ^ (sh + 8)) (2 ^ sh)
   rw [hf_eq, hmod_eq, Nat.mul_comm _ (2 ^ sh)]; omega
 
 private theorem radix_scatter_post {key : BitVec 32 → Nat} {sh n : Nat}
@@ -212,126 +189,81 @@ private theorem radix_scatter_post {key : BitVec 32 → Nat} {sh n : Nat}
     Spec.SortedRange (fun l => (key (BitVec.ofNat 32 l)) % 2 ^ (sh + 8)) tmp 0 n := by
   let f := fun x : BitVec 32 => (key x / 2 ^ sh) % 256
   have hf : ∀ i < n, f (ws[i]?.getD 0#32) < 256 := fun _ _ => Nat.mod_lt _ (by decide)
-  have hb_lt : ∀ i : Fin n, bktPlace f ws n i.1 < n := fun i =>
-    countLt_add_countEq_lt i.2 hn_ws hf
-  have hfin_inj :
-      Function.Injective (fun i : Fin n => (⟨bktPlace f ws n i.1, hb_lt i⟩ : Fin n)) := by
-    intro a b hab
+  have hb_lt : ∀ i : Fin n, bktPlace f ws n i.1 < n := fun i => countLt_add_countEq_lt i.2 hn_ws hf
+  let pFn : Fin n → Fin n := fun i => ⟨bktPlace f ws n i.1, hb_lt i⟩
+  have hfin_inj : Function.Injective pFn := fun a b hab => by
     have hv := congrArg Fin.val hab
     rcases Nat.lt_trichotomy a.1 b.1 with hlt | heq | hgt
     · exact absurd hv (bktPlace_inj hlt b.2 hn_ws hf)
     · exact Fin.ext heq
     · exact absurd hv.symm (bktPlace_inj hgt a.2 hn_ws hf)
-  let pFn : Fin n → Fin n := fun i => ⟨bktPlace f ws n i.1, hb_lt i⟩
-  have hfin_nd : ((List.finRange n).map pFn).Nodup :=
-    (List.nodup_finRange n).map pFn (fun _ _ h hne => h (hfin_inj hne))
   have hfin_perm : ((List.finRange n).map pFn).Perm (List.finRange n) :=
-    perm_of_nodup_subset_len hfin_nd (fun u _ => List.mem_finRange u) (by simp)
-  have hfin_surj : Function.Surjective pFn := fun u => by
-    have hmem := hfin_perm.mem_iff.mpr (List.mem_finRange u)
-    obtain ⟨i, _, hi⟩ := List.mem_map.mp hmem
-    exact ⟨i, hi⟩
+    perm_of_nodup_subset_len
+      ((List.nodup_finRange n).map pFn (fun _ _ h hne => h (hfin_inj hne)))
+      (fun u _ => List.mem_finRange u) (by simp)
   have hmap_src : ∀ u < n, ∃ iu < n, bktPlace f ws n iu = u ∧ tmp[u]? = ws[iu]? := by
     intro u hu
-    obtain ⟨⟨iu, hiu⟩, hvu⟩ := hfin_surj ⟨u, hu⟩
-    have hveq : bktPlace f ws n iu = u := congrArg Fin.val hvu
-    exact ⟨iu, hiu, hveq, hveq ▸ hplace iu hiu⟩
+    obtain ⟨i, _, hi⟩ := List.mem_map.mp (hfin_perm.mem_iff.mpr (List.mem_finRange ⟨u, hu⟩))
+    have hveq : bktPlace f ws n i.1 = u := congrArg Fin.val hi
+    exact ⟨i.1, i.2, hveq, hveq ▸ hplace i.1 i.2⟩
   have hperm_fin : (tmp.take n).Perm (ws.take n) := by
-    have hmapped : ((List.finRange n).map (fun u : Fin n => tmp[u.1]'(by omega))).Perm
-        ((List.finRange n).map (fun i : Fin n => ws[i.1]'(by omega))) := by
-      have h1 := (hfin_perm.map (fun u : Fin n => tmp[u.1]'(by omega))).symm
-      rw [List.map_map] at h1
-      have hfn : ((fun u : Fin n => tmp[u.1]'(Nat.lt_of_lt_of_le u.2 hn_tmp)) ∘ pFn) =
-          (fun i : Fin n => ws[i.1]'(Nat.lt_of_lt_of_le i.2 hn_ws)) := by
-        funext i
-        have hp := hplace i.1 i.2
-        have hbi : bktPlace f ws n i.1 < tmp.length := Nat.lt_of_lt_of_le (hb_lt i) hn_tmp
-        rw [List.getElem?_eq_getElem hbi,
-          List.getElem?_eq_getElem (Nat.lt_of_lt_of_le i.2 hn_ws), Option.some.injEq] at hp
-        exact hp
-      simpa [hfn] using h1
     have htake_eq : ∀ {xs : List (BitVec 32)} (hl : n ≤ xs.length),
-        xs.take n =
-          (List.finRange n).map (fun i : Fin n => xs[i.1]'(Nat.lt_of_lt_of_le i.2 hl)) := by
-      intro xs hl
-      apply List.ext_getElem (by simp [hl])
-      intro k hk1 hk2
-      simp only [List.getElem_take, List.getElem_map, List.getElem_finRange, Fin.val_cast]
-    rw [htake_eq hn_tmp, htake_eq hn_ws]; exact hmapped
+        xs.take n = (List.finRange n).map (fun i : Fin n => xs[i.1]'(Nat.lt_of_lt_of_le i.2 hl)) :=
+      fun hl => List.ext_getElem (by simp [hl]) fun k _ _ => by simp
+    have h1 := (hfin_perm.map (fun u : Fin n => tmp[u.1]'(by omega))).symm
+    rw [List.map_map] at h1
+    have hfn : ((fun u : Fin n => tmp[u.1]'(Nat.lt_of_lt_of_le u.2 hn_tmp)) ∘ pFn) =
+        (fun i : Fin n => ws[i.1]'(Nat.lt_of_lt_of_le i.2 hn_ws)) := funext fun i => by
+      have hp := hplace i.1 i.2
+      rw [List.getElem?_eq_getElem (Nat.lt_of_lt_of_le (hb_lt i) hn_tmp),
+        List.getElem?_eq_getElem (Nat.lt_of_lt_of_le i.2 hn_ws), Option.some.injEq] at hp
+      exact hp
+    rw [htake_eq hn_tmp, htake_eq hn_ws]; simpa [hfn] using h1
   refine ⟨hperm_fin, fun u v _ huv hvn => ?_⟩
   obtain ⟨iu, hiu, hplace_u, htu⟩ := hmap_src u (by omega)
   obtain ⟨iv, hiv, hplace_v, htv⟩ := hmap_src v hvn
   have key_of_elem : ∀ {xs : List (BitVec 32)} {k : Nat} (hk : k < xs.length),
-      key (BitVec.ofNat 32 (Spec.wsVal xs k)) = key (xs[k]'hk) := by
-    intro xs k hk
+      key (BitVec.ofNat 32 (Spec.wsVal xs k)) = key (xs[k]'hk) := fun hk => by
     simp [Spec.wsVal, List.getElem?_eq_getElem hk]
   have hwu : Spec.wsVal tmp u = Spec.wsVal ws iu := by unfold Spec.wsVal; rw [htu]
   have hwv : Spec.wsVal tmp v = Spec.wsVal ws iv := by unfold Spec.wsVal; rw [htv]
   change key (BitVec.ofNat 32 (Spec.wsVal tmp u)) % 2 ^ (sh + 8) ≤
       key (BitVec.ofNat 32 (Spec.wsVal tmp v)) % 2 ^ (sh + 8)
   rw [hwu, hwv, key_of_elem (Nat.lt_of_lt_of_le hiu hn_ws),
-    key_of_elem (Nat.lt_of_lt_of_le hiv hn_ws),
-    radix_mod_split key sh, radix_mod_split key sh]
-  let bu := f (ws[iu]'(Nat.lt_of_lt_of_le hiu hn_ws))
-  let bv := f (ws[iv]'(Nat.lt_of_lt_of_le hiv hn_ws))
-  have hwu_el : ws[iu]?.getD 0#32 = ws[iu]'(Nat.lt_of_lt_of_le hiu hn_ws) := by
-    rw [List.getElem?_eq_getElem (Nat.lt_of_lt_of_le hiu hn_ws), Option.getD_some]
-  have hwv_el : ws[iv]?.getD 0#32 = ws[iv]'(Nat.lt_of_lt_of_le hiv hn_ws) := by
-    rw [List.getElem?_eq_getElem (Nat.lt_of_lt_of_le hiv hn_ws), Option.getD_some]
-  have hbu_eq : bu = f (ws[iu]?.getD 0#32) := congrArg f hwu_el.symm
-  have hbv_eq : bv = f (ws[iv]?.getD 0#32) := congrArg f hwv_el.symm
-  rcases Nat.lt_trichotomy bu bv with hlt | heq | hgt
-  · have hlt_mul : (bu + 1) * 2 ^ sh ≤ bv * 2 ^ sh := Nat.mul_le_mul_right (2 ^ sh) hlt
-    have hrm : key (ws[iu]'(Nat.lt_of_lt_of_le hiu hn_ws)) % 2 ^ sh < 2 ^ sh :=
-      Nat.mod_lt _ (Nat.pos_of_ne_zero (by simp))
-    have hm1 : bu * 2 ^ sh + key (ws[iu]'(Nat.lt_of_lt_of_le hiu hn_ws)) % 2 ^ sh <
-        (bu + 1) * 2 ^ sh := by
-      rw [Nat.add_mul, Nat.one_mul]; omega
-    change bu * 2 ^ sh + key (ws[iu]'(Nat.lt_of_lt_of_le hiu hn_ws)) % 2 ^ sh ≤
-      bv * 2 ^ sh + key (ws[iv]'(Nat.lt_of_lt_of_le hiv hn_ws)) % 2 ^ sh
-    omega
-  · change bu * 2 ^ sh + key (ws[iu]'(Nat.lt_of_lt_of_le hiu hn_ws)) % 2 ^ sh ≤
-      bv * 2 ^ sh + key (ws[iv]'(Nat.lt_of_lt_of_le hiv hn_ws)) % 2 ^ sh
-    rw [heq]
-    have hle_i : iu ≤ iv := by
-      refine Classical.byContradiction fun hlt_i => ?_
+    key_of_elem (Nat.lt_of_lt_of_le hiv hn_ws), radix_mod_split key sh, radix_mod_split key sh]
+  have hiu_w : iu < ws.length := Nat.lt_of_lt_of_le hiu hn_ws
+  have hiv_w : iv < ws.length := Nat.lt_of_lt_of_le hiv hn_ws
+  have hbu_eq : f (ws[iu]'hiu_w) = f (ws[iu]?.getD 0#32) := by
+    rw [List.getElem?_eq_getElem hiu_w, Option.getD_some]
+  have hbv_eq : f (ws[iv]'hiv_w) = f (ws[iv]?.getD 0#32) := by
+    rw [List.getElem?_eq_getElem hiv_w, Option.getD_some]
+  rcases Nat.lt_trichotomy (f (ws[iu]'hiu_w)) (f (ws[iv]'hiv_w)) with hlt | heq | hgt
+  · have hlt_mul : (f (ws[iu]'hiu_w) + 1) * 2 ^ sh ≤ f (ws[iv]'hiv_w) * 2 ^ sh :=
+      Nat.mul_le_mul_right (2 ^ sh) hlt
+    have hrm : key (ws[iu]'hiu_w) % 2 ^ sh < 2 ^ sh := Nat.mod_lt _ (Nat.pos_of_ne_zero (by simp))
+    dsimp only [f] at hlt_mul
+    rw [Nat.add_mul, Nat.one_mul] at hlt_mul; change _ ≤ _; omega
+  · change f (ws[iu]'hiu_w) * 2 ^ sh + _ ≤ f (ws[iv]'hiv_w) * 2 ^ sh + _; rw [heq]
+    have hle_i : iu ≤ iv := Classical.byContradiction fun hlt_i => by
       have hiv_lt : iv < iu := Nat.lt_of_not_le hlt_i
-      have hsucc : countEqUpTo f ws iv bv + 1 ≤ countEqUpTo f ws (iv + 1) bv := by
-        simpa only [bv, hbv_eq] using
-          countEqUpTo_succ_self f ws (Nat.lt_of_lt_of_le hiv hn_ws)
-      have h1 := countEqUpTo_mono (f := f) (xs := ws) (b := bv) (by omega : iv + 1 ≤ iu)
-      have hb_eq : f (ws[iu]?.getD 0#32) = f (ws[iv]?.getD 0#32) := by
-        rw [← hbu_eq, ← hbv_eq]; exact heq
-      have hpu_ge : u = bktPlace f ws n iu := hplace_u.symm
-      have hpv_eq : v = bktPlace f ws n iv := hplace_v.symm
-      unfold bktPlace at hpu_ge hpv_eq
-      rw [hb_eq, ← hbv_eq] at hpu_ge
-      rw [← hbv_eq] at hpv_eq
-      omega
-    have hs := hsrt0 iu iv (Nat.zero_le _) hle_i hiv
-    dsimp only at hs
-    rw [key_of_elem (Nat.lt_of_lt_of_le hiu hn_ws),
-      key_of_elem (Nat.lt_of_lt_of_le hiv hn_ws)] at hs
-    omega
+      have := countEqUpTo_succ_self f ws hiv_w
+      have := countEqUpTo_mono (f := f) (xs := ws) (b := f (ws[iv]?.getD 0#32))
+        (by omega : iv + 1 ≤ iu)
+      have hb_eq : f (ws[iu]?.getD 0#32) = f (ws[iv]?.getD 0#32) := by rw [← hbu_eq, ← hbv_eq, heq]
+      unfold bktPlace at hplace_u hplace_v; rw [hb_eq] at hplace_u; omega
+    have hs := hsrt0 iu iv (Nat.zero_le _) hle_i hiv; dsimp only at hs
+    rw [key_of_elem hiu_w, key_of_elem hiv_w] at hs; omega
   · exfalso
-    have hsucc : countEqUpTo f ws iv bv + 1 ≤ countEqUpTo f ws (iv + 1) bv := by
-      simpa only [bv, hbv_eq] using
-        countEqUpTo_succ_self f ws (Nat.lt_of_lt_of_le hiv hn_ws)
-    have h1 := countEqUpTo_mono (f := f) (xs := ws) (b := bv) (by omega : iv + 1 ≤ n)
-    have h2 := countLt_succ_bkt f ws n bv
-    have h3 := countLt_mono (f := f) (xs := ws) (n := n) (show bv + 1 ≤ bu from hgt)
-    unfold bktPlace at hplace_u hplace_v
-    rw [← hbu_eq] at hplace_u
-    rw [← hbv_eq] at hplace_v
+    have := bktPlace_lt_of_f_lt (f := f) hiv hiu hn_ws (by rw [← hbv_eq, ← hbu_eq]; exact hgt)
     omega
 
 private theorem radix_bkt_eq {wvec : List (BitVec 32)} {lit : BitVec 32} {shift : BitVec 64}
     (hlt : 2 * lit.toNat < wvec.length) (hsh : shift.toNat < 32) :
-    let v := wvec[((lit.setWidth 64) <<< (1 : Nat)).toNat]'(by rw [bv64_lit2]; exact hlt)
+    let v := wvec[((lit.setWidth 64) <<< (1 : Nat)).toNat]'(by rw [bv64_shl1_lit]; exact hlt)
     ((v.setWidth 64 >>> (shift.toNat % 64)) &&& (255 : BitVec 64)).toNat =
       (Spec.fullWvecOff wvec lit.toNat / 2 ^ shift.toNat) % 256 := by
   intro v
-  have hshl := bv64_lit2 (lit := lit)
+  have hshl := bv64_shl1_lit (lit := lit)
   have hmod : shift.toNat % 64 = shift.toNat := Nat.mod_eq_of_lt (by omega)
   have hv_eq : v = wvec[2 * lit.toNat]'(by omega) :=
     list_getElem_congr (by rw [hshl]; exact hlt) hshl
@@ -370,60 +302,45 @@ private theorem radix_sorted_finish {wvec ws : List (BitVec 32)} {n sh : Nat}
   rw [hi, hj] at hs
   exact hs
 
-private theorem sep4_rot1 {key value : Type _} [BEq key] [Hashable key] [EquivBEq key]
-    [LawfulBEq key] (A B C D R : Std.ExtHashMap key value → Prop) :
-    (D ⋆ (A ⋆ (B ⋆ (C ⋆ (R ⋆ emp))))) = (A ⋆ B ⋆ C ⋆ D ⋆ R) := by
-  rw [sep_comm R emp, emp_sep, sep_comm_l D A, sep_comm_l D B, sep_comm_l D C,
-    ← sep_assoc, ← sep_assoc, ← sep_assoc]
-
-private theorem sep4_rot_cd {key value : Type _} [BEq key] [Hashable key] [EquivBEq key]
-    [LawfulBEq key] (A B C D R : Std.ExtHashMap key value → Prop) :
-    (C ⋆ (D ⋆ (A ⋆ (B ⋆ (R ⋆ emp))))) = (A ⋆ B ⋆ C ⋆ D ⋆ R) := by
-  rw [sep_comm R emp, emp_sep, sep_comm_l D A, sep_comm_l C A, sep_comm_l D B, sep_comm_l C B,
-    ← sep_assoc, ← sep_assoc, ← sep_assoc]
-
-private theorem sep4_rot_b {key value : Type _} [BEq key] [Hashable key] [EquivBEq key]
-    [LawfulBEq key] (A B C D R : Std.ExtHashMap key value → Prop) :
-    (B ⋆ (A ⋆ (C ⋆ (D ⋆ (R ⋆ emp))))) = (A ⋆ B ⋆ C ⋆ D ⋆ R) := by
-  rw [sep_comm R emp, emp_sep, sep_comm_l B A, ← sep_assoc, ← sep_assoc, ← sep_assoc]
-
-private theorem bv64_add_one_toNat {x : BitVec 64} (hx : x.toNat + 1 < 2 ^ 64) :
-    (x + (1 : BitVec 64)).toNat = x.toNat + 1 := by
-  have h1 : (1 : BitVec 64).toNat = 1 := rfl
-  rw [BitVec.toNat_add, h1, Nat.mod_eq_of_lt hx]
-
-private theorem wsVal_lt_2p32 (xs : List (BitVec 32)) (i : Nat) :
-    Spec.wsVal xs i < 2 ^ 32 := by
-  unfold Spec.wsVal
-  exact (xs[i]?.getD 0#32).isLt
+private theorem sep_rw_ac {k v : Type _} [BEq k] [Hashable k] [EquivBEq k] [LawfulBEq k]
+    {P Q : Std.ExtHashMap k v → Prop} {m : Std.ExtHashMap k v}
+    (h : P = Q) (hp : P m) : Q m := h ▸ hp
 
 private theorem sortedRange_u32_bridge {wvec ws : List (BitVec 32)} {n sh : Nat}
     (hsrt : Spec.SortedRange (fun l => Spec.fullWvecOff wvec l % 2 ^ sh) ws 0 n) :
     Spec.SortedRange
-      (fun l => Spec.fullWvecOff wvec (BitVec.ofNat 32 l).toNat % 2 ^ sh) ws 0 n := by
-  intro a b ha hab hb
-  have ha32 : (BitVec.ofNat 32 (Spec.wsVal ws a)).toNat = Spec.wsVal ws a := by
-    rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (wsVal_lt_2p32 ws a)]
-  have hb32 : (BitVec.ofNat 32 (Spec.wsVal ws b)).toNat = Spec.wsVal ws b := by
-    rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (wsVal_lt_2p32 ws b)]
-  change Spec.fullWvecOff wvec (BitVec.ofNat 32 (Spec.wsVal ws a)).toNat % 2 ^ sh ≤
-    Spec.fullWvecOff wvec (BitVec.ofNat 32 (Spec.wsVal ws b)).toNat % 2 ^ sh
-  rw [ha32, hb32]
-  exact hsrt a b ha hab hb
+      (fun l => Spec.fullWvecOff wvec (BitVec.ofNat 32 l).toNat % 2 ^ sh) ws 0 n :=
+  fun a b ha hab hb => by
+    simp only [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (wsVal_lt_2p32 ws _)]
+    exact hsrt a b ha hab hb
 
 private theorem sortedRange_u32_unbridge {wvec ws : List (BitVec 32)} {n sh : Nat}
     (hsrt : Spec.SortedRange
       (fun l => Spec.fullWvecOff wvec (BitVec.ofNat 32 l).toNat % 2 ^ sh) ws 0 n) :
-    Spec.SortedRange (fun l => Spec.fullWvecOff wvec l % 2 ^ sh) ws 0 n := by
-  intro a b ha hab hb
-  have ha32 : (BitVec.ofNat 32 (Spec.wsVal ws a)).toNat = Spec.wsVal ws a := by
-    rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (wsVal_lt_2p32 ws a)]
-  have hb32 : (BitVec.ofNat 32 (Spec.wsVal ws b)).toNat = Spec.wsVal ws b := by
-    rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (wsVal_lt_2p32 ws b)]
-  have h0 := hsrt a b ha hab hb
-  dsimp only at h0
-  rw [ha32, hb32] at h0
-  exact h0
+    Spec.SortedRange (fun l => Spec.fullWvecOff wvec l % 2 ^ sh) ws 0 n :=
+  fun a b ha hab hb => by
+    have h0 := hsrt a b ha hab hb
+    simp only [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (wsVal_lt_2p32 ws _)] at h0; exact h0
+
+private theorem radix_bkt64_setup (wvec wsS : List (BitVec 32)) (j shift : BitVec 64) {n : Nat}
+    (hj_lt : j.toNat < n) (hn_ws : n ≤ wsS.length) (hsh_lt : shift.toNat < 32)
+    (h2_lit : 2 * (wsS[j.toNat]'(by omega)).toNat < wvec.length) :
+    let lit := wsS[j.toNat]'(by omega)
+    let hwvec_idx : ((lit.setWidth 64) <<< (1 : Nat)).toNat < wvec.length := by
+      rw [bv64_shl1_lit]; exact h2_lit
+    let bkt64 : BitVec 64 :=
+      (wvec[((lit.setWidth 64) <<< (1 : Nat)).toNat]'hwvec_idx).setWidth 64 >>>
+        (shift.toNat % 64) &&& (255 : BitVec 64)
+    bkt64.toNat =
+      ((Spec.fullWvecOff wvec (wsS[j.toNat]?.getD 0#32).toNat) / 2 ^ shift.toNat) % 256 ∧
+    bkt64.toNat < 256 := by
+  intro lit hwvec_idx bkt64
+  have hlit_ws : lit = wsS[j.toNat]?.getD 0#32 := by
+    rw [List.getElem?_eq_getElem (by omega), Option.getD_some]
+  have hb : bkt64.toNat =
+      ((Spec.fullWvecOff wvec (wsS[j.toNat]?.getD 0#32).toNat) / 2 ^ shift.toNat) % 256 := by
+    rw [radix_bkt_eq (lit := lit) (shift := shift) h2_lit hsh_lt, ← hlit_ws]
+  exact ⟨hb, by rw [hb]; exact Nat.mod_lt _ (by decide)⟩
 
 private theorem radix_hist_cnt_inv {f : BitVec 32 → Nat} {ws cnt2 : List (BitVec 32)}
     {j n : Nat} (hj_lt : j < n) (hn_ws : n ≤ ws.length) (hcnt2_len : 256 ≤ cnt2.length)
@@ -542,14 +459,14 @@ theorem full_wstack_radix_sort_m6_wp (Γ : Env) :
         clear hc
         c0_hstraight
         refine ih1 (b + (1 : BitVec 64), ()) _
-          (by dsimp only; rw [bv64_add_one_toNat (by omega)]; omega)
-          ⟨by rw [bv64_add_one_toNat (by omega)]; exact hb_lt,
+          (by dsimp only; rw [bv64_add1_nat (by omega)]; omega)
+          ⟨by rw [bv64_add1_nat (by omega)]; exact hb_lt,
            cnt1.set b.toNat 0#32, by rw [List.length_set, hcnt1_len], fun x hx => ?_, ?_⟩
-        · rw [bv64_add_one_toNat (by omega)] at hx
+        · rw [bv64_add1_nat (by omega)] at hx
           by_cases hxb : x = b.toNat
           · subst hxb; exact List.getElem?_set_self (by omega)
           · rw [List.getElem?_set_ne (Ne.symm hxb)]; exact hcnt1_z x (by omega)
-        · rw [sep4_rot1] at hm; exact hm
+        · rw [sep_emp] at hm; exact sep_rw_ac (by ac_rfl) hm
       · rw [h256_64] at hc
         have hb_eq : b.toNat = 256 := by omega
         clear hc
@@ -571,47 +488,37 @@ theorem full_wstack_radix_sort_m6_wp (Γ : Env) :
         c0_hsplit
         · have hj_lt : j.toNat < n.toNat := by omega
           clear hc
-          have hkey_j := hkeysS j.toNat hj_lt
+          have h2_lit : 2 * (wsS[j.toNat]'(by omega)).toNat < wvec.length := by
+            have := (hkeysS j.toNat hj_lt).1; rw [wsVal_getElem (by omega)] at this; omega
           have hlit_ws : wsS[j.toNat]'(by omega) = wsS[j.toNat]?.getD 0#32 := by
             rw [List.getElem?_eq_getElem (by omega), Option.getD_some]
-          have h2_lit : 2 * (wsS[j.toNat]'(by omega)).toNat < wvec.length := by
-            have := hkey_j.1; rw [wsVal_getElem (by omega)] at this; omega
-          have hwvec_idx : (((wsS[j.toNat]'(by omega)).setWidth 64) <<< (1 : Nat)).toNat <
-              wvec.length := by
-            rw [bv64_lit2]; exact h2_lit
-          have hbkt_eq : (((wvec[(((wsS[j.toNat]'(by omega)).setWidth 64) <<< (1 : Nat)).toNat]'
-                hwvec_idx).setWidth 64 >>> (shift.toNat % 64)) &&& (255 : BitVec 64)).toNat =
-              f (wsS[j.toNat]?.getD 0#32) := by
-            rw [← hlit_ws]
-            exact radix_bkt_eq (lit := wsS[j.toNat]'(by omega)) (shift := shift) h2_lit hsh_lt
+          let lit := wsS[j.toNat]'(by omega)
+          have hwvec_idx : ((lit.setWidth 64) <<< (1 : Nat)).toNat < wvec.length := by
+            rw [bv64_shl1_lit]; exact h2_lit
           let bkt64 : BitVec 64 :=
-            (wvec[(((wsS[j.toNat]'(by omega)).setWidth 64) <<< (1 : Nat)).toNat]'
-              hwvec_idx).setWidth 64 >>> (shift.toNat % 64) &&& (255 : BitVec 64)
-          have hbkt_lt : bkt64.toNat < 256 := by rw [hbkt_eq]; exact Nat.mod_lt _ (by decide)
-          have hcnt_idx_lt :
-              (((wvec[(((wsS[j.toNat]'(by omega)).setWidth 64) <<< (1 : Nat)).toNat]'
-                hwvec_idx).setWidth 64 >>> (shift.toNat % 64)) &&&
-                (255 : BitVec 64)).toNat < cnt2.length := by
-            have := hbkt_lt; dsimp only [bkt64] at this; omega
+            (wvec[((lit.setWidth 64) <<< (1 : Nat)).toNat]'hwvec_idx).setWidth 64 >>>
+              (shift.toNat % 64) &&& (255 : BitVec 64)
+          have hbkt_eq : bkt64.toNat = f (wsS[j.toNat]?.getD 0#32) := by
+            rw [radix_bkt_eq (lit := lit) (shift := shift) h2_lit hsh_lt, ← hlit_ws]
+          have hbkt_lt : bkt64.toNat < 256 := by rw [hbkt_eq]; exact hf_lt _ hj_lt
+          have hcnt_idx_lt : bkt64.toNat < cnt2.length := by omega
           have hcnt_le_j : (cnt2[bkt64.toNat]'(by omega)).toNat ≤ j.toNat := by
             have h1 := hcnt2_eq bkt64.toNat hbkt_lt
             rw [List.getElem?_eq_getElem (by omega), Option.getD_some] at h1
-            rw [h1]
             have := List.length_filter_le (fun x => f x == bkt64.toNat) (wsS.take j.toNat)
-            unfold countEqUpTo
             have htl : (wsS.take j.toNat).length ≤ j.toNat := by
               rw [List.length_take]; exact Nat.min_le_left _ _
-            omega
+            unfold countEqUpTo at h1; omega
           c0_hstraight
           refine ih2 (j + (1 : BitVec 64), ()) _
-            (by dsimp only; rw [bv64_add_one_toNat (by omega)]; omega)
-            ⟨by rw [bv64_add_one_toNat (by omega)]; exact hj_lt,
+            (by dsimp only; rw [bv64_add1_nat (by omega)]; omega)
+            ⟨by rw [bv64_add1_nat (by omega)]; exact hj_lt,
              cnt2.set bkt64.toNat ((cnt2[bkt64.toNat]'(by omega)) + (1 : BitVec 32)),
-             by rw [List.length_set, hcnt2_len], ?_, ?_⟩
-          · rw [bv64_add_one_toNat (by omega)]
-            exact radix_hist_cnt_inv hj_lt (by omega) (by omega) bkt64.toNat hbkt_eq hbkt_lt
-              hcnt_le_j hn_bd hcnt2_eq
-          · rw [sep4_rot1] at hm; exact hm
+             by rw [List.length_set, hcnt2_len],
+             (by rw [bv64_add1_nat (by omega)]
+                 exact radix_hist_cnt_inv hj_lt (by omega) (by omega) bkt64.toNat hbkt_eq hbkt_lt
+                   hcnt_le_j hn_bd hcnt2_eq),
+             by dsimp only [bkt64]; rw [sep_emp] at hm; exact sep_rw_ac (by ac_rfl) hm⟩
         · have hj_eq : j.toNat = n.toNat := by omega
           clear hc
           have hcnt2_all : ∀ x < 256,
@@ -659,22 +566,22 @@ theorem full_wstack_radix_sort_m6_wp (Γ : Env) :
               rw [hsum_next]; exact hcount_le_n _
             c0_hstraight
             refine ih3 (b + (1 : BitVec 64), sum + (cnt3[b.toNat]'(by omega)).setWidth 64, ()) _
-              (by dsimp only; rw [bv64_add_one_toNat (by omega)]; omega)
-              ⟨by rw [bv64_add_one_toNat (by omega)]; exact hb_lt3, ?_,
+              (by dsimp only; rw [bv64_add1_nat (by omega)]; omega)
+              ⟨by rw [bv64_add1_nat (by omega)]; exact hb_lt3, ?_,
                cnt3.set b.toNat (sum.setWidth 32), by rw [List.length_set, hcnt3_len],
                fun x hx => ?_, fun x hbx hx => ?_, ?_⟩
             · rw [BitVec.toNat_add, zext_toNat _ (by decide),
                 Nat.mod_eq_of_lt (by omega : sum.toNat + _ < 2 ^ 64), hsum_next,
-                bv64_add_one_toNat (by omega)]
-            · rw [bv64_add_one_toNat (by omega)] at hx
+                bv64_add1_nat (by omega)]
+            · rw [bv64_add1_nat (by omega)] at hx
               by_cases hxb : x = b.toNat
               · subst hxb
                 rw [List.getElem?_set_self (by omega), Option.getD_some,
                   BitVec.toNat_setWidth, Nat.mod_eq_of_lt (by omega), hsum_eq]
               · rw [List.getElem?_set_ne (Ne.symm hxb)]; exact hcnt3_lo x (by omega)
-            · rw [bv64_add_one_toNat (by omega)] at hbx
+            · rw [bv64_add1_nat (by omega)] at hbx
               rw [List.getElem?_set_ne (by omega)]; exact hcnt3_hi x (by omega) hx
-            · rw [sep4_rot1] at hm; exact hm
+            · rw [sep_emp] at hm; exact sep_rw_ac (by ac_rfl) hm
           · rw [h256_64] at hc
             have hb_eq3 : b.toNat = 256 := by omega
             clear hc
@@ -702,29 +609,20 @@ theorem full_wstack_radix_sort_m6_wp (Γ : Env) :
             c0_hsplit
             · have hj_lt4 : j.toNat < n.toNat := by omega
               clear hc
-              have hkey_j := hkeysS j.toNat hj_lt4
+              have h2_lit : 2 * (wsS[j.toNat]'(by omega)).toNat < wvec.length := by
+                have := (hkeysS j.toNat hj_lt4).1; rw [wsVal_getElem (by omega)] at this; omega
               have hlit_ws : wsS[j.toNat]'(by omega) = wsS[j.toNat]?.getD 0#32 := by
                 rw [List.getElem?_eq_getElem (by omega), Option.getD_some]
-              have h2_lit : 2 * (wsS[j.toNat]'(by omega)).toNat < wvec.length := by
-                have := hkey_j.1; rw [wsVal_getElem (by omega)] at this; omega
-              have hwvec_idx : (((wsS[j.toNat]'(by omega)).setWidth 64) <<< (1 : Nat)).toNat <
-                  wvec.length := by
-                rw [bv64_lit2]; exact h2_lit
-              have hbkt_eq : (((wvec[(((wsS[j.toNat]'(by omega)).setWidth 64) <<<
-                    (1 : Nat)).toNat]'hwvec_idx).setWidth 64 >>> (shift.toNat % 64)) &&&
-                    (255 : BitVec 64)).toNat = f (wsS[j.toNat]?.getD 0#32) := by
-                rw [← hlit_ws]
-                exact radix_bkt_eq (lit := wsS[j.toNat]'(by omega)) (shift := shift) h2_lit hsh_lt
+              let lit := wsS[j.toNat]'(by omega)
+              have hwvec_idx : ((lit.setWidth 64) <<< (1 : Nat)).toNat < wvec.length := by
+                rw [bv64_shl1_lit]; exact h2_lit
               let bkt64 : BitVec 64 :=
-                (wvec[(((wsS[j.toNat]'(by omega)).setWidth 64) <<<
-                  (1 : Nat)).toNat]'hwvec_idx).setWidth 64 >>> (shift.toNat % 64) &&&
-                  (255 : BitVec 64)
-              have hbkt_lt : bkt64.toNat < 256 := by rw [hbkt_eq]; exact Nat.mod_lt _ (by decide)
-              have hcnt_idx_lt :
-                  (((wvec[(((wsS[j.toNat]'(by omega)).setWidth 64) <<<
-                    (1 : Nat)).toNat]'hwvec_idx).setWidth 64 >>> (shift.toNat % 64)) &&&
-                    (255 : BitVec 64)).toNat < cnt4.length := by
-                have := hbkt_lt; dsimp only [bkt64] at this; omega
+                (wvec[((lit.setWidth 64) <<< (1 : Nat)).toNat]'hwvec_idx).setWidth 64 >>>
+                  (shift.toNat % 64) &&& (255 : BitVec 64)
+              have hbkt_eq : bkt64.toNat = f (wsS[j.toNat]?.getD 0#32) := by
+                rw [radix_bkt_eq (lit := lit) (shift := shift) h2_lit hsh_lt, ← hlit_ws]
+              have hbkt_lt : bkt64.toNat < 256 := by rw [hbkt_eq]; exact hf_lt _ hj_lt4
+              have hcnt_idx_lt : bkt64.toNat < cnt4.length := by omega
               have hpos_eq : (cnt4[bkt64.toNat]'(by omega)).toNat =
                   bktPlace f wsS n.toNat j.toNat := by
                 have h1 := hcnt4_eq bkt64.toNat hbkt_lt
@@ -737,29 +635,27 @@ theorem full_wstack_radix_sort_m6_wp (Γ : Env) :
                 rw [zext_toNat _ (by decide), hpos_eq]; omega
               c0_hstraight
               refine ih4 (j + (1 : BitVec 64), ()) _
-                (by dsimp only; rw [bv64_add_one_toNat (by omega)]; omega)
-                ⟨by rw [bv64_add_one_toNat (by omega)]; exact hj_lt4,
+                (by dsimp only; rw [bv64_add1_nat (by omega)]; omega)
+                ⟨by rw [bv64_add1_nat (by omega)]; exact hj_lt4,
                  tmp4.set ((cnt4[bkt64.toNat]'(by omega)).setWidth 64).toNat
                    (wsS[j.toNat]'(by omega)),
                  cnt4.set bkt64.toNat
                    (((cnt4[bkt64.toNat]'(by omega)).setWidth 64 + (1 : BitVec 64)).setWidth 32),
                  by rw [List.length_set, htmp4_len], by rw [List.length_set, hcnt4_len],
-                 ?_, fun i hi => ?_, ?_⟩
-              · rw [bv64_add_one_toNat (by omega)]
-                exact radix_scatter_step_inv hj_lt4 (by omega) (by omega) hbkt_eq hbkt_lt
-                  hpos_eq hpos_lt hn_bd hcnt4_eq
-              · rw [bv64_add_one_toNat (by omega)] at hi
-                have hdst : ((cnt4[bkt64.toNat]'(by omega)).setWidth 64).toNat =
-                    bktPlace f wsS n.toNat j.toNat := by
-                  rw [zext_toNat _ (by decide), hpos_eq]
-                rw [hdst]
-                by_cases hij : i = j.toNat
-                · subst hij
-                  rw [List.getElem?_set_self (by omega), List.getElem?_eq_getElem (by omega)]
-                · rw [List.getElem?_set_ne
-                    (Ne.symm (bktPlace_inj (by omega) hj_lt4 (by omega) hf_lt))]
-                  exact hplace4 i (by omega)
-              · rw [sep4_rot_cd] at hm; exact hm
+                 by rw [bv64_add1_nat (by omega)]
+                    exact radix_scatter_step_inv hj_lt4 (by omega) (by omega) hbkt_eq hbkt_lt
+                      hpos_eq hpos_lt hn_bd hcnt4_eq,
+                 fun i hi => by
+                   rw [bv64_add1_nat (by omega)] at hi
+                   have hdst : ((cnt4[bkt64.toNat]'(by omega)).setWidth 64).toNat =
+                       bktPlace f wsS n.toNat j.toNat := by rw [zext_toNat _ (by decide), hpos_eq]
+                   rw [hdst]; by_cases hij : i = j.toNat
+                   · subst hij
+                     rw [List.getElem?_set_self (by omega), List.getElem?_eq_getElem (by omega)]
+                   · rw [List.getElem?_set_ne
+                       (Ne.symm (bktPlace_inj (by omega) hj_lt4 (by omega) hf_lt))]
+                     exact hplace4 i (by omega),
+                 by dsimp only [bkt64]; rw [sep_emp] at hm; exact sep_rw_ac (by ac_rfl) hm⟩
             · have hj_eq4 : j.toNat = n.toNat := by omega
               clear hc
               have hpost := radix_scatter_post (by omega)
@@ -784,17 +680,17 @@ theorem full_wstack_radix_sort_m6_wp (Γ : Env) :
                 clear hc
                 c0_hstraight
                 refine ih5 (j + (1 : BitVec 64), ()) _
-                  (by dsimp only; rw [bv64_add_one_toNat (by omega)]; omega)
-                  ⟨by rw [bv64_add_one_toNat (by omega)]; exact hj_lt5,
+                  (by dsimp only; rw [bv64_add1_nat (by omega)]; omega)
+                  ⟨by rw [bv64_add1_nat (by omega)]; exact hj_lt5,
                    ws5.set j.toNat (tmp4[j.toNat]'(by omega)), by rw [List.length_set, hws5_len],
                    fun i hi => ?_, fun i hi => ?_, ?_⟩
-                · rw [bv64_add_one_toNat (by omega)] at hi
+                · rw [bv64_add1_nat (by omega)] at hi
                   by_cases hij : i = j.toNat
                   · subst hij
                     rw [List.getElem?_set_self (by omega), List.getElem?_eq_getElem (by omega)]
                   · rw [List.getElem?_set_ne (Ne.symm hij)]; exact hws5_pref i (by omega)
                 · rw [List.getElem?_set_ne (by omega : j.toNat ≠ i)]; exact hws5_suf i hi
-                · rw [sep4_rot_b] at hm; exact hm
+                · rw [sep_emp] at hm; exact sep_rw_ac (by ac_rfl) hm
               · have hj_eq5 : j.toNat = n.toNat := by omega
                 clear hc
                 c0_hstraight

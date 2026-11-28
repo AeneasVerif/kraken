@@ -5,8 +5,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 module
 
 public import LeanQbe.T.Examples.Kissat.Proof.Watch.Spec
-public import LeanQbe.T.Examples.Kissat.Proof.Watch.Wp0
-public import LeanQbe.T.Examples.Kissat.Proof.Watch.Wp1
+public import LeanQbe.T.Examples.Kissat.Proof.Watch.Helpers
 public import LeanQbe.T.Examples.Kissat.Src.Watch
 
 import LeanQbe.T.Examples.Kissat.Proof.Watch.Wp2a
@@ -83,13 +82,13 @@ theorem full_wstack_defrag_m6_wp (Γ : Env) (hΓ : Γ.Sat Spec.specs) :
       have hl_lt : l.toNat < 2 * s.core.cur_vars := hc; clear hc
       have hl2 : (l <<< (1 : Nat)).toNat = 2 * l.toNat := bv64_shl1_mod (by omega)
       have hl2p1 : ((l <<< (1 : Nat)) + (1 : BitVec 64)).toNat = 2 * l.toNat + 1 := by
-        rw [bv64_add_one_nat (by omega), hl2]
+        rw [bv64_add1_nat (by omega), hl2]
       have hl2_lt : (l <<< (1 : Nat)).toNat < wvec1.length := by omega
       have hl2p1_lt : ((l <<< (1 : Nat)) + (1 : BitVec 64)).toNat < wvec1.length := by omega
       have hsz_eq : (wvec1[((l <<< (1 : Nat)) + (1 : BitVec 64)).toNat]'hl2p1_lt).toNat =
           fullWatchSize s l.toNat := by
         unfold fullWatchSize fullWatchSizeCore; have h1 := hsz1 l.toNat hl_lt; rw [← h1]
-        rw [fi_list_getElem_toNat_eq (by omega) hl2p1, List.getElem?_eq_getElem (by omega),
+        rw [list_getElem_toNat_eq (by omega) hl2p1, List.getElem?_eq_getElem (by omega),
           Option.getD_some]
       have hidx_eq : (2 * l.toNat + (1 : BitVec 64).toNat) % 2 ^ 64 =
           ((l <<< (1 : Nat)) + (1 : BitVec 64)).toNat := by
@@ -102,7 +101,7 @@ theorem full_wstack_defrag_m6_wp (Γ : Env) (hΓ : Γ.Sat Spec.specs) :
           DefragScanInv c s R (n', l + (1 : BitVec 64), mo', po', srt', ()) m')
         ?_ ?_
       · rintro _ ⟨n', mo', po', srt', ⟨⟩⟩ m' hInv
-        have hlp1 : (l + (1 : BitVec 64)).toNat = l.toNat + 1 := bv64_add_one_nat (by omega)
+        have hlp1 : (l + (1 : BitVec 64)).toNat = l.toNat + 1 := bv64_add1_nat (by omega)
         c0_hstraight
         exact hLoop _ _ (by dsimp only; rw [hlp1]; omega) hInv
       · intro Js hJs
@@ -110,11 +109,11 @@ theorem full_wstack_defrag_m6_wp (Γ : Env) (hΓ : Γ.Sat Spec.specs) :
         c0_hsplit
         · have hsz0 : fullWatchSize s l.toNat = 0 := by
             have h := congrArg BitVec.toNat hc
-            rw [fi_list_getElem_toNat_eq (by omega) hidx_eq, hsz_eq] at h; exact h
+            rw [list_getElem_toNat_eq (by omega) hidx_eq, hsz_eq] at h; exact h
           clear hc
           have hset := wvec_set_even_eq (wvec := wvec1) (l := l.toNat) (v := 0#32)
             (by omega)
-          have hlp1 : (l + (1 : BitVec 64)).toNat = l.toNat + 1 := bv64_add_one_nat (by omega)
+          have hlp1 : (l + (1 : BitVec 64)).toNat = l.toNat + 1 := bv64_add1_nat (by omega)
           c0_hstraight
           exact hJs _ _
             (defrag_scan_zero_inv hl_lt hn_le hmax_le hprev_le hwv1 hws1 hsz1 hoff1 hzero1 hcov1
@@ -128,21 +127,21 @@ theorem full_wstack_defrag_m6_wp (Γ : Env) (hΓ : Γ.Sat Spec.specs) :
         · have hszp : 0 < fullWatchSize s l.toNat := by
             rw [← hsz_eq]
             exact Nat.pos_of_ne_zero fun h0 => hc (BitVec.eq_of_toNat_eq (by
-              rw [fi_list_getElem_toNat_eq (by omega) hidx_eq, h0]; rfl))
+              rw [list_getElem_toNat_eq (by omega) hidx_eq, h0]; rfl))
           clear hc
           have hoff_eq_s : (wvec1[(l <<< (1 : Nat)).toNat]'hl2_lt).toNat =
               fullWatchOff s l.toNat := by
             have h1 := hoff1 l.toNat hl_lt hszp
             unfold fullWatchOff fullWatchOffCore; rw [← h1]
-            rw [fi_list_getElem_toNat_eq (by omega) hl2, List.getElem?_eq_getElem (by omega),
+            rw [list_getElem_toNat_eq (by omega) hl2, List.getElem?_eq_getElem (by omega),
               Option.getD_some]
           have hoff_le_cap : fullWatchOff s l.toNat ≤ c.wcap := by
             have := hlay.bounds l.toNat hl_lt; unfold fullWatchOff fullWatchSize at *; omega
           let off64 : BitVec 64 := (wvec1[(l <<< (1 : Nat)).toNat]'hl2_lt).setWidth 64
           have hoff64_nat : off64.toNat = fullWatchOff s l.toNat := by
             rw [zext_toNat _ (by decide), hoff_eq_s]
-          have hlp1 : (l + (1 : BitVec 64)).toNat = l.toNat + 1 := bv64_add_one_nat (by omega)
-          have hnp1 : (n + (1 : BitVec 64)).toNat = n.toNat + 1 := bv64_add_one_nat (by omega)
+          have hlp1 : (l + (1 : BitVec 64)).toNat = l.toNat + 1 := bv64_add1_nat (by omega)
+          have hnp1 : (n + (1 : BitVec 64)).toNat = n.toNat + 1 := bv64_add1_nat (by omega)
           have htr : (l.setWidth 32).toNat = l.toNat := by
             rw [BitVec.toNat_setWidth]; exact Nat.mod_eq_of_lt (by omega)
           let new_sorted : Bool := if off64.ult prev_off then false else sorted
@@ -158,11 +157,9 @@ theorem full_wstack_defrag_m6_wp (Γ : Env) (hΓ : Γ.Sat Spec.specs) :
                 (FullMem c { s with core := { s.core with wvec := wvec1 },
                                     scratch := { s.scratch with wsort := wsort1 } } ⋆ R) mJ2) ?_ ?_
             · rintro _ ⟨nmax, ⟨⟩⟩ mJ2 ⟨rfl, hmJ2⟩
-              have hn_ws_len : n.toNat < wsort1.length := by omega
               c0_hstraight
-              exact hJs _ _
-                (defrag_scan_pos_inv hl_lt hn_le hmax_le hprev_le hwv1 hws1 hn_ws_len hsz1 hoff1
-                  hzero1 hcov1 hmax_elt hsrt1 hszp hoff_le_cap hoff64_nat hlp1 hnp1 htr hm)
+              exact hJs _ _ (defrag_scan_pos_inv hl_lt hn_le hmax_le hprev_le hwv1 hws1 (by omega)
+                hsz1 hoff1 hzero1 hcov1 hmax_elt hsrt1 hszp hoff_le_cap hoff64_nat hlp1 hnp1 htr hm)
             · intro J2 hJ2; c0_hsplit
               · have hult2 : max_off.ult off64 = true := by
                   unfold BitVec.ult; rw [decide_eq_true_eq, zext_toNat _ (by decide)]; exact hc
@@ -193,8 +190,9 @@ theorem full_wstack_defrag_m6_wp (Γ : Env) (hΓ : Γ.Sat Spec.specs) :
         have hfin := defrag_finalize (s := s) (wvecC := wvec1)
           (wstkC := s.core.wstk.set 0 (0 : BitVec 32)) (wsort2 := wsort1) (n := 0) (p := 1)
           hlay (by simpa [hn0] using hcov1) (Nat.le_refl 1)
-          (fun j hj => by have := hsz1 j hj; unfold fullWatchSize fullWatchSizeCore; rw [this])
-          (fun j hj hz => by rw [hzero1 j hj hz]; rfl) (fun _ h => by omega) (fun _ h => by omega)
+          ⟨fun j hj => by have := hsz1 j hj; unfold fullWatchSize fullWatchSizeCore; rw [this],
+           fun j hj hz => by rw [hzero1 j hj hz]; rfl,
+           fun _ h => by omega, fun _ h => by omega, fun _ _ h => by omega⟩
         exact hQ wvec1 (s.core.wstk.set 0 (0 : BitVec 32)) 1 wsort1 _
           ⟨{ hcl with wvec_len := hwv1, wstk_len_arr := by simp [hwsl],
                       wlen_le := by dsimp only; omega }, { hsl with wsort_len := hws1 }⟩
@@ -213,7 +211,8 @@ theorem full_wstack_defrag_m6_wp (Γ : Env) (hΓ : Γ.Sat Spec.specs) :
                 hzero1 hwstk_pre hcov2 hm2))
             ?_
           · rintro JC ⟨p, i, ⟨⟩⟩ mC ⟨hp1, hple, hile, hp_off, wvecC, wstkC,
-              hwvC, hwsC, hszC, hzeroC, hdoneC, hdisjC, hremC, hmC⟩ hLoopC
+              hwvC, hwsC, hcopC, hmC⟩ hLoopC
+            have ⟨hszC, hzeroC, hdoneC, hdisjC, hremC⟩ := hcopC
             clear hm2; c0_hsplit
             · have hi_lt : i.toNat < n.toNat := hc; clear hc
               have hlit_info := hcov2.1 i.toNat hi_lt
@@ -221,22 +220,22 @@ theorem full_wstack_defrag_m6_wp (Γ : Env) (hΓ : Γ.Sat Spec.specs) :
               have hlit_eq : wi.toNat = Spec.wsVal wsort2 i.toNat := (wsVal_getElem (by omega)).symm
               have hlit_cv : wi.toNat < 2 * s.core.cur_vars := hlit_eq ▸ hlit_info.1
               have hlit2 : (wi.setWidth 64 <<< (1 : Nat)).toNat =
-                  2 * Spec.wsVal wsort2 i.toNat := by rw [bv64_lit2, hlit_eq]
+                  2 * Spec.wsVal wsort2 i.toNat := by rw [bv64_shl1_lit, hlit_eq]
               have hlit2p1 : ((wi.setWidth 64 <<< (1 : Nat)) + (1 : BitVec 64)).toNat =
-                  2 * Spec.wsVal wsort2 i.toNat + 1 := by rw [bv64_add_one_nat (by omega), hlit2]
+                  2 * Spec.wsVal wsort2 i.toNat + 1 := by rw [bv64_add1_nat (by omega), hlit2]
               have hlit2_lt : (wi.setWidth 64 <<< (1 : Nat)).toNat < wvecC.length := by omega
               have hlit2p1_lt :
                   ((wi.setWidth 64 <<< (1 : Nat)) + (1 : BitVec 64)).toNat < wvecC.length := by
                 omega
               have hoff_i : (wvecC[(wi.setWidth 64 <<< (1 : Nat)).toNat]'hlit2_lt).toNat =
                   fullWatchOff s (Spec.wsVal wsort2 i.toNat) := by
-                rw [fi_list_getElem_toNat_eq (by omega) hlit2]
+                rw [list_getElem_toNat_eq (by omega) hlit2]
                 have h1 := (hremC i.toNat (by omega) hi_lt).1
                 rwa [List.getElem?_eq_getElem (by omega), Option.getD_some] at h1
               have hsz_i : (wvecC[((wi.setWidth 64 <<< (1 : Nat)) +
                   (1 : BitVec 64)).toNat]'hlit2p1_lt).toNat =
                     fullWatchSize s (Spec.wsVal wsort2 i.toNat) := by
-                rw [fi_list_getElem_toNat_eq (by omega) hlit2p1]
+                rw [list_getElem_toNat_eq (by omega) hlit2p1]
                 have h1 := hszC _ hlit_info.1
                 rwa [List.getElem?_eq_getElem (by omega), Option.getD_some] at h1
               have hbd_i : fullWatchOff s (Spec.wsVal wsort2 i.toNat) +
@@ -245,7 +244,7 @@ theorem full_wstack_defrag_m6_wp (Γ : Env) (hΓ : Γ.Sat Spec.specs) :
               have hp_le_off := hp_off hi_lt
               have hps_le : p.toNat + fullWatchSize s (Spec.wsVal wsort2 i.toNat) ≤ s.core.wlen :=
                 by omega
-              have hip1 : (i + (1 : BitVec 64)).toNat = i.toNat + 1 := bv64_add_one_nat (by omega)
+              have hip1 : (i + (1 : BitVec 64)).toNat = i.toNat + 1 := bv64_add1_nat (by omega)
               have hpnxt :
                   (p + (wvecC[((wi.setWidth 64 <<< (1 : Nat)) + (1 : BitVec 64)).toNat]'
                     hlit2p1_lt).setWidth 64).toNat =
@@ -254,11 +253,11 @@ theorem full_wstack_defrag_m6_wp (Γ : Env) (hΓ : Γ.Sat Spec.specs) :
               c0_hstraight
               refine wp_join_group (ts := [])
                 (DefragCopyPost c s R wsort2 i.toNat p.toNat n.toNat) ?_ ?_
-              · rintro _ _ mD ⟨wvecD, wstkD, hwvD, hwsD, hszD, hzeroD, hdoneD, hdisjD, hremD, hmD⟩
+              · rintro _ _ mD ⟨wvecD, wstkD, hwvD, hwsD, hcopD, hmD⟩
                 c0_hstraight; dsimp only
                 exact hLoopC _ _ (by dsimp only; rw [hip1]; omega)
                   (defrag_compact_copy_next_inv hlay hcov2 hsrt2 hi_lt hp1 hp_le_off hps_le hip1
-                    hpnxt hwvD hwsD hszD hzeroD hdoneD hdisjD hremD hmD)
+                    hpnxt hwvD hwsD hcopD hmD)
               · intro JD hJD; clear hLoopC hQ
                 c0_hsplit
                 · have hne : fullWatchOff s (Spec.wsVal wsort2 i.toNat) ≠ p.toNat := by
@@ -268,7 +267,7 @@ theorem full_wstack_defrag_m6_wp (Γ : Env) (hΓ : Γ.Sat Spec.specs) :
                       change 2 * wi.toNat % 2 ^ 64 = _
                       rw [hlit2, hlit_eq, Nat.mod_eq_of_lt (by omega)]
                     exact (zext_toNat _ (by decide)).trans
-                      (by rw [fi_list_getElem_toNat_eq (by omega) h2m, hoff_i, heq])
+                      (by rw [list_getElem_toNat_eq (by omega) h2m, hoff_i, heq])
                   clear hc
                   refine wp_loop_inv (DefragKInv c s R wvecC wstkC wsort2 i.toNat p.toNat)
                     (fun (k, ()) _ => fullWatchSize s (Spec.wsVal wsort2 i.toNat) - k.toNat)
@@ -286,13 +285,13 @@ theorem full_wstack_defrag_m6_wp (Γ : Env) (hΓ : Γ.Sat Spec.specs) :
                         ((wi.setWidth 64 <<< (1 : Nat)) + (1 : BitVec 64)).toNat := by
                       change (2 * wi.toNat + 1) % 2 ^ 64 = _
                       rw [hlit2p1, hlit_eq, Nat.mod_eq_of_lt (by omega)]
-                    rw [fi_list_getElem_toNat_eq (by omega) h1, hsz_i]
+                    rw [list_getElem_toNat_eq (by omega) h1, hsz_i]
                   clear hmC; c0_hsplit
                   · have hk_lt : k.toNat < fullWatchSize s (Spec.wsVal wsort2 i.toNat) :=
                       hsz_i' ▸ hc
                     clear hc
                     have hkp1 : (k + (1 : BitVec 64)).toNat = k.toNat + 1 :=
-                      bv64_add_one_nat (by omega)
+                      bv64_add1_nat (by omega)
                     have hpk : (p + k).toNat = p.toNat + k.toNat := by
                       rw [BitVec.toNat_add, Nat.mod_eq_of_lt (by omega)]
                     have hok_eq :
@@ -316,28 +315,25 @@ theorem full_wstack_defrag_m6_wp (Γ : Env) (hΓ : Γ.Sat Spec.specs) :
                     have hp32 : (p.setWidth 32).toNat = p.toNat := by
                       rw [BitVec.toNat_setWidth]; exact Nat.mod_eq_of_lt (by omega)
                     rw [hk_eq] at hcopK hpostK; c0_hstraight
-                    have hinv := defrag_compact_copy_inv hi_lt hp1 hp32 hcov2 hlay hsrt2
-                      (by omega) hszC hzeroC hdoneC hdisjC hremC hpreK hpostK hcopK
+                    have hcopD := defrag_compact_copy_inv hi_lt hp1 hp32 hcov2 hlay hsrt2
+                      (by omega) hcopC hpreK hpostK hcopK
                     dsimp only at hm; rw [hlit2] at hm
-                    exact hJD _ _ ⟨_, wstkK, by rw [List.length_set, hwvC], hwsK,
-                      hinv.1, hinv.2.1, hinv.2.2.1, hinv.2.2.2.1, hinv.2.2.2.2, hm⟩
+                    exact hJD _ _ ⟨_, wstkK, by rw [List.length_set, hwvC], hwsK, hcopD, hm⟩
                 · have hoff_eq_p : fullWatchOff s (Spec.wsVal wsort2 i.toNat) = p.toNat := by
                     have h := congrArg BitVec.toNat hc
                     have h2m : 2 * wsort2[i.toNat].toNat % 2 ^ 64 =
                         (wi.setWidth 64 <<< (1 : Nat)).toNat := by
                       change 2 * wi.toNat % 2 ^ 64 = _
                       rw [hlit2, hlit_eq, Nat.mod_eq_of_lt (by omega)]
-                    rw [zext_toNat _ (by decide), fi_list_getElem_toNat_eq (by omega) h2m, hoff_i]
+                    rw [zext_toNat _ (by decide), list_getElem_toNat_eq (by omega) h2m, hoff_i]
                       at h
                     exact h
                   clear hc; c0_hstraight
-                  have hinv_k := defrag_compact_keep_inv hp1 hi_lt hdoneC hdisjC hremC hoff_eq_p
-                  exact hJD _ _ ⟨wvecC, wstkC, hwvC, hwsC, hszC, hzeroC, hinv_k.1, hinv_k.2,
-                    fun j hj1 hj2 => hremC j (by omega) hj2, hmC⟩
+                  exact hJD _ _ ⟨wvecC, wstkC, hwvC, hwsC,
+                    defrag_compact_keep_inv hp1 hi_lt hcopC hoff_eq_p, hmC⟩
             · have hi_eq : i.toNat = n.toNat := by omega
               clear hc; c0_hstraight
-              rw [hi_eq] at hdoneC hdisjC
-              have hfin := defrag_finalize hlay hcov2 hp1 hszC hzeroC hdoneC hdisjC
+              have hfin := defrag_finalize hlay hcov2 hp1 (hi_eq ▸ hcopC)
               exact hQ wvecC wstkC p.toNat wsort2 _
                 ⟨{ hcl with wvec_len := hwvC, wstk_len_arr := hwsC,
                             wlen_le := by dsimp only; omega }, { hsl with wsort_len := hws2 }⟩

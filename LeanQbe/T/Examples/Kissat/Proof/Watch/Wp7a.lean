@@ -5,6 +5,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 module
 
 public import LeanQbe.T.Examples.Kissat.Proof.Watch.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Watch.Helpers
 public import LeanQbe.T.Examples.Kissat.Src.Watch
 
 import LeanQbe.T.Examples.Kissat.Proof.Spec.Arena
@@ -40,14 +41,6 @@ open Kraken.Bedrock2.Test
 open scoped FullArenaTactics
 
 public section
-
-private theorem getElem_bv32_congr {xs : List (BitVec 32)} {i j : Nat} (h : i = j)
-    (hi : i < xs.length) (hj : j < xs.length) : xs[i]'hi = xs[j]'hj := by
-  subst h; rfl
-
-private theorem modeWatchesInv_eq_watches {F_cur : List (List Nat)} {k : FullCoreState}
-    (h : k.dense_mode = 0#64) : ModeWatchesInv F_cur k = WatchesInv F_cur k := by
-  unfold ModeWatchesInv; simp [h]
 
 private theorem watchSliceOk_append {F_cur : List (List Nat)} {k : FullCoreState}
     {lit p n1 n2 : Nat}
@@ -357,19 +350,17 @@ theorem full_prioritize_binaries_m6_wp (Γ : Env) (_hΓ : Γ.Sat Spec.specs)
       let off_n := fullWatchOff s0 l_v
       let sz_n := fullWatchSize s0 l_v
       have hoff_eq : (s0.core.wvec[(BitVec.ofNat 64 l_v <<< 1).toNat]'hw0_lt).toNat = off_n := by
-        rw [getElem_bv32_congr hl_w0 hw0_lt h2l0]
+        rw [list_getElem_congr hw0_lt hl_w0]
         unfold off_n fullWatchOff fullWatchOffCore
         rw [List.getElem?_eq_getElem h2l0, Option.getD_some]
       have hsz_eq : (s0.core.wvec[(BitVec.ofNat 64 l_v <<< 1 + 1).toNat]'hw1_lt).toNat = sz_n := by
-        rw [getElem_bv32_congr hl_w1 hw1_lt h2l1]
+        rw [list_getElem_congr hw1_lt hl_w1]
         unfold sz_n fullWatchSize fullWatchSizeCore
         rw [List.getElem?_eq_getElem h2l1, Option.getD_some]
       have hslice_l : WatchSliceOk F_cur sl.core l_v off_n sz_n := hmw.slices l_v hl_lt
       have hend_n : off_n + sz_n ≤ c.wcap := Nat.le_trans hbd hwl_le
-      have hl1_bv : BitVec.ofNat 64 l_v + 1 = BitVec.ofNat 64 (l_v + 1) := by
-        apply BitVec.eq_of_toNat_eq
-        simp only [BitVec.toNat_add, BitVec.toNat_ofNat, Nat.reducePow, h1_64]
-        omega
+      have hl1_bv : BitVec.ofNat 64 l_v + 1 = BitVec.ofNat 64 (l_v + 1) :=
+        bv64_ofNat_add1 (by omega)
       c0_hstraight
       let InvJo : Bool × List (BitVec 32) × List (BitVec 32) → Mem 64 → Prop :=
         fun st mj =>
@@ -402,7 +393,7 @@ theorem full_prioritize_binaries_m6_wp (Γ : Env) (_hΓ : Γ.Sat Spec.specs)
         have h_wvec_l0 :
             sl.core.wvec[2 * (l_v % 2 ^ 64) % 2 ^ 64]'(by rw [h_idx0_eq]; exact h2l0) =
               s0.core.wvec[2 * l_v]'h2l0 :=
-          getElem_bv32_congr h_idx0_eq _ h2l0
+          list_getElem_congr _ h_idx0_eq
         have hoff_wv : (s0.core.wvec[2 * l_v]'h2l0).toNat = off_n := by
           unfold off_n fullWatchOff fullWatchOffCore
           rw [List.getElem?_eq_getElem h2l0, Option.getD_some]
@@ -412,7 +403,7 @@ theorem full_prioritize_binaries_m6_wp (Γ : Env) (_hΓ : Γ.Sat Spec.specs)
         have h_wvec_l1 :
             sl.core.wvec[(2 * (l_v % 2 ^ 64) + (1 : BitVec 64).toNat) % 2 ^ 64]'(by
               rw [h_idx1_eq]; exact h2l1) = s0.core.wvec[2 * l_v + 1]'h2l1 :=
-          getElem_bv32_congr h_idx1_eq _ h2l1
+          list_getElem_congr _ h_idx1_eq
         have hsz_wv : (s0.core.wvec[2 * l_v + 1]'h2l1).toNat = sz_n := by
           unfold sz_n fullWatchSize fullWatchSizeCore
           rw [List.getElem?_eq_getElem h2l1, Option.getD_some]
@@ -620,6 +611,8 @@ theorem full_prioritize_binaries_m6_wp (Γ : Env) (_hΓ : Γ.Sat Spec.specs)
                           Nat.mod_eq_of_lt (show ln_v < 2 ^ 64 by omega)] at hc
                         omega
                       c0_hsteps
+                      have hq_add : off_n + (q_v - off_n) = q_v := by omega
+                      have hsz_add : (q_v - off_n) + ln_v = sz_n := by omega
                       have hbin_k : WatchSliceOk F_cur { s0.core with wstk := wstk_k } l_v
                           off_n (q_v - off_n) :=
                         hbin_p.mono (k := { s0.core with wstk := wstk_p })
@@ -631,13 +624,10 @@ theorem full_prioritize_binaries_m6_wp (Γ : Env) (_hΓ : Γ.Sat Spec.specs)
                         largeWatchBuf_to_slice (k := { s0.core with wstk := wstk_k })
                           (by simpa [LargeWatchBufOk, fullArenaClauseRefsCore] using hbuf_p)
                           (fun j hj => hcp_k j (by omega))
-                      have hcomb : WatchSliceOk F_cur { s0.core with wstk := wstk_k } l_v
-                          off_n sz_n := by
-                        have hq_add : off_n + (q_v - off_n) = q_v := by omega
-                        have hsz_add : (q_v - off_n) + ln_v = sz_n := by omega
-                        rw [← hsz_add]; exact watchSliceOk_append hbin_k (by rwa [hq_add])
+                      have hwa := watchSliceOk_append hbin_k (by rwa [hq_add])
+                      rw [hsz_add] at hwa
                       exact hJs (all_p, wstk_k, scr_p) mk
-                        ⟨prio_replace_slice_sparse hsp_l hl_lt hwkl hspl_p hout_k hcomb, hm_k⟩
+                        ⟨prio_replace_slice_sparse hsp_l hl_lt hwkl hspl_p hout_k hwa, hm_k⟩
         · c0_hsteps
           exact hJo (all_p, wstk_l, scr_l) ml ⟨hsp_l, hm_l⟩
     · c0_hsteps

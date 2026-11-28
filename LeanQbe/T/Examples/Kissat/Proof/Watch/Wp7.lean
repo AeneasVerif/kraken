@@ -5,6 +5,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 module
 
 public import LeanQbe.T.Examples.Kissat.Proof.Watch.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Watch.Helpers
 public import LeanQbe.T.Examples.Kissat.Src.Watch
 
 import LeanQbe.T.Examples.Kissat.Proof.Spec.Arena
@@ -15,6 +16,7 @@ import LeanQbe.T.Examples.Kissat.Proof.Spec.Tactics
 import LeanQbe.T.Examples.Kissat.Proof.Spec.Tactics1
 import LeanQbe.T.Examples.Kissat.Proof.Spec.MemBridges
 import LeanQbe.T.Logic.C0HeadStep
+import LeanQbe.T.Logic.C0Grind
 import LeanQbe.T.Logic.ControlComb
 
 /-! # Watch WP Proofs Part 7: `full_has_ternary`
@@ -28,6 +30,7 @@ namespace LeanQbe.T.Examples.Kissat.Proof.Watch
 
 open Std Std.Sat Std.ExtHashMap
 open LeanQbe.T
+open LeanQbe.T.C0Grind
 open LeanQbe.T.ProofUtil
 open LeanQbe.T.C0Step
 open LeanQbe.T.Examples.Kissat
@@ -39,43 +42,13 @@ open scoped FullArenaTactics
 
 public section
 
-private theorem ht_getElem_congr {α : Type} {xs : List α} {i j : Nat} (h : i = j)
-    (hi : i < xs.length) (hj : j < xs.length) : xs[i]'hi = xs[j]'hj := by
-  subst h; rfl
-
-private theorem ht_shl1_bv32 (x : BitVec 32) :
-    (BitVec.setWidth 64 x <<< 1).toNat = 2 * x.toNat := by
-  rw [BitVec.toNat_shiftLeft, BitVec.toNat_setWidth,
-    Nat.mod_eq_of_lt (by omega : x.toNat < 2 ^ 64), Nat.shiftLeft_eq, Nat.pow_one,
-    Nat.mul_comm, Nat.mod_eq_of_lt (by omega)]
-
-private theorem ht_shl1_add1_bv32 (x : BitVec 32) :
-    (BitVec.setWidth 64 x <<< 1 + 1).toNat = 2 * x.toNat + 1 := by
-  have h1 : (1 : BitVec 64).toNat = 1 := rfl
-  rw [BitVec.toNat_add, ht_shl1_bv32, h1, Nat.mod_eq_of_lt (by omega)]
-
 private theorem ht_wvec_get {c : FullCfg} {k : FullCoreState} (hl : k.LengthsOk c)
     (_hcv : c.max_vars < 2 * 2 ^ 28) (x : BitVec 32) (hx : x.toNat < 2 * k.cur_vars)
     (hw1 : (BitVec.setWidth 64 x <<< 1 + 1).toNat < k.wvec.length) :
     k.wvec[(BitVec.setWidth 64 x <<< 1 + 1).toNat]'hw1 = k.wvec[2 * x.toNat + 1]?.getD 0#32 := by
   have hcv_le := hl.cur_vars_le; have hwvl := hl.wvec_len
-  rw [ht_getElem_congr (ht_shl1_add1_bv32 x) hw1 (by omega),
+  rw [list_getElem_congr hw1 (bv64_shl1_add1_lit x),
     List.getElem?_eq_getElem (by omega), Option.getD_some]
-
-private theorem ht_bv64_add1 {x : Nat} (hx : x + 1 < 2 ^ 64) :
-    BitVec.ofNat 64 x + 1 = BitVec.ofNat 64 (x + 1) := by
-  have h1 : (1 : BitVec 64).toNat = 1 := rfl
-  exact BitVec.eq_of_toNat_eq (by
-    simp only [BitVec.toNat_add, BitVec.toNat_ofNat, h1,
-      Nat.mod_eq_of_lt (show x < 2 ^ 64 by omega), Nat.mod_eq_of_lt hx])
-
-private theorem ht_modeWatchesInv_eq_watches {F_cur : List (List Nat)} {k : FullCoreState}
-    (h : k.dense_mode = 0#64) : ModeWatchesInv F_cur k = WatchesInv F_cur k := by
-  unfold ModeWatchesInv; simp [h]
-
-private theorem ht_modeWatchesInv_eq_dense {F_cur : List (List Nat)} {k : FullCoreState}
-    (h : k.dense_mode ≠ 0#64) : ModeWatchesInv F_cur k = DenseWatchesInv F_cur k := by
-  unfold ModeWatchesInv; simp [h]
 
 private theorem ht_slice_pop_step {F_cur : List (List Nat)} {k : FullCoreState} {a p rem : Nat}
     (hslice : if k.dense_mode = 0#64 then WatchSliceOk F_cur k a p rem
@@ -105,12 +78,12 @@ private theorem ht_slice_pop_step {F_cur : List (List Nat)} {k : FullCoreState} 
 private theorem ht_garb_false_of_and_480000 {hdr : BitVec 32}
     (h : (hdr &&& 0x00480000#32) = 0#32) :
     ((hdr &&& 0x00080000#32) != 0#32) = false := by
-  have hmask : (0x00480000#32 : BitVec 32) &&& 0x00080000#32 = 0x00080000#32 := by decide
-  have hb : (hdr &&& 0x00080000#32) = 0#32 := by
-    calc hdr &&& 0x00080000#32 = hdr &&& (0x00480000#32 &&& 0x00080000#32) := by rw [hmask]
-      _ = (hdr &&& 0x00480000#32) &&& 0x00080000#32 := by rw [BitVec.and_assoc]
+  have hz : (hdr &&& 0x00080000#32) = 0#32 := by
+    calc hdr &&& 0x00080000#32
+        = (hdr &&& 0x00480000#32) &&& 0x00080000#32 := by
+          rw [BitVec.and_assoc, show (0x00480000#32 &&& 0x00080000#32) = 0x00080000#32 by decide]
       _ = 0#32 := by rw [h]; decide
-  simp [hb]
+  simp [hz]
 
 private theorem ht_not_mem_erase_of_nodup {α : Type} [BEq α] [LawfulBEq α] :
     ∀ {xs : List α} {x : α}, xs.Nodup → x ∉ xs.erase x
@@ -252,21 +225,6 @@ private theorem ht_ternary_of_unassigned_hits {c : FullCfg} {F0 : CNF Nat}
       hl_true] at hsat_u
     cases hsat_u
 
-private theorem bv32_or_and_left (x y k : BitVec 32) (h : x &&& k ≠ 0#32) :
-    (x ||| y) &&& k ≠ 0#32 := by
-  intro hz; apply h; apply BitVec.eq_of_toNat_eq; apply Nat.eq_of_testBit_eq; intro i
-  have hi := congrArg (fun v : BitVec 32 => v.toNat.testBit i) hz
-  simp only [BitVec.toNat_and, BitVec.toNat_or, Nat.testBit_and, Nat.testBit_or,
-    BitVec.toNat_ofNat, Nat.zero_mod, Nat.zero_testBit] at hi ⊢
-  cases hx : x.toNat.testBit i <;> cases hk : k.toNat.testBit i <;> simp_all
-
-private theorem bv32_or_and_right (x y k : BitVec 32) (h : y &&& k ≠ 0#32) :
-    (x ||| y) &&& k ≠ 0#32 := by
-  rw [BitVec.or_comm]; exact bv32_or_and_left y x k h
-
-private theorem bv32_and_eq_zero_iff (a b : BitVec 32) :
-    (a &&& b ≠ 0#32) → (a &&& b = 0#32 → False) := fun h he => h he
-
 private def HtClauseInv (s : FullState) (a b cl : BitVec 32) (cr sz : Nat)
     (dist : Bool) (st : Nat × BitVec 32 × Nat) : Prop :=
   let (nf, mask, i) := st
@@ -284,31 +242,27 @@ private def HtClauseInv (s : FullState) (a b cl : BitVec 32) (cr sz : Nat)
 
 private theorem ht_sext8_eq_zero {x : BitVec 8}
     (h : BitVec.signExtend 32 x = 0#32) : x = 0#8 := by
-  apply BitVec.eq_of_getElem_eq; intro i hi
-  have hi32 := congrArg (fun v : BitVec 32 => v[i]'(by omega)) h
-  simpa [BitVec.getElem_signExtend, hi] using hi32
+  c0_bv_bit_grind
 
 private theorem ht_take_succ {α : Type} :
     ∀ (xs : List α) {i : Nat} (hi : i < xs.length),
       xs.take (i + 1) = xs.take i ++ [xs[i]'hi]
   | [], _, hi => nomatch hi
-  | x :: xs, 0, _ => by simp
+  | _ :: _, 0, _ => by simp
   | x :: xs, i + 1, hi => by
     simp only [List.take_succ_cons, List.cons_append, List.getElem_cons_succ]
     congr 1; exact ht_take_succ xs (Nat.lt_of_succ_lt_succ hi)
 
 private theorem ht_or_and_ne_zero (x y k : BitVec 32) (h : (x ||| y) &&& k ≠ 0#32) :
     x &&& k ≠ 0#32 ∨ y &&& k ≠ 0#32 := by
-  by_cases hx : x &&& k = 0#32
-  · by_cases hy : y &&& k = 0#32
-    · exfalso; apply h; apply BitVec.eq_of_toNat_eq; apply Nat.eq_of_testBit_eq; intro i
-      have h1 := congrArg (fun v : BitVec 32 => v.toNat.testBit i) hx
-      have h2 := congrArg (fun v : BitVec 32 => v.toNat.testBit i) hy
-      simp only [BitVec.toNat_and, BitVec.toNat_or, Nat.testBit_and, Nat.testBit_or,
-        BitVec.toNat_ofNat, Nat.zero_mod, Nat.zero_testBit] at h1 h2 ⊢
-      cases hx' : x.toNat.testBit i <;> cases hy' : y.toNat.testBit i <;>
-        cases hk' : k.toNat.testBit i <;> simp_all
-    · exact Or.inr hy
+  by_cases hx : x &&& k = 0#32 <;> by_cases hy : y &&& k = 0#32
+  · exfalso; apply h
+    have hd : (x ||| y) &&& k = (x &&& k) ||| (y &&& k) := BitVec.eq_of_getLsbD_eq fun i => by
+      simp only [BitVec.getLsbD_and, BitVec.getLsbD_or]
+      intro _; cases x.getLsbD i <;> cases y.getLsbD i <;> cases k.getLsbD i <;> rfl
+    rw [hd, hx, hy, BitVec.or_zero]
+  · exact Or.inr hy
+  · exact Or.inl hx
   · exact Or.inl hx
 
 private theorem ht_lits_take_succ {s : FullState} {cr i : Nat}
@@ -397,26 +351,8 @@ private theorem ht_hit_flags (lit a b cl : BitVec 32) :
     ((e3 &&& 4#32) ≠ 0#32 → lit = cl) := by
   dsimp only
   refine ⟨fun h => ?_, fun h => ?_, fun h => ?_⟩ <;>
-    by_cases ha : lit = a <;> by_cases hb : lit = b <;> by_cases hc : lit = cl <;>
-    (repeat' first
-      | rw [ite_eq_left hc] at h
-      | rw [ite_eq_right hc] at h
-      | rw [ite_eq_left hb] at h
-      | rw [ite_eq_right hb] at h
-      | rw [ite_eq_left ha] at h
-      | rw [ite_eq_right ha] at h) <;>
-    first | assumption | exact absurd h (by decide)
-
-private theorem ht_watch_slice_at {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
-    {k : FullCoreState} (hw : FullWitnessInv c F0 F_cur k) {scan : Nat}
-    (hsc : scan < 2 * k.cur_vars) :
-    if k.dense_mode = 0#64 then
-      WatchSliceOk F_cur k scan (fullWatchOffCore k scan) (fullWatchSizeCore k scan)
-    else DenseWatchSliceOk F_cur k scan (fullWatchOffCore k scan) (fullWatchSizeCore k scan) := by
-  have hwat := hw.watches
-  by_cases hdm : k.dense_mode = 0#64
-  · rw [ht_modeWatchesInv_eq_watches hdm] at hwat; simp [hdm, hwat.slices scan hsc]
-  · rw [ht_modeWatchesInv_eq_dense hdm] at hwat; simp [hdm, hwat.slices scan hsc]
+    (by_cases h1 : lit = a <;> by_cases h2 : lit = b <;> by_cases h3 : lit = cl <;>
+      simp_all <;> exact absurd h (by decide))
 
 private theorem ht_clause_garb_false {s : FullState} {cr : Nat}
     (harr : cr < s.core.arena.length)
@@ -482,7 +418,7 @@ theorem full_has_ternary_wp (Γ : Env) (_hΓ : Γ.Sat Spec.specs)
   have h1_64 : (1 : BitVec 64).toNat = 1 := rfl
   have h2_64 : (2 : BitVec 64).toNat = 2 := rfl
   have ha_v : a.toNat < s.core.vals.length := by omega
-  have ha_sh1 : (BitVec.setWidth 64 a <<< 1 + 1).toNat = 2 * a.toNat + 1 := ht_shl1_add1_bv32 a
+  have ha_sh1 : (BitVec.setWidth 64 a <<< 1 + 1).toNat = 2 * a.toNat + 1 := bv64_shl1_add1_lit a
   have ha_w1 : (BitVec.setWidth 64 a <<< 1 + 1).toNat < s.core.wvec.length := by omega
   have h2cv_64 : (BitVec.ofNat 64 s.core.cur_vars <<< 1).toNat = 2 * s.core.cur_vars := by
     rw [BitVec.toNat_shiftLeft, BitVec.toNat_ofNat,
@@ -520,7 +456,7 @@ theorem full_has_ternary_wp (Γ : Env) (_hΓ : Γ.Sat Spec.specs)
             subst md
             c0_hstraight
             have hsc_bd := hw.watches.bounds scan.toNat hsc_lt
-            have hsc_sh0 := ht_shl1_bv32 scan; have hsc_sh1 := ht_shl1_add1_bv32 scan
+            have hsc_sh0 := bv64_shl1_lit scan; have hsc_sh1 := bv64_shl1_add1_lit scan
             have hsc_w0 : (BitVec.setWidth 64 scan <<< 1).toNat < s.core.wvec.length := by omega
             have hsc_w1 : (BitVec.setWidth 64 scan <<< 1 + 1).toNat < s.core.wvec.length := by
               omega
@@ -529,7 +465,7 @@ theorem full_has_ternary_wp (Γ : Env) (_hΓ : Γ.Sat Spec.specs)
             let wsz_bv := min_sz.setWidth 64
             have hoff_n : off_bv.toNat = fullWatchOffCore s.core scan.toNat := by
               dsimp only [off_bv]
-              rw [BitVec.toNat_setWidth, ht_getElem_congr hsc_sh0 hsc_w0 (by omega)]
+              rw [BitVec.toNat_setWidth, list_getElem_congr hsc_w0 hsc_sh0]
               unfold fullWatchOffCore
               rw [List.getElem?_eq_getElem (by omega), Option.getD_some,
                 Nat.mod_eq_of_lt (by omega)]
@@ -538,12 +474,12 @@ theorem full_has_ternary_wp (Γ : Env) (_hΓ : Γ.Sat Spec.specs)
               unfold fullWatchSizeCore; rw [Nat.mod_eq_of_lt (by omega)]
             have hend_n : (off_bv + wsz_bv).toNat = off_bv.toNat + wsz_bv.toNat := by
               rw [BitVec.toNat_add, hoff_n, hwsz_n, Nat.mod_eq_of_lt (by omega)]
-            have hslice0 := ht_watch_slice_at hw hsc_lt
+            have hslice0 := modeWatchesInv_slice_mode hw.watches hsc_lt
             have h_idx0 : 2 * scan.toNat % 2 ^ 64 = 2 * scan.toNat := Nat.mod_eq_of_lt (by omega)
             have h_end_raw :
                 (s.core.wvec[2 * scan.toNat % 2 ^ 64]'(by rw [h_idx0]; omega)).toNat +
                     min_sz.toNat = (off_bv + wsz_bv).toNat := by
-              rw [ht_getElem_congr h_idx0 _ (by omega), hend_n, hoff_n, hwsz_n, hmin_eq]
+              rw [list_getElem_congr _ h_idx0, hend_n, hoff_n, hwsz_n, hmin_eq]
               unfold fullWatchOffCore fullWatchSizeCore
               rw [List.getElem?_eq_getElem (by omega), List.getElem?_eq_getElem (by omega)]
               simp only [Option.getD_some]
@@ -582,7 +518,7 @@ theorem full_has_ternary_wp (Γ : Env) (_hΓ : Γ.Sat Spec.specs)
                   c0_hstraight
                   c0_hsplit
                   · rcases hcase with ⟨_, hrest⟩ | ⟨hf0, _⟩
-                    · c0_hsteps; rw [ht_bv64_add1 (by omega)]
+                    · c0_hsteps; rw [bv64_ofNat_add1 (by omega)]
                       exact ih (p + 1) m0 (by omega)
                         ⟨rfl, by omega, by omega, by simpa [Nat.sub_sub] using hrest⟩
                     · exfalso
@@ -599,20 +535,20 @@ theorem full_has_ternary_wp (Γ : Env) (_hΓ : Γ.Sat Spec.specs)
                       have hcr_wf := hw.arena.refs_wf cr.toNat hcr_ref
                       have hcr_arr : cr.toNat < s.core.arena.length := by omega
                       have hp2_bv : BitVec.ofNat 64 p + 1 + 1 = BitVec.ofNat 64 (p + 2) := by
-                        rw [ht_bv64_add1 (by omega), ht_bv64_add1 (by omega)]
+                        rw [bv64_ofNat_add1 (by omega), bv64_ofNat_add1 (by omega)]
                       c0_hsplit
                       · exfalso
                         rw [h1_64, Nat.mod_eq_of_lt (show p + 1 < 2 ^ 64 by omega), h_end_raw,
                           Nat.mod_eq_of_lt (show (off_bv + wsz_bv).toNat < 2 ^ 64 by omega)] at hc
                         omega
                       · have hp1_n : (BitVec.ofNat 64 p + 1).toNat = p + 1 := by
-                          rw [ht_bv64_add1 (by omega), BitVec.toNat_ofNat,
+                          rw [bv64_ofNat_add1 (by omega), BitVec.toNat_ofNat,
                             Nat.mod_eq_of_lt (by omega)]
                         have hcr_64 : (cr.setWidth 64).toNat = cr.toNat := by
                           rw [BitVec.toNat_setWidth, Nat.mod_eq_of_lt (by omega)]
                         have hstk_cr : s.core.wstk[(BitVec.ofNat 64 p + 1).toNat]'(by
                             rw [hp1_n]; exact hp1_w) = cr := by
-                          rw [ht_getElem_congr hp1_n _ hp1_w, hcr_eq]
+                          rw [list_getElem_congr _ hp1_n, hcr_eq]
                         have hcr0_w : (BitVec.setWidth 64 (s.core.wstk[(BitVec.ofNat 64 p +
                             1).toNat]'(by rw [hp1_n]; exact hp1_w))).toNat <
                             s.core.arena.length := by
@@ -628,14 +564,14 @@ theorem full_has_ternary_wp (Γ : Env) (_hΓ : Γ.Sat Spec.specs)
                         have hstk_cr_mod :
                             s.core.wstk[(p + (1 : BitVec 64).toNat) % 2 ^ 64]'(by
                               rw [hp1_mod]; exact hp1_w) = cr := by
-                          rw [ht_getElem_congr hp1_mod _ hp1_w, hcr_eq]
+                          rw [list_getElem_congr _ hp1_mod, hcr_eq]
                         c0_hsplit
                         · c0_hsteps; rw [hp2_bv]
                           exact ih (p + 2) m0 (by omega)
                             ⟨rfl, by omega, by omega, by simpa [Nat.sub_sub] using hrest2⟩
                         · have hng : fullArenaClauseGarb s cr.toNat = false := by
-                            have hhdr_eq := ht_getElem_congr (congrArg BitVec.toNat hstk_cr_mod)
-                              (by rw [hstk_cr_mod]; exact hcr_arr) hcr_arr
+                            have hhdr_eq := list_getElem_congr (by rw [hstk_cr_mod]; exact hcr_arr)
+                              (congrArg BitVec.toNat hstk_cr_mod)
                             rw [hhdr_eq] at hc
                             exact ht_clause_garb_false hcr_arr hc
                           clear hc; c0_hsplit
@@ -717,8 +653,14 @@ theorem full_has_ternary_wp (Γ : Env) (_hΓ : Γ.Sat Spec.specs)
                                         (2 : BitVec 64).toNat) % 2 ^ 64]'(by
                                         rw [hcr2_mod_idx]; omega)).toNat) % 2 ^ 64 =
                                       cr.toNat + 3 + sz_n := by
-                                  rw [ht_getElem_congr hcr2_mod_idx _ (by omega),
-                                    hstk_cr_mod, h3_64]
+                                  have h_sz_get : s.core.arena[((s.core.wstk[(p +
+                                      (1 : BitVec 64).toNat) % 2 ^ 64]'(by
+                                      rw [hp1_mod]; exact hp1_w)).toNat +
+                                      (2 : BitVec 64).toNat) % 2 ^ 64]'(by
+                                      rw [hcr2_mod_idx]; omega) =
+                                      s.core.arena[cr.toNat + 2]'(by omega) :=
+                                    list_getElem_congr _ hcr2_mod_idx
+                                  rw [h_sz_get, congrArg BitVec.toNat hstk_cr_mod, h3_64]
                                   unfold sz_n fullArenaClauseSizeCore
                                   rw [List.getElem?_eq_getElem (by omega), Option.getD_some,
                                     Nat.mod_eq_of_lt (by omega)]
@@ -728,7 +670,7 @@ theorem full_has_ternary_wp (Γ : Env) (_hΓ : Γ.Sat Spec.specs)
                                   have hi_arr : (BitVec.ofNat 64 (cr.toNat + 3 + i_v)).toNat <
                                       s.core.arena.length := by rw [hidx_bv]; omega
                                   let lit := s.core.arena[cr.toNat + 3 + i_v]'(by omega)
-                                  have hl_get := ht_getElem_congr hidx_bv hi_arr (by omega)
+                                  have hl_get := list_getElem_congr hi_arr hidx_bv
                                   obtain ⟨_, hl_v0⟩ :=
                                     ht_clause_lit_lt hw hcl hcr_ref hng rfl (by omega) hi_lt
                                   have hl_bv_n : (BitVec.setWidth 64 (s.core.arena[(BitVec.ofNat 64
@@ -740,16 +682,16 @@ theorem full_has_ternary_wp (Γ : Env) (_hΓ : Γ.Sat Spec.specs)
                                   have hstep_idx : BitVec.ofNat 64 (cr.toNat + 3 + i_v) + 1 =
                                       BitVec.ofNat 64 (cr.toNat + 3 + (i_v + 1)) := by
                                     simpa [Nat.add_assoc] using
-                                      ht_bv64_add1 (by omega : cr.toNat + 3 + i_v + 1 < 2 ^ 64)
+                                      bv64_ofNat_add1 (by omega : cr.toNat + 3 + i_v + 1 < 2 ^ 64)
                                   let v_val := s.core.vals[lit.toNat]'hl_v0
                                   have hm_idx := Nat.mod_eq_of_lt hi_lt64
                                   have hl_mod_eq : ∀ prf,
                                       s.core.arena[(cr.toNat + 3 + i_v) % 2 ^ 64]'prf = lit :=
-                                    fun _ => ht_getElem_congr hm_idx _ (by omega)
+                                    fun _ => list_getElem_congr _ hm_idx
                                   have hval_mod_eq : ∀ prf1 prf2,
                                       s.core.vals[(s.core.arena[(cr.toNat + 3 + i_v) %
                                         2 ^ 64]'prf1).toNat]'prf2 = v_val := fun _ _ =>
-                                    ht_getElem_congr (congrArg BitVec.toNat (hl_mod_eq _)) _ hl_v0
+                                    list_getElem_congr _ (congrArg BitVec.toNat (hl_mod_eq _))
                                   have hv_get' : s.core.vals[lit.toNat]?.getD 0#8 = v_val := by
                                     rw [List.getElem?_eq_getElem hl_v0, Option.getD_some]
                                   have h1_32 : (1 : BitVec 32).toNat = 1 := rfl
@@ -799,22 +741,22 @@ theorem full_has_ternary_wp (Γ : Env) (_hΓ : Γ.Sat Spec.specs)
                                             apply wp_join_state (fun hit : BitVec 32 => (hit, ()))
                                               (fun hit mh => mh = m0 ∧ hit = exp2)
                                             · rintro _ hit2 mh2 ⟨hmh2, rfl⟩; subst mh2; c0_hstraight
-                                              apply wp_join_state (fun hit : BitVec 32 => (hit, ()))
+                                              apply wp_join_state
+                                                (fun hit : BitVec 32 => (hit, ()))
                                                 (fun hit mh => mh = m0 ∧ hit = exp3)
-                                              · rintro _ hit3 mh3 ⟨hmh3, rfl⟩
-                                                subst mh3; c0_hstraight
+                                              · rintro _ hit3 mh3 ⟨hmh3, rfl⟩; subst mh3
+                                                c0_hstraight
                                                 apply wp_join0 (fun m5 =>
                                                   m5 = m0 ∧ (dist = true → exp3 ≠ 0#32))
-                                                · intro _ m5 ⟨hm5, _⟩
-                                                  subst m5; c0_hsteps; rw [hnf_add]
+                                                · intro _ m5 ⟨hm5, _⟩; subst m5; c0_hsteps
+                                                  rw [hnf_add]
                                                   have hfl := ht_hit_flags lit a b cl
                                                   exact hJs1 (nf_i + 1, mask_i ||| exp3) m0
                                                     ⟨rfl, hnf1_le,
                                                       ht_clause_step_unassigned rfl (by omega) hi_lt
                                                         hi_inv (hv_get'.trans hv_eq0)
                                                         (fun h => congrArg BitVec.toNat (hfl.1 h))
-                                                        (fun h =>
-                                                          congrArg BitVec.toNat (hfl.2.1 h))
+                                                        (fun h => congrArg BitVec.toNat (hfl.2.1 h))
                                                         (fun h =>
                                                           congrArg BitVec.toNat (hfl.2.2 h))⟩
                                                 · intro J5 hJ5; c0_hsplit
@@ -849,17 +791,13 @@ theorem full_has_ternary_wp (Γ : Env) (_hΓ : Γ.Sat Spec.specs)
           · intro Jd hJd
             c0_hsplit
             · c0_hsplit
-              · c0_hsplit
-                · c0_hsteps; exact hJd true m0 ⟨rfl, by simp_all⟩
-                · c0_hsteps; exact hJd false m0 ⟨rfl, by simp_all⟩
+              · c0_hsplit <;> c0_hsteps <;> exact hJd _ m0 ⟨rfl, by simp_all⟩
               · c0_hsteps; exact hJd false m0 ⟨rfl, by simp_all⟩
             · c0_hsteps; exact hJd false m0 ⟨rfl, by simp_all⟩
-      · intro Jc hJc
-        c0_hsplit
+      · intro Jc hJc; c0_hsplit
         · have hcl_lt : cl.toNat < 2 * s.core.cur_vars := by
             simp only [Nat.mod_eq_of_lt (show s.core.cur_vars < 2 ^ 64 by omega),
-              Nat.mod_eq_of_lt (show 2 * s.core.cur_vars < 2 ^ 64 by omega)] at hc
-            exact hc
+              Nat.mod_eq_of_lt (show 2 * s.core.cur_vars < 2 ^ 64 by omega)] at hc; exact hc
           have hcl_v : cl.toNat < s.core.vals.length := by omega
           c0_hsplit
           · c0_hsteps; exact hQ false (fun h => by cases h)
@@ -867,10 +805,9 @@ theorem full_has_ternary_wp (Γ : Env) (_hΓ : Γ.Sat Spec.specs)
             apply wp_join_state (fun st : BitVec 32 × BitVec 32 => (st.1, st.2, ()))
               (fun st m1 => m1 = m0 ∧ st.1.toNat < 2 * s.core.cur_vars ∧
                 st.2 = s.core.wvec[2 * st.1.toNat + 1]?.getD 0#32)
-            · intro _ ⟨sc', mn'⟩ m1 hm1
-              c0_hsteps; exact hJc (sc', mn') m1 hm1
+            · intro _ ⟨sc', mn'⟩ m1 hm1; c0_hsteps; exact hJc (sc', mn') m1 hm1
             · intro Jc' hJc'
-              have hcl_sh1 := ht_shl1_add1_bv32 cl
+              have hcl_sh1 := bv64_shl1_add1_lit cl
               have hcl_w1 : (BitVec.setWidth 64 cl <<< 1 + 1).toNat < s.core.wvec.length := by
                 omega
               c0_hsplit
@@ -878,12 +815,10 @@ theorem full_has_ternary_wp (Γ : Env) (_hΓ : Γ.Sat Spec.specs)
                 exact hJc' (cl, s.core.wvec[2 * cl.toNat + 1]?.getD 0#32) m0 ⟨rfl, hcl_lt, rfl⟩
               · c0_hsteps; exact hJc' (scan1, min1) m0 ⟨rfl, hsc1_lt, hmin1⟩
         · c0_hsteps; exact hJc (scan1, min1) m0 ⟨rfl, hsc1_lt, hmin1⟩
-    · intro Jb hJb
-      c0_hsplit
+    · intro Jb hJb; c0_hsplit
       · have hb_lt : b.toNat < 2 * s.core.cur_vars := by
           simp only [Nat.mod_eq_of_lt (show s.core.cur_vars < 2 ^ 64 by omega),
-            Nat.mod_eq_of_lt (show 2 * s.core.cur_vars < 2 ^ 64 by omega)] at hc
-          exact hc
+            Nat.mod_eq_of_lt (show 2 * s.core.cur_vars < 2 ^ 64 by omega)] at hc; exact hc
         have hb_v : b.toNat < s.core.vals.length := by omega
         c0_hsplit
         · c0_hsteps; exact hQ false (fun h => by cases h)
@@ -891,10 +826,9 @@ theorem full_has_ternary_wp (Γ : Env) (_hΓ : Γ.Sat Spec.specs)
           apply wp_join_state (fun st : BitVec 32 × BitVec 32 => (st.1, st.2, ()))
             (fun st m1 => m1 = m0 ∧ st.1.toNat < 2 * s.core.cur_vars ∧
               st.2 = s.core.wvec[2 * st.1.toNat + 1]?.getD 0#32)
-          · intro _ ⟨sc', mn'⟩ m1 hm1
-            c0_hsteps; exact hJb (sc', mn') m1 hm1
+          · intro _ ⟨sc', mn'⟩ m1 hm1; c0_hsteps; exact hJb (sc', mn') m1 hm1
           · intro Jb' hJb'
-            have hb_sh1 := ht_shl1_add1_bv32 b
+            have hb_sh1 := bv64_shl1_add1_lit b
             have hb_w1 : (BitVec.setWidth 64 b <<< 1 + 1).toNat < s.core.wvec.length := by omega
             c0_hsplit
             · c0_hsteps; rw [ht_wvec_get hcl (by omega) b hb_lt hb_w1]

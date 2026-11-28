@@ -448,6 +448,7 @@ public import LeanQbe.T.Examples.Kissat.Proof.Vivify.WpSimplify0
 public import LeanQbe.T.Examples.Kissat.Proof.Vivify.WpSortFid
 public import LeanQbe.T.Examples.Kissat.Proof.Vivify.WpTop
 public import LeanQbe.T.Examples.Kissat.Proof.Watch.Cert
+public import LeanQbe.T.Examples.Kissat.Proof.Watch.Helpers
 public import LeanQbe.T.Examples.Kissat.Proof.Watch.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Watch.Wp0
 public import LeanQbe.T.Examples.Kissat.Proof.Watch.Wp1
@@ -455,7 +456,6 @@ public import LeanQbe.T.Examples.Kissat.Proof.Watch.Wp2
 public import LeanQbe.T.Examples.Kissat.Proof.Watch.Wp2a
 public import LeanQbe.T.Examples.Kissat.Proof.Watch.Wp3
 public import LeanQbe.T.Examples.Kissat.Proof.Watch.Wp3a
-public import LeanQbe.T.Examples.Kissat.Proof.Watch.Wp3b
 public import LeanQbe.T.Examples.Kissat.Proof.Watch.Wp4
 public import LeanQbe.T.Examples.Kissat.Proof.Watch.Wp5
 public import LeanQbe.T.Examples.Kissat.Proof.Watch.Wp5a
