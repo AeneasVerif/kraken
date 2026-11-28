@@ -81,6 +81,21 @@ target libkissat_qbe : Dynlib := do
   let dynJob ← buildLeanSharedLibOfStatic staticJob
   dynJob.mapM fun path => return { path, name := "kissat_qbe" }
 
+target tactic_plugin_init_o (pkg : NPackage __name__) : FilePath := do
+  let srcJob ← inputTextFile (pkg.dir / "c" / "tactic_plugin_init.c")
+  let oFile := pkg.buildDir / "c" / "tactic_plugin_init.o"
+  let lean ← getLeanInstall
+  buildO oFile srcJob #[]
+    #["-O2", "-fPIC", "-Wall", "-Wextra", "-Werror", "-I", lean.includeDir.toString] "cc"
+
+lean_lib BvDecideQbeSyntax where
+  roots := #[]
+  globs := #[
+    `BvDecideQbe.Config,
+    `BvDecideQbe.NormalizeTheorems,
+    `BvDecideQbe.Syntax
+  ]
+
 lean_lib BvDecideQbeNative where
   roots := #[]
   globs := #[
@@ -89,19 +104,32 @@ lean_lib BvDecideQbeNative where
     `BvDecideQbe.Counterexample,
     `BvDecideQbe.NormalizeRules,
     `BvDecideQbe.Prover,
-    `BvDecideQbe.Cegar
+    `BvDecideQbe.Cegar,
+    `BvDecideQbe.CutCore,
+    `BvDecideQbe.Cut,
+    `BvDecideQbe.TacticImpl
   ]
   precompileModules := true
   moreLinkLibs := #[libkissat_qbe]
+
+target bvdq_native_shared (pkg : NPackage __name__) : Dynlib := do
+  let some lib := pkg.findLeanLib? `BvDecideQbeNative
+    | error "bvdq_native_shared: library 'BvDecideQbeNative' not found"
+  lib.shared.fetch
+
+lean_lib BvDecideQbePlugin where
+  roots := #[`BvDecideQbePlugin]
+  precompileModules := true
+  moreLinkObjs := #[tactic_plugin_init_o]
+  moreLinkLibs := #[libkissat_qbe, bvdq_native_shared]
 
 @[default_target]
 lean_lib BvDecideQbe where
   roots := #[]
   globs := #[
     `BvDecideQbe,
-    `BvDecideQbe.CutCore,
-    `BvDecideQbe.Cut,
-    `BvDecideQbe.Tactic
+    `BvDecideQbe.Tactic,
+    `BvDecideQbe.FFIProof
   ]
 
 lean_lib BvDecideQbeTest where

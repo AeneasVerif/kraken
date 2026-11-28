@@ -1,7 +1,7 @@
 module
 
 public import BvDecideQbe.Prover
-public import BvDecideQbe.NormalizeRules
+public import BvDecideQbe.NormalizeTheorems
 public import Lean.Meta.Tactic.BVDecide.Prover.Cegar
 public import Lean.Meta.Tactic.BVDecide.Normalize
 public import Lean.Meta.Tactic.BVDecide.TacticContext
@@ -264,9 +264,13 @@ def hasBvMulInGoal (fixedInt : Bool) (g : MVarId)
     for ldecl in ← getLCtx do
       if !ldecl.isImplementationDetail then
         if let some val := ldecl.value? then
-          roots := roots.push (← instantiateMVars val)
-        roots := roots.push (← instantiateMVars ldecl.type)
-    roots := roots.push (← instantiateMVars (← g.getType))
+          let val ← if val.hasMVar then instantiateMVars val else pure val
+          roots := roots.push val
+        let ty ← if ldecl.type.hasMVar then instantiateMVars ldecl.type else pure ldecl.type
+        roots := roots.push ty
+    let gty ← g.getType
+    let gty ← if gty.hasMVar then instantiateMVars gty else pure gty
+    roots := roots.push gty
     return hasBvMulExprs fixedInt roots maxVisits
 
 /-- Bounded check for `BitVec` (or fixed-width int) multiplication in a `grind` goal's e-graph
@@ -488,6 +492,26 @@ def bvDecideQbe' (target : Normalize.Target) (ctx : TacticContext)
       else
         pure rawHyps
     bvUnsatQbe g hyps ctx qbeCtx
+
+private def plainGrindMethodsRef : Grind.MethodsRef :=
+  ({} : Grind.Methods).toMethodsRef
+
+private def plainGrindContext : Grind.Context := {
+  simp := default
+  simpMethods := {}
+  config := {}
+  identity := `bv_decide_qbe
+  activeSolvers := #[]
+  anchorRefs? := none
+  symPrios := {}
+  debug := false
+  ematchDiag := false
+}
+
+/-- Execute a plain `.mvarIdTarget` `Grind.GrindM` action directly in `Sym.SymM` without paying
+`Grind.mkDefaultParams {}` (simprocs, norm theorems, or `grind` E-matching extensions). -/
+def runPlainGrindM {α : Type} (x : Grind.GrindM α) : MetaM α :=
+  Sym.SymM.run <| (x plainGrindMethodsRef plainGrindContext).run' {}
 
 /-- Run `bv_decide_qbe'` and throw a formatted counterexample error on SAT. -/
 def bvDecideQbe (target : Normalize.Target) (ctx : TacticContext)

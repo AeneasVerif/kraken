@@ -136,11 +136,27 @@ def qbe_dynlib_paths(bv_dir: Path) -> tuple[Path, Path]:
     )
 
 
+def qbe_syntax_path(bv_dir: Path) -> Path:
+    """Return path to the `BvDecideQbeSyntax` shared library."""
+    ext = shared_lib_ext()
+    return bv_dir / ".lake" / "build" / "lib" / f"libbv__decide__qbe_BvDecideQbeSyntax{ext}"
+
+
+def qbe_plugin_path(bv_dir: Path) -> Path:
+    """Return path to the `BvDecideQbePlugin` shared library."""
+    ext = shared_lib_ext()
+    return bv_dir / ".lake" / "build" / "lib" / f"libbv__decide__qbe_BvDecideQbePlugin{ext}"
+
+
 def validate_qbe_artifacts(bv_dir: Path, repo_root: Path) -> None:
     """Ensure required `.olean` and `.so` artifacts exist before running tests."""
     kissat_so, native_so = qbe_dynlib_paths(bv_dir)
+    syntax_so = qbe_syntax_path(bv_dir)
+    plugin_so = qbe_plugin_path(bv_dir)
     tactic_olean = bv_dir / ".lake" / "build" / "lib" / "lean" / "BvDecideQbe" / "Tactic.olean"
-    missing = [p for p in (kissat_so, native_so, tactic_olean) if not p.is_file()]
+    missing = [
+        p for p in (kissat_so, syntax_so, native_so, plugin_so, tactic_olean) if not p.is_file()
+    ]
     if not missing:
         return
     missing_str = ", ".join(str(p) for p in missing)
@@ -148,7 +164,8 @@ def validate_qbe_artifacts(bv_dir: Path, repo_root: Path) -> None:
         f"Missing built bv_decide_qbe artifacts ({missing_str}). "
         f"Build inside {bv_dir} with: "
         "env LAKE_ARTIFACT_CACHE=true LAKE_RESTORE_ARTIFACTS=true LEAN_NUM_THREADS=1 "
-        "lake build libkissat_qbe BvDecideQbeNative:shared BvDecideQbe"
+        "lake build libkissat_qbe BvDecideQbeSyntax:shared BvDecideQbeNative:shared "
+        "BvDecideQbePlugin:shared BvDecideQbe"
     )
 
 
@@ -158,7 +175,7 @@ def build_qbe_invocation(
     lean_prefix: Path,
     base_env: dict[str, str] | None = None,
 ) -> tuple[list[str], dict[str, str]]:
-    """Build `[lean, --load-dynlib=...]` command prefix and environment for `bv_decide_qbe`."""
+    """Build `[lean, --load-dynlib=..., --plugin=...]` command prefix and env for `bv_decide_qbe`."""
     env = dict(os.environ if base_env is None else base_env)
     env["LEAN_NUM_THREADS"] = "1"
     env["LEAN_PATH"] = os.pathsep.join(
@@ -172,10 +189,14 @@ def build_qbe_invocation(
     existing_ld = env.get("LD_LIBRARY_PATH", "")
     env["LD_LIBRARY_PATH"] = f"{lib_dir}{os.pathsep}{existing_ld}" if existing_ld else lib_dir
     kissat_so, native_so = qbe_dynlib_paths(bv_dir)
+    syntax_so = qbe_syntax_path(bv_dir)
+    plugin_so = qbe_plugin_path(bv_dir)
     cmd = [
         str(lean_prefix / "bin" / "lean"),
         f"--load-dynlib={kissat_so}",
+        f"--load-dynlib={syntax_so}",
         f"--load-dynlib={native_so}",
+        f"--plugin={plugin_so}",
     ]
     return cmd, env
 

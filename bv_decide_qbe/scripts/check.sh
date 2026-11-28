@@ -77,8 +77,8 @@ if hits:
 print(f"token scan: OK ({len(files)} .lean files, 0 axiom / 0 sorry / 0 native_decide)")
 PY
 
-echo "== [2/8] lake build (BvDecideQbeNative + BvDecideQbe + BvDecideQbeTest + libkissat_qbe) =="
-timeout 3600 "${RUN_SCOPE[@]}" lake build BvDecideQbeNative BvDecideQbe BvDecideQbeTest
+echo "== [2/8] lake build (Syntax + Native + Plugin + BvDecideQbe + Test + libkissat_qbe) =="
+timeout 3600 "${RUN_SCOPE[@]}" lake build BvDecideQbeSyntax BvDecideQbeNative BvDecideQbePlugin BvDecideQbe BvDecideQbeTest
 
 echo "== [3/8] check .globl hygiene in kissat_solver.s =="
 ASM_PATH=".lake/build/c/kissat_solver.s"

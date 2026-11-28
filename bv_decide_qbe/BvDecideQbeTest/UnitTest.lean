@@ -1,7 +1,11 @@
 module
 
 public import BvDecideQbe.Tactic
+public import BvDecideQbe.TacticImpl
+public import BvDecideQbe.FFIProof
 public meta import BvDecideQbe.Tactic
+public meta import BvDecideQbe.TacticImpl
+public meta import BvDecideQbe.FFIProof
 public import Lean.Compiler.IR.CompilerM
 public meta import Lean.Compiler.IR.CompilerM
 
@@ -233,6 +237,8 @@ example (x : BitVec 8) : x = x := by
 #print axioms thm_cegar_e1
 #print axioms thm_cegar_chain
 #print axioms thm_sym_basic
+#print axioms BvDecideQbe.packWordsArrayU32LE_toList
+#print axioms BvDecideQbe.packWordsU32LE_toList
 
 /-! ## 2. Programmatic MetaM / Kernel Verification Suite -/
 
@@ -320,9 +326,8 @@ private def runMetaGoal (prop : Expr) (cfg : Lean.Elab.Tactic.BVDecide.BVDecideC
     (qbeCtx : QbeContext := {}) : MetaM (Except String (Except CounterExample CegarResult)) := do
   let mvar ← mkFreshExprMVar prop
   let tacticCtx := mkQbeTacticContext cfg
-  let params ← Grind.mkDefaultParams {}
   try
-    let res ← Grind.GrindM.run (params := params) <|
+    let res ← runPlainGrindM <|
       bvDecideQbe' (.mvarIdTarget mvar.mvarId!) tacticCtx qbeCtx
     return .ok res
   catch ex =>
@@ -437,8 +442,7 @@ private def reflectGoalForGating (prop : Expr) (runElim : Bool)
     MetaM (Option (BVLogicalExpr × Nat)) := do
   let mvar ← mkFreshExprMVar prop
   let tacticCtx := mkQbeTacticContext cfg
-  let params ← Grind.mkDefaultParams {}
-  Grind.GrindM.run (params := params) do
+  runPlainGrindM do
     Normalize.PreProcessM.run' tacticCtx.preProcessContext (.mvarIdTarget mvar.mvarId!) do
       let solved ← Normalize.bvNormalize
       if solved then return none
@@ -590,6 +594,11 @@ private def runAllCore : CoreM Unit := do
       for ax in axs do
         if !stdAxioms.contains ax then
           throwError "unexpected axiom {ax} used by {name}"
+
+  for thm in [``BvDecideQbe.packWordsArrayU32LE_toList,
+              ``BvDecideQbe.packWordsU32LE_toList,
+              ``BvDecideQbe.packWordsArrayU32LE_eq_some_iff] do
+    checkTheoremAxioms thm false
 
   runQbeModeTests
   MetaM.run' runSignExtendAndAxiomTests

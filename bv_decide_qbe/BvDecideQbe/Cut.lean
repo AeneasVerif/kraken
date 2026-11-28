@@ -458,9 +458,8 @@ private def solveSingleObligation (mvarId : MVarId) (cfg : BVDecideConfig)
     else pure cfg
   let tacticCtx := mkQbeTacticContext effectiveCfg types
   let qbeCtx' := { qbeCtx with acNf := effectiveCfg.acNf }
-  let params ← Grind.mkDefaultParams {}
   try
-    match ← Grind.GrindM.run (params := params) <|
+    match ← runPlainGrindM <|
         bvDecideQbe' (.mvarIdTarget cur) tacticCtx qbeCtx' with
     | .ok _ => return .ok ()
     | .error cex => return .error (some cex)
@@ -612,8 +611,7 @@ private def solveViaLetsAsHyps (mvarId : MVarId) (cfg : BVDecideConfig)
         else pure cfg
       let tacticCtx := mkQbeTacticContext effectiveCfg types
       let qbeCtx' := { qbeCtx with acNf := effectiveCfg.acNf }
-      let params ← Grind.mkDefaultParams {}
-      discard <| Grind.GrindM.run (params := params) <|
+      discard <| runPlainGrindM <|
         bvDecideQbe (.mvarIdTarget tmp.mvarId!) tacticCtx qbeCtx'
       instantiateMVars tmp
     let args : Array Expr :=
@@ -639,8 +637,7 @@ private def fallbackDirectSolve (mvarId : MVarId) (cfg : BVDecideConfig)
     else pure cfg
   let tacticCtx := mkQbeTacticContext effectiveCfg types
   let qbeCtx' := { qbeCtx with acNf := effectiveCfg.acNf }
-  let params ← Grind.mkDefaultParams {}
-  discard <| Grind.GrindM.run (params := params) <|
+  discard <| runPlainGrindM <|
     bvDecideQbe (.mvarIdTarget cur) tacticCtx qbeCtx'
 
 /-- Main MetaM entrypoint for `bv_cut_qbe`.

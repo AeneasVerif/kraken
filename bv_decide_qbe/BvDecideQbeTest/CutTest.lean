@@ -1,7 +1,11 @@
 module
 
 public import BvDecideQbe
+public import BvDecideQbe.Cut
+public import BvDecideQbe.NormalizeRules
 public meta import BvDecideQbe
+public meta import BvDecideQbe.Cut
+public meta import BvDecideQbe.NormalizeRules
 
 /-!
 # `bv_cut_qbe`, Ring-Dispatch (`H6a`), and `NormalizeRules` (`H7`) Test Suite

@@ -1,6 +1,7 @@
 module
 
 public import BvDecideQbe.FFI
+public import BvDecideQbe.FFIProof
 public import BvDecideQbe.Encode
 public import BvDecideQbe.Counterexample
 public import LeanQbe.T.Examples.BvDecideBridge

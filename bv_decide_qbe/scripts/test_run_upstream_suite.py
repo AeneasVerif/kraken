@@ -280,7 +280,13 @@ class RunUpstreamSuiteTests(unittest.TestCase):
             lib_dir = root / "bv_decide_qbe" / ".lake" / "build" / "lib"
             (lib_dir / "lean" / "BvDecideQbe").mkdir(parents=True)
             (lib_dir / f"libkissat_qbe{suite.shared_lib_ext()}").write_text("", encoding="utf-8")
+            (lib_dir / f"libbv__decide__qbe_BvDecideQbeSyntax{suite.shared_lib_ext()}").write_text(
+                "", encoding="utf-8"
+            )
             (lib_dir / f"libbv__decide__qbe_BvDecideQbeNative{suite.shared_lib_ext()}").write_text(
+                "", encoding="utf-8"
+            )
+            (lib_dir / f"libbv__decide__qbe_BvDecideQbePlugin{suite.shared_lib_ext()}").write_text(
                 "", encoding="utf-8"
             )
             (lib_dir / "lean" / "BvDecideQbe" / "Tactic.olean").write_text("", encoding="utf-8")
@@ -387,7 +393,13 @@ class RunUpstreamSuiteTests(unittest.TestCase):
             lib_dir = root / "bv_decide_qbe" / ".lake" / "build" / "lib"
             (lib_dir / "lean" / "BvDecideQbe").mkdir(parents=True)
             (lib_dir / f"libkissat_qbe{suite.shared_lib_ext()}").write_text("", encoding="utf-8")
+            (lib_dir / f"libbv__decide__qbe_BvDecideQbeSyntax{suite.shared_lib_ext()}").write_text(
+                "", encoding="utf-8"
+            )
             (lib_dir / f"libbv__decide__qbe_BvDecideQbeNative{suite.shared_lib_ext()}").write_text(
+                "", encoding="utf-8"
+            )
+            (lib_dir / f"libbv__decide__qbe_BvDecideQbePlugin{suite.shared_lib_ext()}").write_text(
                 "", encoding="utf-8"
             )
             (lib_dir / "lean" / "BvDecideQbe" / "Tactic.olean").write_text("", encoding="utf-8")
