@@ -453,7 +453,7 @@ private def solveSingleObligation (mvarId : MVarId) (cfg : BVDecideConfig)
     return .ok ()
   -- General path 3: trust-pure `bv_decide_qbe` (with `*`-gated auto `acNf`)
   let effectiveCfg ←
-    if cfg.acNf then pure cfg
+    if cfg.acNf || !qbeCtx.features.autoAcNf then pure cfg
     else if ← hasBvMulInGoal cfg.fixedInt cur then pure { cfg with acNf := true }
     else pure cfg
   let tacticCtx := mkQbeTacticContext effectiveCfg types
@@ -607,7 +607,7 @@ private def solveViaLetsAsHyps (mvarId : MVarId) (cfg : BVDecideConfig)
     let prf ← withLCtx {} {} do
       let tmp ← mkFreshExprSyntheticOpaqueMVar closedProp
       let effectiveCfg ←
-        if cfg.acNf then pure cfg
+        if cfg.acNf || !qbeCtx.features.autoAcNf then pure cfg
         else if ← hasBvMulInGoal cfg.fixedInt tmp.mvarId! then pure { cfg with acNf := true }
         else pure cfg
       let tacticCtx := mkQbeTacticContext effectiveCfg types
@@ -634,7 +634,7 @@ private def fallbackDirectSolve (mvarId : MVarId) (cfg : BVDecideConfig)
   if ← solveViaLetsAsHyps cur cfg types qbeCtx then
     return
   let effectiveCfg ←
-    if cfg.acNf then pure cfg
+    if cfg.acNf || !qbeCtx.features.autoAcNf then pure cfg
     else if ← hasBvMulInGoal cfg.fixedInt cur then pure { cfg with acNf := true }
     else pure cfg
   let tacticCtx := mkQbeTacticContext effectiveCfg types

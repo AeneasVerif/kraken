@@ -22,7 +22,16 @@ IMPORT_BV_DECIDE_RE = re.compile(
     r"^([ \t]*(?:(?:public|private|meta|all)[ \t]+)*import[ \t]+)Std\.Tactic\.BVDecide\b",
     re.MULTILINE,
 )
+IMPORT_QBE_TACTIC_RE = re.compile(
+    r"^[ \t]*(?:(?:public|private|meta|all)[ \t]+)*import[ \t]+BvDecideQbe(?:\.Tactic)?\b[^\n]*",
+    re.MULTILINE,
+)
+HEADER_IMPORT_RE = re.compile(
+    r"^[ \t]*(?:(?:public|private|meta|all)[ \t]+)*import[ \t]+"
+)
 BV_DECIDE_TACTIC_RE = re.compile(r"\bbv_decide(_push)?\b")
+VALID_QBE_MODES = ("upstream", "enhanced")
+DEFAULT_MAX_ENH_WGM = 1.02
 GUARD_MISMATCH_MARKER = "Docstring on `#guard_msgs` does not match generated message:"
 SOLVER_AXIOM_RE = re.compile(
     r"\b([A-Za-z_][A-Za-z0-9_.']*?)\."
@@ -209,13 +218,48 @@ def is_na_test(rel_path: Path) -> bool:
     return rel_path.name == "bv_import.lean"
 
 
-def rewrite_for_qbe(src: str) -> str:
+def _insert_after_import_header(src: str, line_to_insert: str) -> str:
+    """Insert `line_to_insert` immediately after the file's leading `import` block."""
+    lines = src.splitlines(keepends=True)
+    last_import_idx = -1
+    comment_depth = 0
+    for idx, line in enumerate(lines):
+        stripped = line.strip()
+        if comment_depth > 0:
+            comment_depth += line.count("/-") - line.count("-/")
+            continue
+        if stripped.startswith("--") or stripped in ("", "module", "prelude"):
+            continue
+        if stripped.startswith("/-"):
+            comment_depth += line.count("/-") - line.count("-/")
+            continue
+        if HEADER_IMPORT_RE.match(line):
+            last_import_idx = idx
+            continue
+        break
+    if last_import_idx < 0:
+        return src
+    ins = f"{line_to_insert}\n"
+    if not lines[last_import_idx].endswith("\n"):
+        ins = "\n" + ins
+    lines.insert(last_import_idx + 1, ins)
+    return "".join(lines)
+
+
+def rewrite_for_qbe(src: str, qbe_mode: str = "enhanced") -> str:
     """Rewrite an upstream `bv_decide` Lean file to import and invoke `bv_decide_qbe`."""
+    if qbe_mode not in VALID_QBE_MODES:
+        raise ValueError(f"invalid qbe_mode {qbe_mode!r}, expected one of {VALID_QBE_MODES}")
     rewritten = IMPORT_BV_DECIDE_RE.sub(r"\1BvDecideQbe.Tactic", src)
-    return BV_DECIDE_TACTIC_RE.sub(
+    rewritten = BV_DECIDE_TACTIC_RE.sub(
         lambda m: "bv_decide_qbe_push" if m.group(1) else "bv_decide_qbe",
         rewritten,
     )
+    if qbe_mode == "upstream" and IMPORT_QBE_TACTIC_RE.search(rewritten):
+        rewritten = _insert_after_import_header(
+            rewritten, 'set_option bv_decide_qbe.mode "upstream"'
+        )
+    return rewritten
 
 
 def parse_diagnostics(lean_file: Path, stdout: str) -> tuple[list[Diagnostic], list[str]]:
@@ -404,10 +448,42 @@ def run_lean_file(
         )
 
 
+def _compute_ratio_stats(
+    pairs: Sequence[tuple[float, float]],
+    den_key: str,
+    num_key: str,
+) -> dict[str, float | int | None]:
+    """Compute paired count, totals, W-AM, W-GM, and speedups from `(num, den)` pairs."""
+    if not pairs:
+        return {
+            "paired_count": 0,
+            den_key: 0.0,
+            num_key: 0.0,
+            "w_am": None,
+            "w_gm": None,
+            "speedup_am": None,
+            "speedup_gm": None,
+        }
+    total_num = sum(num for num, _den in pairs)
+    total_den = sum(den for _num, den in pairs)
+    w_am = total_num / total_den
+    log_sum = sum(math.log(num / den) for num, den in pairs)
+    w_gm = math.exp(log_sum / len(pairs))
+    return {
+        "paired_count": len(pairs),
+        den_key: total_den,
+        num_key: total_num,
+        "w_am": w_am,
+        "w_gm": w_gm,
+        "speedup_am": 1.0 / w_am,
+        "speedup_gm": 1.0 / w_gm,
+    }
+
+
 def compute_compare_summary(results: Sequence[SuiteResult]) -> dict[str, float | int | None]:
     """Compute paired counts, total wall times, W-AM, and W-GM across passing compare pairs."""
-    paired = [
-        r
+    pairs = [
+        (r.qbe_time_s, r.up_time_s)
         for r in results
         if r.qbe_status in ("PASS", "PASS_EXPECTED_DIFF")
         and r.up_status == "PASS"
@@ -416,33 +492,45 @@ def compute_compare_summary(results: Sequence[SuiteResult]) -> dict[str, float |
         and r.qbe_time_s > 0.0
         and r.up_time_s > 0.0
     ]
-    if not paired:
-        return {
-            "paired_count": 0,
-            "total_up_s": 0.0,
-            "total_qbe_s": 0.0,
-            "w_am": None,
-            "w_gm": None,
-            "speedup_am": None,
-            "speedup_gm": None,
-        }
-    total_up = sum(r.up_time_s for r in paired if r.up_time_s is not None)
-    total_qbe = sum(r.qbe_time_s for r in paired if r.qbe_time_s is not None)
-    w_am = total_qbe / total_up
-    log_sum = sum(
-        math.log(r.qbe_time_s / r.up_time_s)
-        for r in paired
-        if r.qbe_time_s is not None and r.up_time_s is not None
-    )
-    w_gm = math.exp(log_sum / len(paired))
+    return _compute_ratio_stats(pairs, "total_up_s", "total_qbe_s")
+
+
+def compute_mode_delta_summary(
+    upstream_results: Sequence[SuiteResult],
+    enhanced_results: Sequence[SuiteResult],
+) -> dict[str, float | int | None]:
+    """Compute paired W-AM and W-GM of `.enhanced` vs `.upstream` across passing tests."""
+    up_by_file = {r.file: r for r in upstream_results}
+    pairs: list[tuple[float, float]] = []
+    for enh in enhanced_results:
+        up = up_by_file.get(enh.file)
+        if (
+            up is not None
+            and enh.qbe_status in ("PASS", "PASS_EXPECTED_DIFF")
+            and up.qbe_status in ("PASS", "PASS_EXPECTED_DIFF")
+            and enh.qbe_time_s is not None
+            and up.qbe_time_s is not None
+            and enh.qbe_time_s > 0.0
+            and up.qbe_time_s > 0.0
+        ):
+            pairs.append((enh.qbe_time_s, up.qbe_time_s))
+    return _compute_ratio_stats(pairs, "total_upstream_s", "total_enhanced_s")
+
+
+def verify_golden_bv_errors(results: Sequence[SuiteResult]) -> dict[str, object]:
+    """Verify `elab/bv_errors.lean` matched golden `#guard_msgs` diagnostics verbatim."""
+    matches = [r for r in results if Path(r.file).name == "bv_errors.lean"]
+    if not matches:
+        return {"present": False, "ok": True, "detail": "not in selection"}
+    r = matches[0]
+    ok = r.qbe_status == "PASS" and r.up_status in (None, "PASS")
+    detail = r.qbe_note if r.qbe_status != "PASS" else (r.up_note or "verbatim")
     return {
-        "paired_count": len(paired),
-        "total_up_s": total_up,
-        "total_qbe_s": total_qbe,
-        "w_am": w_am,
-        "w_gm": w_gm,
-        "speedup_am": 1.0 / w_am,
-        "speedup_gm": 1.0 / w_gm,
+        "present": True,
+        "ok": ok,
+        "qbe_status": r.qbe_status,
+        "up_status": r.up_status,
+        "detail": detail,
     }
 
 
@@ -470,6 +558,8 @@ def _evaluate_one(
     up_cmd: Sequence[str] | None,
     up_env: dict[str, str] | None,
     runner: Callable[[Sequence[str], Path, dict[str, str], float], RunOutput],
+    qbe_mode: str = "enhanced",
+    precomputed_up: SuiteResult | None = None,
 ) -> SuiteResult:
     rel_str = rel_path.as_posix()
     if is_na_test(rel_path):
@@ -484,25 +574,32 @@ def _evaluate_one(
     src_path = tests_dir / rel_path
     qbe_file = tmp_dir / rel_path
     qbe_file.parent.mkdir(parents=True, exist_ok=True)
-    qbe_file.write_text(rewrite_for_qbe(src_path.read_text(encoding="utf-8")), encoding="utf-8")
+    rewritten = rewrite_for_qbe(src_path.read_text(encoding="utf-8"), qbe_mode=qbe_mode)
+    qbe_file.write_text(rewritten, encoding="utf-8")
 
     up_status: str | None = None
     up_time_s: float | None = None
     up_rc: int | None = None
     up_note = ""
     if mode == "compare":
-        assert up_cmd is not None and up_env is not None
-        up_run = runner(up_cmd, src_path, up_env, timeout_s)
-        up_time_s = up_run.elapsed_s
-        up_rc = up_run.returncode
-        if up_run.timed_out:
-            up_status = "FAIL"
-            up_note = f"upstream timeout after {up_run.elapsed_s:.2f}s"
-        elif up_run.returncode == 0:
-            up_status = "PASS"
+        if precomputed_up is not None:
+            up_status = precomputed_up.up_status
+            up_time_s = precomputed_up.up_time_s
+            up_rc = precomputed_up.up_rc
+            up_note = precomputed_up.up_note
         else:
-            up_status = "FAIL"
-            up_note = f"upstream rc={up_run.returncode}"
+            assert up_cmd is not None and up_env is not None
+            up_run = runner(up_cmd, src_path, up_env, timeout_s)
+            up_time_s = up_run.elapsed_s
+            up_rc = up_run.returncode
+            if up_run.timed_out:
+                up_status = "FAIL"
+                up_note = f"upstream timeout after {up_run.elapsed_s:.2f}s"
+            elif up_run.returncode == 0:
+                up_status = "PASS"
+            else:
+                up_status = "FAIL"
+                up_note = f"upstream rc={up_run.returncode}"
 
     qbe_run = runner(qbe_cmd, qbe_file, qbe_env, timeout_s)
     qbe_status, qbe_note, diff_kinds = classify_qbe_output(qbe_file, qbe_run)
@@ -532,8 +629,110 @@ def run_suite(
     runner: Callable[[Sequence[str], Path, dict[str, str], float], RunOutput] | None = None,
     skip_artifact_check: bool = False,
     on_result: Callable[[SuiteResult], None] | None = None,
+    qbe_mode: str = "enhanced",
+    precomputed_upstream: Sequence[SuiteResult] | None = None,
 ) -> tuple[list[SuiteResult], dict[str, int], dict[str, float | int | None]]:
     """Run compatibility or compare suite and return `(results, counts, compare_summary)`."""
+    if jobs < 1:
+        raise ValueError(f"--jobs must be >= 1, got {jobs}")
+    if timeout_s <= 0:
+        raise ValueError(f"--timeout must be > 0, got {timeout_s}")
+    if qbe_mode not in VALID_QBE_MODES:
+        raise ValueError(f"invalid qbe_mode {qbe_mode!r}, expected one of {VALID_QBE_MODES}")
+
+    active_runner = run_lean_file if runner is None else runner
+    rel_paths = discover_tests(tests_dir, filter_regex)
+    resolved_bv_dir = (bv_dir or resolve_bv_decide_qbe_dir()).resolve()
+    resolved_repo_root = (repo_root or resolved_bv_dir.parent).resolve()
+    if not skip_artifact_check:
+        validate_qbe_artifacts(resolved_bv_dir, resolved_repo_root)
+    resolved_prefix = lean_prefix or resolve_lean_prefix()
+
+    qbe_cmd, qbe_env = build_qbe_invocation(resolved_bv_dir, resolved_repo_root, resolved_prefix)
+    need_up_cmd = mode == "compare" and precomputed_upstream is None
+    up_cmd, up_env = build_upstream_invocation(resolved_prefix) if need_up_cmd else (None, None)
+    pre_by_file = {r.file: r for r in precomputed_upstream} if precomputed_upstream else {}
+
+    with tempfile.TemporaryDirectory(prefix=f"bv_decide_qbe_{qbe_mode}_") as tmp_root:
+        tmp_dir = Path(tmp_root)
+        if jobs == 1:
+            results = []
+            for rel in rel_paths:
+                res = _evaluate_one(
+                    rel, tests_dir, tmp_dir, mode, timeout_s,
+                    qbe_cmd, qbe_env, up_cmd, up_env, active_runner,
+                    qbe_mode=qbe_mode,
+                    precomputed_up=pre_by_file.get(rel.as_posix()),
+                )
+                results.append(res)
+                if on_result is not None:
+                    on_result(res)
+        else:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=jobs) as pool:
+                futures = [
+                    pool.submit(
+                        _evaluate_one,
+                        rel, tests_dir, tmp_dir, mode, timeout_s,
+                        qbe_cmd, qbe_env, up_cmd, up_env, active_runner,
+                        qbe_mode=qbe_mode,
+                        precomputed_up=pre_by_file.get(rel.as_posix()),
+                    )
+                    for rel in rel_paths
+                ]
+                results = []
+                for f in futures:
+                    res = f.result()
+                    results.append(res)
+                    if on_result is not None:
+                        on_result(res)
+
+    counts = summarize_counts(results)
+    compare_summary = compute_compare_summary(results) if mode == "compare" else {}
+    return results, counts, compare_summary
+
+
+def _evaluate_dual_one(
+    rel_path: Path,
+    tests_dir: Path,
+    up_tmp_dir: Path,
+    enh_tmp_dir: Path,
+    mode: str,
+    timeout_s: float,
+    qbe_cmd: Sequence[str],
+    qbe_env: dict[str, str],
+    up_cmd: Sequence[str] | None,
+    up_env: dict[str, str] | None,
+    runner: Callable[[Sequence[str], Path, dict[str, str], float], RunOutput],
+) -> tuple[SuiteResult, SuiteResult]:
+    """Run `.upstream` and `.enhanced` back-to-back per file so comparisons stay paired."""
+    res_up = _evaluate_one(
+        rel_path, tests_dir, up_tmp_dir, mode, timeout_s,
+        qbe_cmd, qbe_env, up_cmd, up_env, runner, qbe_mode="upstream",
+    )
+    res_enh = _evaluate_one(
+        rel_path, tests_dir, enh_tmp_dir, mode, timeout_s,
+        qbe_cmd, qbe_env, None, None, runner,
+        qbe_mode="enhanced",
+        precomputed_up=res_up if mode == "compare" else None,
+    )
+    return res_up, res_enh
+
+
+def run_dual_mode_suite(
+    tests_dir: Path,
+    mode: str = "compat",
+    timeout_s: float = 120.0,
+    jobs: int = 1,
+    filter_regex: str | None = None,
+    bv_dir: Path | None = None,
+    repo_root: Path | None = None,
+    lean_prefix: Path | None = None,
+    runner: Callable[[Sequence[str], Path, dict[str, str], float], RunOutput] | None = None,
+    skip_artifact_check: bool = False,
+    on_result: Callable[[str, SuiteResult], None] | None = None,
+    max_enh_wgm: float | None = DEFAULT_MAX_ENH_WGM,
+) -> dict[str, object]:
+    """Run upstream suite under both `.upstream` and `.enhanced` modes and check conservativity."""
     if jobs < 1:
         raise ValueError(f"--jobs must be >= 1, got {jobs}")
     if timeout_s <= 0:
@@ -552,38 +751,99 @@ def run_suite(
         build_upstream_invocation(resolved_prefix) if mode == "compare" else (None, None)
     )
 
-    with tempfile.TemporaryDirectory(prefix="bv_decide_qbe_suite_") as tmp_root:
-        tmp_dir = Path(tmp_root)
+    upstream_results: list[SuiteResult] = []
+    enhanced_results: list[SuiteResult] = []
+    with tempfile.TemporaryDirectory(prefix="bv_decide_qbe_dual_") as tmp_root:
+        up_tmp = Path(tmp_root) / "upstream"
+        enh_tmp = Path(tmp_root) / "enhanced"
+        up_tmp.mkdir()
+        enh_tmp.mkdir()
         if jobs == 1:
-            results = []
             for rel in rel_paths:
-                res = _evaluate_one(
-                    rel, tests_dir, tmp_dir, mode, timeout_s,
+                res_up, res_enh = _evaluate_dual_one(
+                    rel, tests_dir, up_tmp, enh_tmp, mode, timeout_s,
                     qbe_cmd, qbe_env, up_cmd, up_env, active_runner,
                 )
-                results.append(res)
+                upstream_results.append(res_up)
+                enhanced_results.append(res_enh)
                 if on_result is not None:
-                    on_result(res)
+                    on_result("upstream", res_up)
+                    on_result("enhanced", res_enh)
         else:
             with concurrent.futures.ThreadPoolExecutor(max_workers=jobs) as pool:
                 futures = [
                     pool.submit(
-                        _evaluate_one,
-                        rel, tests_dir, tmp_dir, mode, timeout_s,
+                        _evaluate_dual_one,
+                        rel, tests_dir, up_tmp, enh_tmp, mode, timeout_s,
                         qbe_cmd, qbe_env, up_cmd, up_env, active_runner,
                     )
                     for rel in rel_paths
                 ]
-                results = []
                 for f in futures:
-                    res = f.result()
-                    results.append(res)
+                    res_up, res_enh = f.result()
+                    upstream_results.append(res_up)
+                    enhanced_results.append(res_enh)
                     if on_result is not None:
-                        on_result(res)
+                        on_result("upstream", res_up)
+                        on_result("enhanced", res_enh)
 
-    counts = summarize_counts(results)
-    compare_summary = compute_compare_summary(results) if mode == "compare" else {}
-    return results, counts, compare_summary
+    upstream_counts = summarize_counts(upstream_results)
+    enhanced_counts = summarize_counts(enhanced_results)
+    upstream_compare = compute_compare_summary(upstream_results) if mode == "compare" else {}
+    enhanced_compare = compute_compare_summary(enhanced_results) if mode == "compare" else {}
+
+    enh_vs_up = compute_mode_delta_summary(upstream_results, enhanced_results)
+    up_golden = verify_golden_bv_errors(upstream_results)
+    enh_golden = verify_golden_bv_errors(enhanced_results)
+
+    enh_by_file = {r.file: r for r in enhanced_results}
+    superset_regressions = [
+        r.file
+        for r in upstream_results
+        if r.qbe_status in ("PASS", "PASS_EXPECTED_DIFF")
+        and (
+            r.file not in enh_by_file
+            or enh_by_file[r.file].qbe_status not in ("PASS", "PASS_EXPECTED_DIFF")
+        )
+    ]
+    superset_ok = len(superset_regressions) == 0
+
+    enh_wgm = enh_vs_up.get("w_gm")
+    conservativity_ok = (
+        max_enh_wgm is None
+        or max_enh_wgm <= 0.0
+        or enh_wgm is None
+        or float(enh_wgm) <= max_enh_wgm
+    )
+    all_ok = (
+        upstream_counts["fail"] == 0
+        and enhanced_counts["fail"] == 0
+        and superset_ok
+        and bool(up_golden["ok"])
+        and bool(enh_golden["ok"])
+        and conservativity_ok
+    )
+    return {
+        "upstream_results": upstream_results,
+        "upstream_counts": upstream_counts,
+        "upstream_compare": upstream_compare,
+        "upstream_golden_bv_errors": up_golden,
+        "enhanced_results": enhanced_results,
+        "enhanced_counts": enhanced_counts,
+        "enhanced_compare": enhanced_compare,
+        "enhanced_golden_bv_errors": enh_golden,
+        "enhanced_vs_upstream": enh_vs_up,
+        "checks": {
+            "upstream_pass_all": upstream_counts["fail"] == 0,
+            "enhanced_pass_all": enhanced_counts["fail"] == 0,
+            "superset_ok": superset_ok,
+            "superset_regressions": superset_regressions,
+            "golden_bv_errors_ok": bool(up_golden["ok"]) and bool(enh_golden["ok"]),
+            "conservativity_ok": conservativity_ok,
+            "max_enh_wgm": max_enh_wgm,
+            "all_ok": all_ok,
+        },
+    }
 
 
 def format_header(mode: str) -> str:
@@ -626,12 +886,14 @@ def format_summary(
     counts: dict[str, int],
     compare_summary: dict[str, float | int | None],
     mode: str,
+    label: str | None = None,
 ) -> str:
     """Format compatibility and compare summary lines."""
     compat_ok = counts["pass"] + counts["pass_expected_diff"]
+    tag = f"{mode}/{label}" if label else mode
     lines = [
         "",
-        f"Summary ({mode}): total={counts['total']} compat_pass={compat_ok} "
+        f"Summary ({tag}): total={counts['total']} compat_pass={compat_ok} "
         f"(verbatim={counts['pass']}, expected_diff={counts['pass_expected_diff']}) "
         f"na={counts['na']} fail={counts['fail']}",
     ]
@@ -643,13 +905,58 @@ def format_summary(
         w_gm = compare_summary.get("w_gm")
         spd_am = compare_summary.get("speedup_am")
         spd_gm = compare_summary.get("speedup_gm")
+        cmp_lbl = f" ({label} vs upstream_bv_decide)" if label else ""
         if w_am is not None and w_gm is not None and spd_am is not None and spd_gm is not None:
             lines.append(
-                f"Compare (n={n_paired}): up_total={tot_up:.2f}s qbe_total={tot_qbe:.2f}s "
+                f"Compare{cmp_lbl} (n={n_paired}): up_total={tot_up:.2f}s qbe_total={tot_qbe:.2f}s "
                 f"W-AM={w_am:.3f}x ({spd_am:.2f}x) W-GM={w_gm:.3f}x ({spd_gm:.2f}x)"
             )
         else:
-            lines.append("Compare (n=0): no paired passing runs to aggregate")
+            lines.append(f"Compare{cmp_lbl} (n=0): no paired passing runs to aggregate")
+    return "\n".join(lines)
+
+
+def format_dual_summary(dual: dict[str, object], mode: str) -> str:
+    """Format dual-mode summary, conservativity check, and golden diagnostics status."""
+    lines = [
+        format_summary(dual["upstream_counts"], dual["upstream_compare"], mode, "upstream"),
+        format_summary(dual["enhanced_counts"], dual["enhanced_compare"], mode, "enhanced"),
+    ]
+    delta = dual["enhanced_vs_upstream"]
+    checks = dual["checks"]
+    n_delta = delta.get("paired_count", 0)
+    w_am = delta.get("w_am")
+    w_gm = delta.get("w_gm")
+    tot_up = delta.get("total_upstream_s", 0.0)
+    tot_enh = delta.get("total_enhanced_s", 0.0)
+    max_wgm = checks.get("max_enh_wgm")
+    if w_am is not None and w_gm is not None:
+        bound_str = (
+            f" <= {max_wgm:.3f}x: {'PASS' if checks['conservativity_ok'] else 'FAIL'}"
+            if max_wgm is not None and max_wgm > 0.0
+            else ""
+        )
+        lines.append(
+            f"Delta (.enhanced vs .upstream, n={n_delta}): "
+            f"upstream_total={tot_up:.2f}s enhanced_total={tot_enh:.2f}s "
+            f"W-AM={w_am:.3f}x W-GM={w_gm:.3f}x{bound_str}"
+        )
+    else:
+        lines.append("Delta (.enhanced vs .upstream, n=0): no paired passing runs to aggregate")
+
+    up_g = dual["upstream_golden_bv_errors"]
+    enh_g = dual["enhanced_golden_bv_errors"]
+    if up_g["present"] or enh_g["present"]:
+        g_status = "PASS" if checks["golden_bv_errors_ok"] else "FAIL"
+        lines.append(
+            f"Golden elab/bv_errors.lean: {g_status} "
+            f"(upstream={up_g.get('qbe_status', '-')}, enhanced={enh_g.get('qbe_status', '-')})"
+        )
+    if not checks["superset_ok"]:
+        lines.append(
+            f"Superset regression (enhanced failed where upstream passed): "
+            f"{', '.join(checks['superset_regressions'])}"
+        )
     return "\n".join(lines)
 
 
@@ -682,6 +989,21 @@ def build_arg_parser() -> argparse.ArgumentParser:
         choices=("compat", "compare"),
         default="compat",
         help="Run mode: compat (bv_decide_qbe only) or compare (head-to-head vs upstream).",
+    )
+    parser.add_argument(
+        "--qbe-mode",
+        choices=("upstream", "enhanced", "both"),
+        default="enhanced",
+        help="bv_decide_qbe preset mode: upstream, enhanced (default), or both (dual-mode CI).",
+    )
+    parser.add_argument(
+        "--max-enh-wgm",
+        type=float,
+        default=DEFAULT_MAX_ENH_WGM,
+        help=(
+            f"Maximum allowed enhanced/upstream W-GM ratio in --qbe-mode both "
+            f"(default: {DEFAULT_MAX_ENH_WGM}; <= 0 disables check)."
+        ),
     )
     parser.add_argument(
         "--timeout",
@@ -721,6 +1043,64 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_arg_parser()
     args = parser.parse_args(argv)
 
+    if args.qbe_mode == "both":
+        active_section: str | None = None
+
+        def emit_dual_row(qmode: str, r: SuiteResult) -> None:
+            nonlocal active_section
+            if active_section != qmode:
+                if active_section is not None:
+                    print("", flush=True)
+                print(f"=== qbe-mode: {qmode} ===", flush=True)
+                print(format_header(args.mode), flush=True)
+                active_section = qmode
+            print(format_row(r, args.mode), flush=True)
+
+        try:
+            dual = run_dual_mode_suite(
+                tests_dir=args.lean4_tests_dir,
+                mode=args.mode,
+                timeout_s=args.timeout,
+                jobs=args.jobs,
+                filter_regex=args.filter,
+                bv_dir=args.bv_decide_qbe_dir,
+                on_result=emit_dual_row,
+                max_enh_wgm=args.max_enh_wgm,
+            )
+        except (FileNotFoundError, ValueError, RuntimeError, re.error) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+
+        print(format_dual_summary(dual, args.mode), flush=True)
+        if args.out_json is not None:
+            payload = {
+                "mode": args.mode,
+                "qbe_mode": args.qbe_mode,
+                "timeout_s": args.timeout,
+                "jobs": args.jobs,
+                "filter": args.filter,
+                "lean4_tests_dir": str(args.lean4_tests_dir),
+                "max_enh_wgm": args.max_enh_wgm,
+                "upstream": {
+                    "counts": dual["upstream_counts"],
+                    "compare": dual["upstream_compare"] if args.mode == "compare" else None,
+                    "golden_bv_errors": dual["upstream_golden_bv_errors"],
+                    "results": [asdict(r) for r in dual["upstream_results"]],
+                },
+                "enhanced": {
+                    "counts": dual["enhanced_counts"],
+                    "compare": dual["enhanced_compare"] if args.mode == "compare" else None,
+                    "golden_bv_errors": dual["enhanced_golden_bv_errors"],
+                    "results": [asdict(r) for r in dual["enhanced_results"]],
+                },
+                "enhanced_vs_upstream": dual["enhanced_vs_upstream"],
+                "checks": dual["checks"],
+            }
+            args.out_json.parent.mkdir(parents=True, exist_ok=True)
+            args.out_json.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+        return 0 if dual["checks"]["all_ok"] else 1
+
     header_printed = False
 
     def emit_row(r: SuiteResult) -> None:
@@ -739,6 +1119,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             filter_regex=args.filter,
             bv_dir=args.bv_decide_qbe_dir,
             on_result=emit_row,
+            qbe_mode=args.qbe_mode,
         )
     except (FileNotFoundError, ValueError, RuntimeError, re.error) as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -746,23 +1127,32 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if not header_printed:
         print(format_header(args.mode), flush=True)
-    print(format_summary(counts, compare_summary, args.mode), flush=True)
+    print(format_summary(counts, compare_summary, args.mode, args.qbe_mode), flush=True)
+    golden = verify_golden_bv_errors(results)
+    if golden["present"]:
+        print(
+            f"Golden elab/bv_errors.lean ({args.qbe_mode}): "
+            f"{'PASS' if golden['ok'] else 'FAIL'} ({golden['qbe_status']})",
+            flush=True,
+        )
 
     if args.out_json is not None:
         payload = {
             "mode": args.mode,
+            "qbe_mode": args.qbe_mode,
             "timeout_s": args.timeout,
             "jobs": args.jobs,
             "filter": args.filter,
             "lean4_tests_dir": str(args.lean4_tests_dir),
             "counts": counts,
             "compare": compare_summary if args.mode == "compare" else None,
+            "golden_bv_errors": golden,
             "results": [asdict(r) for r in results],
         }
         args.out_json.parent.mkdir(parents=True, exist_ok=True)
         args.out_json.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
-    return 0 if counts["fail"] == 0 else 1
+    return 0 if counts["fail"] == 0 and golden["ok"] else 1
 
 
 if __name__ == "__main__":

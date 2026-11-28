@@ -99,7 +99,8 @@ theorem thm_cegar_chain (f g : BitVec 8 → BitVec 8) (x y : BitVec 8)
     (h : x ^^^ y = 0#8) : f (g x) = f (g y) := by
   bv_decide_qbe +uf
 
-/-! ## 1b. `sym =>` & `grind =>` Mode Tests (`bv_decide_qbe`, `bv_decide_qbe_push`, `types [...]`) -/
+/-! ## 1b. `sym =>` & `grind =>` Mode Tests (`bv_decide_qbe`, `bv_decide_qbe_push`, `types [...]`)
+-/
 
 @[ext]
 structure SymPair where
@@ -156,6 +157,56 @@ theorem thm_acnf_sym_push_mul_comm_64 (a b : BitVec 64) : a * b = b * a := by
 
 theorem thm_acnf_disabled_4 (a b : BitVec 4) : a * b = b * a := by
   bv_decide_qbe -acNf
+
+/-! ## 1d. Upstream-Fidelity Mode (`bv_decide_qbe_upstream`, `bv_decide_qbe.mode`, Overrides) -/
+
+theorem thm_upstream_alias_mul_4 (a b : BitVec 4) : a * b = b * a := by
+  bv_decide_qbe_upstream
+
+theorem thm_upstream_alias_sym_4 (a b : BitVec 4) : a * b = b * a := by
+  sym =>
+    bv_decide_qbe_upstream
+
+theorem thm_upstream_config_mul_4 (a b : BitVec 4) : a * b = b * a := by
+  bv_decide_qbe (config := { mode := .upstream })
+
+theorem thm_upstream_compat_config (x y : BitVec 16) :
+    ((x ^^^ y) + ((x &&& y) <<< 1#16)) = x + y := by
+  bv_decide_qbe (config := { timeout := 5, acNf := false, solverMode := .default })
+
+section UpstreamOptionScope
+set_option bv_decide_qbe.mode "upstream"
+
+theorem thm_upstream_opt_mul_4 (a b : BitVec 4) : a * b = b * a := by
+  bv_decide_qbe
+
+theorem thm_upstream_opt_sym_4 (a b : BitVec 4) : (a + 1#4) * b = b * (a + 1#4) := by
+  sym =>
+    bv_decide_qbe
+
+theorem thm_upstream_opt_push_mul_4 (a b : BitVec 4) : a * (b + 1#4) = (b + 1#4) * a := by
+  sym =>
+    bv_decide_qbe_push
+    bv_decide_qbe
+
+end UpstreamOptionScope
+
+theorem thm_override_auto_acnf_false (a b : BitVec 4) : a * b = b * a := by
+  bv_decide_qbe (autoAcNf := some false)
+
+theorem thm_override_upstream_auto_acnf_true (a b : BitVec 64) : a * b = b * a := by
+  bv_decide_qbe_upstream (autoAcNf := some true)
+
+theorem thm_upstream_explicit_acnf_64 (a b : BitVec 64) : a * b = b * a := by
+  bv_decide_qbe_upstream (config := { acNf := true })
+
+/--
+error: Invalid value `bogus` for option `bv_decide_qbe.mode` (expected "enhanced" or "upstream")
+-/
+#guard_msgs in
+set_option bv_decide_qbe.mode "bogus" in
+example (x : BitVec 8) : x = x := by
+  bv_decide_qbe
 
 #print axioms thm_a1
 #print axioms thm_a2
@@ -261,16 +312,122 @@ private def mkTestBvForall (w : Nat) (bodyFn : Expr → MetaM Expr) : MetaM Expr
   withLocalDeclD `x (mkApp (mkConst ``BitVec) (mkNatLit w)) fun x => do
     mkForallFVars #[x] (← bodyFn x)
 
+private def runQbeModeTests : CoreM Unit := do
+  -- Default option is "enhanced"
+  let optsDefault ← getOptions
+  assertTrue "default bv_decide_qbe.mode == enhanced"
+    ((← withOptions (fun _ => optsDefault) (resolveQbeMode none)) == .enhanced)
+  assertTrue "explicit none resolves upstream option"
+    ((← withOptions (bv_decide_qbe.mode.set · "upstream") (resolveQbeMode none)) == .upstream)
+  assertTrue "explicit mode overrides valid option"
+    ((← withOptions (bv_decide_qbe.mode.set · "enhanced")
+      (resolveQbeMode (some .upstream))) == .upstream)
+
+  -- Invalid bv_decide_qbe.mode throws a clean error
+  let mut badCaught := false
+  try
+    discard <| withOptions (bv_decide_qbe.mode.set · "invalid_mode") (resolveQbeMode none)
+  catch ex =>
+    let msg ← ex.toMessageData.toString
+    assertTrue s!"invalid mode error mentions value: {msg}" (msg.contains "invalid_mode")
+    badCaught := true
+  assertTrue "invalid bv_decide_qbe.mode threw error" badCaught
+
+  let mut badWithOverrideCaught := false
+  try
+    discard <| withOptions (bv_decide_qbe.mode.set · "bad_opt")
+      (resolveQbeMode (some .upstream))
+  catch ex =>
+    let msg ← ex.toMessageData.toString
+    assertTrue s!"invalid ambient mode throws even with explicit mode: {msg}"
+      (msg.contains "bad_opt")
+    badWithOverrideCaught := true
+  assertTrue "invalid ambient mode caught with explicit mode" badWithOverrideCaught
+
+  -- Preset resolution and per-feature Option Bool overrides
+  let upFeat := resolveQbeFeatures .upstream {}
+  assertTrue "upstream disables autoAcNf" (!upFeat.autoAcNf)
+  assertTrue "upstream disables extraNormalize" (!upFeat.extraNormalize)
+  assertTrue "upstream disables simCex" (!upFeat.simCex)
+  assertTrue "upstream disables ringDispatch" (!upFeat.ringDispatch)
+  assertTrue "upstream disables arisca" (!upFeat.arisca)
+  assertTrue "upstream disables ariscaTier2" (!upFeat.ariscaTier2)
+  assertTrue "upstream disables fraigHints" (!upFeat.fraigHints)
+  assertTrue "upstream disables kitten" (!upFeat.kitten)
+  assertTrue "upstream forces fidelity" (upFeat.solverVariant == .fidelity)
+
+  let enhFeat := resolveQbeFeatures .enhanced {}
+  assertTrue "enhanced enables autoAcNf" enhFeat.autoAcNf
+  assertTrue "enhanced disables extraNormalize in bv_decide_qbe" (!enhFeat.extraNormalize)
+  assertTrue "enhanced enables simCex" enhFeat.simCex
+  assertTrue "enhanced disables ariscaTier2" (!enhFeat.ariscaTier2)
+  assertTrue "enhanced disables fraigHints" (!enhFeat.fraigHints)
+  assertTrue "enhanced disables kitten" (!enhFeat.kitten)
+
+  let ovrFeat := resolveQbeFeatures .enhanced {
+    autoAcNf := some false
+    extraNormalize := some true
+    simCex := some false
+    ringDispatch := some true
+    arisca := some true
+    ariscaProbeMs := some 250
+  }
+  assertTrue "override autoAcNf := some false" (!ovrFeat.autoAcNf)
+  assertTrue "override extraNormalize := some true" ovrFeat.extraNormalize
+  assertTrue "override simCex := some false" (!ovrFeat.simCex)
+  assertTrue "override ringDispatch := some true" ovrFeat.ringDispatch
+  assertTrue "override arisca := some true" ovrFeat.arisca
+  assertTrue "override ariscaProbeMs := some 250" (ovrFeat.ariscaProbeMs == 250)
+
+  let upOvrFeat := resolveQbeFeatures .upstream { autoAcNf := some true }
+  assertTrue "upstream with autoAcNf := some true" (upOvrFeat.autoAcNf && !upOvrFeat.simCex)
+
+private meta def runQbeConfigElabTests : CoreM Unit := do
+  let chk (msg : String) (b : Bool) : IO Unit := do
+    if !b then throw (IO.userError s!"ASSERTION FAILED: {msg}")
+  -- Tactic elaboration tests via elabQbeConfig (backwards compat + overrides)
+  MetaM.run' <| Elab.Term.TermElabM.run' do
+    let elabCfg (stx : TSyntax `Lean.Parser.Tactic.optConfig) : Elab.TermElabM QbeConfig :=
+      elabQbeConfig stx |>.run { elaborator := `test } |>.run' { goals := [] }
+    let q1 ← elabCfg (← `(Lean.Parser.Tactic.optConfig|
+      (config := { timeout := 7, acNf := true, solverMode := .counterexample })))
+    chk "compat config timeout == 7" (q1.timeout == 7)
+    chk "compat config acNf == true" q1.acNf
+    chk "compat config mode == none" q1.mode.isNone
+
+    let q2 ← elabCfg (← `(Lean.Parser.Tactic.optConfig| (config := { mode := .upstream })))
+    chk "config mode == some .upstream" (q2.mode == some .upstream)
+
+    let q2b ← elabCfg (← `(Lean.Parser.Tactic.optConfig| (config := { mode := some .upstream })))
+    chk "config some mode == some .upstream" (q2b.mode == some .upstream)
+
+    let q3 ← elabCfg (← `(Lean.Parser.Tactic.optConfig|
+      (autoAcNf := some false) (extraNormalize := some true) (simCex := some false)
+      (ringDispatch := some true) (arisca := some false)))
+    chk "optConfig autoAcNf == some false" (q3.autoAcNf == some false)
+    chk "optConfig extraNormalize == some true" (q3.extraNormalize == some true)
+    chk "optConfig simCex == some false" (q3.simCex == some false)
+    chk "optConfig ringDispatch == some true" (q3.ringDispatch == some true)
+    chk "optConfig arisca == some false" (q3.arisca == some false)
+
+#eval runQbeConfigElabTests
+
 private def runAllCore : CoreM Unit := do
   -- 1. Audit axioms and non-compilation of _expr_def on reflected theorems
   for thm in [``thm_a1, ``thm_a2, ``thm_a3, ``thm_a5, ``thm_b1, ``thm_b2,
               ``thm_b4, ``thm_b5, ``thm_d6, ``thm_uint32, ``thm_cegar_e1,
               ``thm_cegar_multi, ``thm_cegar_bool, ``thm_cegar_chain,
-              ``thm_sym_basic, ``thm_acnf_disabled_4] do
+              ``thm_sym_basic, ``thm_acnf_disabled_4,
+              ``thm_upstream_alias_mul_4, ``thm_upstream_alias_sym_4,
+              ``thm_upstream_config_mul_4, ``thm_upstream_compat_config,
+              ``thm_upstream_opt_mul_4, ``thm_upstream_opt_sym_4,
+              ``thm_upstream_opt_push_mul_4, ``thm_override_auto_acnf_false] do
     checkTheoremAxioms thm true
   for thm in [``thm_acnf_mul_comm_64, ``thm_acnf_mul_comm_add_64,
               ``thm_acnf_bitvec_mul_64, ``thm_acnf_uint64_mul_comm,
-              ``thm_acnf_sym_mul_comm_64, ``thm_acnf_sym_push_mul_comm_64] do
+              ``thm_acnf_sym_mul_comm_64, ``thm_acnf_sym_push_mul_comm_64,
+              ``thm_override_upstream_auto_acnf_true,
+              ``thm_upstream_explicit_acnf_64] do
     checkTheoremAxioms thm false
   for thm in [``thm_preproc_only, ``thm_sym_push, ``thm_sym_std_push,
               ``thm_sym_types, ``thm_grind_basic] do
@@ -286,16 +443,22 @@ private def runAllCore : CoreM Unit := do
      ``thm_b4, ``thm_b5, ``thm_d6, ``thm_uint32, ``thm_cegar_e1,
      ``thm_cegar_multi, ``thm_cegar_bool, ``thm_cegar_chain,
      ``thm_sym_basic, ``thm_sym_push, ``thm_sym_std_push,
-     ``thm_sym_types, ``thm_grind_basic, ``thm_acnf_disabled_4]
+     ``thm_sym_types, ``thm_grind_basic, ``thm_acnf_disabled_4,
+     ``thm_upstream_alias_mul_4, ``thm_upstream_alias_sym_4,
+     ``thm_upstream_config_mul_4, ``thm_upstream_compat_config,
+     ``thm_upstream_opt_mul_4, ``thm_upstream_opt_sym_4,
+     ``thm_upstream_opt_push_mul_4, ``thm_override_auto_acnf_false]
   for (name, _) in env.constants do
     let s := name.toString
     if (s.startsWith "BvDecideQbe." || s.startsWith "BvDecideQbeTest.") &&
        !reflectedNames.contains name && !s.endsWith "._leanqbe.bv_solve.ax_1" &&
-       !s.contains "._test_" && !s.contains ".runAll" then
+       !s.contains "._test_" && !s.contains ".runAll" && !s.contains ".runQbeModeTests" then
       let axs ← collectAxioms name
       for ax in axs do
         if !stdAxioms.contains ax then
           throwError "unexpected axiom {ax} used by {name}"
+
+  runQbeModeTests
 
   -- 3. Kernel Eq.refl timing gate (< 5 ms small) + wide/DAG checks
   MetaM.run' do
@@ -422,7 +585,8 @@ private def runAllCore : CoreM Unit := do
       assertTrue s!"evalEfficient rejection message: {msg}" (msg.contains "evalEfficient")
     | .ok _ => throwError "corrupt SAT model was not rejected"
 
-    -- 10. Real `bv_solve_bytes` `.timeout` (`fuel := 0`, `fuel := 1`) and `.workTooSmall` (`4096 B`)
+    -- 10. Real `bv_solve_bytes` `.timeout` (`fuel := 0`, `fuel := 1`)
+    --     and `.workTooSmall` (`4096 B`)
     match ← runMetaGoal propUnsat cfgNoPre { fuel := 0, acNf := false } with
     | .error msg =>
       assertTrue s!"timeout(0, acNf=false) message: {msg}" (msg.contains "timed out")
