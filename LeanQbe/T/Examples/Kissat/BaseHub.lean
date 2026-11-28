@@ -350,6 +350,8 @@ public import LeanQbe.T.Examples.Kissat.Proof.Spec.Contracts1
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Contracts2
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Contracts3
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Contracts4
+public import LeanQbe.T.Examples.Kissat.Proof.Spec.HdrView
+public import LeanQbe.T.Examples.Kissat.Proof.Spec.HdrViewEquiv
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Header
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.MemBridges
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.SatNv
