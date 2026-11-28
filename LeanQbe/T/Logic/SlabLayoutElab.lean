@@ -230,53 +230,20 @@ private meta def usesIdent (s ident : String) : Bool :=
   let tokens := s.splitToList (fun c => !c.isAlphanum && c != '_' && c != '\'')
   tokens.contains ident
 
-private meta def slabCommands (S : String) (params : List (String × String))
-    (fields : List SlabFieldInfo) (isModule : Bool) : List String := Id.run do
-  let exp := if isModule then "@[expose] " else ""
-  let (placed, _totStat?, totTerm) := placeSegs fields
-  let dataFields := placed.filter (!segIsPad ·)
-  let lenFields := placed.filter segIsLen
-  let paramBinders := " ".intercalate (params.map fun (n, ty) => s!"({q n} : {ty})")
-  let paramSp := if paramBinders.isEmpty then "" else paramBinders ++ " "
-  let implBinders := " ".intercalate (params.map fun (n, ty) => s!"\{{q n} : {ty}}")
-  let implSp := if implBinders.isEmpty then "" else implBinders ++ " "
-  let paramArgs := " ".intercalate (params.map fun (n, _) => q n)
-  let pArgsSp := if paramArgs.isEmpty then "" else " " ++ paramArgs
-  let qs := q S
-  let memTy := "Std.ExtHashMap (BitVec 64) UInt8"
-  let mut cmds : List String := []
-  -- 1. State record structure
-  let fieldDecls := dataFields.map fun p => s!"  {q p.name} : {structFieldType p.spec}"
-  let structBody := if fieldDecls.isEmpty then "" else "\n" ++ "\n".intercalate fieldDecls
-  cmds := cmds ++ [s!"structure {qs} where{structBody}"]
-  -- 2. LengthsOk structure
-  let lenParamBinders := " ".intercalate (params.map fun (n, ty) =>
-    let used := lenFields.any fun p => match p.spec with
-      | .array _ lt _ _ | .bytes lt _ => usesIdent lt n
-      | _ => false
-    if used then s!"({q n} : {ty})" else s!"(_ : {ty})")
-  let lenParamSp := if lenParamBinders.isEmpty then "" else lenParamBinders ++ " "
-  let sBinder := if lenFields.isEmpty then s!"(_ : {qs})" else s!"(s : {qs})"
-  let lenDecls := lenFields.map fun p => match p.spec with
-    | .array _ lt _ _ | .bytes lt _ =>
-      s!"  {q (p.name ++ "_len")} : s.{q p.name}.length = ({lt})"
-    | _ => ""
-  let lenBody := if lenDecls.isEmpty then "" else "\n" ++ "\n".intercalate lenDecls
-  cmds := cmds ++ [s!"structure {qs}.LengthsOk {lenParamSp}{sBinder} : Prop where{lenBody}"]
-  -- 3. totalBytes
-  let totParamBinders := " ".intercalate (params.map fun (n, ty) =>
-    if usesIdent totTerm n then s!"({q n} : {ty})" else s!"(_ : {ty})")
-  let totParamSp := if totParamBinders.isEmpty then "" else totParamBinders ++ " "
-  cmds := cmds ++ [s!"{exp}def {qs}.totalBytes {totParamSp}: Nat := {totTerm}"]
-  -- 4. kindItems
-  let kindParamBinders := " ".intercalate (params.map fun (n, ty) =>
-    let used := placed.any fun p =>
-      usesIdent p.offTerm n || usesIdent p.strideTerm n ||
-      match p.spec with
-      | .array _ lt _ _ | .bytes lt _ | .pad lt _ => usesIdent lt n
-      | .cell _ => false
-    if used then s!"({q n} : {ty})" else s!"(_ : {ty})")
-  let kindParamSp := if kindParamBinders.isEmpty then "" else kindParamBinders ++ " "
+private meta structure SlabGenCtx where
+  qs : String
+  exp : String
+  memTy : String
+  params : List (String × String)
+  placed : List PlacedSlabSeg
+  dataFields : List PlacedSlabSeg
+  lenFields : List PlacedSlabSeg
+  totTerm : String
+  paramSp : String
+  implSp : String
+  pArgsSp : String
+
+private meta def mkKindList (placed : List PlacedSlabSeg) : String :=
   let kindElems := placed.map fun p =>
     let offTag := if p.isFirst then "none" else s!"some {p.offTerm}"
     let kindStr := match p.spec with
@@ -288,21 +255,50 @@ private meta def slabCommands (S : String) (params : List (String × String))
       | .bytes lt _ => s!"LeanQbe.T.SlabSegKind.bytes ({lt})"
       | .pad lt _ => s!"LeanQbe.T.SlabSegKind.pad ({lt})"
     s!"({offTag}, {kindStr})"
-  let kindList := "[" ++ ", ".intercalate kindElems ++ "]"
-  cmds := cmds ++ [
-    s!"{exp}def {qs}.kindItems {kindParamSp}: " ++
-      s!"List (Option Nat × LeanQbe.T.SlabSegKind) := {kindList}"
-  ]
-  -- 5. flatSegItems & segs
-  let itemParamBinders := " ".intercalate (params.map fun (n, ty) =>
-    let used := placed.any fun p =>
+  "[" ++ ", ".intercalate kindElems ++ "]"
+
+private meta def slabHeaderCmds (ctx : SlabGenCtx) (kindList : String) : List String := Id.run do
+  let qs := ctx.qs
+  let exp := ctx.exp
+  let mut cmds : List String := []
+  -- 1. State record structure
+  let fieldDecls := ctx.dataFields.map fun p => s!"  {q p.name} : {structFieldType p.spec}"
+  let structBody := if fieldDecls.isEmpty then "" else "\n" ++ "\n".intercalate fieldDecls
+  cmds := cmds ++ [s!"structure {qs} where{structBody}"]
+  -- 2. LengthsOk structure
+  let lenParamBinders := " ".intercalate (ctx.params.map fun (n, ty) =>
+    let used := ctx.lenFields.any fun p => match p.spec with
+      | .array _ lt _ _ | .bytes lt _ => usesIdent lt n
+      | _ => false
+    if used then s!"({q n} : {ty})" else s!"(_ : {ty})")
+  let lenParamSp := if lenParamBinders.isEmpty then "" else lenParamBinders ++ " "
+  let sBinder := if ctx.lenFields.isEmpty then s!"(_ : {qs})" else s!"(s : {qs})"
+  let lenDecls := ctx.lenFields.map fun p => match p.spec with
+    | .array _ lt _ _ | .bytes lt _ =>
+      s!"  {q (p.name ++ "_len")} : s.{q p.name}.length = ({lt})"
+    | _ => ""
+  let lenBody := if lenDecls.isEmpty then "" else "\n" ++ "\n".intercalate lenDecls
+  cmds := cmds ++ [s!"structure {qs}.LengthsOk {lenParamSp}{sBinder} : Prop where{lenBody}"]
+  -- 3. totalBytes
+  let totParamBinders := " ".intercalate (ctx.params.map fun (n, ty) =>
+    if usesIdent ctx.totTerm n then s!"({q n} : {ty})" else s!"(_ : {ty})")
+  let totParamSp := if totParamBinders.isEmpty then "" else totParamBinders ++ " "
+  cmds := cmds ++ [s!"{exp}def {qs}.totalBytes {totParamSp}: Nat := {ctx.totTerm}"]
+  -- 4. kindItems
+  let itemParamBinders := " ".intercalate (ctx.params.map fun (n, ty) =>
+    let used := ctx.placed.any fun p =>
       usesIdent p.offTerm n || usesIdent p.strideTerm n ||
       match p.spec with
       | .array _ lt _ _ | .bytes lt _ | .pad lt _ => usesIdent lt n
       | .cell _ => false
     if used then s!"({q n} : {ty})" else s!"(_ : {ty})")
   let itemParamSp := if itemParamBinders.isEmpty then "" else itemParamBinders ++ " "
-  let flatSegElems := placed.map fun p =>
+  cmds := cmds ++ [
+    s!"{exp}def {qs}.kindItems {itemParamSp}: " ++
+      s!"List (Option Nat × LeanQbe.T.SlabSegKind) := {kindList}"
+  ]
+  -- 5. flatSegItems & segs
+  let flatSegElems := ctx.placed.map fun p =>
     let offTag := if p.isFirst then "none" else s!"some {p.offTerm}"
     let segStr := match p.spec with
       | .cell eb => s!"LeanQbe.T.SlabSeg.ofCell (.bits {8 * eb}) s.{q p.name}"
@@ -320,18 +316,18 @@ private meta def slabCommands (S : String) (params : List (String × String))
     s!"({offTag}, {segStr})"
   let segItemsBody := "[" ++ ", ".intercalate flatSegElems ++ "]"
   let segsSBinder :=
-    if dataFields.isEmpty && lenFields.isEmpty then s!"(_ : {qs})" else s!"(s : {qs})"
+    if ctx.dataFields.isEmpty && ctx.lenFields.isEmpty then s!"(_ : {qs})" else s!"(s : {qs})"
   let segsHBinder :=
-    if lenFields.isEmpty then s!"(_ : {qs}.LengthsOk{pArgsSp} s)"
-    else s!"(hlen : {qs}.LengthsOk{pArgsSp} s)"
+    if ctx.lenFields.isEmpty then s!"(_ : {qs}.LengthsOk{ctx.pArgsSp} s)"
+    else s!"(hlen : {qs}.LengthsOk{ctx.pArgsSp} s)"
   cmds := cmds ++ [
     s!"{exp}def {qs}.flatSegs {itemParamSp}{segsSBinder} {segsHBinder} : " ++
       s!"List (Option Nat × LeanQbe.T.SlabSeg) := {segItemsBody}",
-    s!"{exp}def {qs}.segs {itemParamSp}(s : {qs}) (hlen : {qs}.LengthsOk{pArgsSp} s) : " ++
-      s!"List LeanQbe.T.SlabSeg := ({qs}.flatSegs{pArgsSp} s hlen).map Prod.snd"
+    s!"{exp}def {qs}.segs {itemParamSp}(s : {qs}) (hlen : {qs}.LengthsOk{ctx.pArgsSp} s) : " ++
+      s!"List LeanQbe.T.SlabSeg := ({qs}.flatSegs{ctx.pArgsSp} s hlen).map Prod.snd"
   ]
   -- 6. Balanced SepTree & At + At_eq
-  let treeLeaves := placed.map fun p =>
+  let treeLeaves := ctx.placed.map fun p =>
     let a := addrExpr p
     match p.spec with
     | .cell eb => s!"LeanQbe.T.cell (t := .bits {8 * eb}) {a} s.{q p.name}"
@@ -343,339 +339,404 @@ private meta def slabCommands (S : String) (params : List (String × String))
     | .bytes _ _ => s!"LeanQbe.T.bytes {a} s.{q p.name}"
     | .pad lt _ => s!"LeanQbe.T.region {a} ({lt})"
   let treeBody := buildBalancedTree treeLeaves
-  let treeParamBinders := " ".intercalate (params.map fun (n, ty) =>
+  let treeParamBinders := " ".intercalate (ctx.params.map fun (n, ty) =>
     if usesIdent treeBody n then s!"({q n} : {ty})" else s!"(_ : {ty})")
   let treeParamSp := if treeParamBinders.isEmpty then "" else treeParamBinders ++ " "
-  let treeSBinder := if dataFields.isEmpty then s!"(_ : {qs})" else s!"(s : {qs})"
+  let treeSBinder := if ctx.dataFields.isEmpty then s!"(_ : {qs})" else s!"(s : {qs})"
   cmds := cmds ++ [
     s!"{exp}def {qs}.Tree {treeParamSp}(p : BitVec 64) {treeSBinder} : " ++
       s!"LeanQbe.T.SepTree := {treeBody}",
-    s!"{exp}def {qs}.At {paramSp}(p : BitVec 64) (s : {qs}) : " ++
-      s!"{memTy} → Prop := ({qs}.Tree{pArgsSp} p s).eval",
-    s!"theorem {qs}.At_eq {paramSp}(p : BitVec 64) (s : {qs}) : " ++
-      s!"{qs}.At{pArgsSp} p s = ({qs}.Tree{pArgsSp} p s).eval := rfl"
+    s!"{exp}def {qs}.At {ctx.paramSp}(p : BitVec 64) (s : {qs}) : " ++
+      s!"{ctx.memTy} → Prop := ({qs}.Tree{ctx.pArgsSp} p s).eval",
+    s!"theorem {qs}.At_eq {ctx.paramSp}(p : BitVec 64) (s : {qs}) : " ++
+      s!"{qs}.At{ctx.pArgsSp} p s = ({qs}.Tree{ctx.pArgsSp} p s).eval := rfl"
   ]
-  -- 7. focus / unfocus, load / store, LengthsOk_set, lens per data field
-  let lenOkCopy :=
-    if lenFields.isEmpty then "⟨⟩"
+  return cmds
+
+private meta def slabCellFieldCmds (ctx : SlabGenCtx) (p : PlacedSlabSeg) (eb : Nat)
+    (lenOkHyp lenOkCopy : String) : List String := Id.run do
+  let qs := ctx.qs
+  let pArgsSp := ctx.pArgsSp
+  let a := addrExpr p
+  let pathS := ppPath p.path
+  let fName := p.name
+  let qf := q fName
+  let bits := 8 * eb
+  let upd := mkStructUpdate ctx.dataFields fName "v"
+  let leaf := s!"LeanQbe.T.cell (t := .bits {bits}) {a} s.{qf}"
+  let leafV := s!"LeanQbe.T.cell (t := .bits {bits}) {a} v"
+  let ctxHyps :=
+    s!"{ctx.implSp}\{p : BitVec 64} \{s : {qs}} \{R : {ctx.memTy} → Prop} \{m : {ctx.memTy}}"
+  let mut cmds : List String := [
+    s!"theorem {qs}.{q ("focus_" ++ fName)} {ctxHyps} " ++
+      s!"(hm : ({qs}.At{pArgsSp} p s ⋆ R) m) : " ++
+      s!"({leaf} ⋆ (({qs}.Tree{pArgsSp} p s).rest {pathS} ⋆ R)) m := by " ++
+      s!"rw [{qs}.At_eq] at hm; exact LeanQbe.T.SepTree.focus {pathS} hm",
+    s!"theorem {qs}.{q ("unfocus_" ++ fName)} {ctx.implSp}\{p : BitVec 64} \{s : {qs}} " ++
+      s!"(v : BitVec {bits}) \{R : {ctx.memTy} → Prop} \{m : {ctx.memTy}} " ++
+      s!"(hm : ({leafV} ⋆ (({qs}.Tree{pArgsSp} p s).rest {pathS} ⋆ R)) m) : " ++
+      s!"({qs}.At{pArgsSp} p {upd} ⋆ R) m := by " ++
+      s!"rw [{qs}.At_eq]; exact LeanQbe.T.SepTree.unfocus_eq {pathS} rfl hm",
+    s!"@[c0_load] theorem {qs}.{q ("load_" ++ fName)} {ctxHyps} " ++
+      s!"(hm : ({qs}.At{pArgsSp} p s ⋆ R) m) : " ++
+      s!"LeanQbe.T.loadVal m (.bits {bits}) {a} = some s.{qf} := by " ++
+      s!"rw [{qs}.At_eq] at hm; " ++
+      s!"exact LeanQbe.T.sepTree_cell_get (t := {qs}.Tree{pArgsSp} p s) " ++
+      s!"(p := {pathS}) rfl (by decide) hm",
+    s!"@[c0_store] theorem {qs}.{q ("store_" ++ fName)} {ctxHyps} (v : BitVec {bits}) " ++
+      s!"(hm : ({qs}.At{pArgsSp} p s ⋆ R) m) : " ++
+      s!"LeanQbe.T.storeOk m (.bits {bits}) {a} ∧ " ++
+      s!"({qs}.At{pArgsSp} p {upd} ⋆ R) (LeanQbe.T.storeMem m (.bits {bits}) {a} v) := by " ++
+      s!"rw [{qs}.At_eq] at hm ⊢; " ++
+      s!"exact LeanQbe.T.sepTree_cell_put (t := {qs}.Tree{pArgsSp} p s) " ++
+      s!"(p := {pathS}) (M' := ({qs}.Tree{pArgsSp} p {upd}).eval) v rfl (by decide) " ++
+      s!"(by dsimp only [{qs}.Tree, LeanQbe.T.SepTree.set]; try rfl) hm",
+    s!"theorem {qs}.{q ("LengthsOk_set_" ++ fName)} {ctx.implSp}\{s : {qs}} {lenOkHyp} " ++
+      s!"(v : BitVec {bits}) : {qs}.LengthsOk{pArgsSp} {upd} := {lenOkCopy}"
+  ]
+  match p.isFirst, p.offStatic? with
+  | false, some n =>
+    if n > 0 then
+      let aOfNat := s!"(p + {n})"
+      cmds := cmds ++ [
+        s!"@[c0_load] theorem {qs}.{q ("load_" ++ fName ++ "_ofNat")} {ctxHyps} " ++
+          s!"(hm : ({qs}.At{pArgsSp} p s ⋆ R) m) : " ++
+          s!"LeanQbe.T.loadVal m (.bits {bits}) {aOfNat} = some s.{qf} := " ++
+          s!"{qs}.{q ("load_" ++ fName)} hm",
+        s!"@[c0_store] theorem {qs}.{q ("store_" ++ fName ++ "_ofNat")} {ctxHyps} " ++
+          s!"(v : BitVec {bits}) (hm : ({qs}.At{pArgsSp} p s ⋆ R) m) : " ++
+          s!"LeanQbe.T.storeOk m (.bits {bits}) {aOfNat} ∧ " ++
+          s!"({qs}.At{pArgsSp} p {upd} ⋆ R) " ++
+          s!"(LeanQbe.T.storeMem m (.bits {bits}) {aOfNat} v) := " ++
+          s!"{qs}.{q ("store_" ++ fName)} v hm"
+      ]
+  | _, _ => pure ()
+  return cmds
+
+private meta def slabArrayByteFieldCmds (ctx : SlabGenCtx) (p : PlacedSlabSeg) (lt : String)
+    (al8 : Bool) : List String :=
+  let qs := ctx.qs
+  let pArgsSp := ctx.pArgsSp
+  let a := addrExpr p
+  let pathS := ppPath p.path
+  let fName := p.name
+  let qf := q fName
+  let qLen := q (fName ++ "_len")
+  let updSetBv := mkStructUpdate ctx.dataFields fName s!"(s.{qf}.set i.toNat v)"
+  let (getBv, putBv) :=
+    if al8 then ("sepTree_arr_pad_get_byte", "sepTree_arr_pad_put_byte")
+    else ("sepTree_arr_get_byte", "sepTree_arr_put_byte")
+  let (getU32, putU32) :=
+    if al8 then ("sepTree_arr_pad_get_byte_u32", "sepTree_arr_pad_put_byte_u32")
+    else ("sepTree_arr_get_byte_u32", "sepTree_arr_put_byte_u32")
+  let (addrBv, addrU32, offParam, hoffHyp, hoffSub) := match p.isFirst, p.offStatic? with
+    | true, _ => ("(p + i)", "(p + BitVec.setWidth 64 i)", "", "", "")
+    | false, some n =>
+      if n == 0 then ("(p + i)", "(p + BitVec.setWidth 64 i)", "", "", "")
+      else
+        ("((p + off) + i)", "((p + off) + BitVec.setWidth 64 i)",
+         "{off : BitVec 64} ", s!"(hoff : off = {n}#64) ", "subst hoff; ")
+    | false, none => (s!"({a} + i)", s!"({a} + BitVec.setWidth 64 i)", "", "", "")
+  let hoffArg := if hoffHyp.isEmpty then "" else "hoff "
+  let bvHyps := s!"{ctx.implSp}\{p : BitVec 64} {offParam}\{s : {qs}} " ++
+    s!"\{R : {ctx.memTy} → Prop} \{m : {ctx.memTy}}"
+  [
+    s!"@[c0_load] theorem {qs}.{q ("load_" ++ fName ++ "_bv")} {bvHyps} {hoffHyp}" ++
+      s!"(i : BitVec 64) (hi : i.toNat < s.{qf}.length) " ++
+      s!"(hm : ({qs}.At{pArgsSp} p s ⋆ R) m) : " ++
+      s!"LeanQbe.T.loadVal m (.bits 8) {addrBv} = some s.{qf}[i.toNat] := by " ++
+      s!"{hoffSub}rw [{qs}.At_eq] at hm; exact LeanQbe.T.{getBv} " ++
+      s!"(t := {qs}.Tree{pArgsSp} p s) (p := {pathS}) rfl hi hm",
+    s!"@[c0_load] theorem {qs}.{q ("load_" ++ fName ++ "_bv_ok")} {bvHyps} " ++
+      s!"(hlen : {qs}.LengthsOk{pArgsSp} s) {hoffHyp}(i : BitVec 64) " ++
+      s!"(hi : i.toNat < ({lt})) (hm : ({qs}.At{pArgsSp} p s ⋆ R) m) : " ++
+      s!"LeanQbe.T.loadVal m (.bits 8) {addrBv} = " ++
+      s!"some (s.{qf}[i.toNat]'(by rw [hlen.{qLen}]; exact hi)) := " ++
+      s!"{qs}.{q ("load_" ++ fName ++ "_bv")} {hoffArg}i " ++
+      s!"(by rw [hlen.{qLen}]; exact hi) hm",
+    s!"@[c0_load] theorem {qs}.{q ("load_" ++ fName ++ "_u32_ok")} {bvHyps} " ++
+      s!"(hlen : {qs}.LengthsOk{pArgsSp} s) {hoffHyp}(i : BitVec 32) " ++
+      s!"(hi : i.toNat < ({lt})) (hm : ({qs}.At{pArgsSp} p s ⋆ R) m) : " ++
+      s!"LeanQbe.T.loadVal m (.bits 8) {addrU32} = " ++
+      s!"some (s.{qf}[i.toNat]'(by rw [hlen.{qLen}]; exact hi)) := by " ++
+      s!"{hoffSub}rw [{qs}.At_eq] at hm; exact LeanQbe.T.{getU32} " ++
+      s!"(t := {qs}.Tree{pArgsSp} p s) (p := {pathS}) rfl " ++
+      s!"(by rw [hlen.{qLen}]; exact hi) hm",
+    s!"@[c0_store] theorem {qs}.{q ("store_" ++ fName ++ "_bv")} {bvHyps} {hoffHyp}" ++
+      s!"(i : BitVec 64) (v : BitVec 8) (hi : i.toNat < s.{qf}.length) " ++
+      s!"(hm : ({qs}.At{pArgsSp} p s ⋆ R) m) : " ++
+      s!"LeanQbe.T.storeOk m (.bits 8) {addrBv} ∧ " ++
+      s!"({qs}.At{pArgsSp} p {updSetBv} ⋆ R) " ++
+      s!"(LeanQbe.T.storeMem m (.bits 8) {addrBv} v) := by " ++
+      s!"{hoffSub}rw [{qs}.At_eq] at hm ⊢; exact LeanQbe.T.{putBv} " ++
+      s!"(t := {qs}.Tree{pArgsSp} p s) (p := {pathS}) rfl v hi rfl hm",
+    s!"@[c0_store] theorem {qs}.{q ("store_" ++ fName ++ "_bv_ok")} {bvHyps} " ++
+      s!"(hlen : {qs}.LengthsOk{pArgsSp} s) {hoffHyp}(i : BitVec 64) (v : BitVec 8) " ++
+      s!"(hi : i.toNat < ({lt})) (hm : ({qs}.At{pArgsSp} p s ⋆ R) m) : " ++
+      s!"LeanQbe.T.storeOk m (.bits 8) {addrBv} ∧ " ++
+      s!"({qs}.At{pArgsSp} p {updSetBv} ⋆ R) " ++
+      s!"(LeanQbe.T.storeMem m (.bits 8) {addrBv} v) := " ++
+      s!"{qs}.{q ("store_" ++ fName ++ "_bv")} {hoffArg}i v " ++
+      s!"(by rw [hlen.{qLen}]; exact hi) hm",
+    s!"@[c0_store] theorem {qs}.{q ("store_" ++ fName ++ "_u32_ok")} {bvHyps} " ++
+      s!"(hlen : {qs}.LengthsOk{pArgsSp} s) {hoffHyp}(i : BitVec 32) (v : BitVec 8) " ++
+      s!"(hi : i.toNat < ({lt})) (hm : ({qs}.At{pArgsSp} p s ⋆ R) m) : " ++
+      s!"LeanQbe.T.storeOk m (.bits 8) {addrU32} ∧ " ++
+      s!"({qs}.At{pArgsSp} p {updSetBv} ⋆ R) " ++
+      s!"(LeanQbe.T.storeMem m (.bits 8) {addrU32} v) := by " ++
+      s!"{hoffSub}rw [{qs}.At_eq] at hm ⊢; exact LeanQbe.T.{putU32} " ++
+      s!"(t := {qs}.Tree{pArgsSp} p s) (p := {pathS}) rfl v " ++
+      s!"(by rw [hlen.{qLen}]; exact hi) rfl hm"
+  ]
+
+private meta def slabArrayWordFieldCmds (ctx : SlabGenCtx) (p : PlacedSlabSeg) (eb : Nat)
+    (lt : String) (getBvThm putBvThm : String) : List String :=
+  let qs := ctx.qs
+  let pArgsSp := ctx.pArgsSp
+  let a := addrExpr p
+  let pathS := ppPath p.path
+  let fName := p.name
+  let qf := q fName
+  let bits := 8 * eb
+  let qLen := q (fName ++ "_len")
+  let updSetBv := mkStructUpdate ctx.dataFields fName s!"(s.{qf}.set i.toNat v)"
+  let (addrBv, addrU32, offParam, hoffHyp, hoffSub) := match p.isFirst, p.offStatic? with
+    | true, _ => ("(p + i * w)", "(p + BitVec.setWidth 64 i * w)", "", "", "")
+    | false, some n =>
+      if n == 0 then ("(p + i * w)", "(p + BitVec.setWidth 64 i * w)", "", "", "")
+      else
+        ("((p + off) + i * w)", "((p + off) + BitVec.setWidth 64 i * w)",
+         "{off : BitVec 64} ", s!"(hoff : off = {n}#64) ", "subst hoff; ")
+    | false, none =>
+      (s!"({a} + i * w)", s!"({a} + BitVec.setWidth 64 i * w)", "", "", "")
+  let hwHyp := s!"(hw : w = {eb}#64)"
+  let hoffArg := if hoffHyp.isEmpty then "" else "hoff "
+  let bvHyps := s!"{ctx.implSp}\{p : BitVec 64} {offParam}\{w : BitVec 64} \{s : {qs}} " ++
+    s!"\{R : {ctx.memTy} → Prop} \{m : {ctx.memTy}}"
+  [
+    s!"@[c0_load] theorem {qs}.{q ("load_" ++ fName ++ "_bv")} {bvHyps} " ++
+      s!"{hoffHyp}{hwHyp} (i : BitVec 64) (hi : i.toNat < s.{qf}.length) " ++
+      s!"(hm : ({qs}.At{pArgsSp} p s ⋆ R) m) : " ++
+      s!"LeanQbe.T.loadVal m (.bits {bits}) {addrBv} = some s.{qf}[i.toNat] := by " ++
+      s!"{hoffSub}rw [{qs}.At_eq] at hm; exact LeanQbe.T.{getBvThm} " ++
+      s!"(t := {qs}.Tree{pArgsSp} p s) (p := {pathS}) rfl (by decide) " ++
+      "(by rw [hw]; rfl) hi hm",
+    s!"@[c0_load] theorem {qs}.{q ("load_" ++ fName ++ "_bv_ok")} {bvHyps} " ++
+      s!"(hlen : {qs}.LengthsOk{pArgsSp} s) {hoffHyp}{hwHyp} (i : BitVec 64) " ++
+      s!"(hi : i.toNat < ({lt})) (hm : ({qs}.At{pArgsSp} p s ⋆ R) m) : " ++
+      s!"LeanQbe.T.loadVal m (.bits {bits}) {addrBv} = " ++
+      s!"some (s.{qf}[i.toNat]'(by rw [hlen.{qLen}]; exact hi)) := " ++
+      s!"{qs}.{q ("load_" ++ fName ++ "_bv")} {hoffArg}hw i " ++
+      s!"(by rw [hlen.{qLen}]; exact hi) hm",
+    s!"@[c0_load] theorem {qs}.{q ("load_" ++ fName ++ "_u32_ok")} {bvHyps} " ++
+      s!"(hlen : {qs}.LengthsOk{pArgsSp} s) {hoffHyp}{hwHyp} (i : BitVec 32) " ++
+      s!"(hi : i.toNat < ({lt})) (hm : ({qs}.At{pArgsSp} p s ⋆ R) m) : " ++
+      s!"LeanQbe.T.loadVal m (.bits {bits}) {addrU32} = " ++
+      s!"some (s.{qf}[i.toNat]'(by rw [hlen.{qLen}]; exact hi)) := by " ++
+      s!"have h := {qs}.{q ("load_" ++ fName ++ "_bv_ok")} hlen {hoffArg}hw " ++
+      "(BitVec.setWidth 64 i) " ++
+      "(by rw [LeanQbe.T.sepTree_toNat_setWidth64]; exact hi) hm; " ++
+      "simpa only [LeanQbe.T.sepTree_toNat_setWidth64] using h",
+    s!"@[c0_store] theorem {qs}.{q ("store_" ++ fName ++ "_bv")} {bvHyps} " ++
+      s!"{hoffHyp}{hwHyp} (i : BitVec 64) (v : BitVec {bits}) " ++
+      s!"(hi : i.toNat < s.{qf}.length) (hm : ({qs}.At{pArgsSp} p s ⋆ R) m) : " ++
+      s!"LeanQbe.T.storeOk m (.bits {bits}) {addrBv} ∧ " ++
+      s!"({qs}.At{pArgsSp} p {updSetBv} ⋆ R) " ++
+      s!"(LeanQbe.T.storeMem m (.bits {bits}) {addrBv} v) := by " ++
+      s!"{hoffSub}rw [{qs}.At_eq] at hm ⊢; exact LeanQbe.T.{putBvThm} " ++
+      s!"(t := {qs}.Tree{pArgsSp} p s) (p := {pathS}) rfl (by decide) " ++
+      "(by rw [hw]; rfl) v hi rfl hm",
+    s!"@[c0_store] theorem {qs}.{q ("store_" ++ fName ++ "_bv_ok")} {bvHyps} " ++
+      s!"(hlen : {qs}.LengthsOk{pArgsSp} s) {hoffHyp}{hwHyp} (i : BitVec 64) " ++
+      s!"(v : BitVec {bits}) (hi : i.toNat < ({lt})) " ++
+      s!"(hm : ({qs}.At{pArgsSp} p s ⋆ R) m) : " ++
+      s!"LeanQbe.T.storeOk m (.bits {bits}) {addrBv} ∧ " ++
+      s!"({qs}.At{pArgsSp} p {updSetBv} ⋆ R) " ++
+      s!"(LeanQbe.T.storeMem m (.bits {bits}) {addrBv} v) := " ++
+      s!"{qs}.{q ("store_" ++ fName ++ "_bv")} {hoffArg}hw i v " ++
+      s!"(by rw [hlen.{qLen}]; exact hi) hm",
+    s!"@[c0_store] theorem {qs}.{q ("store_" ++ fName ++ "_u32_ok")} {bvHyps} " ++
+      s!"(hlen : {qs}.LengthsOk{pArgsSp} s) {hoffHyp}{hwHyp} (i : BitVec 32) " ++
+      s!"(v : BitVec {bits}) (hi : i.toNat < ({lt})) " ++
+      s!"(hm : ({qs}.At{pArgsSp} p s ⋆ R) m) : " ++
+      s!"LeanQbe.T.storeOk m (.bits {bits}) {addrU32} ∧ " ++
+      s!"({qs}.At{pArgsSp} p {updSetBv} ⋆ R) " ++
+      s!"(LeanQbe.T.storeMem m (.bits {bits}) {addrU32} v) := by " ++
+      s!"have h := {qs}.{q ("store_" ++ fName ++ "_bv_ok")} hlen {hoffArg}hw " ++
+      "(BitVec.setWidth 64 i) v " ++
+      "(by rw [LeanQbe.T.sepTree_toNat_setWidth64]; exact hi) hm; " ++
+      "simpa only [LeanQbe.T.sepTree_toNat_setWidth64] using h"
+  ]
+
+private meta def slabArrayFieldCmds (ctx : SlabGenCtx) (p : PlacedSlabSeg) (eb : Nat)
+    (lt : String) (al8 : Bool) : List String :=
+  let qs := ctx.qs
+  let pArgsSp := ctx.pArgsSp
+  let a := addrExpr p
+  let pathS := ppPath p.path
+  let fName := p.name
+  let qf := q fName
+  let bits := 8 * eb
+  let updSet := mkStructUpdate ctx.dataFields fName s!"(s.{qf}.set i v)"
+  let updWhole := mkStructUpdate ctx.dataFields fName "xs'"
+  let qLen := q (fName ++ "_len")
+  let (getNatThm, putNatThm, getBvThm, putBvThm) :=
+    if al8 then
+      ("sepTree_arr_pad_get", "sepTree_arr_pad_put",
+       "sepTree_arr_pad_get_bv_at", "sepTree_arr_pad_put_bv_at")
     else
-      let assigns := lenFields.map fun lp =>
+      ("sepTree_arr_get", "sepTree_arr_put",
+       "sepTree_arr_get_bv_at", "sepTree_arr_put_bv_at")
+  let (leaf, leafUpdWhole) :=
+    if al8 then
+      let tail :=
+        s!"LeanQbe.T.region ({a} + BitVec.ofNat 64 ({eb} * ({lt}))) " ++
+        s!"(LeanQbe.T.align8 ({eb} * ({lt})) - {eb} * ({lt}))"
+      (s!"(LeanQbe.T.array (t := .bits {bits}) {a} s.{qf} ⋆ {tail})",
+       s!"(LeanQbe.T.array (t := .bits {bits}) {a} xs' ⋆ {tail})")
+    else
+      (s!"LeanQbe.T.array (t := .bits {bits}) {a} s.{qf}",
+       s!"LeanQbe.T.array (t := .bits {bits}) {a} xs'")
+  let elemAddrNat :=
+    if eb == 1 then s!"({a} + BitVec.ofNat 64 i)"
+    else s!"({a} + BitVec.ofNat 64 ({eb} * i))"
+  let getCall :=
+    s!"LeanQbe.T.{getNatThm} (t := {qs}.Tree{pArgsSp} p s) (p := {pathS}) " ++
+    "rfl (by decide) hi hm"
+  let putCall :=
+    s!"LeanQbe.T.{putNatThm} (t := {qs}.Tree{pArgsSp} p s) (p := {pathS}) " ++
+    s!"(M' := ({qs}.Tree{pArgsSp} p {updSet}).eval) rfl (by decide) v hi rfl hm"
+  let ctxHyps :=
+    s!"{ctx.implSp}\{p : BitVec 64} \{s : {qs}} \{R : {ctx.memTy} → Prop} \{m : {ctx.memTy}}"
+  let base := [
+    s!"theorem {qs}.{q ("focus_" ++ fName)} {ctxHyps} " ++
+      s!"(hm : ({qs}.At{pArgsSp} p s ⋆ R) m) : " ++
+      s!"({leaf} ⋆ (({qs}.Tree{pArgsSp} p s).rest {pathS} ⋆ R)) m := by " ++
+      s!"rw [{qs}.At_eq] at hm; exact LeanQbe.T.SepTree.focus {pathS} hm",
+    s!"theorem {qs}.{q ("unfocus_" ++ fName)} {ctx.implSp}\{p : BitVec 64} \{s : {qs}} " ++
+      s!"(xs' : List (BitVec {bits})) \{R : {ctx.memTy} → Prop} \{m : {ctx.memTy}} " ++
+      s!"(hm : ({leafUpdWhole} ⋆ (({qs}.Tree{pArgsSp} p s).rest {pathS} ⋆ R)) m) : " ++
+      s!"({qs}.At{pArgsSp} p {updWhole} ⋆ R) m := by " ++
+      s!"rw [{qs}.At_eq]; exact LeanQbe.T.SepTree.unfocus_eq {pathS} rfl hm",
+    s!"@[c0_load] theorem {qs}.{q ("load_" ++ fName)} {ctxHyps} (i : Nat) " ++
+      s!"(hi : i < s.{qf}.length) (hm : ({qs}.At{pArgsSp} p s ⋆ R) m) : " ++
+      s!"LeanQbe.T.loadVal m (.bits {bits}) {elemAddrNat} = some s.{qf}[i] := by " ++
+      s!"rw [{qs}.At_eq] at hm; have h := {getCall}; " ++
+      "try simp only [LeanQbe.T.Ty.bytes, LeanQbe.T.Ty.size] at h; exact h",
+    s!"@[c0_store] theorem {qs}.{q ("store_" ++ fName)} {ctxHyps} (i : Nat) " ++
+      s!"(v : BitVec {bits}) (hi : i < s.{qf}.length) " ++
+      s!"(hm : ({qs}.At{pArgsSp} p s ⋆ R) m) : " ++
+      s!"LeanQbe.T.storeOk m (.bits {bits}) {elemAddrNat} ∧ " ++
+      s!"({qs}.At{pArgsSp} p {updSet} ⋆ R) " ++
+      s!"(LeanQbe.T.storeMem m (.bits {bits}) {elemAddrNat} v) := by " ++
+      s!"rw [{qs}.At_eq] at hm ⊢; have h := {putCall}; " ++
+      "try simp only [LeanQbe.T.Ty.bytes, LeanQbe.T.Ty.size] at h; exact h",
+    s!"theorem {qs}.{q ("LengthsOk_set_" ++ fName)} {ctx.implSp}\{s : {qs}} " ++
+      s!"(hlen : {qs}.LengthsOk{pArgsSp} s) (i : Nat) (v : BitVec {bits}) : " ++
+      s!"{qs}.LengthsOk{pArgsSp} {updSet} := " ++
+      s!"\{ hlen with {qLen} := by rw [List.length_set]; exact hlen.{qLen} }"
+  ]
+  let bv :=
+    if eb == 1 then slabArrayByteFieldCmds ctx p lt al8
+    else slabArrayWordFieldCmds ctx p eb lt getBvThm putBvThm
+  base ++ bv
+
+private meta def slabBytesFieldCmds (ctx : SlabGenCtx) (p : PlacedSlabSeg)
+    (lt : String) : List String :=
+  let qs := ctx.qs
+  let pArgsSp := ctx.pArgsSp
+  let a := addrExpr p
+  let pathS := ppPath p.path
+  let fName := p.name
+  let qf := q fName
+  let updWhole := mkStructUpdate ctx.dataFields fName "bs'"
+  let leaf := s!"LeanQbe.T.bytes {a} s.{qf}"
+  let leafV := s!"LeanQbe.T.bytes {a} bs'"
+  let qLen := q (fName ++ "_len")
+  let ctxHyps :=
+    s!"{ctx.implSp}\{p : BitVec 64} \{s : {qs}} \{R : {ctx.memTy} → Prop} \{m : {ctx.memTy}}"
+  [
+    s!"theorem {qs}.{q ("focus_" ++ fName)} {ctxHyps} " ++
+      s!"(hm : ({qs}.At{pArgsSp} p s ⋆ R) m) : " ++
+      s!"({leaf} ⋆ (({qs}.Tree{pArgsSp} p s).rest {pathS} ⋆ R)) m := by " ++
+      s!"rw [{qs}.At_eq] at hm; exact LeanQbe.T.SepTree.focus {pathS} hm",
+    s!"theorem {qs}.{q ("unfocus_" ++ fName)} {ctx.implSp}\{p : BitVec 64} \{s : {qs}} " ++
+      s!"(bs' : List UInt8) \{R : {ctx.memTy} → Prop} \{m : {ctx.memTy}} " ++
+      s!"(hm : ({leafV} ⋆ (({qs}.Tree{pArgsSp} p s).rest {pathS} ⋆ R)) m) : " ++
+      s!"({qs}.At{pArgsSp} p {updWhole} ⋆ R) m := by " ++
+      s!"rw [{qs}.At_eq]; exact LeanQbe.T.SepTree.unfocus_eq {pathS} rfl hm",
+    s!"@[c0_load] theorem {qs}.{q ("load_" ++ fName)} {ctxHyps} (i : Nat) " ++
+      s!"(hi : i < s.{qf}.length) (hb : s.{qf}.length ≤ 2 ^ 64) " ++
+      s!"(hm : ({qs}.At{pArgsSp} p s ⋆ R) m) : " ++
+      s!"LeanQbe.T.loadVal m LeanQbe.T.i8 ({a} + BitVec.ofNat 64 i) = " ++
+      s!"some (BitVec.ofNat 8 s.{qf}[i].toNat) := by " ++
+      s!"rw [{qs}.At_eq] at hm; exact LeanQbe.T.sepTree_bytes_get " ++
+      s!"(t := {qs}.Tree{pArgsSp} p s) (p := {pathS}) rfl hi hb hm",
+    s!"@[c0_load] theorem {qs}.{q ("load_" ++ fName ++ "_ok")} {ctxHyps} " ++
+      s!"(hlen : {qs}.LengthsOk{pArgsSp} s) (i : Nat) (hi : i < ({lt})) " ++
+      s!"(hb : ({lt}) ≤ 2 ^ 64) (hm : ({qs}.At{pArgsSp} p s ⋆ R) m) : " ++
+      s!"LeanQbe.T.loadVal m LeanQbe.T.i8 ({a} + BitVec.ofNat 64 i) = " ++
+      s!"some (BitVec.ofNat 8 (s.{qf}[i]'(by rw [hlen.{qLen}]; exact hi)).toNat) := " ++
+      s!"{qs}.{q ("load_" ++ fName)} i (by rw [hlen.{qLen}]; exact hi) " ++
+      s!"(by rw [hlen.{qLen}]; exact hb) hm",
+    s!"@[c0_load] theorem {qs}.{q ("load_" ++ fName ++ "_bv")} {ctxHyps} (i : BitVec 64) " ++
+      s!"(hi : i.toNat < s.{qf}.length) (hb : s.{qf}.length ≤ 2 ^ 64) " ++
+      s!"(hm : ({qs}.At{pArgsSp} p s ⋆ R) m) : " ++
+      s!"LeanQbe.T.loadVal m LeanQbe.T.i8 ({a} + i) = " ++
+      s!"some (BitVec.ofNat 8 s.{qf}[i.toNat].toNat) := by " ++
+      s!"rw [{qs}.At_eq] at hm; exact LeanQbe.T.sepTree_bytes_get_bv " ++
+      s!"(t := {qs}.Tree{pArgsSp} p s) (p := {pathS}) rfl hi hb hm",
+    s!"theorem {qs}.{q ("LengthsOk_set_" ++ fName)} {ctx.implSp}\{s : {qs}} " ++
+      s!"(hlen : {qs}.LengthsOk{pArgsSp} s) (bs' : List UInt8) " ++
+      s!"(hnew : bs'.length = ({lt})) : {qs}.LengthsOk{pArgsSp} {updWhole} := " ++
+      s!"\{ hlen with {qLen} := hnew }"
+  ]
+
+private meta def slabFieldAccessCmds (ctx : SlabGenCtx) : List String := Id.run do
+  let qs := ctx.qs
+  let pArgsSp := ctx.pArgsSp
+  let lenOkCopy :=
+    if ctx.lenFields.isEmpty then "⟨⟩"
+    else
+      let assigns := ctx.lenFields.map fun lp =>
         s!"{q (lp.name ++ "_len")} := hlen.{q (lp.name ++ "_len")}"
       "{" ++ ", ".intercalate assigns ++ "}"
   let lenOkHyp :=
-    if lenFields.isEmpty then s!"(_ : {qs}.LengthsOk{pArgsSp} s)"
+    if ctx.lenFields.isEmpty then s!"(_ : {qs}.LengthsOk{pArgsSp} s)"
     else s!"(hlen : {qs}.LengthsOk{pArgsSp} s)"
-  for p in dataFields do
-    let a := addrExpr p
-    let pathS := ppPath p.path
+  let mut cmds : List String := []
+  for p in ctx.dataFields do
     let fName := p.name
     let qf := q fName
     match p.spec with
-    | .cell eb =>
-      let bits := 8 * eb
-      let upd := mkStructUpdate dataFields fName "v"
-      let leaf := s!"LeanQbe.T.cell (t := .bits {bits}) {a} s.{qf}"
-      let leafV := s!"LeanQbe.T.cell (t := .bits {bits}) {a} v"
-      let ctxHyps := s!"{implSp}\{p : BitVec 64} \{s : {qs}} \{R : {memTy} → Prop} \{m : {memTy}}"
-      cmds := cmds ++ [
-        s!"theorem {qs}.{q ("focus_" ++ fName)} {ctxHyps} " ++
-          s!"(hm : ({qs}.At{pArgsSp} p s ⋆ R) m) : " ++
-          s!"({leaf} ⋆ (({qs}.Tree{pArgsSp} p s).rest {pathS} ⋆ R)) m := by " ++
-          s!"rw [{qs}.At_eq] at hm; exact LeanQbe.T.SepTree.focus {pathS} hm",
-        s!"theorem {qs}.{q ("unfocus_" ++ fName)} {implSp}\{p : BitVec 64} \{s : {qs}} " ++
-          s!"(v : BitVec {bits}) \{R : {memTy} → Prop} \{m : {memTy}} " ++
-          s!"(hm : ({leafV} ⋆ (({qs}.Tree{pArgsSp} p s).rest {pathS} ⋆ R)) m) : " ++
-          s!"({qs}.At{pArgsSp} p {upd} ⋆ R) m := by " ++
-          s!"rw [{qs}.At_eq]; exact LeanQbe.T.SepTree.unfocus_eq {pathS} rfl hm",
-        s!"@[c0_load] theorem {qs}.{q ("load_" ++ fName)} {ctxHyps} " ++
-          s!"(hm : ({qs}.At{pArgsSp} p s ⋆ R) m) : " ++
-          s!"LeanQbe.T.loadVal m (.bits {bits}) {a} = some s.{qf} := by " ++
-          s!"rw [{qs}.At_eq] at hm; " ++
-          s!"exact LeanQbe.T.sepTree_cell_get (t := {qs}.Tree{pArgsSp} p s) " ++
-          s!"(p := {pathS}) rfl (by decide) hm",
-        s!"@[c0_store] theorem {qs}.{q ("store_" ++ fName)} {ctxHyps} (v : BitVec {bits}) " ++
-          s!"(hm : ({qs}.At{pArgsSp} p s ⋆ R) m) : " ++
-          s!"LeanQbe.T.storeOk m (.bits {bits}) {a} ∧ " ++
-          s!"({qs}.At{pArgsSp} p {upd} ⋆ R) (LeanQbe.T.storeMem m (.bits {bits}) {a} v) := by " ++
-          s!"rw [{qs}.At_eq] at hm ⊢; " ++
-          s!"exact LeanQbe.T.sepTree_cell_put (t := {qs}.Tree{pArgsSp} p s) " ++
-          s!"(p := {pathS}) (M' := ({qs}.Tree{pArgsSp} p {upd}).eval) v rfl (by decide) " ++
-          s!"(by dsimp only [{qs}.Tree, LeanQbe.T.SepTree.set]; try rfl) hm",
-        s!"theorem {qs}.{q ("LengthsOk_set_" ++ fName)} {implSp}\{s : {qs}} {lenOkHyp} " ++
-          s!"(v : BitVec {bits}) : {qs}.LengthsOk{pArgsSp} {upd} := {lenOkCopy}"
-      ]
-      match p.isFirst, p.offStatic? with
-      | false, some n =>
-        if n > 0 then
-          let aOfNat := s!"(p + {n})"
-          cmds := cmds ++ [
-            s!"@[c0_load] theorem {qs}.{q ("load_" ++ fName ++ "_ofNat")} {ctxHyps} " ++
-              s!"(hm : ({qs}.At{pArgsSp} p s ⋆ R) m) : " ++
-              s!"LeanQbe.T.loadVal m (.bits {bits}) {aOfNat} = some s.{qf} := " ++
-              s!"{qs}.{q ("load_" ++ fName)} hm",
-            s!"@[c0_store] theorem {qs}.{q ("store_" ++ fName ++ "_ofNat")} {ctxHyps} " ++
-              s!"(v : BitVec {bits}) (hm : ({qs}.At{pArgsSp} p s ⋆ R) m) : " ++
-              s!"LeanQbe.T.storeOk m (.bits {bits}) {aOfNat} ∧ " ++
-              s!"({qs}.At{pArgsSp} p {upd} ⋆ R) " ++
-              s!"(LeanQbe.T.storeMem m (.bits {bits}) {aOfNat} v) := " ++
-              s!"{qs}.{q ("store_" ++ fName)} v hm"
-          ]
-      | _, _ => pure ()
-    | .array eb lt _ al8 =>
-      let bits := 8 * eb
-      let updSet := mkStructUpdate dataFields fName s!"(s.{qf}.set i v)"
-      let updSetBv := mkStructUpdate dataFields fName s!"(s.{qf}.set i.toNat v)"
-      let updWhole := mkStructUpdate dataFields fName "xs'"
-      let qLen := q (fName ++ "_len")
-      let (getNatThm, putNatThm, getBvThm, putBvThm) :=
-        if al8 then
-          ("sepTree_arr_pad_get", "sepTree_arr_pad_put",
-           "sepTree_arr_pad_get_bv_at", "sepTree_arr_pad_put_bv_at")
-        else
-          ("sepTree_arr_get", "sepTree_arr_put",
-           "sepTree_arr_get_bv_at", "sepTree_arr_put_bv_at")
-      let (leaf, leafUpdWhole) :=
-        if al8 then
-          let tail :=
-            s!"LeanQbe.T.region ({a} + BitVec.ofNat 64 ({eb} * ({lt}))) " ++
-            s!"(LeanQbe.T.align8 ({eb} * ({lt})) - {eb} * ({lt}))"
-          (s!"(LeanQbe.T.array (t := .bits {bits}) {a} s.{qf} ⋆ {tail})",
-           s!"(LeanQbe.T.array (t := .bits {bits}) {a} xs' ⋆ {tail})")
-        else
-          (s!"LeanQbe.T.array (t := .bits {bits}) {a} s.{qf}",
-           s!"LeanQbe.T.array (t := .bits {bits}) {a} xs'")
-      let elemAddrNat :=
-        if eb == 1 then s!"({a} + BitVec.ofNat 64 i)"
-        else s!"({a} + BitVec.ofNat 64 ({eb} * i))"
-      let getCall :=
-        s!"LeanQbe.T.{getNatThm} (t := {qs}.Tree{pArgsSp} p s) (p := {pathS}) " ++
-        "rfl (by decide) hi hm"
-      let putCall :=
-        s!"LeanQbe.T.{putNatThm} (t := {qs}.Tree{pArgsSp} p s) (p := {pathS}) " ++
-        s!"(M' := ({qs}.Tree{pArgsSp} p {updSet}).eval) rfl (by decide) v hi rfl hm"
-      let ctxHyps := s!"{implSp}\{p : BitVec 64} \{s : {qs}} \{R : {memTy} → Prop} \{m : {memTy}}"
-      cmds := cmds ++ [
-        s!"theorem {qs}.{q ("focus_" ++ fName)} {ctxHyps} " ++
-          s!"(hm : ({qs}.At{pArgsSp} p s ⋆ R) m) : " ++
-          s!"({leaf} ⋆ (({qs}.Tree{pArgsSp} p s).rest {pathS} ⋆ R)) m := by " ++
-          s!"rw [{qs}.At_eq] at hm; exact LeanQbe.T.SepTree.focus {pathS} hm",
-        s!"theorem {qs}.{q ("unfocus_" ++ fName)} {implSp}\{p : BitVec 64} \{s : {qs}} " ++
-          s!"(xs' : List (BitVec {bits})) \{R : {memTy} → Prop} \{m : {memTy}} " ++
-          s!"(hm : ({leafUpdWhole} ⋆ (({qs}.Tree{pArgsSp} p s).rest {pathS} ⋆ R)) m) : " ++
-          s!"({qs}.At{pArgsSp} p {updWhole} ⋆ R) m := by " ++
-          s!"rw [{qs}.At_eq]; exact LeanQbe.T.SepTree.unfocus_eq {pathS} rfl hm",
-        s!"@[c0_load] theorem {qs}.{q ("load_" ++ fName)} {ctxHyps} (i : Nat) " ++
-          s!"(hi : i < s.{qf}.length) (hm : ({qs}.At{pArgsSp} p s ⋆ R) m) : " ++
-          s!"LeanQbe.T.loadVal m (.bits {bits}) {elemAddrNat} = some s.{qf}[i] := by " ++
-          s!"rw [{qs}.At_eq] at hm; have h := {getCall}; " ++
-          "try simp only [LeanQbe.T.Ty.bytes, LeanQbe.T.Ty.size] at h; exact h",
-        s!"@[c0_store] theorem {qs}.{q ("store_" ++ fName)} {ctxHyps} (i : Nat) " ++
-          s!"(v : BitVec {bits}) (hi : i < s.{qf}.length) " ++
-          s!"(hm : ({qs}.At{pArgsSp} p s ⋆ R) m) : " ++
-          s!"LeanQbe.T.storeOk m (.bits {bits}) {elemAddrNat} ∧ " ++
-          s!"({qs}.At{pArgsSp} p {updSet} ⋆ R) " ++
-          s!"(LeanQbe.T.storeMem m (.bits {bits}) {elemAddrNat} v) := by " ++
-          s!"rw [{qs}.At_eq] at hm ⊢; have h := {putCall}; " ++
-          "try simp only [LeanQbe.T.Ty.bytes, LeanQbe.T.Ty.size] at h; exact h",
-        s!"theorem {qs}.{q ("LengthsOk_set_" ++ fName)} {implSp}\{s : {qs}} " ++
-          s!"(hlen : {qs}.LengthsOk{pArgsSp} s) (i : Nat) (v : BitVec {bits}) : " ++
-          s!"{qs}.LengthsOk{pArgsSp} {updSet} := " ++
-          s!"\{ hlen with {qLen} := by rw [List.length_set]; exact hlen.{qLen} }"
-      ]
-      -- BV64 C0-aligned patterns
-      if eb == 1 then
-        let (getBv, putBv) :=
-          if al8 then ("sepTree_arr_pad_get_byte", "sepTree_arr_pad_put_byte")
-          else ("sepTree_arr_get_byte", "sepTree_arr_put_byte")
-        let (getU32, putU32) :=
-          if al8 then ("sepTree_arr_pad_get_byte_u32", "sepTree_arr_pad_put_byte_u32")
-          else ("sepTree_arr_get_byte_u32", "sepTree_arr_put_byte_u32")
-        let (addrBv, addrU32, offParam, hoffHyp, hoffSub) := match p.isFirst, p.offStatic? with
-          | true, _ => ("(p + i)", "(p + BitVec.setWidth 64 i)", "", "", "")
-          | false, some n =>
-            if n == 0 then ("(p + i)", "(p + BitVec.setWidth 64 i)", "", "", "")
-            else
-              ("((p + off) + i)", "((p + off) + BitVec.setWidth 64 i)",
-               "{off : BitVec 64} ", s!"(hoff : off = {n}#64) ", "subst hoff; ")
-          | false, none => (s!"({a} + i)", s!"({a} + BitVec.setWidth 64 i)", "", "", "")
-        let hoffArg := if hoffHyp.isEmpty then "" else "hoff "
-        let bvHyps := s!"{implSp}\{p : BitVec 64} {offParam}\{s : {qs}} " ++
-          s!"\{R : {memTy} → Prop} \{m : {memTy}}"
-        cmds := cmds ++ [
-          s!"@[c0_load] theorem {qs}.{q ("load_" ++ fName ++ "_bv")} {bvHyps} {hoffHyp}" ++
-            s!"(i : BitVec 64) (hi : i.toNat < s.{qf}.length) " ++
-            s!"(hm : ({qs}.At{pArgsSp} p s ⋆ R) m) : " ++
-            s!"LeanQbe.T.loadVal m (.bits 8) {addrBv} = some s.{qf}[i.toNat] := by " ++
-            s!"{hoffSub}rw [{qs}.At_eq] at hm; exact LeanQbe.T.{getBv} " ++
-            s!"(t := {qs}.Tree{pArgsSp} p s) (p := {pathS}) rfl hi hm",
-          s!"@[c0_load] theorem {qs}.{q ("load_" ++ fName ++ "_bv_ok")} {bvHyps} " ++
-            s!"(hlen : {qs}.LengthsOk{pArgsSp} s) {hoffHyp}(i : BitVec 64) " ++
-            s!"(hi : i.toNat < ({lt})) (hm : ({qs}.At{pArgsSp} p s ⋆ R) m) : " ++
-            s!"LeanQbe.T.loadVal m (.bits 8) {addrBv} = " ++
-            s!"some (s.{qf}[i.toNat]'(by rw [hlen.{qLen}]; exact hi)) := " ++
-            s!"{qs}.{q ("load_" ++ fName ++ "_bv")} {hoffArg}i " ++
-            s!"(by rw [hlen.{qLen}]; exact hi) hm",
-          s!"@[c0_load] theorem {qs}.{q ("load_" ++ fName ++ "_u32_ok")} {bvHyps} " ++
-            s!"(hlen : {qs}.LengthsOk{pArgsSp} s) {hoffHyp}(i : BitVec 32) " ++
-            s!"(hi : i.toNat < ({lt})) (hm : ({qs}.At{pArgsSp} p s ⋆ R) m) : " ++
-            s!"LeanQbe.T.loadVal m (.bits 8) {addrU32} = " ++
-            s!"some (s.{qf}[i.toNat]'(by rw [hlen.{qLen}]; exact hi)) := by " ++
-            s!"{hoffSub}rw [{qs}.At_eq] at hm; exact LeanQbe.T.{getU32} " ++
-            s!"(t := {qs}.Tree{pArgsSp} p s) (p := {pathS}) rfl " ++
-            s!"(by rw [hlen.{qLen}]; exact hi) hm",
-          s!"@[c0_store] theorem {qs}.{q ("store_" ++ fName ++ "_bv")} {bvHyps} {hoffHyp}" ++
-            s!"(i : BitVec 64) (v : BitVec 8) (hi : i.toNat < s.{qf}.length) " ++
-            s!"(hm : ({qs}.At{pArgsSp} p s ⋆ R) m) : " ++
-            s!"LeanQbe.T.storeOk m (.bits 8) {addrBv} ∧ " ++
-            s!"({qs}.At{pArgsSp} p {updSetBv} ⋆ R) " ++
-            s!"(LeanQbe.T.storeMem m (.bits 8) {addrBv} v) := by " ++
-            s!"{hoffSub}rw [{qs}.At_eq] at hm ⊢; exact LeanQbe.T.{putBv} " ++
-            s!"(t := {qs}.Tree{pArgsSp} p s) (p := {pathS}) rfl v hi rfl hm",
-          s!"@[c0_store] theorem {qs}.{q ("store_" ++ fName ++ "_bv_ok")} {bvHyps} " ++
-            s!"(hlen : {qs}.LengthsOk{pArgsSp} s) {hoffHyp}(i : BitVec 64) (v : BitVec 8) " ++
-            s!"(hi : i.toNat < ({lt})) (hm : ({qs}.At{pArgsSp} p s ⋆ R) m) : " ++
-            s!"LeanQbe.T.storeOk m (.bits 8) {addrBv} ∧ " ++
-            s!"({qs}.At{pArgsSp} p {updSetBv} ⋆ R) " ++
-            s!"(LeanQbe.T.storeMem m (.bits 8) {addrBv} v) := " ++
-            s!"{qs}.{q ("store_" ++ fName ++ "_bv")} {hoffArg}i v " ++
-            s!"(by rw [hlen.{qLen}]; exact hi) hm",
-          s!"@[c0_store] theorem {qs}.{q ("store_" ++ fName ++ "_u32_ok")} {bvHyps} " ++
-            s!"(hlen : {qs}.LengthsOk{pArgsSp} s) {hoffHyp}(i : BitVec 32) (v : BitVec 8) " ++
-            s!"(hi : i.toNat < ({lt})) (hm : ({qs}.At{pArgsSp} p s ⋆ R) m) : " ++
-            s!"LeanQbe.T.storeOk m (.bits 8) {addrU32} ∧ " ++
-            s!"({qs}.At{pArgsSp} p {updSetBv} ⋆ R) " ++
-            s!"(LeanQbe.T.storeMem m (.bits 8) {addrU32} v) := by " ++
-            s!"{hoffSub}rw [{qs}.At_eq] at hm ⊢; exact LeanQbe.T.{putU32} " ++
-            s!"(t := {qs}.Tree{pArgsSp} p s) (p := {pathS}) rfl v " ++
-            s!"(by rw [hlen.{qLen}]; exact hi) rfl hm"
-        ]
-      else
-        let (addrBv, addrU32, offParam, hoffHyp, hoffSub) := match p.isFirst, p.offStatic? with
-          | true, _ => ("(p + i * w)", "(p + BitVec.setWidth 64 i * w)", "", "", "")
-          | false, some n =>
-            if n == 0 then ("(p + i * w)", "(p + BitVec.setWidth 64 i * w)", "", "", "")
-            else
-              ("((p + off) + i * w)", "((p + off) + BitVec.setWidth 64 i * w)",
-               "{off : BitVec 64} ", s!"(hoff : off = {n}#64) ", "subst hoff; ")
-          | false, none =>
-            (s!"({a} + i * w)", s!"({a} + BitVec.setWidth 64 i * w)", "", "", "")
-        let hwHyp := s!"(hw : w = {eb}#64)"
-        let hoffArg := if hoffHyp.isEmpty then "" else "hoff "
-        let bvHyps := s!"{implSp}\{p : BitVec 64} {offParam}\{w : BitVec 64} \{s : {qs}} " ++
-          s!"\{R : {memTy} → Prop} \{m : {memTy}}"
-        cmds := cmds ++ [
-          s!"@[c0_load] theorem {qs}.{q ("load_" ++ fName ++ "_bv")} {bvHyps} " ++
-            s!"{hoffHyp}{hwHyp} (i : BitVec 64) (hi : i.toNat < s.{qf}.length) " ++
-            s!"(hm : ({qs}.At{pArgsSp} p s ⋆ R) m) : " ++
-            s!"LeanQbe.T.loadVal m (.bits {bits}) {addrBv} = some s.{qf}[i.toNat] := by " ++
-            s!"{hoffSub}rw [{qs}.At_eq] at hm; exact LeanQbe.T.{getBvThm} " ++
-            s!"(t := {qs}.Tree{pArgsSp} p s) (p := {pathS}) rfl (by decide) " ++
-            "(by rw [hw]; rfl) hi hm",
-          s!"@[c0_load] theorem {qs}.{q ("load_" ++ fName ++ "_bv_ok")} {bvHyps} " ++
-            s!"(hlen : {qs}.LengthsOk{pArgsSp} s) {hoffHyp}{hwHyp} (i : BitVec 64) " ++
-            s!"(hi : i.toNat < ({lt})) (hm : ({qs}.At{pArgsSp} p s ⋆ R) m) : " ++
-            s!"LeanQbe.T.loadVal m (.bits {bits}) {addrBv} = " ++
-            s!"some (s.{qf}[i.toNat]'(by rw [hlen.{qLen}]; exact hi)) := " ++
-            s!"{qs}.{q ("load_" ++ fName ++ "_bv")} {hoffArg}hw i " ++
-            s!"(by rw [hlen.{qLen}]; exact hi) hm",
-          s!"@[c0_load] theorem {qs}.{q ("load_" ++ fName ++ "_u32_ok")} {bvHyps} " ++
-            s!"(hlen : {qs}.LengthsOk{pArgsSp} s) {hoffHyp}{hwHyp} (i : BitVec 32) " ++
-            s!"(hi : i.toNat < ({lt})) (hm : ({qs}.At{pArgsSp} p s ⋆ R) m) : " ++
-            s!"LeanQbe.T.loadVal m (.bits {bits}) {addrU32} = " ++
-            s!"some (s.{qf}[i.toNat]'(by rw [hlen.{qLen}]; exact hi)) := by " ++
-            s!"have h := {qs}.{q ("load_" ++ fName ++ "_bv_ok")} hlen {hoffArg}hw " ++
-            "(BitVec.setWidth 64 i) " ++
-            "(by rw [LeanQbe.T.sepTree_toNat_setWidth64]; exact hi) hm; " ++
-            "simpa only [LeanQbe.T.sepTree_toNat_setWidth64] using h",
-          s!"@[c0_store] theorem {qs}.{q ("store_" ++ fName ++ "_bv")} {bvHyps} " ++
-            s!"{hoffHyp}{hwHyp} (i : BitVec 64) (v : BitVec {bits}) " ++
-            s!"(hi : i.toNat < s.{qf}.length) (hm : ({qs}.At{pArgsSp} p s ⋆ R) m) : " ++
-            s!"LeanQbe.T.storeOk m (.bits {bits}) {addrBv} ∧ " ++
-            s!"({qs}.At{pArgsSp} p {updSetBv} ⋆ R) " ++
-            s!"(LeanQbe.T.storeMem m (.bits {bits}) {addrBv} v) := by " ++
-            s!"{hoffSub}rw [{qs}.At_eq] at hm ⊢; exact LeanQbe.T.{putBvThm} " ++
-            s!"(t := {qs}.Tree{pArgsSp} p s) (p := {pathS}) rfl (by decide) " ++
-            "(by rw [hw]; rfl) v hi rfl hm",
-          s!"@[c0_store] theorem {qs}.{q ("store_" ++ fName ++ "_bv_ok")} {bvHyps} " ++
-            s!"(hlen : {qs}.LengthsOk{pArgsSp} s) {hoffHyp}{hwHyp} (i : BitVec 64) " ++
-            s!"(v : BitVec {bits}) (hi : i.toNat < ({lt})) " ++
-            s!"(hm : ({qs}.At{pArgsSp} p s ⋆ R) m) : " ++
-            s!"LeanQbe.T.storeOk m (.bits {bits}) {addrBv} ∧ " ++
-            s!"({qs}.At{pArgsSp} p {updSetBv} ⋆ R) " ++
-            s!"(LeanQbe.T.storeMem m (.bits {bits}) {addrBv} v) := " ++
-            s!"{qs}.{q ("store_" ++ fName ++ "_bv")} {hoffArg}hw i v " ++
-            s!"(by rw [hlen.{qLen}]; exact hi) hm",
-          s!"@[c0_store] theorem {qs}.{q ("store_" ++ fName ++ "_u32_ok")} {bvHyps} " ++
-            s!"(hlen : {qs}.LengthsOk{pArgsSp} s) {hoffHyp}{hwHyp} (i : BitVec 32) " ++
-            s!"(v : BitVec {bits}) (hi : i.toNat < ({lt})) " ++
-            s!"(hm : ({qs}.At{pArgsSp} p s ⋆ R) m) : " ++
-            s!"LeanQbe.T.storeOk m (.bits {bits}) {addrU32} ∧ " ++
-            s!"({qs}.At{pArgsSp} p {updSetBv} ⋆ R) " ++
-            s!"(LeanQbe.T.storeMem m (.bits {bits}) {addrU32} v) := by " ++
-            s!"have h := {qs}.{q ("store_" ++ fName ++ "_bv_ok")} hlen {hoffArg}hw " ++
-            "(BitVec.setWidth 64 i) v " ++
-            "(by rw [LeanQbe.T.sepTree_toNat_setWidth64]; exact hi) hm; " ++
-            "simpa only [LeanQbe.T.sepTree_toNat_setWidth64] using h"
-        ]
-    | .bytes lt _ =>
-      let updWhole := mkStructUpdate dataFields fName "bs'"
-      let leaf := s!"LeanQbe.T.bytes {a} s.{qf}"
-      let leafV := s!"LeanQbe.T.bytes {a} bs'"
-      let qLen := q (fName ++ "_len")
-      let ctxHyps := s!"{implSp}\{p : BitVec 64} \{s : {qs}} \{R : {memTy} → Prop} \{m : {memTy}}"
-      cmds := cmds ++ [
-        s!"theorem {qs}.{q ("focus_" ++ fName)} {ctxHyps} " ++
-          s!"(hm : ({qs}.At{pArgsSp} p s ⋆ R) m) : " ++
-          s!"({leaf} ⋆ (({qs}.Tree{pArgsSp} p s).rest {pathS} ⋆ R)) m := by " ++
-          s!"rw [{qs}.At_eq] at hm; exact LeanQbe.T.SepTree.focus {pathS} hm",
-        s!"theorem {qs}.{q ("unfocus_" ++ fName)} {implSp}\{p : BitVec 64} \{s : {qs}} " ++
-          s!"(bs' : List UInt8) \{R : {memTy} → Prop} \{m : {memTy}} " ++
-          s!"(hm : ({leafV} ⋆ (({qs}.Tree{pArgsSp} p s).rest {pathS} ⋆ R)) m) : " ++
-          s!"({qs}.At{pArgsSp} p {updWhole} ⋆ R) m := by " ++
-          s!"rw [{qs}.At_eq]; exact LeanQbe.T.SepTree.unfocus_eq {pathS} rfl hm",
-        s!"@[c0_load] theorem {qs}.{q ("load_" ++ fName)} {ctxHyps} (i : Nat) " ++
-          s!"(hi : i < s.{qf}.length) (hb : s.{qf}.length ≤ 2 ^ 64) " ++
-          s!"(hm : ({qs}.At{pArgsSp} p s ⋆ R) m) : " ++
-          s!"LeanQbe.T.loadVal m LeanQbe.T.i8 ({a} + BitVec.ofNat 64 i) = " ++
-          s!"some (BitVec.ofNat 8 s.{qf}[i].toNat) := by " ++
-          s!"rw [{qs}.At_eq] at hm; exact LeanQbe.T.sepTree_bytes_get " ++
-          s!"(t := {qs}.Tree{pArgsSp} p s) (p := {pathS}) rfl hi hb hm",
-        s!"@[c0_load] theorem {qs}.{q ("load_" ++ fName ++ "_ok")} {ctxHyps} " ++
-          s!"(hlen : {qs}.LengthsOk{pArgsSp} s) (i : Nat) (hi : i < ({lt})) " ++
-          s!"(hb : ({lt}) ≤ 2 ^ 64) (hm : ({qs}.At{pArgsSp} p s ⋆ R) m) : " ++
-          s!"LeanQbe.T.loadVal m LeanQbe.T.i8 ({a} + BitVec.ofNat 64 i) = " ++
-          s!"some (BitVec.ofNat 8 (s.{qf}[i]'(by rw [hlen.{qLen}]; exact hi)).toNat) := " ++
-          s!"{qs}.{q ("load_" ++ fName)} i (by rw [hlen.{qLen}]; exact hi) " ++
-          s!"(by rw [hlen.{qLen}]; exact hb) hm",
-        s!"@[c0_load] theorem {qs}.{q ("load_" ++ fName ++ "_bv")} {ctxHyps} (i : BitVec 64) " ++
-          s!"(hi : i.toNat < s.{qf}.length) (hb : s.{qf}.length ≤ 2 ^ 64) " ++
-          s!"(hm : ({qs}.At{pArgsSp} p s ⋆ R) m) : " ++
-          s!"LeanQbe.T.loadVal m LeanQbe.T.i8 ({a} + i) = " ++
-          s!"some (BitVec.ofNat 8 s.{qf}[i.toNat].toNat) := by " ++
-          s!"rw [{qs}.At_eq] at hm; exact LeanQbe.T.sepTree_bytes_get_bv " ++
-          s!"(t := {qs}.Tree{pArgsSp} p s) (p := {pathS}) rfl hi hb hm",
-        s!"theorem {qs}.{q ("LengthsOk_set_" ++ fName)} {implSp}\{s : {qs}} " ++
-          s!"(hlen : {qs}.LengthsOk{pArgsSp} s) (bs' : List UInt8) " ++
-          s!"(hnew : bs'.length = ({lt})) : {qs}.LengthsOk{pArgsSp} {updWhole} := " ++
-          s!"\{ hlen with {qLen} := hnew }"
-      ]
+    | .cell eb => cmds := cmds ++ slabCellFieldCmds ctx p eb lenOkHyp lenOkCopy
+    | .array eb lt _ al8 => cmds := cmds ++ slabArrayFieldCmds ctx p eb lt al8
+    | .bytes lt _ => cmds := cmds ++ slabBytesFieldCmds ctx p lt
     | .pad _ _ => pure ()
     -- Lens
     let fTy := structFieldType p.spec
-    let updL := mkStructUpdate dataFields fName "v"
-    let lensSBinder := if dataFields.length == 1 then "_" else "s"
+    let updL := mkStructUpdate ctx.dataFields fName "v"
+    let lensSBinder := if ctx.dataFields.length == 1 then "_" else "s"
     cmds := cmds ++ [
-      s!"{exp}def {qs}.{q ("lens_" ++ fName)} : LeanQbe.T.C0Lens {qs} ({fTy}) where\n" ++
+      s!"{ctx.exp}def {qs}.{q ("lens_" ++ fName)} : LeanQbe.T.C0Lens {qs} ({fTy}) where\n" ++
         s!"  get s := s.{qf}\n  set {lensSBinder} v := {updL}\n" ++
         "  get_set := by intros; rfl\n  set_get := by intro s; cases s; rfl\n" ++
         "  set_set := by intros; rfl"
     ]
-  -- 8. to_region / to_region_frame
-  let hasCell := placed.any fun p => match p.spec with | .cell _ => true | _ => false
-  let hasArrEx := placed.any fun p => match p.spec with | .array _ _ _ false => true | _ => false
-  let hasArrPd := placed.any fun p => match p.spec with | .array _ _ _ true => true | _ => false
-  let hasBytes := placed.any fun p => match p.spec with | .bytes _ _ => true | _ => false
-  let hasPad := placed.any fun p => match p.spec with | .pad _ _ => true | _ => false
+  return cmds
+
+private meta def slabToRegionCmds (ctx : SlabGenCtx) : List String :=
+  let qs := ctx.qs
+  let pArgsSp := ctx.pArgsSp
+  let implSp := ctx.implSp
+  let memTy := ctx.memTy
+  let hasCell := ctx.placed.any fun p => match p.spec with | .cell _ => true | _ => false
+  let hasArrEx :=
+    ctx.placed.any fun p => match p.spec with | .array _ _ _ false => true | _ => false
+  let hasArrPd :=
+    ctx.placed.any fun p => match p.spec with | .array _ _ _ true => true | _ => false
+  let hasBytes := ctx.placed.any fun p => match p.spec with | .bytes _ _ => true | _ => false
+  let hasPad := ctx.placed.any fun p => match p.spec with | .pad _ _ => true | _ => false
   let segConstrs : List String :=
     (if hasCell then ["LeanQbe.T.SlabSeg.ofCell"] else []) ++
     (if hasArrEx then ["LeanQbe.T.SlabSeg.ofArrayExact"] else []) ++
@@ -698,7 +759,7 @@ private meta def slabCommands (S : String) (params : List (String × String))
     s!"fun x => x.2.pred x.1 := (by dsimp only [{qs}.Tree, {qs}.flatSegs, " ++
     s!"LeanQbe.T.SlabChain.flatAddrs, LeanQbe.T.SlabChain.flatAddr{constrStr}, " ++
     "LeanQbe.T.SepTree.leaves, List.append, List.map]; try rfl)"
-  cmds := cmds ++ [
+  [
     s!"theorem {qs}.to_region {implSp}\{p : BitVec 64} \{s : {qs}} \{m : {memTy}} " ++
       s!"(hlen : {qs}.LengthsOk{pArgsSp} s) (hfit : {qs}.totalBytes{pArgsSp} ≤ 2 ^ 64) " ++
       s!"(hm : {qs}.At{pArgsSp} p s m) : " ++
@@ -715,17 +776,22 @@ private meta def slabCommands (S : String) (params : List (String × String))
       s!"rw [hls] at hm; exact LeanQbe.T.SepTree.evalPreds_to_region_frame_eq " ++
       s!"({segContTac}) ({segTotTac}) hfit hm"
   ]
-  -- 9. of_region / of_region_frame via SlabSegKind
+
+private meta def slabOfRegionCmds (ctx : SlabGenCtx) (kindList : String) : List String :=
+  let qs := ctx.qs
+  let pArgsSp := ctx.pArgsSp
+  let implSp := ctx.implSp
+  let memTy := ctx.memTy
   let kindTotTac :=
     "by dsimp only [LeanQbe.T.SlabSegKind.totalBytes, LeanQbe.T.SlabSegKind.stride, " ++
     s!"List.map, {qs}.kindItems, {qs}.totalBytes]; try omega"
   let kindContTac :=
     "by dsimp only [LeanQbe.T.SlabSegKind.Contiguous, LeanQbe.T.SlabSegKind.stride, " ++
     s!"{qs}.kindItems]; repeat (first | exact True.intro | constructor | rfl | omega)"
-  let patVars := (placed.zipIdx.map fun (p, idx) =>
+  let patVars := (ctx.placed.zipIdx.map fun (p, idx) =>
     if segIsPad p then s!"_v{idx}" else s!"v{idx}").foldr (init := ".nil") fun v acc =>
       s!".cons {v} ({acc})"
-  let structFieldInits := placed.zipIdx.filterMap fun (p, idx) =>
+  let structFieldInits := ctx.placed.zipIdx.filterMap fun (p, idx) =>
     match p.spec with
     | .cell _ => some s!"{q p.name} := v{idx}"
     | .array .. | .bytes .. => some s!"{q p.name} := v{idx}.1"
@@ -733,7 +799,7 @@ private meta def slabCommands (S : String) (params : List (String × String))
   let structLit :=
     if structFieldInits.isEmpty then "⟨⟩"
     else "{" ++ ", ".intercalate structFieldInits ++ "}"
-  let lenFieldInits := placed.zipIdx.filterMap fun (p, idx) =>
+  let lenFieldInits := ctx.placed.zipIdx.filterMap fun (p, idx) =>
     match p.spec with
     | .array .. | .bytes .. => some s!"{q (p.name ++ "_len")} := v{idx}.2"
     | _ => none
@@ -741,7 +807,7 @@ private meta def slabCommands (S : String) (params : List (String × String))
     if lenFieldInits.isEmpty then "⟨⟩"
     else "{" ++ ", ".intercalate lenFieldInits ++ "}"
   let unpackBody (framed : Bool) :=
-    if placed.isEmpty then
+    if ctx.placed.isEmpty then
       s!"exact ⟨⟨⟩, ⟨⟩, by rw [{qs}.At_eq]; exact hm⟩"
     else
       let fnNm :=
@@ -762,7 +828,7 @@ private meta def slabCommands (S : String) (params : List (String × String))
         "LeanQbe.T.SlabSegKind.pred, List.map]; try rfl); rw [hls]; exact hev"
       s!"{prefixT}; {prep}; match vs with | {patVars} => " ++
         s!"refine ⟨{structLit}, {lenLit}, by {evalMatch}⟩"
-  cmds := cmds ++ [
+  [
     s!"theorem {qs}.of_region {implSp}\{p : BitVec 64} \{m : {memTy}} " ++
       s!"(hfit : {qs}.totalBytes{pArgsSp} ≤ 2 ^ 64) " ++
       s!"(hm : LeanQbe.T.region p ({qs}.totalBytes{pArgsSp}) m) : " ++
@@ -774,7 +840,28 @@ private meta def slabCommands (S : String) (params : List (String × String))
       s!"∃ s : {qs}, {qs}.LengthsOk{pArgsSp} s ∧ ({qs}.At{pArgsSp} p s ⋆ R) m := by " ++
       s!"{unpackBody true}"
   ]
-  return cmds
+
+private meta def slabCommands (S : String) (params : List (String × String))
+    (fields : List SlabFieldInfo) (isModule : Bool) : List String :=
+  let exp := if isModule then "@[expose] " else ""
+  let (placed, _totStat?, totTerm) := placeSegs fields
+  let dataFields := placed.filter (!segIsPad ·)
+  let lenFields := placed.filter segIsLen
+  let paramBinders := " ".intercalate (params.map fun (n, ty) => s!"({q n} : {ty})")
+  let paramSp := if paramBinders.isEmpty then "" else paramBinders ++ " "
+  let implBinders := " ".intercalate (params.map fun (n, ty) => s!"\{{q n} : {ty}}")
+  let implSp := if implBinders.isEmpty then "" else implBinders ++ " "
+  let paramArgs := " ".intercalate (params.map fun (n, _) => q n)
+  let pArgsSp := if paramArgs.isEmpty then "" else " " ++ paramArgs
+  let ctx : SlabGenCtx := {
+    qs := q S, exp, memTy := "Std.ExtHashMap (BitVec 64) UInt8", params, placed,
+    dataFields, lenFields, totTerm, paramSp, implSp, pArgsSp
+  }
+  let kindList := mkKindList placed
+  slabHeaderCmds ctx kindList ++
+    slabFieldAccessCmds ctx ++
+    slabToRegionCmds ctx ++
+    slabOfRegionCmds ctx kindList
 
 private meta def parseSlabSegSpec (stx : Syntax) : CommandElabM SlabSegSpec := do
   let kind := stx.getKind

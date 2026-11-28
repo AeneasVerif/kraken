@@ -89,7 +89,8 @@ inductive SlabVals : List SlabSegKind → Type where
   | nil : SlabVals []
   | cons : {k : SlabSegKind} → {ks : List SlabSegKind} → k.Val → SlabVals ks → SlabVals (k :: ks)
 
-/-- Separating-conjunction predicate evaluated directly from `SlabSegKind` descriptors and `SlabVals`. -/
+/-- Separating-conjunction predicate evaluated directly from `SlabSegKind` descriptors and
+`SlabVals`. -/
 @[expose] def SlabSegKind.evalFlat (base : BitVec 64) :
     (xs : List (Option Nat × SlabSegKind)) → SlabVals (xs.map Prod.snd) → Mem 64 → Prop
   | [], .nil => Std.ExtHashMap.emp
@@ -566,7 +567,8 @@ theorem SlabSegKind.of_region_flat {base : BitVec 64} {xs : List (Option Nat × 
     rwa [BitVec.add_zero]
   exact slabSegKind_of_region_aux base 0 xs hcont hfit hm'
 
-/-- Frame-polymorphic decode from `(region base total ⋆ R) m` into `SlabVals` and `SlabSegKind.evalFlat`. -/
+/-- Frame-polymorphic decode from `(region base total ⋆ R) m` into `SlabVals` and
+`SlabSegKind.evalFlat`. -/
 theorem SlabSegKind.of_region_flat_frame {base : BitVec 64} {xs : List (Option Nat × SlabSegKind)}
     {total : Nat} {R : Mem 64 → Prop} {m : Mem 64}
     (hcont : SlabSegKind.Contiguous 0 xs)
