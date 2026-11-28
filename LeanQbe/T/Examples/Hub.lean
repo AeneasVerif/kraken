@@ -6,6 +6,8 @@ public import LeanQbe.T.Examples.Arisca.ArtSound
 public import LeanQbe.T.Examples.Arisca.ArtSoundAux
 public import LeanQbe.T.Examples.Arisca.ArtSoundB
 public import LeanQbe.T.Examples.Arisca.ArtSoundPoly
+public import LeanQbe.T.Examples.Arisca.Build.CertCommon
+public import LeanQbe.T.Examples.Arisca.Build.Flat
 public import LeanQbe.T.Examples.Arisca.Src.Driver
 public import LeanQbe.T.Examples.Arisca.Src.Header
 public import LeanQbe.T.Examples.Arisca.Src.Module
