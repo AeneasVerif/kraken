@@ -1,0 +1,11 @@
+# One per line: <module to import> <fully qualified constant>.
+# Canonical Kissat Src.Full (418 fns) Proof.Full{,Nv} + Build.{Inl,Amd64,Arm64}.Full audits.
+LeanQbe.T.Examples.Kissat.Proof.Full LeanQbe.T.Examples.Kissat.Proof.Full.fullSpecs_sigs
+LeanQbe.T.Examples.Kissat.Proof.Full LeanQbe.T.Examples.Kissat.Proof.Full.fullSpecs_noExit
+LeanQbe.T.Examples.Kissat.Proof.Full LeanQbe.T.Examples.Kissat.Proof.Full.kissatModule_checkAcyclicTrie
+LeanQbe.T.Examples.Kissat.Proof.Full LeanQbe.T.Examples.Kissat.Proof.Full.kissatModule_checkAcyclic
+LeanQbe.T.Examples.Kissat.Proof.Full LeanQbe.T.Examples.Kissat.Proof.Full.full_moduleOk
+LeanQbe.T.Examples.Kissat.Proof.Full LeanQbe.T.Examples.Kissat.Proof.Full.kissatUnsatPkg
+LeanQbe.T.Examples.Kissat.Proof.Full LeanQbe.T.Examples.Kissat.Proof.Full.full_solve_bytes_sound
+LeanQbe.T.Examples.Kissat.Proof.FullNv LeanQbe.T.Examples.Kissat.Proof.FullNv.full_unsat_nv
+LeanQbe.T.Examples.Kissat.Build.Inl.Full LeanQbe.T.Examples.Kissat.Build.Inl.Full.inlFns_eq

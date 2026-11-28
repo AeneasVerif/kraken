@@ -2,8 +2,7 @@ module
 
 public import LeanQbe.T.MainCertInline
 public import LeanQbe.T.Examples.Kissat.KissatAbiCommon
-public import LeanQbe.T.Examples.Kissat.FullM6SatNv
-public import LeanQbe.T.Examples.Kissat.FullM6SatSound
+public import LeanQbe.T.Examples.Kissat.Proof.Spec.SatNv1
 public import LeanQbe.T.Logic.MemLemmas
 public import Std.Sat.CNF.Basic
 public import Kraken.Mem
@@ -28,83 +27,19 @@ public section
 namespace LeanQbe.T.Examples.Kissat.KissatCertCommon
 
 open Std Std.Sat Std.ExtHashMap
-open LeanQbe.T LeanQbe.T.Examples.LratBytes
+open LeanQbe.T
 open LeanQbe.T.Examples.Kissat
-open LeanQbe.T.Examples.Kissat.Full
-open LeanQbe.T.Examples.Kissat.FullM6
-open LeanQbe.T.Examples.Kissat.FullM6Hdr
+open LeanQbe.T.Examples.Kissat.Ref
+open LeanQbe.T.Examples.Kissat.Proof.Spec
 open Kraken
 
-/-! ## 1. Deduplicated `Mem` & `M6Nv` Payload Helpers (`sep_exists_eq` via `KissatAbiCommon`) -/
+/-! ## 1. Deduplicated `Mem` & `M6Nv` Payload Helpers (`Proof.Spec.SatNv1` + `KissatAbiCommon`) -/
 
-@[expose] def m6NvWorkLen : Nat := 6144
-
-theorem m6NvWorkLen_eq : m6NvWorkLen = 6144 := rfl
-
-@[expose] def m6NvPayload (cnfBytes : List UInt8) : List UInt8 :=
-  cnfBytes ++ List.replicate m6NvWorkLen 0
-
-theorem m6NvPayload_eq (cnfBytes : List UInt8) :
-    m6NvPayload cnfBytes = cnfBytes ++ List.replicate 6144 0 := rfl
-
-theorem m6NvPayload_length (cnfBytes : List UInt8) :
-    (m6NvPayload cnfBytes).length = cnfBytes.length + m6NvWorkLen := by
-  simp only [m6NvPayload, List.length_append, List.length_replicate]
-
-theorem m6NvPayload_sep (cnfBytes : List UInt8) (hcb : cnfBytes.length ≤ 2048) :
-    (bytes nvM6CnfPtr cnfBytes ⋆ region (fullNvWorkPtr cnfBytes) m6NvWorkLen)
-      ((m6NvPayload cnfBytes).At nvM6CnfPtr) :=
-  nv_sep_append rfl
-    (by unfold m6NvWorkLen; rw [List.length_replicate]; omega)
-    rfl ⟨List.replicate m6NvWorkLen 0, List.length_replicate, rfl⟩
-
-theorem m6Nv_unsat_bound :
-    fullM6ExtBytes + fullFixedBytes 1 + 2 * 40 + 136 + 8 ≤ m6NvWorkLen := by
-  unfold m6NvWorkLen fullM6ExtBytes fullFixedBytes valsBytes markBytes
-    u32FullBytes fullMinDepthOf
-  decide
+export LeanQbe.T.Examples.Kissat.Proof.Spec
+  ( m6NvWorkLen m6NvWorkLen_eq m6NvPayload m6NvPayload_eq m6NvPayload_length
+    m6NvPayload_sep m6Nv_unsat_bound CommonUnsatSolveReq KissatUnsatPkg )
 
 /-! ## 2. Generic Arch-Free `KissatUnsatPkg` & Top-Level UNSAT Theorems -/
-
-/-- Canonical UNSAT + deterministic `UnitUnsatTrace` demand for `kissat_solve_bytes`. -/
-@[expose] def CommonUnsatSolveReq
-    (cnfBytes : List UInt8) (cnf_ptr work_ptr fuel : BitVec 64) (wlen : Nat)
-    (R : Mem 64 → Prop) (Q : Post [i64]) : Prop :=
-  ∀ r m',
-    (r = 0#64 ∨ r = 10#64 ∨ r = 20#64) →
-    (r = 20#64 → ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) →
-    (∀ mv nc i0,
-      cnf_ptr ≠ 0#64 → work_ptr ≠ 0#64 → 0 < fuel.toNat →
-      fullM6ExtBytes + fullFixedBytes mv + nc * 40 + 136 + 8 ≤ wlen →
-      i0 ≤ cnfBytes.length →
-      parseHeader cnfBytes = some (mv, nc, cnfBytes.drop i0) →
-      UnitUnsatTrace mv (List.replicate (2 * mv) 0#8) (cnfBytes.drop i0) nc →
-      r = 20#64) →
-    (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m' →
-    Q (r, ()) m'
-
-/-- Milestone-level arch-free UNSAT solver witness package (provided once per M8+ milestone). -/
-structure KissatUnsatPkg where
-  mod : Module
-  inlPolicy : InlinePolicy
-  entryFn : Sym := "kissat_solve_bytes"
-  entryFn_fn : Fn
-  entryFn_sig : entryFn_fn.name = entryFn ∧ entryFn_fn.as = [i64, i64, i64, i64, i64] ∧
-    entryFn_fn.rs = [i64]
-  entry_mem : entryFn_fn ∈ mod.fns
-  env : Env
-  moduleOk : ModuleOk env mod
-  noExit : ∀ f ∈ mod.fns, ∀ args m Q X X',
-    env f.name f.as f.rs args m Q X → env f.name f.as f.rs args m Q X'
-  solve_intro : ∀ {cnf_ptr work_ptr fuel : BitVec 64} {cnfBytes : List UInt8}
-    {wlen : Nat} {R : Mem 64 → Prop} {m : Mem 64} {Q : Post [i64]} {X : XPost},
-    cnf_ptr.toNat + cnfBytes.length < 2 ^ 64 →
-    work_ptr.toNat + wlen < 2 ^ 64 →
-    (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m →
-    CommonUnsatSolveReq cnfBytes cnf_ptr work_ptr fuel wlen R Q →
-    env entryFn [i64, i64, i64, i64, i64] [i64]
-      (cnf_ptr, BitVec.ofNat 64 cnfBytes.length, work_ptr, BitVec.ofNat 64 wlen, fuel, ())
-      m Q X
 
 theorem module_fnspec_of_abi (A : ArchKissatAbi) (P : KissatUnsatPkg)
     (cert : LinkedCert A.T A.L A.lt A.hcl (P.mod.optInlinePolicy P.inlPolicy))

@@ -24,11 +24,11 @@ class TestDataProofFirewall(unittest.TestCase):
         self.assertIn("D1", by_id)
         self.assertIn("D2", by_id)
         self.assertIn(
-            "LeanQbe/T/Examples/Kissat/FullFidelityInlData.lean",
+            "LeanQbe/T/Examples/Kissat/Src/Full.lean",
             by_id["D1"].files,
         )
         self.assertIn(
-            "LeanQbe/T/Examples/Kissat/FullFidelityAssemblyStep7.lean",
+            "LeanQbe/T/Examples/Kissat/Src/InlPolicy.lean",
             by_id["D1"].files,
         )
         for gid in ("L1", "L2", "L3", "L4", "D1", "D2"):
@@ -37,17 +37,17 @@ class TestDataProofFirewall(unittest.TestCase):
     def test_data_proof_firewall_catches_proof_and_meta_leaks(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            kdir = root / "LeanQbe" / "T" / "Examples" / "Kissat"
-            kdir.mkdir(parents=True)
-            (kdir / "FullFidelityInlData.lean").write_text(
+            sdir = root / "LeanQbe" / "T" / "Examples" / "Kissat" / "Src"
+            sdir.mkdir(parents=True)
+            (sdir / "LeafA.lean").write_text(
                 "module\n"
-                "public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyProof\n"
+                "public import LeanQbe.T.Examples.Kissat.Proof.Float64.Spec\n"
                 "meta import LeanQbe.T.PrintCpp\n",
                 encoding="utf-8",
             )
-            (kdir / "FullFidelityAssembly.lean").write_text(
+            (sdir / "Full.lean").write_text(
                 "module\n"
-                "public import LeanQbe.T.Examples.Kissat.FullFidelityInlData\n"
+                "public import LeanQbe.T.Examples.Kissat.Src.LeafA\n"
                 "meta import LeanQbe.T.Legal\n",
                 encoding="utf-8",
             )
@@ -57,26 +57,26 @@ class TestDataProofFirewall(unittest.TestCase):
             d2_mods = {(v.file, v.module) for v in d2}
             self.assertIn(
                 (
-                    "LeanQbe/T/Examples/Kissat/FullFidelityInlData.lean",
+                    "LeanQbe/T/Examples/Kissat/Src/LeafA.lean",
                     "data-to-proof",
-                    "LeanQbe.T.Examples.Kissat.FullFidelityAssemblyProof",
+                    "LeanQbe.T.Examples.Kissat.Proof.Float64.Spec",
                 ),
                 d1_kinds,
             )
             self.assertIn(
                 (
-                    "LeanQbe/T/Examples/Kissat/FullFidelityAssembly.lean",
+                    "LeanQbe/T/Examples/Kissat/Src/Full.lean",
                     "transitive-data-to-proof",
-                    "LeanQbe.T.Examples.Kissat.FullFidelityAssemblyProof",
+                    "LeanQbe.T.Examples.Kissat.Proof.Float64.Spec",
                 ),
                 d1_kinds,
             )
             self.assertIn(
-                ("LeanQbe/T/Examples/Kissat/FullFidelityInlData.lean", "LeanQbe.T.PrintCpp"),
+                ("LeanQbe/T/Examples/Kissat/Src/LeafA.lean", "LeanQbe.T.PrintCpp"),
                 d2_mods,
             )
             self.assertIn(
-                ("LeanQbe/T/Examples/Kissat/FullFidelityAssembly.lean", "LeanQbe.T.Legal"),
+                ("LeanQbe/T/Examples/Kissat/Src/Full.lean", "LeanQbe.T.Legal"),
                 d2_mods,
             )
 

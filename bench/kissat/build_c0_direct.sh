@@ -3,9 +3,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityAssemblyStep12.lean" ] || \
-   [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityAssembly.lean" ] || \
-   [ -f "$ROOT/LeanQbe/T/Examples/Kissat/Src/Full.lean" ]; then
+if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/Src/Full.lean" ]; then
   TARGET="fidelity"
 else
   TARGET="plain"
@@ -89,7 +87,7 @@ C0_FLAGS=(-std=c99 "$OPT_LEVEL" -fwrapv -fno-strict-aliasing -Wall -Wextra -Werr
 # gcc -Wparentheses); fidelity/opt targets stay warning-free without it.
 if [ "$TARGET" = plain ]; then C0_FLAGS+=(-Wno-parentheses); fi
 case "$TARGET" in
-  src-full|srcfull|fidelity-src) C0_FLAGS+=(-Wno-unused-variable) ;;
+  src-full|srcfull|fidelity-src|fidelity|fid) C0_FLAGS+=(-Wno-unused-variable) ;;
 esac
 MAIN_FLAGS=(-std=c99 "$OPT_LEVEL" -Wall -Wextra -Werror)
 

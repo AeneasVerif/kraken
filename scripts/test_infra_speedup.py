@@ -25,7 +25,7 @@ import sync_hubs as sh  # noqa: E402
 
 class TestHubIsolationAndNoLegacy(unittest.TestCase):
     def test_no_legacy_libs_or_imports(self) -> None:
-        self.assertEqual(len(sh.ALL_HUBS), 19)
+        self.assertEqual(len(sh.ALL_HUBS), 12)
         for hub in sh.ALL_HUBS:
             self.assertNotIn("Legacy", hub)
         self.assertFalse((REPO_ROOT / "LeanQbeLegacyTest").exists())
@@ -50,15 +50,14 @@ class TestRdepsScope(unittest.TestCase):
         mods = rs.compute_rdeps(
             REPO_ROOT,
             [
-                "LeanQbe/T/Examples/Kissat/FullFidelityAssembly.lean",
-                "LeanQbe/T/Examples/Kissat/FidelityHub.lean",
+                "LeanQbe/T/Examples/Kissat/Proof/Dimacs/Cert.lean",
+                "LeanQbe/T/Examples/Kissat/BaseHub.lean",
             ],
         )
         self.assertIsNotNone(mods)
         assert mods is not None
-        self.assertIn("LeanQbe.T.Examples.Kissat.FullFidelityAssembly", mods)
-        self.assertNotIn("LeanQbe.T.Examples.Kissat.FidelityHub", mods)
-        # Includes Step-7..10+ assembly proofs + dual-arch KissatFidelityParam/CompileGuard rdeps.
+        self.assertIn("LeanQbe.T.Examples.Kissat.Proof.Dimacs.Cert", mods)
+        self.assertNotIn("LeanQbe.T.Examples.Kissat.BaseHub", mods)
         self.assertLess(len(mods), 120)
 
     def test_fail_closed_cases(self) -> None:
@@ -97,11 +96,11 @@ class TestSelectTests(unittest.TestCase):
                     "scripts/headlines.d/core.txt",
                     "LeanQbe.lean",
                     "LeanQbeAmd64.lean",
-                    "LeanQbe/T/Examples/Kissat/FullFidelityAssemblyProof.lean",
+                    "LeanQbe/T/Examples/Kissat/Proof/Dimacs/Cert.lean",
                     "LeanQbe/T/OptLemmas.lean",
                     "LeanQbe/T/Amd64/KissatPlainCert1.lean",
                     "LeanQbeTest/T/Smoke.lean",
-                    "LeanQbeTest/T/KissatM5Test.lean",
+                    "LeanQbeTest/T/KissatC0Test.lean",
                 ]
             ),
             [],
@@ -121,7 +120,7 @@ class TestSelectTests(unittest.TestCase):
             ["./test/bootstrap0/run_stage_c_native.sh"],
         )
         self.assertEqual(
-            st.select_suites(["LeanQbe/T/Examples/Kissat/FullFidelityAssembly.lean"]),
+            st.select_suites(["LeanQbe/T/Examples/Kissat/Src/Full.lean"]),
             ["bash ./bench/kissat/build_c0_direct.sh --asan"],
         )
         self.assertEqual(
@@ -349,13 +348,9 @@ class TestP1DecouplingAndHubs(unittest.TestCase):
     def test_kissat_hub_split_classification(self) -> None:
         pfx = "LeanQbe.T.Examples.Kissat."
         cases = {
-            f"{pfx}FullFidelityAssembly": f"{pfx}FidelityHub",
-            f"{pfx}FullM8CoreParity": f"{pfx}M8Hub",
-            f"{pfx}FullM7": f"{pfx}M7Hub",
-            f"{pfx}FullM6": f"{pfx}M6Hub",
-            f"{pfx}FullM5": f"{pfx}M5Hub",
-            f"{pfx}FullM4": f"{pfx}M4Hub",
-            f"{pfx}FullM3": f"{pfx}M3Hub",
+            f"{pfx}Src.Full": f"{pfx}BaseHub",
+            f"{pfx}Proof.Dimacs.Cert": f"{pfx}BaseHub",
+            f"{pfx}Plain": f"{pfx}BaseHub",
             f"{pfx}Core": f"{pfx}BaseHub",
             f"{pfx}Build.Inl.Full": f"{pfx}BaseHub",
             f"{pfx}Build.Oracle.Float64": f"{pfx}BaseHub",

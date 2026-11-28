@@ -24,13 +24,13 @@ timeout 30 python3 -B scripts/lean_imports.py preflight-hygiene "$BASE" "$ROOT"
 # 4. If any Kissat C0 source changed, run <1s C99 extract + clang syntax/warning check!
 kissat_c0_changed="$({
   if git rev-parse --verify "${BASE}^{commit}" >/dev/null 2>&1; then
-    git diff --name-only "$BASE" 2>/dev/null || true
+    git diff --name-only --diff-filter=ACMR "$BASE" 2>/dev/null || true
   else
-    git diff --name-only HEAD 2>/dev/null || true
+    git diff --name-only --diff-filter=ACMR HEAD 2>/dev/null || true
   fi
   git ls-files --others --exclude-standard LeanQbe/T/Examples/Kissat 2>/dev/null || true
 } | sort -u \
-  | grep -E '^LeanQbe/T/Examples/Kissat/[^/]*\.lean$' \
+  | grep -E '^LeanQbe/T/Examples/Kissat/(Src/)?[^/]*\.lean$' \
   | grep -vE '(Proof|Lemmas|Spec|Arena|Inl|Hub|Bridge|Nv|SatSound)[0-9]*\.lean$' || true)"
 
 if [ -n "$kissat_c0_changed" ]; then
@@ -40,7 +40,7 @@ if [ -n "$kissat_c0_changed" ]; then
   TGT="fidelity"
   timeout 30 python3 -B bench/kissat/extract_c0_direct.py --target "$TGT" --out "$TMP_C"
   timeout 30 clang -std=c99 -O2 -fwrapv -fno-strict-aliasing -Wall -Wextra -Werror \
-    -ILeanQbe/T/Frontend/C0 -fsyntax-only "$TMP_C"
+    -Wno-unused-variable -ILeanQbe/T/Frontend/C0 -fsyntax-only "$TMP_C"
   echo "preflight C0-direct ($TGT): OK (c0_sha256=$(sha256sum "$TMP_C" | awk '{print $1}'))"
 fi
 

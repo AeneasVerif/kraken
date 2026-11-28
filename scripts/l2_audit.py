@@ -84,8 +84,8 @@ CANARY_FRONTIER: tuple[str, ...] = (
     "LeanQbe.T.Arm64.KissatFidelityParam",
     "LeanQbeTest.T.KissatFidelityCompileGuardX64",
     "LeanQbeTest.T.KissatFidelityCompileGuardArm64",
-    "LeanQbe.T.Examples.Kissat.FullFidelityBcpProof1",
-    "LeanQbe.T.Examples.Kissat.FullFidelityBvaProof1a",
+    "LeanQbe.T.Examples.Kissat.Proof.Vivify.Cert",
+    "LeanQbe.T.Examples.Kissat.Proof.Factor.Cert",
 )
 
 CORE_TRIGGER_RE = re.compile(

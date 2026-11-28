@@ -47,9 +47,9 @@ namespace LeanQbeTest.T.MainCertSlicesTest
 
 open Std Std.ExtHashMap Std.Sat
 open LeanQbe.T LeanQbe.T.Amd64 Kraken
-open LeanQbe.T.Examples.Kissat.FullM6
+open LeanQbe.T.Examples.Kissat.Ref
+open LeanQbe.T.Examples.Kissat.Proof.Spec hiding sep_exists_eq
 open LeanQbe.T.Examples.Kissat.KissatCertCommon
-open LeanQbe.T.Examples.LratBytes
 open LeanQbeTest.T.Common.Fixtures
 
 theorem certMod_legalSig : LegalSigAll x64LegalTarget certMod.fns :=

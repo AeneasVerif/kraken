@@ -2,8 +2,8 @@
 """Check and generate LeanQbe barrel and subsystem hub modules.
 
 Inspects tracked `.lean` files under `LeanQbe/` and validates or generates the
-19 pure re-export barrel/hub files (`LeanQbe.lean`, `LeanQbeAmd64.lean`,
-`LeanQbeArm64.lean`, `LeanQbeBootstrap0.lean`, and the 15 subsystem `*Hub.lean`
+12 pure re-export barrel/hub files (`LeanQbe.lean`, `LeanQbeAmd64.lean`,
+`LeanQbeArm64.lean`, `LeanQbeBootstrap0.lean`, and the 8 subsystem `*Hub.lean`
 files), respecting the exact arch-isolation partition from `lakefile.toml` and
 `scripts/check.sh`.
 
@@ -83,36 +83,8 @@ HUB_DOCSTRINGS: dict[str, str] = {
         "benchmark program modules. -/"
     ),
     "LeanQbe.T.Examples.Kissat.BaseHub": (
-        "/-!\nSubsystem hub re-exporting Kissat Core, LayerA, Dimacs, Plain, "
-        "Full, FastCore,\nFastSched, Fast, Kitten, and DefSweep modules.\n-/"
-    ),
-    "LeanQbe.T.Examples.Kissat.M3Hub": (
-        "/-! Subsystem hub re-exporting all Kissat M3 (`FullM3*`) "
-        "specification and proof modules. -/"
-    ),
-    "LeanQbe.T.Examples.Kissat.M4Hub": (
-        "/-! Subsystem hub re-exporting all Kissat M4 (`FullM4*`) "
-        "specification and proof modules. -/"
-    ),
-    "LeanQbe.T.Examples.Kissat.M5Hub": (
-        "/-! Subsystem hub re-exporting all Kissat M5 (`FullM5*`) "
-        "specification and proof modules. -/"
-    ),
-    "LeanQbe.T.Examples.Kissat.M6Hub": (
-        "/-! Subsystem hub re-exporting all Kissat M6 (`FullM6*`) "
-        "specification and proof modules. -/"
-    ),
-    "LeanQbe.T.Examples.Kissat.M7Hub": (
-        "/-! Subsystem hub re-exporting all Kissat M7 (`FullM7*`) "
-        "specification and proof modules. -/"
-    ),
-    "LeanQbe.T.Examples.Kissat.M8Hub": (
-        "/-! Subsystem hub re-exporting all Kissat M8 (`FullM8*`) "
-        "specification and proof modules. -/"
-    ),
-    "LeanQbe.T.Examples.Kissat.FidelityHub": (
-        "/-!\nSubsystem hub re-exporting all Kissat Fidelity (`FullFidelity*`)\n"
-        "specification and proof modules.\n-/"
+        "/-!\nSubsystem hub re-exporting Kissat Src, Proof, Ref, Build, Core, "
+        "LayerA, Dimacs,\nPlain, Solver, and ExportCnf modules.\n-/"
     ),
 }
 
@@ -250,21 +222,6 @@ def classify_module(mod: str) -> str | None:
     if mod.startswith("LeanQbe.T.LeanLCNF."):
         return "LeanQbe.T.LeanLCNF.Hub"
     if mod.startswith("LeanQbe.T.Examples.Kissat."):
-        sub = mod[len("LeanQbe.T.Examples.Kissat.") :]
-        if sub.startswith("FullFidelity"):
-            return "LeanQbe.T.Examples.Kissat.FidelityHub"
-        if sub.startswith("FullM8"):
-            return "LeanQbe.T.Examples.Kissat.M8Hub"
-        if sub.startswith("FullM7"):
-            return "LeanQbe.T.Examples.Kissat.M7Hub"
-        if sub.startswith("FullM6"):
-            return "LeanQbe.T.Examples.Kissat.M6Hub"
-        if sub.startswith("FullM5"):
-            return "LeanQbe.T.Examples.Kissat.M5Hub"
-        if sub.startswith("FullM4"):
-            return "LeanQbe.T.Examples.Kissat.M4Hub"
-        if sub.startswith("FullM3"):
-            return "LeanQbe.T.Examples.Kissat.M3Hub"
         return "LeanQbe.T.Examples.Kissat.BaseHub"
     if mod.startswith("LeanQbe.T.Examples."):
         return "LeanQbe.T.Examples.Hub"
@@ -355,7 +312,7 @@ def render_hub(hub: str, imports: list[str]) -> str:
 
 
 def run_check(root: Path, strict: bool) -> int:
-    """Verify all 19 hub/barrel files against tracked modules and invariants."""
+    """Verify all 12 hub/barrel files against tracked modules and invariants."""
     errors = verify_lakefile(root)
     tracked = list_tracked_lean_modules(root)
     partitions, part_errors = build_partitions(tracked)
@@ -442,7 +399,7 @@ def run_check(root: Path, strict: bool) -> int:
 
 
 def run_write(root: Path) -> int:
-    """Regenerate all 19 hub/barrel files deterministically from tracked files."""
+    """Regenerate all 12 hub/barrel files deterministically from tracked files."""
     errors = verify_lakefile(root)
     tracked = list_tracked_lean_modules(root)
     partitions, part_errors = build_partitions(tracked)

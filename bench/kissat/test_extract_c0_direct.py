@@ -25,11 +25,11 @@ class ExtractC0DirectTest(unittest.TestCase):
     def test_step12_target_resolution_and_fallbacks(self):
         self.assertEqual(
             ext.resolve_target_spec(KDIR, "fidelity"),
-            ("FullFidelityAssemblyStep12", "FullFidelityAssemblyStep12", "fidStep12Fns"),
+            ("Src.Full", "Src.Full", "kissatFns"),
         )
         self.assertEqual(
             ext.resolve_target_spec(KDIR, "fid"),
-            ("FullFidelityAssemblyStep12", "FullFidelityAssemblyStep12", "fidStep12Fns"),
+            ("Src.Full", "Src.Full", "kissatFns"),
         )
         with tempfile.TemporaryDirectory() as td:
             fake = pathlib.Path(td)
@@ -51,73 +51,70 @@ class ExtractC0DirectTest(unittest.TestCase):
 
     def test_fidelity_and_plain_fn_counts(self):
         fid_fns, _, _, sym = ext.load_fns_for_target(KDIR, "fidelity")
-        self.assertEqual(sym, "fidStep12Fns")
-        self.assertEqual(len(fid_fns), 517)
+        self.assertEqual(sym, "kissatFns")
+        self.assertEqual(len(fid_fns), 418)
         src_fns, src_mod, src_ns, src_sym = ext.load_fns_for_target(KDIR, "src-full")
         self.assertEqual((src_mod, src_ns, src_sym), ("Src.Full", "Src.Full", "kissatFns"))
         self.assertEqual(len(src_fns), 418)
         self.assertEqual(src_fns[0]["name"], "f64u_msb64")
         self.assertEqual(src_fns[-1]["name"], "kissat_solve_bytes")
-        s7_fns, _, _, s7_sym = ext.load_fns_for_target(KDIR, "fidelity-step7")
-        self.assertEqual(s7_sym, "fidStep7Fns")
-        self.assertEqual(len(s7_fns), 501)
         plain_fns, _, _, _ = ext.load_fns_for_target(KDIR, "plain")
         self.assertEqual(len(plain_fns), 59)
 
     def test_split_dir_stability_mtime_and_stale_cleanup(self):
-        fns, _, _, sym = ext.load_fns_for_target(KDIR, "fidelity-step7")
+        fns, _, _, sym = ext.load_fns_for_target(KDIR, "src-full")
         with tempfile.TemporaryDirectory() as td:
             sdir = pathlib.Path(td)
             stale = sdir / "src_ObsoleteLegacy.c"
             stale.write_text("/* stale */\n", encoding="utf-8")
 
-            info1 = ext.emit_split_dir(fns, sdir, "fidelity-step7", sym)
+            info1 = ext.emit_split_dir(fns, sdir, "src-full", sym)
             self.assertTrue(info1["written_hdr"])
-            self.assertGreater(info1["tu_count"], 40)
+            self.assertEqual(info1["tu_count"], 41)
             self.assertEqual(info1["removed_tus"], ["src_ObsoleteLegacy.c"])
             self.assertFalse(stale.exists())
             self.assertTrue((sdir / "kissat_common.h").is_file())
-            self.assertTrue((sdir / "src_Full1.c").is_file())
-            self.assertTrue((sdir / "src_FullFidelityBva.c").is_file())
-            self.assertTrue((sdir / "src_FullFidelityStep7.c").is_file())
+            self.assertTrue((sdir / "src_Src_Float64.c").is_file())
+            self.assertTrue((sdir / "src_Src_Factor.c").is_file())
+            self.assertTrue((sdir / "src_Src_Watch.c").is_file())
 
             hdoc = json.loads((sdir / "c0_fn_hashes.json").read_text(encoding="utf-8"))
-            self.assertEqual(hdoc["fn_count"], 501)
+            self.assertEqual(hdoc["fn_count"], 418)
             self.assertEqual(hdoc["tu_count"], info1["tu_count"])
             self.assertIn("full_bva_commit", hdoc["functions"])
             self.assertIn("full_sort_bin_watches_fid", hdoc["functions"])
 
             hdr_ns = (sdir / "kissat_common.h").stat().st_mtime_ns
-            bva_ns = (sdir / "src_FullFidelityBva.c").stat().st_mtime_ns
+            fac_ns = (sdir / "src_Src_Factor.c").stat().st_mtime_ns
 
             # Second identical emit must preserve mtimes on all untouched files.
-            info2 = ext.emit_split_dir(fns, sdir, "fidelity-step7", sym)
+            info2 = ext.emit_split_dir(fns, sdir, "src-full", sym)
             self.assertFalse(info2["written_hdr"])
             self.assertEqual(info2["written_tus"], [])
             self.assertEqual((sdir / "kissat_common.h").stat().st_mtime_ns, hdr_ns)
-            self.assertEqual((sdir / "src_FullFidelityBva.c").stat().st_mtime_ns, bva_ns)
+            self.assertEqual((sdir / "src_Src_Factor.c").stat().st_mtime_ns, fac_ns)
 
-            # Mutating one body inside Step7 leaves kissat_common.h and Bva untouched.
+            # Mutating one body inside Watch leaves kissat_common.h and Factor untouched.
             edited = [dict(f) for f in fns]
             for f in edited:
                 if f["name"] == "full_sort_bin_watches_fid":
                     f["text"] = f["text"].replace("{", "{ /* noop edit */ ", 1)
                     break
-            info3 = ext.emit_split_dir(edited, sdir, "fidelity-step7", sym)
+            info3 = ext.emit_split_dir(edited, sdir, "src-full", sym)
             self.assertFalse(info3["written_hdr"])
-            self.assertEqual(info3["written_tus"], ["src_FullFidelityStep7.c"])
+            self.assertEqual(info3["written_tus"], ["src_Src_Watch.c"])
             self.assertEqual((sdir / "kissat_common.h").stat().st_mtime_ns, hdr_ns)
-            self.assertEqual((sdir / "src_FullFidelityBva.c").stat().st_mtime_ns, bva_ns)
+            self.assertEqual((sdir / "src_Src_Factor.c").stat().st_mtime_ns, fac_ns)
             self.assertNotEqual(info3["c0_sha256"], info1["c0_sha256"])
 
     def test_diff_against_base_unchanged_and_single_fn_change(self):
-        fns, _, _, _ = ext.load_fns_for_target(KDIR, "fidelity-step7")
+        fns, _, _, _ = ext.load_fns_for_target(KDIR, "src-full")
         r = subprocess.run(
             ["git", "-C", str(ROOT), "rev-parse", "HEAD"],
             capture_output=True, text=True, check=True,
         )
         head_rev = r.stdout.strip()
-        diff_same = ext.diff_against_base(fns, ROOT, "fidelity-step7", head_rev)
+        diff_same = ext.diff_against_base(fns, ROOT, "src-full", head_rev)
         self.assertTrue(diff_same["unchanged"])
         self.assertEqual(diff_same["changed_fns"], [])
 
@@ -126,13 +123,13 @@ class ExtractC0DirectTest(unittest.TestCase):
             if f["name"] == "full_bva_commit":
                 f["text"] = f["text"].replace(";", "; /* delta */", 1)
                 break
-        diff_one = ext.diff_against_base(mutated, ROOT, "fidelity-step7", head_rev)
+        diff_one = ext.diff_against_base(mutated, ROOT, "src-full", head_rev)
         self.assertFalse(diff_one["unchanged"])
         self.assertEqual(diff_one["changed_fns"], ["full_bva_commit"])
         self.assertEqual(diff_one["modified_fns"], ["full_bva_commit"])
         self.assertEqual(diff_one["added_fns"], [])
         self.assertEqual(diff_one["removed_fns"], [])
-        self.assertIn("src_FullFidelityStep7.c", diff_one["changed_tus"])
+        self.assertIn("src_Src_Factor.c", diff_one["changed_tus"])
 
     def test_canary_priority_and_baseline_c0d_lookup(self):
         manifest = [

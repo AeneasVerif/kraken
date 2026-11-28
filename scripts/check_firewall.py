@@ -49,8 +49,7 @@ SPURIOUS_META_MODS: frozenset[str] = frozenset(
 DATA_PROOF_ALLOWED_LEMMAS: frozenset[str] = frozenset({"LeanQbe.T.MainLemmas"})
 PROOF_TOKEN_RE = re.compile(r"(?:Proof|Lemmas|Audit|Spec)")
 DATA_PROOF_SCOPED_PREFIXES: tuple[str, ...] = (
-    "LeanQbe.T.Examples.Kissat.FullFidelity",
-    "LeanQbe.T.Examples.Kissat.FullM8",
+    "LeanQbe.T.Examples.Kissat.Src.",
 )
 DATA_PROOF_EXCLUDED_TOKENS: tuple[str, ...] = (
     "Proof",
@@ -59,13 +58,14 @@ DATA_PROOF_EXCLUDED_TOKENS: tuple[str, ...] = (
     "Spec",
     "Tactics",
     "Util",
-    "Step2S15",
 )
 TARG_SUFFIX_RE = re.compile(r"\.Targ(?:Lemmas)?$")
 PARAM_FILE_RE = re.compile(r"^LeanQbe/T/(Amd64|Arm64)/[^/]+Param\.lean$")
 GUARD_LEAF_RE = re.compile(r"^LeanQbeTest/T/[^/]*CompileGuard[^/]*\.lean$")
 CERT_MOD_RE = re.compile(r"^LeanQbe\.T\.(?:Amd64|Arm64)\..*Cert.*$")
-INL_MOD_RE = re.compile(r"^LeanQbe\.T\.Examples\.Kissat\.Full.*Inl(?:Base|[0-9]+)?$")
+INL_MOD_RE = re.compile(
+    r"^LeanQbe\.T\.Examples\.Kissat\.(?:Full.*Inl(?:Base|[0-9]+)?|Build\.Inl\..*)$"
+)
 GUARD_TARG_PROOF_RE = re.compile(
     r"^LeanQbe\.T\.(?:Amd64|Arm64)\.(?:Targ.*|ScalarTarg|.*Lemmas.*|Kissat.*)$"
 )
@@ -262,22 +262,13 @@ def check_boundary_files(
 
 
 def discover_data_proof_files(root: Path) -> list[str]:
-    """Collect `FullFidelity*` and `FullM8*` AST/Data modules subject to `--data-proof`.
-
-    Excludes proof/spec/tactic/util modules and the backwards-compatible
-    `FullFidelityInl.lean` barrel (which intentionally re-exports `FullFidelityInlProof`).
-    Base `FullM7*` modules are intentionally left outside this scope.
-    """
-    kissat_dir = root / "LeanQbe" / "T" / "Examples" / "Kissat"
-    if not kissat_dir.is_dir():
+    """Collect canonical `Kissat/Src/*.lean` AST/Data modules subject to `--data-proof`."""
+    src_dir = root / "LeanQbe" / "T" / "Examples" / "Kissat" / "Src"
+    if not src_dir.is_dir():
         return []
     out: list[str] = []
-    for p in sorted(kissat_dir.glob("*.lean")):
+    for p in sorted(src_dir.glob("*.lean")):
         stem = p.stem
-        if not (stem.startswith("FullFidelity") or stem.startswith("FullM8")):
-            continue
-        if stem == "FullFidelityInl":
-            continue
         if any(tok in stem for tok in DATA_PROOF_EXCLUDED_TOKENS):
             continue
         out.append(p.relative_to(root).as_posix())
@@ -297,12 +288,12 @@ def check_data_proof_files(
     rel_files: list[str],
     cache: dict[Path, list[ImportStmt]],
 ) -> tuple[list[Violation], list[Violation]]:
-    """Check `FullFidelity*`/`FullM8*` AST/Data modules for proof & meta leaks.
+    """Check `Kissat/Src/*.lean` AST/Data modules for proof & meta leaks.
 
     Returns `(proof_violations, meta_violations)`:
       - `D1` (`proof_violations`): direct `public`/`meta` imports of `*Proof*`/`*Lemmas*`/
         `*Audit*`/`*Spec*` modules, plus transitive `public import` paths inside
-        `FullFidelity*`/`FullM8*` reaching any proof module.
+        `Kissat/Src/*` reaching any proof module.
       - `D2` (`meta_violations`): spurious `meta import` of `PrintCpp`, `PrintQbe`,
         or `Legal` on AST/Data modules.
     """
@@ -348,8 +339,7 @@ def check_data_proof_files(
                     )
                 )
 
-        # Transitive public-import check scoped to `FullFidelity*`/`FullM8*` so base
-        # `FullM7*` modules (e.g. `FullM7Splice`) do not break the gate.
+        # Transitive public-import check scoped to `Kissat/Src/*` AST/Data modules.
         queue: list[tuple[str, list[str]]] = [
             (imp.module, [imp.module])
             for imp in imps
@@ -416,7 +406,7 @@ def _walk_all_imports(
     """Return shortest import chains across all import edges (`public`, private, `meta`).
 
     When `stop_bridge` is True, traversal does not expand through allowlisted
-    metaprogramming bridge modules (`PatchModule`, `Kraken.*`, `*Lemmas*`, or
+    metaprogramming bridge modules (`Kraken.*`, `*Lemmas*`, or
     transitional `KissatCertCommon`). When `stop_cert_bridge` is True, traversal
     does not expand past transitional `KissatCertCommon` (to be tightened after
     `KissatCertCommon` switches `MainCertInline` -> `MainCertInlineProof`).
@@ -435,7 +425,6 @@ def _walk_all_imports(
         if stop_bridge and (
             mod
             in {
-                "LeanQbe.T.Examples.Kissat.PatchModule",
                 "LeanQbe.T.Examples.Kissat.KissatCertCommon",
                 "LeanQbe.T.Logic.C0Grind",
                 "LeanQbe.T.Logic.ProofKit",
@@ -771,7 +760,7 @@ def run_audit(
             [
                 LeakGroupReport(
                     leak_id="D1",
-                    label="AST/Data -> Proof firewall (`FullFidelity*`/`FullM8*`)",
+                    label="AST/Data -> Proof firewall (`Kissat/Src/*`)",
                     files=dp_files,
                     violations=d1_viols,
                 ),
@@ -779,7 +768,7 @@ def run_audit(
                     leak_id="D2",
                     label=(
                         "Spurious printer/legal `meta import` firewall "
-                        "(`FullFidelity*`/`FullM8*`)"
+                        "(`Kissat/Src/*`)"
                     ),
                     files=dp_files,
                     violations=d2_viols,
@@ -837,7 +826,7 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help=(
             "Enforce AST/Data -> Proof and spurious printer/legal `meta import` "
-            "firewalls on `FullFidelity*`/`FullM8*` AST/Data modules."
+            "firewalls on `Kissat/Src/*` AST/Data modules."
         ),
     )
     ap.add_argument(

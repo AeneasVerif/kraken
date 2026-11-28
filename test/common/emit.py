@@ -106,112 +106,6 @@ public def main (args : List String) : IO Unit := do
     ".p2align 2\\n" ++ String.intercalate "\\n" (c.map Kraken.AArch64.Print.directive)
   IO.FS.writeFile outPath (Driver.emitAsm (fun c => pp c ++ "\\n") plainFns dirs)
 """,
-    ("x64", "m3"): """\
-import LeanQbe.T.Examples.Kissat.FullM3
-import LeanQbe.T.PrintCpp
-import LeanQbe.T.Driver
-import LeanQbe.T.Amd64.Targ
-import LeanQbe.T.Amd64.PrintATTAlign
-
-set_option autoImplicit false
-
-open LeanQbe.T LeanQbe.T.PrintCpp LeanQbe.T.Examples.Kissat.FullM3 LeanQbe.T.Amd64
-
-public def main (args : List String) : IO Unit := do
-  let (outPath, cppPath?) : System.FilePath × Option System.FilePath := match args with
-    | p :: c :: _ => (p, some c)
-    | [p] => (p, none)
-    | [] => ("/tmp/kissat_m3_x64.s", none)
-  let fns := m3Module.fns
-  let hints := fns.map (Fn.computeHints x64Target.toIsa x64LegalTarget)
-  let dirs ← match LeanQbe.T.compile x64Target.toIsa x64LegalTarget fns hints with
-    | .ok d => pure d
-    | .error e => throw (IO.userError e)
-  let asm := Driver.emitAsm (fun c => toATTAligned c ++ "\\n") fns dirs
-  IO.FS.writeFile outPath asm
-  if let some cppPath := cppPath? then
-    let cpp ← match ppTModule m3Module with
-      | .ok s => pure s
-      | .error e => throw (IO.userError e)
-    IO.FS.writeFile cppPath cpp
-""",
-    ("arm64", "m3"): """\
-import LeanQbe.T.Examples.Kissat.FullM3
-import LeanQbe.T.Driver
-import LeanQbe.T.Arm64.Targ
-import Kraken.AArch64.Print
-
-set_option autoImplicit false
-
-open LeanQbe.T LeanQbe.T.Examples.Kissat.FullM3 LeanQbe.T.Arm64
-
-public def main (args : List String) : IO Unit := do
-  let outPath : System.FilePath := match args with
-    | p :: _ => p
-    | [] => "/tmp/kissat_m3_arm64.s"
-  let fns := m3Module.fns
-  let hints := fns.map (Fn.computeHints armTarget.toIsa armLegalTarget)
-  let dirs ← match LeanQbe.T.compile armTarget.toIsa armLegalTarget fns hints with
-    | .ok d => pure d
-    | .error e => throw (IO.userError e)
-  let pp := fun c =>
-    ".p2align 2\\n" ++ String.intercalate "\\n" (c.map Kraken.AArch64.Print.directive)
-  IO.FS.writeFile outPath (Driver.emitAsm (fun c => pp c ++ "\\n") fns dirs)
-""",
-    ("x64", "m4"): """\
-import LeanQbe.T.Examples.Kissat.FullM4
-import LeanQbe.T.PrintCpp
-import LeanQbe.T.Opt
-import LeanQbe.T.Driver
-import LeanQbe.T.Amd64.Targ
-import LeanQbe.T.Amd64.PrintATTAlign
-
-set_option autoImplicit false
-
-open LeanQbe.T LeanQbe.T.PrintCpp LeanQbe.T.Examples.Kissat.FullM4 LeanQbe.T.Amd64
-
-public def main (args : List String) : IO Unit := do
-  let (outPath, cppPath?) : System.FilePath × Option System.FilePath := match args with
-    | p :: c :: _ => (p, some c)
-    | [p] => (p, none)
-    | [] => ("/tmp/kissat_m4_x64.s", none)
-  let fns := (m4Module.optInline 40).fns
-  let hints := fns.map (Fn.computeHints x64Target.toIsa x64LegalTarget)
-  let dirs ← match LeanQbe.T.compile x64Target.toIsa x64LegalTarget fns hints with
-    | .ok d => pure d
-    | .error e => throw (IO.userError e)
-  let asm := Driver.emitAsm (fun c => toATTAligned c ++ "\\n") fns dirs
-  IO.FS.writeFile outPath asm
-  if let some cppPath := cppPath? then
-    let cpp ← match ppTModule m4Module with
-      | .ok s => pure s
-      | .error e => throw (IO.userError e)
-    IO.FS.writeFile cppPath cpp
-""",
-    ("arm64", "m4"): """\
-import LeanQbe.T.Examples.Kissat.FullM4
-import LeanQbe.T.Opt
-import LeanQbe.T.Driver
-import LeanQbe.T.Arm64.Targ
-import Kraken.AArch64.Print
-
-set_option autoImplicit false
-
-open LeanQbe.T LeanQbe.T.Examples.Kissat.FullM4 LeanQbe.T.Arm64
-
-public def main (args : List String) : IO Unit := do
-  let outPath : System.FilePath := match args with
-    | p :: _ => p
-    | [] => "/tmp/kissat_m4_arm64.s"
-  let fns := (m4Module.optInline 40).fns
-  let hints := fns.map (Fn.computeHints armTarget.toIsa armLegalTarget)
-  let dirs ← match LeanQbe.T.compile armTarget.toIsa armLegalTarget fns hints with
-    | .ok d => pure d
-    | .error e => throw (IO.userError e)
-  let pp := fun c =>
-    ".p2align 2\\n" ++ String.intercalate "\\n" (c.map Kraken.AArch64.Print.directive)
-  IO.FS.writeFile outPath (Driver.emitAsm (fun c => pp c ++ "\\n") fns dirs)
-""",
     ("x64", "lcnf"): """\
 import LeanQbe.T.LeanLCNF.Lower1
 import LeanQbe.T.LeanLCNF.Demo
@@ -348,10 +242,6 @@ SUITE_ALIASES: dict[str, str] = {
     "dmin": "kissat",
     "coreplus": "coreplus",
     "plain": "plain",
-    "m3": "m3",
-    "fullm3": "m3",
-    "m4": "m4",
-    "fullm4": "m4",
     "lcnf": "lcnf",
     "bignum": "bignum",
     "t_bignum": "bignum",
@@ -425,7 +315,7 @@ def parse_args(argv: list[str]) -> tuple[list[str], str, dict[str, list[str]]]:
     if suite_raw is None or suite_raw not in SUITE_ALIASES:
         raise ValueError(
             "missing or invalid --suite "
-            "<kissat|coreplus|plain|m3|m4|lcnf|bignum|chacha>"
+            "<kissat|coreplus|plain|lcnf|bignum|chacha>"
         )
     suite = SUITE_ALIASES[suite_raw]
 

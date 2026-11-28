@@ -51,7 +51,7 @@ class ParamFirewallTests(unittest.TestCase):
         bad_imports = [
             ("LeanQbe.T.Amd64.FakeCert", "param-cert-leak"),
             ("LeanQbe.T.MainCertInline", "param-cert-leak"),
-            ("LeanQbe.T.Examples.Kissat.FullFidelityInl0", "param-inl-leak"),
+            ("LeanQbe.T.Examples.Kissat.Build.Inl.Full", "param-inl-leak"),
             ("LeanQbe.T.Arm64.KissatAbi", "param-cross-arch"),
             ("Lean", "param-lean-meta"),
         ]
@@ -67,7 +67,7 @@ class ParamFirewallTests(unittest.TestCase):
                             ),
                             "LeanQbe/T/MainCertInline.lean": "module\n",
                             "LeanQbe/T/Amd64/FakeCert.lean": "module\n",
-                            "LeanQbe/T/Examples/Kissat/FullFidelityInl0.lean": "module\n",
+                            "LeanQbe/T/Examples/Kissat/Build/Inl/Full.lean": "module\n",
                             "LeanQbe/T/Arm64/KissatAbi.lean": "module\n",
                         },
                     )
@@ -128,19 +128,19 @@ class ParamFirewallTests(unittest.TestCase):
                     kinds = {v.kind for v in l5.violations}
                     self.assertIn(expected_kind, kinds)
 
-    def test_l5_allows_patchmodule_lean_bridge(self) -> None:
+    def test_l5_allows_allowlisted_lean_bridge(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             _write_files(
                 root,
                 {
                     "LeanQbe/T/Amd64/OkParam.lean": (
-                        "module\npublic import LeanQbe.T.Examples.Kissat.Step7\n"
+                        "module\npublic import LeanQbe.T.Examples.Kissat.Src.Full\n"
                     ),
-                    "LeanQbe/T/Examples/Kissat/Step7.lean": (
-                        "module\npublic import LeanQbe.T.Examples.Kissat.PatchModule\n"
+                    "LeanQbe/T/Examples/Kissat/Src/Full.lean": (
+                        "module\npublic import Kraken.Attribute\n"
                     ),
-                    "LeanQbe/T/Examples/Kissat/PatchModule.lean": (
+                    "Kraken/Attribute.lean": (
                         "module\npublic meta import Lean\n"
                     ),
                 },

@@ -433,11 +433,19 @@ if [ "${CHECK_TIMES:-0}" = "1" ]; then
   cand_arches=()
   [ "$RESOLVED_SCOPE" != "arm64" ] && cand_arches+=(Amd64)
   [ "$RESOLVED_SCOPE" != "x64" ] && cand_arches+=(Arm64)
+  for rel in \
+      LeanQbe/T/Examples/Kissat/Proof/Full.lean \
+      LeanQbe/T/Examples/Kissat/Proof/FullNv.lean \
+      LeanQbe/T/Examples/Kissat/Build/Inl/Full.lean; do
+    [ -f "$rel" ] && echo "$rel" >>"$TMP/timed.txt"
+  done
   for arch in "${cand_arches[@]}"; do
-    for mod in LratBytes KissatPlainCert1 KissatPlainCert KissatPlain KissatFidelityParam \
-        KissatFidelityCert1 KissatFidelityCert KissatFidelityCertLink KissatFidelity; do
+    for mod in LratBytes KissatPlainCert1 KissatPlainCert KissatPlain \
+        KissatFidelityParam BitblastFidelityParam; do
       [ -f "LeanQbe/T/$arch/$mod.lean" ] && echo "LeanQbe/T/$arch/$mod.lean" >>"$TMP/timed.txt"
     done
+    [ -f "LeanQbe/T/Examples/Kissat/Build/$arch/Full.lean" ] \
+      && echo "LeanQbe/T/Examples/Kissat/Build/$arch/Full.lean" >>"$TMP/timed.txt"
   done
   git ls-files 'LeanQbe/*Lemmas*.lean' 'LeanQbe/**/*Lemmas*.lean' | sort -u | xargs wc -l \
     | grep -v ' total$' | sort -rn | head -n 5 | awk '{print $2}' >>"$TMP/timed.txt"

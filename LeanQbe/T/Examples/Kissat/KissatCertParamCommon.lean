@@ -27,11 +27,10 @@ public section
 namespace LeanQbe.T.Examples.Kissat.KissatCertParamCommon
 
 open Std Std.Sat Std.ExtHashMap
-open LeanQbe.T LeanQbe.T.Examples.LratBytes
+open LeanQbe.T
 open LeanQbe.T.Examples.Kissat
-open LeanQbe.T.Examples.Kissat.Full
-open LeanQbe.T.Examples.Kissat.FullM6
-open LeanQbe.T.Examples.Kissat.FullM6Hdr
+open LeanQbe.T.Examples.Kissat.Ref
+open LeanQbe.T.Examples.Kissat.Proof.Spec hiding sep_exists_eq
 open LeanQbe.T.Examples.Kissat.KissatCertCommon
 open Kraken
 

@@ -6,8 +6,8 @@ module
 
 meta import LeanQbeTest.T.KissatBoundsDumpCommon
 meta import LeanQbe.T.Arm64.Isa
-meta import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep9
-meta import LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy
+meta import LeanQbe.T.Examples.Kissat.Src.Full
+meta import LeanQbe.T.Examples.Kissat.Src.InlPolicy
 meta import LeanQbe.T.Examples.Kissat.Plain
 
 /-!
@@ -21,24 +21,24 @@ Pure `#eval IO` leaf modeled on `KissatFidelityCompileGuardArm64`: computes exac
 * Dumping JSON for `scripts/gen_cert_slices.py --bounds-json`:
   ```
   LEANQBE_BOUNDS_JSON_OUT=/tmp/kissat_arm64_bounds.json \
-    LEANQBE_BOUNDS_TARGET=step9 \
+    LEANQBE_BOUNDS_TARGET=full \
     lake env lean LeanQbeTest/T/KissatBoundsDumpArm64.lean
   ```
-  Supported `LEANQBE_BOUNDS_TARGET` values: `"step9"` (default, 504 fns) and `"plain"` (59 fns).
+  Supported `LEANQBE_BOUNDS_TARGET` values: `"full"` (default, 418 fns) and `"plain"` (59 fns).
 -/
 
 set_option autoImplicit false
 
 #eval show IO Unit from do
-  let target := (← IO.getEnv "LEANQBE_BOUNDS_TARGET").getD "step9"
+  let target := (← IO.getEnv "LEANQBE_BOUNDS_TARGET").getD "full"
   match target with
-  | "step9" =>
+  | "full" =>
     LeanQbeTest.T.BoundsDump.runModuleBoundsDump
       LeanQbe.T.Arm64.armIsa
       LeanQbe.T.Arm64.armLegalTarget
-      LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep9.fidStep9Module
-      (some LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy.fidInlPolicy)
-      { label := "KissatBoundsDump-step9-arm64", maxBound := 2048 }
+      LeanQbe.T.Examples.Kissat.Src.Full.kissatModule
+      (some LeanQbe.T.Examples.Kissat.Src.InlPolicy.kissatInlPolicy)
+      { label := "KissatBoundsDump-full-arm64", maxBound := 2048 }
   | "plain" =>
     LeanQbeTest.T.BoundsDump.runModuleBoundsDump
       LeanQbe.T.Arm64.armIsa
@@ -48,4 +48,4 @@ set_option autoImplicit false
       { label := "KissatBoundsDump-plain-arm64", maxBound := 2048 }
   | other =>
     throw <| IO.userError
-      s!"[KissatBoundsDumpArm64] unknown LEANQBE_BOUNDS_TARGET '{other}' (expected step9|plain)"
+      s!"[KissatBoundsDumpArm64] unknown LEANQBE_BOUNDS_TARGET '{other}' (expected full|plain)"

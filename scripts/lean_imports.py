@@ -791,10 +791,6 @@ SUBSYSTEM_HUBS: tuple[str, ...] = (
     "LeanQbe.T.CoreHub", "LeanQbe.T.Logic.ExtraHub", "LeanQbe.T.Unified.Hub",
     "LeanQbe.T.Wasm.Hub", "LeanQbe.T.Frontend.C0.Hub", "LeanQbe.T.LeanLCNF.Hub",
     "LeanQbe.T.Examples.Hub", "LeanQbe.T.Examples.Kissat.BaseHub",
-    "LeanQbe.T.Examples.Kissat.M3Hub", "LeanQbe.T.Examples.Kissat.M4Hub",
-    "LeanQbe.T.Examples.Kissat.M5Hub", "LeanQbe.T.Examples.Kissat.M6Hub",
-    "LeanQbe.T.Examples.Kissat.M7Hub", "LeanQbe.T.Examples.Kissat.M8Hub",
-    "LeanQbe.T.Examples.Kissat.FidelityHub",
 )
 ROOT_LIBS: tuple[str, ...] = (
     "LeanQbe", "LeanQbeAmd64", "LeanQbeArm64", "LeanQbeBootstrap0",

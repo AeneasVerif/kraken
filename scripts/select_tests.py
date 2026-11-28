@@ -42,7 +42,7 @@ DOC_ONLY_RE = re.compile(
 SCRIPT_ONLY_RE = re.compile(r"^scripts/.*\.(?:sh|py|lean)$")
 
 PROOF_LEAN_RE = re.compile(
-    r"(?:Proof|Lemmas|Audit|Spec|Bridge|Nv|SatSound)[0-9]*\.lean$"
+    r"(?:Proof|Lemmas|Audit|Spec|Bridge|Nv|SatSound)[0-9]*\.lean$|/(?:Proof|Build)/"
 )
 
 CERT_LEAN_RE = re.compile(
@@ -70,7 +70,7 @@ PROOF_LINE_RE = re.compile(
 )
 
 KISSAT_SUITE_FILES_RE = re.compile(
-    r"^LeanQbe/T/Examples/Kissat/(?:Solver|Plain|FullM3|FullM4|Core|Dimacs)[^/]*\.lean$"
+    r"^LeanQbe/T/Examples/Kissat/(?:Solver|Plain|Core|Dimacs)[^/]*\.lean$"
 )
 
 
