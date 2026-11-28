@@ -521,6 +521,7 @@ public import LeanQbe.T.Examples.Kissat.Proof.Spec.Header
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.MemBridges
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.SatNv
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.SatNv1
+public import LeanQbe.T.Examples.Kissat.Proof.Spec.Solver
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Tactics
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Tactics1
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.WitnessInv

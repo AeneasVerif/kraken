@@ -9,8 +9,8 @@ public import LeanQbe.T.Examples.Kissat.Proof.Search.Wp0
 /-!
 # Verification of `full_search_m6` (`Proof.Search.Wp1`)
 
-Proves `full_search_m6_wp` (`Proof.Spec.fullM6SearchSpec`) in `CanonicalEnv`
-over `Spec.deps` and `Γ.Has "full_simplify_m6" Spec.fullM6SimplifySpec`.
+Proves `full_search_m6_wp` (`Spec.searchSpec`) in `CanonicalEnv`
+over `searchDeps` and `Γ.Has "full_simplify_m6" Spec.simplifySpec`.
 -/
 
 set_option autoImplicit false
@@ -87,7 +87,7 @@ private theorem search_call_simplify {Γ : Env} {ret : List Ty}
     {c : FullCfg} {F0 : CNF Nat} {ext : List (BitVec 64)} {s : FullState}
     {R : Mem 64 → Prop} {m : Mem 64} {Q : Post ret} {X : XPost} (dp de : Bool)
     (hargs : vals args = (c.hdr, dp, de, ()))
-    (hSimp : Γ.Has "full_simplify_m6" Spec.fullM6SimplifySpec)
+    (hSimp : Γ.Has "full_simplify_m6" Spec.simplifySpec)
     (hinv : FullM6HdrInv c F0 ext s) (hm : (FullM6HdrMem c ext s ⋆ R) m)
     (hk : ∀ r c' ext' s' m',
       FullCfgCompat c c' → s'.LengthsOk c' → FullM6HdrCfgOk c' → M6HdrExtOk ext' →
@@ -97,7 +97,11 @@ private theorem search_call_simplify {Γ : Env} {ret : List Ty}
     wp Γ Q X (.call "full_simplify_m6" args k) m := by
   refine wp_call_of_spec args k (hSimp _ _ _ _ ?_)
   rw [hargs]
-  exact Spec.fullM6SimplifySpec_of hinv hm hk
+  unfold Spec.simplifySpec
+  refine M6HdrCfgContract.intro hinv.cfgOk hinv.extOk hinv.sparse.lengths hinv.sparse hm ?_
+  rintro ⟨r, ⟨⟩⟩ c' ext' s' m' hc' hcfg' hext' _ hlen' ⟨hr, hfl, h20, h1⟩ hm'
+  exact hk r c' ext' s' m' hc' hlen' hcfg' hext' hr hfl h20
+    (fun eq1 => let x := h1 eq1; ⟨⟨hcfg', hext', x.1⟩, x.2⟩) hm'
 
 private theorem search_call_analyze_full {Γ : Env} {ret : List Ty}
     {args : Tup (Arg Val) [i64]} {k : Tup Val [i64] → Expr Val Cont ret}
@@ -348,7 +352,7 @@ private abbrev searchPostPropExpr (h nr rc ls : Val i64) (J_loop : Cont [i64, i6
                               (.jump Js1.fst ()))
                   (.jump Js1.fst ())))
 
-private theorem search_decide_wp {Γ : Env} (hΓ : Γ.Sat Spec.deps)
+private theorem search_decide_wp {Γ : Env} (hΓ : Γ.Sat searchDeps)
     {c0 c : FullCfg} {F0 : CNF Nat} {ext : List (BitVec 64)} {s0 s : FullState}
     {R : Mem 64 → Prop} {m : Mem 64} {Q : Post [i64]} {X : XPost} {J_el0 : Cont []}
     (hc : FullCfgCompat c0 c) (hinv : FullM6HdrInv c F0 ext s)
@@ -391,8 +395,8 @@ private theorem search_decide_wp {Γ : Env} (hΓ : Γ.Sat Spec.deps)
     c0_hstraight
     exact hBack c ext' s' m' hc hinv' hlt hm'
 
-private theorem search_elim_wp {Γ : Env} (hΓ : Γ.Sat Spec.deps)
-    (hSimp : Γ.Has "full_simplify_m6" Spec.fullM6SimplifySpec)
+private theorem search_elim_wp {Γ : Env} (hΓ : Γ.Sat searchDeps)
+    (hSimp : Γ.Has "full_simplify_m6" Spec.simplifySpec)
     {c0 c : FullCfg} {F0 : CNF Nat} {ext : List (BitVec 64)} {s0 s : FullState}
     {R : Mem 64 → Prop} {m : Mem 64} {Q : Post [i64]} {X : XPost} {ls : Val i64} {J_pr0 : Cont []}
     (hc : FullCfgCompat c0 c) (hinv : FullM6HdrInv c F0 ext s) (hfl0 : s.core.fuel ≠ 0#64)
@@ -454,8 +458,8 @@ private theorem search_elim_wp {Γ : Env} (hΓ : Γ.Sat Spec.deps)
             (Nat.lt_of_le_of_lt hfl' (Nat.lt_of_lt_of_le hfl1 hfl_le))
           exact hJel m' ⟨c', ext', s', fullCfgCompat_trans hc hc', hinv', hlt, hm'⟩
 
-private theorem search_probe_wp {Γ : Env} (hΓ : Γ.Sat Spec.deps)
-    (hSimp : Γ.Has "full_simplify_m6" Spec.fullM6SimplifySpec)
+private theorem search_probe_wp {Γ : Env} (hΓ : Γ.Sat searchDeps)
+    (hSimp : Γ.Has "full_simplify_m6" Spec.simplifySpec)
     {c0 c : FullCfg} {F0 : CNF Nat} {ext : List (BitVec 64)} {s0 s : FullState}
     {R : Mem 64 → Prop} {m : Mem 64} {Q : Post [i64]} {X : XPost} {ls : Val i64} {J_rp0 : Cont []}
     (hc : FullCfgCompat c0 c) (hinv : FullM6HdrInv c F0 ext s) (hfl0 : s.core.fuel ≠ 0#64)
@@ -511,8 +515,8 @@ private theorem search_probe_wp {Γ : Env} (hΓ : Γ.Sat Spec.deps)
             (Nat.lt_of_le_of_lt hfl' (Nat.lt_of_lt_of_le hfl1 hfl_le))
           exact hJpr m' ⟨c', ext', s', fullCfgCompat_trans hc hc', hinv', hlt, hm'⟩
 
-private theorem search_rephase_wp {Γ : Env} (hΓ : Γ.Sat Spec.deps)
-    (hSimp : Γ.Has "full_simplify_m6" Spec.fullM6SimplifySpec)
+private theorem search_rephase_wp {Γ : Env} (hΓ : Γ.Sat searchDeps)
+    (hSimp : Γ.Has "full_simplify_m6" Spec.simplifySpec)
     {c0 c : FullCfg} {F0 : CNF Nat} {ext : List (BitVec 64)} {s0 s : FullState}
     {R : Mem 64 → Prop} {m : Mem 64} {Q : Post [i64]} {X : XPost}
     {nr rc ls : Val i64} {J_ro : Cont [i64, i64]}
@@ -561,8 +565,8 @@ private theorem search_rephase_wp {Γ : Env} (hΓ : Γ.Sat Spec.deps)
       c0_hstraight
       exact hJrp m' ⟨c, ext', s', hc, hinv', hlt, hm'⟩
 
-private theorem search_reorder_wp {Γ : Env} (hΓ : Γ.Sat Spec.deps)
-    (hSimp : Γ.Has "full_simplify_m6" Spec.fullM6SimplifySpec)
+private theorem search_reorder_wp {Γ : Env} (hΓ : Γ.Sat searchDeps)
+    (hSimp : Γ.Has "full_simplify_m6" Spec.simplifySpec)
     {c0 c : FullCfg} {F0 : CNF Nat} {ext : List (BitVec 64)} {s0 s : FullState}
     {R : Mem 64 → Prop} {m : Mem 64} {Q : Post [i64]} {X : XPost}
     {nr rc ls : Val i64} {J_rst : Cont [i64, i64]}
@@ -613,8 +617,8 @@ private theorem search_reorder_wp {Γ : Env} (hΓ : Γ.Sat Spec.deps)
       c0_hstraight
       exact hJro (_, _) m' ⟨c, ext, s', hc, hinv', hlt, hm'⟩
 
-private theorem search_restart_wp {Γ : Env} (hΓ : Γ.Sat Spec.deps)
-    (hSimp : Γ.Has "full_simplify_m6" Spec.fullM6SimplifySpec)
+private theorem search_restart_wp {Γ : Env} (hΓ : Γ.Sat searchDeps)
+    (hSimp : Γ.Has "full_simplify_m6" Spec.simplifySpec)
     {c0 c : FullCfg} {F0 : CNF Nat} {ext : List (BitVec 64)} {s0 s : FullState}
     {R : Mem 64 → Prop} {m : Mem 64} {Q : Post [i64]} {X : XPost}
     {nr rc ls : Val i64} {J_nr_rc : Cont [i64, i64]}
@@ -655,8 +659,8 @@ private theorem search_restart_wp {Γ : Env} (hΓ : Γ.Sat Spec.deps)
         (fun c' ext' s' m'' nr' rc' hc' hinv' hlt hm'' =>
           hJrst (nr', rc') m'' ⟨c', ext', s', hc', hinv', hlt, hm''⟩) hk
 
-private theorem search_mode_wp {Γ : Env} (hΓ : Γ.Sat Spec.deps)
-    (hSimp : Γ.Has "full_simplify_m6" Spec.fullM6SimplifySpec)
+private theorem search_mode_wp {Γ : Env} (hΓ : Γ.Sat searchDeps)
+    (hSimp : Γ.Has "full_simplify_m6" Spec.simplifySpec)
     {c0 c : FullCfg} {F0 : CNF Nat} {ext : List (BitVec 64)} {s0 s : FullState}
     {R : Mem 64 → Prop} {m : Mem 64} {Q : Post [i64]} {X : XPost}
     {nr rc ls : Val i64} {J_outer : Cont [i64, i64, i64]}
@@ -717,8 +721,8 @@ private theorem search_mode_wp {Γ : Env} (hΓ : Γ.Sat Spec.deps)
         c0_hstraight
         exact hJM _ m rfl
 
-private theorem search_post_prop_wp {Γ : Env} (hΓ : Γ.Sat Spec.deps)
-    (hSimp : Γ.Has "full_simplify_m6" Spec.fullM6SimplifySpec)
+private theorem search_post_prop_wp {Γ : Env} (hΓ : Γ.Sat searchDeps)
+    (hSimp : Γ.Has "full_simplify_m6" Spec.simplifySpec)
     {c0 c : FullCfg} {F0 : CNF Nat} {ext : List (BitVec 64)} {s0 s : FullState}
     {R : Mem 64 → Prop} {m : Mem 64} {Q : Post [i64]} {X : XPost}
     {nr rc ls : Val i64} {J_loop : Cont [i64, i64, i64]}
@@ -781,15 +785,25 @@ private theorem search_post_prop_wp {Γ : Env} (hΓ : Γ.Sat Spec.deps)
 
 /-! ## 3. `full_search_m6_wp` -/
 
-theorem full_search_m6_wp {Γ : Env} (hΓ : Γ.Sat Spec.deps)
-    (hSimp : Γ.Has "full_simplify_m6" Spec.fullM6SimplifySpec) :
+theorem full_search_m6_wp {Γ : Env} (hΓ : Γ.Sat searchDeps)
+    (hSimp : Γ.Has "full_simplify_m6" Spec.simplifySpec) :
     SpecEntry.Impl Γ full_search_m6
-      ⟨"full_search_m6", [i64], [i64], Proof.Spec.fullM6SearchSpec, true⟩ := by
+      ⟨"full_search_m6", [i64], [i64], Spec.searchSpec, true⟩ := by
   refine ⟨⟨rfl, rfl, rfl⟩, fun xs m Q X hs => ?_⟩
   dsimp only [full_search_m6] at xs Q m hs ⊢
-  change Proof.Spec.fullM6SearchSpec xs m Q X at hs
+  change Spec.searchSpec xs m Q X at hs
   rcases xs with ⟨h, ⟨⟩⟩
-  obtain ⟨c0, F0, ext0, s0, R, rfl, hinv0, _, hm0, hk⟩ := hs
+  unfold Spec.searchSpec at hs
+  obtain ⟨c0, ext0, s0, F0, R, rfl, hcfg0, hext0, _, ⟨hsp0, _⟩, hm0, hk_raw⟩ :=
+    M6HdrCfgContract.elim hs
+  have hinv0 : FullM6HdrInv c0 F0 ext0 s0 := ⟨hcfg0, hext0, hsp0⟩
+  let hk : ∀ r c' ext' s' m',
+      FullCfgCompat c0 c' → s'.LengthsOk c' → FullM6HdrCfgOk c' → M6HdrExtOk ext' →
+      (r = 0#64 ∨ r = 10#64 ∨ r = 20#64) → (r = 20#64 → F0.Unsat) →
+      (r = 10#64 → s'.scratch.extend_len ≤ c'.extend_cap) →
+      (FullM6HdrMem c' ext' s' ⋆ R) m' → Q (r, ()) m' :=
+    fun r c' ext' s' m' hc' hlen' hcfg' hext' hr h20 h10 hm' =>
+      hk_raw (r, ()) c' ext' s' m' hc' hcfg' hext' trivial hlen' ⟨hr, h20, h10⟩ hm'
   dsimp only [Func.wp, full_search_m6_body]
   refine search_call_lucky_late (by simp [vals]) (deps_has_lucky_late hΓ) hinv0 hm0
     fun r1 ext1 s1 m1 hlen1 hext1 hr1 _ h20_1 h02_1 h10_1 hm1 => ?_

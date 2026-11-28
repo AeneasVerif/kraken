@@ -47,7 +47,6 @@ open LeanQbe.T.Examples.Kissat.Ref hiding isDimacsWs isDimacsDigit dimacsBound
 open LeanQbe.T.Examples.Kissat.Proof.Spec hiding
   fullM6WorkBase fullM6WorkHdr m6ExtAddr_fullM6WorkHdr
   region_work_to_m6_workBase region_work_from_m6_hdrMem
-  fullM6PreprocessSpec fullM6PreprocessSpec_of fullM6PreprocessSpec_monoX
 open LeanQbe.T.Examples.Kissat.ExportCnfFmt
 open LeanQbe.T.Examples.Kissat.ExportCnfState
 open LeanQbe.T.Examples.Kissat.ExportCnfEntry

@@ -45,13 +45,7 @@ open LeanQbe.T.Examples.Kissat.Ref hiding isDimacsWs isDimacsDigit dimacsBound
 open LeanQbe.T.Examples.Kissat.Proof.Spec hiding
   fullM6WorkBase fullM6WorkHdr m6ExtAddr_fullM6WorkHdr
   region_work_to_m6_workBase region_work_from_m6_hdrMem
-  fullM6PreprocessSpec fullM6PreprocessSpec_of fullM6PreprocessSpec_monoX
-  nvM6CnfPtr nvM6WorkLen nvM6SatBytes nvM6SatCnf nvM6SatWorkPtr
-  nvM6ExtInitWords nvM6SatCfg nvM6SatState nvM6SatBlockHdr nvM6SatBlockBytes
-  nvM6SatBlockU32A nvM6SatBlockU32B nvM6SatBlockU32C nvM6SatBlockWvec
-  nvM6SatBlockTail nvM6SatArenaBytes nvM6MemBytes nvM6Mem_ok
-  nvM6SatCfg_avail_fit nvM6SatCfg_hsize nvM6SatCnf_sat nvM6SatCnf_not_unsat
-  nvM6ExtInitWords_len nvM6Sat_lengths
+  nvM6CnfPtr nvM6WorkLen
 open LeanQbe.T.Examples.Kissat.ExportCnfFmt
 open LeanQbe.T.Examples.Kissat.ExportCnfState
 open LeanQbe.T.Examples.Kissat.ExportCnfEntry

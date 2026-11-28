@@ -7,7 +7,9 @@ module
 public import LeanQbe.T.Logic.CanonicalEnv
 public import LeanQbe.T.Examples.Kissat.Src.Full
 public import LeanQbe.T.Examples.Kissat.Src.InlPolicy
+public import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.SatNv1
+public import LeanQbe.T.Examples.Kissat.Proof.Spec.Solver
 public import LeanQbe.T.Examples.Kissat.Proof.Float64.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Dimacs.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Limits.Spec
@@ -94,12 +96,13 @@ import LeanQbe.T.Examples.Kissat.Proof.Search.Cert
 /-!
 # Canonical `41`-Subsystem Proof Assembly for `Src.Full.kissatModule` (`Proof.Full`)
 
-Assembles all `41` `Src.*` modules (`418` functions) on flat `CanonicalEnv` with `0` legacy `Full*`
-imports, `0` `PatchModule` layers, and `O(N)` `checkAcyclicTrie` verification:
+Assembles all `41` `Src.*` modules (`418` functions) on flat `CanonicalEnv` via
+`Proof.Lib.SubsystemCert.fold` with `0` legacy `Full*` imports, `0` `PatchModule` layers,
+and `O(N)` `checkAcyclicTrie` verification:
 1. `fullSpecs`, `fullEnv`, `fullSpecs_sigs`, `fullSpecs_nodup`, `fullSpecs_noExit`.
 2. `kissatModule_checkAcyclicTrie` (`O(N)` kernel check) and `kissatModule_allWf`.
 3. `fullTableImpl`, `full_moduleOk`, `kissatModule_checkAcyclic`, `kissatUnsatPkg`, and
-   `full_solve_bytes_sound`.
+   `full_solve_bytes_sound` (backed by canonical `Proof.Spec.Solver.solveBytesSpec`).
 -/
 
 set_option autoImplicit false
@@ -114,6 +117,7 @@ open LeanQbe.T.Examples.Kissat.Src.Full
 open scoped LeanQbe.T.Examples.Kissat.Src
 open LeanQbe.T.Examples.Kissat.Src.InlPolicy
 open LeanQbe.T.Examples.Kissat.Proof
+open LeanQbe.T.Examples.Kissat.Proof.Lib
 open LeanQbe.T.Examples.Kissat.Proof.Spec
 
 public section
@@ -169,58 +173,253 @@ public section
 @[expose] def fullEnv : Env :=
   Env.ofTable fullSpecs
 
-private theorem sigs_append {r₁ r₂ : List SpecEntry} {f₁ f₂ : List Fn}
-    (h₁ : r₁.map SpecEntry.sig = f₁.map Fn.sig)
-    (h₂ : r₂.map SpecEntry.sig = f₂.map Fn.sig) :
-    (r₁ ++ r₂).map SpecEntry.sig = (f₁ ++ f₂).map Fn.sig := by
-  simp only [List.map_append, h₁, h₂]
+private def fullCerts : List SubsystemCert :=
+  [ ⟨Src.Float64.fns, Float64.Spec.specs, [], Float64.Spec.specs_sigs, rfl, Float64.cert⟩
+  , ⟨Src.Dimacs.fns, Dimacs.Spec.specs, [], Dimacs.Spec.specs_sigs,
+      Dimacs.Spec.specs_noExit, Dimacs.cert⟩
+  , ⟨Src.Limits.fns, Limits.Spec.specs, Float64.Spec.specs, Limits.Spec.specs_sigs,
+      rfl, Limits.cert⟩
+  , ⟨Src.Arena.fns, Arena.Spec.specs, [], Arena.Spec.specs_sigs,
+      Arena.Spec.specs_noExit, Arena.cert⟩
+  , ⟨Src.Watch.fns, Watch.Spec.specs, [], Watch.Spec.specs_sigs, rfl, Watch.cert⟩
+  , ⟨Src.Heap.fns, Heap.Spec.specs, [], Heap.Spec.specs_sigs,
+      Heap.Spec.specs_noExit, Heap.cert⟩
+  , ⟨Src.Backtrack.fns, Backtrack.Spec.specs, Backtrack.Spec.deps,
+      Backtrack.Spec.specs_sigs, Backtrack.Spec.specs_noExit, Backtrack.cert⟩
+  , ⟨Src.Clause.fns, Clause.Spec.specs, Clause.Spec.deps, Clause.Spec.specs_sigs,
+      Clause.Spec.specs_noExit, Clause.cert⟩
+  , ⟨Src.Tiers.fns, Tiers.Spec.specs, Float64.Spec.specs, Tiers.Spec.specs_sigs,
+      rfl, Tiers.cert⟩
+  , ⟨Src.Bump.fns, Bump.Spec.specs, Bump.Spec.deps, Bump.Spec.specs_sigs,
+      List.all_eq_true.mpr Bump.Spec.specs_noExit, Bump.cert⟩
+  , ⟨Src.Internal.fns, Internal.Spec.specs, Internal.Spec.deps, Internal.Spec.specs_sigs,
+      Internal.Spec.specs_noExit, Internal.cert⟩
+  , ⟨Src.PropSearch.fns, PropSearch.Spec.specs, PropSearch.Spec.deps,
+      PropSearch.Spec.specs_sigs, PropSearch.Spec.specs_noExit, PropSearch.cert⟩
+  , ⟨Src.Parse.fns, Parse.Spec.specs, Parse.Spec.deps, Parse.Spec.specs_sigs,
+      List.all_eq_true.mpr Parse.Spec.specs_noExit, Parse.cert⟩
+  , ⟨Src.Collect.fns, Collect.Spec.specs, Collect.Spec.deps, Collect.Spec.specs_sigs,
+      Collect.Spec.specs_noExit, Collect.cert⟩
+  , ⟨Src.Compact.fns, Compact.Spec.specs, Compact.Spec.deps, Compact.Spec.specs_sigs,
+      Compact.Spec.specs_noExit, Compact.cert⟩
+  , ⟨Src.Reduce.fns, Reduce.Spec.specs, Reduce.Spec.deps, Reduce.Spec.specs_sigs,
+      List.all_eq_true.mpr Reduce.Spec.specs_noExit, Reduce.cert⟩
+  , ⟨Deduce.fns, Deduce.Spec.specs, Deduce.Spec.deps, Deduce.Spec.specs_sigs,
+      Deduce.Spec.specs_noExit, Deduce.cert⟩
+  , ⟨Src.Minimize.fns, Minimize.Spec.specs, [], Minimize.Spec.specs_sigs, rfl, Minimize.cert⟩
+  , ⟨Src.Learn.fns, Learn.Spec.specs, Learn.Spec.deps, Learn.Spec.specs_sigs,
+      Learn.Spec.specs_noExit, Learn.cert⟩
+  , ⟨Src.Analyze.fns, Analyze.Spec.specs, Analyze.Spec.deps, Analyze.Spec.specs_sigs,
+      Analyze.Spec.specs_noExit, Analyze.cert⟩
+  , ⟨Src.Decide.fns, Decide.Spec.specs, Decide.Spec.deps, Decide.Spec.specs_sigs,
+      Decide.Spec.specs_noExit, Decide.cert⟩
+  , ⟨Src.Restart.fns, Restart.Spec.specs, Restart.Spec.deps, Restart.Spec.specs_sigs,
+      Restart.Spec.specs_noExit, Restart.cert⟩
+  , ⟨Src.Extend.fns, Extend.Spec.specs, [], Extend.Spec.specs_sigs, rfl, Extend.cert⟩
+  , ⟨Src.Lucky.fns, Lucky.Spec.specs, Lucky.Spec.deps, Lucky.Spec.specs_sigs,
+      Lucky.Spec.specs_noExit, Lucky.cert⟩
+  , ⟨Src.Vivify.fns, Vivify.Spec.specs, Vivify.Spec.deps, Vivify.Spec.specs_sigs,
+      Vivify.Spec.specs_noExit, Vivify.cert⟩
+  , ⟨Src.Backbone.fns, Backbone.Spec.specs, Backbone.Spec.deps, Backbone.Spec.specs_sigs,
+      List.all_eq_true.mpr Backbone.Spec.specs_noExit, Backbone.cert⟩
+  , ⟨Src.Transitive.fns, Transitive.Spec.specs, Transitive.Spec.deps,
+      Transitive.Spec.specs_sigs, List.all_eq_true.mpr Transitive.Spec.specs_noExit,
+      Transitive.cert⟩
+  , ⟨Src.Substitute.fns, Substitute.Spec.specs, Substitute.Spec.deps,
+      Substitute.Spec.specs_sigs, Substitute.Spec.specs_noExit, Substitute.cert⟩
+  , ⟨Src.Dense.fns, Dense.Spec.specs, Dense.Spec.deps, Dense.Spec.specs_sigs,
+      Dense.Spec.specs_noExit, Dense.cert⟩
+  , ⟨Src.Congruence.fns, Congruence.Spec.specs, Congruence.Spec.deps,
+      Congruence.Spec.specs_sigs, List.all_eq_true.mpr Congruence.Spec.specs_noExit,
+      Congruence.cert⟩
+  , ⟨Src.Kitten.fns, Kitten.Spec.specs, Kitten.Spec.deps, Kitten.Spec.specs_sigs,
+      Kitten.Spec.specs_noExit, Kitten.cert⟩
+  , ⟨Src.Sweep.fns, Sweep.Spec.specs, Sweep.Spec.deps, Sweep.Spec.specs_sigs,
+      Sweep.Spec.specs_noExit, Sweep.cert⟩
+  , ⟨Src.Forward.fns, Forward.Spec.specs, Forward.Spec.deps, Forward.Spec.specs_sigs,
+      Forward.Spec.specs_noExit, Forward.cert⟩
+  , ⟨Gates.fns, Gates.specs, [], Gates.specs_sigs, rfl, Gates.cert⟩
+  , ⟨Src.Definition.fns, Definition.Spec.specs, Definition.Spec.deps,
+      Definition.Spec.specs_sigs, Definition.Spec.specs_noExit, Definition.cert⟩
+  , ⟨Src.Eliminate.fns, Eliminate.Spec.specs, Eliminate.Spec.deps,
+      Eliminate.Spec.specs_sigs, Eliminate.Spec.specs_noExit, Eliminate.cert⟩
+  , ⟨Src.Factor.fns, Factor.Spec.specs, Factor.Spec.deps, Factor.Spec.specs_sigs,
+      Factor.Spec.specs_noExit, Factor.cert⟩
+  , ⟨Src.Reorder.fns, Reorder.Spec.specs, Reorder.Spec.deps, Reorder.Spec.specs_sigs,
+      Reorder.Spec.specs_noExit, Reorder.cert⟩
+  , ⟨Src.Probe.fns, Probe.Spec.specs, Probe.Spec.deps, Probe.Spec.specs_sigs,
+      Probe.Spec.specs_noExit, Probe.cert⟩
+  , ⟨Src.Walk.fns, Walk.Spec.specs, Walk.Spec.deps, Walk.Spec.specs_sigs,
+      List.all_eq_true.mpr Walk.Spec.specs_noExit, Walk.cert⟩
+  , ⟨Src.Search.fns, Search.Spec.specs, Search.deps, Search.specs_sigs,
+      Search.specs_noExit, Search.cert⟩ ]
+
+private theorem sApp {a b t : List SpecEntry}
+    (ha : ∀ e ∈ a, e ∈ t) (hb : ∀ e ∈ b, e ∈ t) : ∀ e ∈ a ++ b, e ∈ t :=
+  fun _ h => (List.mem_append.mp h).elim (ha _) (hb _)
+
+local infixl:65 " ⊕ₘ " => sApp
+
+private theorem fullCerts_deps :
+    ∀ c ∈ fullCerts, ∀ e ∈ c.deps, e ∈ SubsystemCert.allSpecs fullCerts := by
+  let T := SubsystemCert.allSpecs fullCerts
+  have memOf : ∀ {c : SubsystemCert}, c ∈ fullCerts → ∀ {e}, e ∈ c.specs → e ∈ T :=
+    fun hc _ he => List.mem_flatMap.mpr ⟨_, hc, he⟩
+  have h1  : ∀ e ∈ Float64.Spec.specs, e ∈ T := by
+    intro e he; exact memOf (List.getElem_mem (l := fullCerts) (n := 0) (by decide)) he
+  have h2  : ∀ e ∈ Dimacs.Spec.specs, e ∈ T := by
+    intro e he; exact memOf (List.getElem_mem (l := fullCerts) (n := 1) (by decide)) he
+  have h3  : ∀ e ∈ Limits.Spec.specs, e ∈ T := by
+    intro e he; exact memOf (List.getElem_mem (l := fullCerts) (n := 2) (by decide)) he
+  have h4  : ∀ e ∈ Arena.Spec.specs, e ∈ T := by
+    intro e he; exact memOf (List.getElem_mem (l := fullCerts) (n := 3) (by decide)) he
+  have h5  : ∀ e ∈ Watch.Spec.specs, e ∈ T := by
+    intro e he; exact memOf (List.getElem_mem (l := fullCerts) (n := 4) (by decide)) he
+  have h6  : ∀ e ∈ Heap.Spec.specs, e ∈ T := by
+    intro e he; exact memOf (List.getElem_mem (l := fullCerts) (n := 5) (by decide)) he
+  have h7  : ∀ e ∈ Backtrack.Spec.specs, e ∈ T := by
+    intro e he; exact memOf (List.getElem_mem (l := fullCerts) (n := 6) (by decide)) he
+  have h8  : ∀ e ∈ Clause.Spec.specs, e ∈ T := by
+    intro e he; exact memOf (List.getElem_mem (l := fullCerts) (n := 7) (by decide)) he
+  have h9  : ∀ e ∈ Tiers.Spec.specs, e ∈ T := by
+    intro e he; exact memOf (List.getElem_mem (l := fullCerts) (n := 8) (by decide)) he
+  have h10 : ∀ e ∈ Bump.Spec.specs, e ∈ T := by
+    intro e he; exact memOf (List.getElem_mem (l := fullCerts) (n := 9) (by decide)) he
+  have h11 : ∀ e ∈ Internal.Spec.specs, e ∈ T := by
+    intro e he; exact memOf (List.getElem_mem (l := fullCerts) (n := 10) (by decide)) he
+  have h12 : ∀ e ∈ PropSearch.Spec.specs, e ∈ T := by
+    intro e he; exact memOf (List.getElem_mem (l := fullCerts) (n := 11) (by decide)) he
+  have h13 : ∀ e ∈ Parse.Spec.specs, e ∈ T := by
+    intro e he; exact memOf (List.getElem_mem (l := fullCerts) (n := 12) (by decide)) he
+  have h14 : ∀ e ∈ Collect.Spec.specs, e ∈ T := by
+    intro e he; exact memOf (List.getElem_mem (l := fullCerts) (n := 13) (by decide)) he
+  have h15 : ∀ e ∈ Compact.Spec.specs, e ∈ T := by
+    intro e he; exact memOf (List.getElem_mem (l := fullCerts) (n := 14) (by decide)) he
+  have h16 : ∀ e ∈ Reduce.Spec.specs, e ∈ T := by
+    intro e he; exact memOf (List.getElem_mem (l := fullCerts) (n := 15) (by decide)) he
+  have h17 : ∀ e ∈ Deduce.Spec.specs, e ∈ T := by
+    intro e he; exact memOf (List.getElem_mem (l := fullCerts) (n := 16) (by decide)) he
+  have h18 : ∀ e ∈ Minimize.Spec.specs, e ∈ T := by
+    intro e he; exact memOf (List.getElem_mem (l := fullCerts) (n := 17) (by decide)) he
+  have h19 : ∀ e ∈ Learn.Spec.specs, e ∈ T := by
+    intro e he; exact memOf (List.getElem_mem (l := fullCerts) (n := 18) (by decide)) he
+  have h20 : ∀ e ∈ Analyze.Spec.specs, e ∈ T := by
+    intro e he; exact memOf (List.getElem_mem (l := fullCerts) (n := 19) (by decide)) he
+  have h21 : ∀ e ∈ Decide.Spec.specs, e ∈ T := by
+    intro e he; exact memOf (List.getElem_mem (l := fullCerts) (n := 20) (by decide)) he
+  have h22 : ∀ e ∈ Restart.Spec.specs, e ∈ T := by
+    intro e he; exact memOf (List.getElem_mem (l := fullCerts) (n := 21) (by decide)) he
+  have h23 : ∀ e ∈ Extend.Spec.specs, e ∈ T := by
+    intro e he; exact memOf (List.getElem_mem (l := fullCerts) (n := 22) (by decide)) he
+  have h24 : ∀ e ∈ Lucky.Spec.specs, e ∈ T := by
+    intro e he; exact memOf (List.getElem_mem (l := fullCerts) (n := 23) (by decide)) he
+  have h25 : ∀ e ∈ Vivify.Spec.specs, e ∈ T := by
+    intro e he; exact memOf (List.getElem_mem (l := fullCerts) (n := 24) (by decide)) he
+  have h26 : ∀ e ∈ Backbone.Spec.specs, e ∈ T := by
+    intro e he; exact memOf (List.getElem_mem (l := fullCerts) (n := 25) (by decide)) he
+  have h27 : ∀ e ∈ Transitive.Spec.specs, e ∈ T := by
+    intro e he; exact memOf (List.getElem_mem (l := fullCerts) (n := 26) (by decide)) he
+  have h28 : ∀ e ∈ Substitute.Spec.specs, e ∈ T := by
+    intro e he; exact memOf (List.getElem_mem (l := fullCerts) (n := 27) (by decide)) he
+  have h29 : ∀ e ∈ Dense.Spec.specs, e ∈ T := by
+    intro e he; exact memOf (List.getElem_mem (l := fullCerts) (n := 28) (by decide)) he
+  have h30 : ∀ e ∈ Congruence.Spec.specs, e ∈ T := by
+    intro e he; exact memOf (List.getElem_mem (l := fullCerts) (n := 29) (by decide)) he
+  have h31 : ∀ e ∈ Kitten.Spec.specs, e ∈ T := by
+    intro e he; exact memOf (List.getElem_mem (l := fullCerts) (n := 30) (by decide)) he
+  have h32 : ∀ e ∈ Sweep.Spec.specs, e ∈ T := by
+    intro e he; exact memOf (List.getElem_mem (l := fullCerts) (n := 31) (by decide)) he
+  have h33 : ∀ e ∈ Forward.Spec.specs, e ∈ T := by
+    intro e he; exact memOf (List.getElem_mem (l := fullCerts) (n := 32) (by decide)) he
+  have h34 : ∀ e ∈ Gates.specs, e ∈ T := by
+    intro e he; exact memOf (List.getElem_mem (l := fullCerts) (n := 33) (by decide)) he
+  have h35 : ∀ e ∈ Definition.Spec.specs, e ∈ T := by
+    intro e he; exact memOf (List.getElem_mem (l := fullCerts) (n := 34) (by decide)) he
+  have h36 : ∀ e ∈ Eliminate.Spec.specs, e ∈ T := by
+    intro e he; exact memOf (List.getElem_mem (l := fullCerts) (n := 35) (by decide)) he
+  have h37 : ∀ e ∈ Factor.Spec.specs, e ∈ T := by
+    intro e he; exact memOf (List.getElem_mem (l := fullCerts) (n := 36) (by decide)) he
+  have h38 : ∀ e ∈ Reorder.Spec.specs, e ∈ T := by
+    intro e he; exact memOf (List.getElem_mem (l := fullCerts) (n := 37) (by decide)) he
+  have h39 : ∀ e ∈ Probe.Spec.specs, e ∈ T := by
+    intro e he; exact memOf (List.getElem_mem (l := fullCerts) (n := 38) (by decide)) he
+  have h40 : ∀ e ∈ Walk.Spec.specs, e ∈ T := by
+    intro e he; exact memOf (List.getElem_mem (l := fullCerts) (n := 39) (by decide)) he
+  have d12 : ∀ e ∈ PropSearch.Spec.deps, e ∈ T := by
+    intro e he
+    simp only [PropSearch.Spec.deps, List.mem_cons, List.not_mem_nil, or_false] at he
+    rcases he with rfl | rfl | rfl | rfl
+    · exact h5 _ Watch.Spec.mem_full_watch_push
+    · exact h1 _ (List.getElem_mem (l := Float64.Spec.specs) (n := 12) (by decide))
+    · exact h9 _ (List.getElem_mem (l := Tiers.Spec.specs) (n := 2) (by decide))
+    · exact h7 _ (List.getElem_mem (l := Backtrack.Spec.specs) (n := 4) (by decide))
+  intro c hc
+  simp only [fullCerts, List.mem_cons, List.not_mem_nil, or_false] at hc
+  rcases hc with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+      rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+      rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+      rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+  · exact fun _ h => nomatch h
+  · exact fun _ h => nomatch h
+  · exact h1
+  · exact fun _ h => nomatch h
+  · exact fun _ h => nomatch h
+  · exact fun _ h => nomatch h
+  · exact h6
+  · exact h4 ⊕ₘ h7 ⊕ₘ h5
+  · exact h1
+  · exact h1 ⊕ₘ h6 ⊕ₘ h9
+  · exact h2 ⊕ₘ h1 ⊕ₘ h6 ⊕ₘ h9
+  · exact d12
+  · exact h7 ⊕ₘ h8 ⊕ₘ h2 ⊕ₘ h1 ⊕ₘ h6 ⊕ₘ h12 ⊕ₘ h5
+  · exact h4 ⊕ₘ h7 ⊕ₘ h5
+  · exact h4 ⊕ₘ h14 ⊕ₘ h12 ⊕ₘ h5
+  · exact h4 ⊕ₘ h7 ⊕ₘ h1 ⊕ₘ h11 ⊕ₘ h3 ⊕ₘ h9 ⊕ₘ h14 ⊕ₘ h15 ⊕ₘ h12
+  · exact h4 ⊕ₘ h9 ⊕ₘ h5
+  · exact fun _ h => nomatch h
+  · exact h7 ⊕ₘ h8 ⊕ₘ h16 ⊕ₘ h5
+  · exact h7 ⊕ₘ h10 ⊕ₘ h17 ⊕ₘ h19 ⊕ₘ h3 ⊕ₘ h18 ⊕ₘ h9
+  · exact h7 ⊕ₘ h1 ⊕ₘ h6 ⊕ₘ h3 ⊕ₘ h9
+  · exact h7 ⊕ₘ h21 ⊕ₘ h1 ⊕ₘ h6 ⊕ₘ h3 ⊕ₘ h9
+  · exact fun _ h => nomatch h
+  · exact h4 ⊕ₘ h7 ⊕ₘ h12 ⊕ₘ h20
+  · exact h4 ⊕ₘ h7 ⊕ₘ h8 ⊕ₘ h12 ⊕ₘ h9 ⊕ₘ h5
+  · exact h7 ⊕ₘ h8 ⊕ₘ h1 ⊕ₘ h12 ⊕ₘ h5
+  · exact h7 ⊕ₘ h8 ⊕ₘ h12 ⊕ₘ h5
+  · exact h4 ⊕ₘ h7 ⊕ₘ h8 ⊕ₘ h14 ⊕ₘ h23 ⊕ₘ h11 ⊕ₘ h12
+  · exact h4 ⊕ₘ h7 ⊕ₘ h8 ⊕ₘ h14 ⊕ₘ h12 ⊕ₘ h5
+  · exact h4 ⊕ₘ h8 ⊕ₘ h3 ⊕ₘ h5
+  · exact fun _ h => nomatch h
+  · exact h31 ⊕ₘ h8 ⊕ₘ h30 ⊕ₘ h5 ⊕ₘ h29
+  · exact h4 ⊕ₘ h5 ⊕ₘ h8 ⊕ₘ h14 ⊕ₘ h29
+  · exact fun _ h => nomatch h
+  · exact h7 ⊕ₘ h34 ⊕ₘ h31
+  · exact h4 ⊕ₘ h7 ⊕ₘ h8 ⊕ₘ h35 ⊕ₘ h29 ⊕ₘ h23 ⊕ₘ h1 ⊕ₘ h33 ⊕ₘ h11 ⊕ₘ h3 ⊕ₘ h5
+  · exact h4 ⊕ₘ h8 ⊕ₘ h33 ⊕ₘ h11 ⊕ₘ h3 ⊕ₘ h5
+  · exact h1 ⊕ₘ h4 ⊕ₘ h10 ⊕ₘ h6
+  · exact h9 ⊕ₘ h11 ⊕ₘ h29 ⊕ₘ h30 ⊕ₘ h33 ⊕ₘ h28 ⊕ₘ h26 ⊕ₘ h32 ⊕ₘ h37 ⊕ₘ h25 ⊕ₘ
+      h27 ⊕ₘ h1 ⊕ₘ h3
+  · exact h4 ⊕ₘ h7 ⊕ₘ h21 ⊕ₘ h29 ⊕ₘ h1 ⊕ₘ h33 ⊕ₘ h12
+  · simp only [Search.deps, Search.searchDeps]
+    exact h11 ⊕ₘ h3 ⊕ₘ h23 ⊕ₘ h14 ⊕ₘ h9 ⊕ₘ h21 ⊕ₘ h22 ⊕ₘ h38 ⊕ₘ h40 ⊕ₘ h15 ⊕ₘ
+      h7 ⊕ₘ h16 ⊕ₘ h20 ⊕ₘ h13 ⊕ₘ h2 ⊕ₘ h39 ⊕ₘ h24 ⊕ₘ h36 ⊕ₘ h12
+
+private def fullFold : SubsystemCert :=
+  SubsystemCert.fold fullCerts fullCerts_deps
+
+private theorem allSpecs_eq : SubsystemCert.allSpecs fullCerts = fullSpecs := by
+  simp only [fullCerts, fullSpecs, SubsystemCert.allSpecs,
+    List.flatMap_cons, List.flatMap_nil, List.append_nil, List.append_assoc]
+
+private theorem allFns_eq : SubsystemCert.allFns fullCerts = kissatModule.fns := by
+  rw [kissatModule_fns]
+  simp only [fullCerts, kissatFns, SubsystemCert.allFns,
+    List.flatMap_cons, List.flatMap_nil, List.append_nil, List.append_assoc]
 
 /-- Signature list of `fullSpecs` matches `Src.Full.kissatModule.fns` (`418` fns) 1:1. -/
 theorem fullSpecs_sigs : fullSpecs.map SpecEntry.sig = kissatModule.fns.map Fn.sig := by
-  unfold fullSpecs
-  rw [kissatModule_fns]
-  unfold kissatFns
-  have h := Float64.Spec.specs_sigs
-  have h := sigs_append h Dimacs.Spec.specs_sigs
-  have h := sigs_append h Limits.Spec.specs_sigs
-  have h := sigs_append h Arena.Spec.specs_sigs
-  have h := sigs_append h Watch.Spec.specs_sigs
-  have h := sigs_append h Heap.Spec.specs_sigs
-  have h := sigs_append h Backtrack.Spec.specs_sigs
-  have h := sigs_append h Clause.Spec.specs_sigs
-  have h := sigs_append h Tiers.Spec.specs_sigs
-  have h := sigs_append h Bump.Spec.specs_sigs
-  have h := sigs_append h Internal.Spec.specs_sigs
-  have h := sigs_append h PropSearch.Spec.specs_sigs
-  have h := sigs_append h Parse.Spec.specs_sigs
-  have h := sigs_append h Collect.Spec.specs_sigs
-  have h := sigs_append h Compact.Spec.specs_sigs
-  have h := sigs_append h Reduce.Spec.specs_sigs
-  have h := sigs_append h Deduce.Spec.specs_sigs
-  have h := sigs_append h Minimize.Spec.specs_sigs
-  have h := sigs_append h Learn.Spec.specs_sigs
-  have h := sigs_append h Analyze.Spec.specs_sigs
-  have h := sigs_append h Decide.Spec.specs_sigs
-  have h := sigs_append h Restart.Spec.specs_sigs
-  have h := sigs_append h Extend.Spec.specs_sigs
-  have h := sigs_append h Lucky.Spec.specs_sigs
-  have h := sigs_append h Vivify.Spec.specs_sigs
-  have h := sigs_append h Backbone.Spec.specs_sigs
-  have h := sigs_append h Transitive.Spec.specs_sigs
-  have h := sigs_append h Substitute.Spec.specs_sigs
-  have h := sigs_append h Dense.Spec.specs_sigs
-  have h := sigs_append h Congruence.Spec.specs_sigs
-  have h := sigs_append h Kitten.Spec.specs_sigs
-  have h := sigs_append h Sweep.Spec.specs_sigs
-  have h := sigs_append h Forward.Spec.specs_sigs
-  have h := sigs_append h Gates.specs_sigs
-  have h := sigs_append h Definition.Spec.specs_sigs
-  have h := sigs_append h Eliminate.Spec.specs_sigs
-  have h := sigs_append h Factor.Spec.specs_sigs
-  have h := sigs_append h Reorder.Spec.specs_sigs
-  have h := sigs_append h Probe.Spec.specs_sigs
-  have h := sigs_append h Walk.Spec.specs_sigs
-  exact sigs_append h Search.Spec.specs_sigs
+  rw [← allSpecs_eq, ← allFns_eq]
+  exact fullFold.specs_sigs
 
 /-- Name list of `fullSpecs` matches `Src.Full.kissatModule.fns` 1:1. -/
 theorem fullSpecs_names : fullSpecs.map SpecEntry.name = kissatModule.fns.map Fn.name :=
@@ -243,59 +442,10 @@ theorem kissatModule_allWf : AllFns Fn.Wf kissatModule.fns :=
 theorem fullSpecs_nodup : (fullSpecs.map SpecEntry.name).Nodup :=
   nodup_of_checkAcyclicTrie kissatModule_checkAcyclicTrie fullSpecs_names
 
-private theorem noExit_append {r₁ r₂ : List SpecEntry}
-    (h₁ : ∀ e ∈ r₁, e.noExit = true) (h₂ : ∀ e ∈ r₂, e.noExit = true) :
-    ∀ e ∈ r₁ ++ r₂, e.noExit = true := fun e he =>
-  (List.mem_append.mp he).elim (h₁ e) (h₂ e)
-
-private theorem noExit_of_all {tbl : List SpecEntry} (h : tbl.all SpecEntry.noExit = true) :
-    ∀ e ∈ tbl, e.noExit = true :=
-  fun e he => List.all_eq_true.mp h e he
-
 /-- Every row in `fullSpecs` has `noExit = true`. -/
 theorem fullSpecs_noExit : ∀ e ∈ fullSpecs, e.noExit = true := by
-  unfold fullSpecs
-  have h := noExit_of_all (rfl : Float64.Spec.specs.all SpecEntry.noExit = true)
-  have h := noExit_append h (noExit_of_all Dimacs.Spec.specs_noExit)
-  have h := noExit_append h (noExit_of_all (rfl : Limits.Spec.specs.all SpecEntry.noExit = true))
-  have h := noExit_append h (noExit_of_all Arena.Spec.specs_noExit)
-  have h := noExit_append h (noExit_of_all (rfl : Watch.Spec.specs.all SpecEntry.noExit = true))
-  have h := noExit_append h (noExit_of_all Heap.Spec.specs_noExit)
-  have h := noExit_append h (noExit_of_all Backtrack.Spec.specs_noExit)
-  have h := noExit_append h (noExit_of_all Clause.Spec.specs_noExit)
-  have h := noExit_append h (noExit_of_all (rfl : Tiers.Spec.specs.all SpecEntry.noExit = true))
-  have h := noExit_append h Bump.Spec.specs_noExit
-  have h := noExit_append h (noExit_of_all Internal.Spec.specs_noExit)
-  have h := noExit_append h (noExit_of_all PropSearch.Spec.specs_noExit)
-  have h := noExit_append h Parse.Spec.specs_noExit
-  have h := noExit_append h (noExit_of_all Collect.Spec.specs_noExit)
-  have h := noExit_append h (noExit_of_all Compact.Spec.specs_noExit)
-  have h := noExit_append h Reduce.Spec.specs_noExit
-  have h := noExit_append h (noExit_of_all Deduce.Spec.specs_noExit)
-  have h := noExit_append h (noExit_of_all (rfl : Minimize.Spec.specs.all SpecEntry.noExit = true))
-  have h := noExit_append h (noExit_of_all Learn.Spec.specs_noExit)
-  have h := noExit_append h (noExit_of_all Analyze.Spec.specs_noExit)
-  have h := noExit_append h (noExit_of_all Decide.Spec.specs_noExit)
-  have h := noExit_append h (noExit_of_all Restart.Spec.specs_noExit)
-  have h := noExit_append h (noExit_of_all (rfl : Extend.Spec.specs.all SpecEntry.noExit = true))
-  have h := noExit_append h (noExit_of_all Lucky.Spec.specs_noExit)
-  have h := noExit_append h (noExit_of_all Vivify.Spec.specs_noExit)
-  have h := noExit_append h Backbone.Spec.specs_noExit
-  have h := noExit_append h Transitive.Spec.specs_noExit
-  have h := noExit_append h (noExit_of_all Substitute.Spec.specs_noExit)
-  have h := noExit_append h (noExit_of_all Dense.Spec.specs_noExit)
-  have h := noExit_append h Congruence.Spec.specs_noExit
-  have h := noExit_append h (noExit_of_all Kitten.Spec.specs_noExit)
-  have h := noExit_append h (noExit_of_all Sweep.Spec.specs_noExit)
-  have h := noExit_append h (noExit_of_all Forward.Spec.specs_noExit)
-  have h := noExit_append h (noExit_of_all (rfl : Gates.specs.all SpecEntry.noExit = true))
-  have h := noExit_append h (noExit_of_all Definition.Spec.specs_noExit)
-  have h := noExit_append h (noExit_of_all Eliminate.Spec.specs_noExit)
-  have h := noExit_append h (noExit_of_all Factor.Spec.specs_noExit)
-  have h := noExit_append h (noExit_of_all Reorder.Spec.specs_noExit)
-  have h := noExit_append h (noExit_of_all Probe.Spec.specs_noExit)
-  have h := noExit_append h Walk.Spec.specs_noExit
-  exact noExit_append h (noExit_of_all Search.Spec.specs_noExit)
+  rw [← allSpecs_eq]
+  exact fullFold.noExit_mem
 
 /-- `fullEnv` ignores exit continuations across all `418` functions. -/
 theorem fullEnv_noExit :
@@ -304,198 +454,14 @@ theorem fullEnv_noExit :
   fun f _ args m Q X X' h =>
     Env.ofTable_noExit fullSpecs_noExit f.name f.as f.rs args m Q X X' h
 
-/-! ## 2. Full `41`-Segment `SegCert` Chain & `ModuleOk` -/
+/-! ## 2. Full `41`-Segment `SubsystemCert` Fold & `ModuleOk` -/
 
 /-- Combined `TableImpl` across all `41` `Src.*` modules (`418` functions). -/
 theorem fullTableImpl (Γ : Env) (hSat : Γ.Sat fullSpecs) :
     TableImpl Γ kissatModule.fns fullSpecs := by
-  unfold fullSpecs at hSat ⊢
-  rw [kissatModule_fns]
-  unfold kissatFns
-  have r40 := hSat.left; have s41 := hSat.right
-  have r39 := r40.left;  have s40 := r40.right
-  have r38 := r39.left;  have s39 := r39.right
-  have r37 := r38.left;  have s38 := r38.right
-  have r36 := r37.left;  have s37 := r37.right
-  have r35 := r36.left;  have s36 := r36.right
-  have r34 := r35.left;  have s35 := r35.right
-  have r33 := r34.left;  have s34 := r34.right
-  have r32 := r33.left;  have s33 := r33.right
-  have r31 := r32.left;  have s32 := r32.right
-  have r30 := r31.left;  have s31 := r31.right
-  have r29 := r30.left;  have s30 := r30.right
-  have r28 := r29.left;  have s29 := r29.right
-  have r27 := r28.left;  have s28 := r28.right
-  have r26 := r27.left;  have s27 := r27.right
-  have r25 := r26.left;  have s26 := r26.right
-  have r24 := r25.left;  have s25 := r25.right
-  have r23 := r24.left;  have s24 := r24.right
-  have r22 := r23.left;  have s23 := r23.right
-  have r21 := r22.left;  have s22 := r22.right
-  have r20 := r21.left;  have s21 := r21.right
-  have r19 := r20.left;  have s20 := r20.right
-  have r18 := r19.left;  have s19 := r19.right
-  have r17 := r18.left;  have s18 := r18.right
-  have r16 := r17.left;  have s17 := r17.right
-  have r15 := r16.left;  have s16 := r16.right
-  have r14 := r15.left;  have s15 := r15.right
-  have r13 := r14.left;  have s14 := r14.right
-  have r12 := r13.left;  have s13 := r13.right
-  have r11 := r12.left;  have s12 := r12.right
-  have r10 := r11.left;  have s11 := r11.right
-  have r9  := r10.left;  have s10 := r10.right
-  have r8  := r9.left;   have s9  := r9.right
-  have r7  := r8.left;   have s8  := r8.right
-  have r6  := r7.left;   have s7  := r7.right
-  have r5  := r6.left;   have s6  := r6.right
-  have r4  := r5.left;   have s5  := r5.right
-  have r3  := r4.left;   have s4  := r4.right
-  have r2  := r3.left;   have s3  := r3.right
-  have s1  := r2.left;   have s2  := r2.right
-  have d12 : Γ.Sat PropSearch.Spec.deps := by
-    intro e he
-    simp only [PropSearch.Spec.deps, List.mem_cons, List.not_mem_nil, or_false] at he
-    rcases he with rfl | rfl | rfl | rfl
-    · exact s5 _ Watch.Spec.mem_full_watch_push
-    · exact s1 _ (List.getElem_mem (l := Float64.Spec.specs) (n := 12) (by decide))
-    · exact s9 _ (List.getElem_mem (l := Tiers.Spec.specs) (n := 2) (by decide))
-    · exact s7 _ (List.getElem_mem (l := Backtrack.Spec.specs) (n := 4) (by decide))
-  have t1  := Float64.cert Γ (Env.Sat.nil Γ) s1
-  have t2  := Dimacs.cert Γ (Env.Sat.nil Γ) s2
-  have t3  := Limits.cert Γ s1 s3
-  have t4  := Arena.cert Γ (Env.Sat.nil Γ) s4
-  have t5  := Watch.cert Γ (Env.Sat.nil Γ) s5
-  have t6  := Heap.cert Γ (Env.Sat.nil Γ) s6
-  have t7  := Backtrack.cert Γ s6 s7
-  have t8  := Clause.cert Γ (s4.append (s7.append s5)) s8
-  have t9  := Tiers.cert Γ s1 s9
-  have t10 := Bump.cert Γ (s1.append (s6.append s9)) s10
-  have t11 := Internal.cert Γ (s2.append (s1.append (s6.append s9))) s11
-  have t12 := PropSearch.cert Γ d12 s12
-  have t13 := Parse.cert Γ
-    (s7.append (s8.append (s2.append (s1.append (s6.append (s12.append s5)))))) s13
-  have t14 := Collect.cert Γ (s4.append (s7.append s5)) s14
-  have t15 := Compact.cert Γ (s4.append (s14.append (s12.append s5))) s15
-  have t16 := Reduce.cert Γ
-    (s4.append (s7.append (s1.append (s11.append (s3.append (s9.append
-      (s14.append (s15.append s12)))))))) s16
-  have t17 := Deduce.cert Γ (s4.append (s9.append s5)) s17
-  have t18 := Minimize.cert Γ (Env.Sat.nil Γ) s18
-  have t19 := Learn.cert Γ (s7.append (s8.append (s16.append s5))) s19
-  have t20 := Analyze.cert Γ
-    (s7.append (s10.append (s17.append (s19.append (s3.append (s18.append s9)))))) s20
-  have t21 := Decide.cert Γ (s7.append (s1.append (s6.append (s3.append s9)))) s21
-  have t22 := Restart.cert Γ (s7.append (s21.append (s1.append (s6.append (s3.append s9))))) s22
-  have t23 := Extend.cert Γ (Env.Sat.nil Γ) s23
-  have t24 := Lucky.cert Γ (s4.append (s7.append (s12.append s20))) s24
-  have t25 := Vivify.cert Γ (s4.append (s7.append (s8.append (s12.append (s9.append s5))))) s25
-  have t26 := Backbone.cert Γ (s7.append (s8.append (s1.append (s12.append s5)))) s26
-  have t27 := Transitive.cert Γ (s7.append (s8.append (s12.append s5))) s27
-  have t28 := Substitute.cert Γ
-    (s4.append (s7.append (s8.append (s14.append (s23.append (s11.append s12)))))) s28
-  have t29 := Dense.cert Γ
-    (s4.append (s7.append (s8.append (s14.append (s12.append s5))))) s29
-  have t30 := Congruence.cert Γ (s4.append (s8.append (s3.append s5))) s30
-  have t31 := Kitten.cert Γ (Env.Sat.nil Γ) s31
-  have t32 := Sweep.cert Γ (s31.append (s8.append (s30.append (s5.append s29)))) s32
-  have t33 := Forward.cert Γ (s4.append (s5.append (s8.append (s14.append s29)))) s33
-  have t34 := Gates.cert Γ (Env.Sat.nil Γ) s34
-  have t35 := Definition.cert Γ (s7.append (s34.append s31)) s35
-  have t36 := Eliminate.cert Γ
-    (s4.append (s7.append (s8.append (s35.append (s29.append (s23.append
-      (s1.append (s33.append (s11.append (s3.append s5)))))))))) s36
-  have t37 := Factor.cert Γ
-    (s4.append (s8.append (s33.append (s11.append (s3.append s5))))) s37
-  have t38 := Reorder.cert Γ (s1.append (s4.append (s10.append s6))) s38
-  have t39 := Probe.cert Γ
-    (s9.append (s11.append (s29.append (s30.append (s33.append (s28.append
-      (s26.append (s32.append (s37.append (s25.append (s27.append (s1.append s3)))))))))))) s39
-  have t40 := Walk.cert Γ
-    (s4.append (s7.append (s21.append (s29.append (s1.append (s33.append s12)))))) s40
-  have t41 := Search.cert Γ
-    (s11.append (s3.append (s23.append (s14.append (s9.append (s21.append (s22.append
-      (s38.append (s40.append (s15.append (s7.append (s16.append (s20.append (s13.append
-        (s2.append (s39.append (s24.append (s36.append s12)))))))))))))))))) s41
-  have hs  := Float64.Spec.specs_sigs
-  have acc := t1.append_sigs hs t2
-  have hs  := sigs_append hs Dimacs.Spec.specs_sigs
-  have acc := acc.append_sigs hs t3
-  have hs  := sigs_append hs Limits.Spec.specs_sigs
-  have acc := acc.append_sigs hs t4
-  have hs  := sigs_append hs Arena.Spec.specs_sigs
-  have acc := acc.append_sigs hs t5
-  have hs  := sigs_append hs Watch.Spec.specs_sigs
-  have acc := acc.append_sigs hs t6
-  have hs  := sigs_append hs Heap.Spec.specs_sigs
-  have acc := acc.append_sigs hs t7
-  have hs  := sigs_append hs Backtrack.Spec.specs_sigs
-  have acc := acc.append_sigs hs t8
-  have hs  := sigs_append hs Clause.Spec.specs_sigs
-  have acc := acc.append_sigs hs t9
-  have hs  := sigs_append hs Tiers.Spec.specs_sigs
-  have acc := acc.append_sigs hs t10
-  have hs  := sigs_append hs Bump.Spec.specs_sigs
-  have acc := acc.append_sigs hs t11
-  have hs  := sigs_append hs Internal.Spec.specs_sigs
-  have acc := acc.append_sigs hs t12
-  have hs  := sigs_append hs PropSearch.Spec.specs_sigs
-  have acc := acc.append_sigs hs t13
-  have hs  := sigs_append hs Parse.Spec.specs_sigs
-  have acc := acc.append_sigs hs t14
-  have hs  := sigs_append hs Collect.Spec.specs_sigs
-  have acc := acc.append_sigs hs t15
-  have hs  := sigs_append hs Compact.Spec.specs_sigs
-  have acc := acc.append_sigs hs t16
-  have hs  := sigs_append hs Reduce.Spec.specs_sigs
-  have acc := acc.append_sigs hs t17
-  have hs  := sigs_append hs Deduce.Spec.specs_sigs
-  have acc := acc.append_sigs hs t18
-  have hs  := sigs_append hs Minimize.Spec.specs_sigs
-  have acc := acc.append_sigs hs t19
-  have hs  := sigs_append hs Learn.Spec.specs_sigs
-  have acc := acc.append_sigs hs t20
-  have hs  := sigs_append hs Analyze.Spec.specs_sigs
-  have acc := acc.append_sigs hs t21
-  have hs  := sigs_append hs Decide.Spec.specs_sigs
-  have acc := acc.append_sigs hs t22
-  have hs  := sigs_append hs Restart.Spec.specs_sigs
-  have acc := acc.append_sigs hs t23
-  have hs  := sigs_append hs Extend.Spec.specs_sigs
-  have acc := acc.append_sigs hs t24
-  have hs  := sigs_append hs Lucky.Spec.specs_sigs
-  have acc := acc.append_sigs hs t25
-  have hs  := sigs_append hs Vivify.Spec.specs_sigs
-  have acc := acc.append_sigs hs t26
-  have hs  := sigs_append hs Backbone.Spec.specs_sigs
-  have acc := acc.append_sigs hs t27
-  have hs  := sigs_append hs Transitive.Spec.specs_sigs
-  have acc := acc.append_sigs hs t28
-  have hs  := sigs_append hs Substitute.Spec.specs_sigs
-  have acc := acc.append_sigs hs t29
-  have hs  := sigs_append hs Dense.Spec.specs_sigs
-  have acc := acc.append_sigs hs t30
-  have hs  := sigs_append hs Congruence.Spec.specs_sigs
-  have acc := acc.append_sigs hs t31
-  have hs  := sigs_append hs Kitten.Spec.specs_sigs
-  have acc := acc.append_sigs hs t32
-  have hs  := sigs_append hs Sweep.Spec.specs_sigs
-  have acc := acc.append_sigs hs t33
-  have hs  := sigs_append hs Forward.Spec.specs_sigs
-  have acc := acc.append_sigs hs t34
-  have hs  := sigs_append hs Gates.specs_sigs
-  have acc := acc.append_sigs hs t35
-  have hs  := sigs_append hs Definition.Spec.specs_sigs
-  have acc := acc.append_sigs hs t36
-  have hs  := sigs_append hs Eliminate.Spec.specs_sigs
-  have acc := acc.append_sigs hs t37
-  have hs  := sigs_append hs Factor.Spec.specs_sigs
-  have acc := acc.append_sigs hs t38
-  have hs  := sigs_append hs Reorder.Spec.specs_sigs
-  have acc := acc.append_sigs hs t39
-  have hs  := sigs_append hs Probe.Spec.specs_sigs
-  have acc := acc.append_sigs hs t40
-  have hs  := sigs_append hs Walk.Spec.specs_sigs
-  exact acc.append_sigs hs t41
+  rw [← allSpecs_eq] at hSat ⊢
+  rw [← allFns_eq]
+  exact fullFold.cert Γ (Env.Sat.nil Γ) hSat
 
 /-- Full `ModuleOk fullEnv Src.Full.kissatModule` (`418` functions). -/
 theorem full_moduleOk : ModuleOk fullEnv kissatModule :=
@@ -520,15 +486,18 @@ theorem fullSolveBytesFn_mem : fullSolveBytesFn ∈ kissatModule.fns := by
   unfold kissatFns
   exact List.mem_append_right _ hSearch
 
-/-- `fullEnv` satisfies `m7FidSolveBytesSpec` at `"kissat_solve_bytes"`. -/
+/-- `fullEnv` satisfies `Solver.solveBytesSpec` at `"kissat_solve_bytes"`. -/
 theorem fullEnv_solve_bytes_of {a : Tup Val [i64, i64, i64, i64, i64]} {m : Mem 64}
-    {Q : Post [i64]} {X : XPost} (h : m7FidSolveBytesSpec a m Q X) :
+    {Q : Post [i64]} {X : XPost} (h : Solver.solveBytesSpec a m Q X) :
     fullEnv "kissat_solve_bytes" [i64, i64, i64, i64, i64] [i64] a m Q X := by
   have hSat : fullEnv.Sat Search.Spec.specs := by
     refine Env.Sat.ofTable fullSpecs_nodup (fun e he => ?_)
     unfold fullSpecs
     exact List.mem_append_right _ he
-  exact Search.Spec.has_kissat_solve_bytes hSat a m Q X (m7FidSolveBytesSpec_to_coreModel h)
+  have hX : Solver.solveBytesSpec.XFree := by
+    unfold Solver.solveBytesSpec
+    exact FnContract.toSpec_xfree _
+  exact SpecTable.has_at hSat 4 rfl hX a m Q X h
 
 /-- Canonical `KissatUnsatPkg` for the entire `418`-function `Src.Full.kissatModule`. -/
 @[expose] def kissatUnsatPkg : KissatUnsatPkg where
@@ -541,8 +510,13 @@ theorem fullEnv_solve_bytes_of {a : Tup Val [i64, i64, i64, i64, i64]} {m : Mem 
   env := fullEnv
   moduleOk := full_moduleOk
   noExit := fullEnv_noExit
-  solve_intro := fun hcfit hwfit hm hreq =>
-    fullEnv_solve_bytes_of (m7FidSolveBytesSpec_intro hcfit hwfit hm hreq)
+  solve_intro := fun hcfit hwfit hm hreq => by
+    refine fullEnv_solve_bytes_of ?_
+    unfold Solver.solveBytesSpec
+    refine FnContract.intro (_, _) _ ⟨rfl, rfl, hcfit, hwfit⟩ hm ?_
+    rintro ⟨r, ⟨⟩⟩ ⟨⟩ m' ⟨hdom, h20, htr⟩ hm'
+    exact hreq r m' hdom h20
+      (fun mv nc i0 h1 h2 h3 h4 h5 h6 h7 => htr ⟨mv, nc, i0, h1, h2, h3, h4, h5, h6, h7⟩) hm'
 
 /-- Arch-free WP byte-level UNSAT soundness for `kissat_solve_bytes` in `Src.Full.kissatModule`. -/
 theorem full_solve_bytes_sound

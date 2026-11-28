@@ -9,8 +9,8 @@ public import LeanQbe.T.Examples.Kissat.Proof.Search.Wp1
 /-!
 # Verification of `kissat_solve_bytes_seeded` and `kissat_solve_bytes` (`Proof.Search.Wp2`)
 
-Proves `kissat_solve_bytes_seeded_wp` (`Spec.fullM6SolveBytesSeededSpec`) and
-`kissat_solve_bytes_wp` (`Proof.Spec.fullM6SolveBytesCoreModelSpec`) in `CanonicalEnv`.
+Proves `kissat_solve_bytes_seeded_wp` (`Spec.solveBytesSeededSpec`) and
+`kissat_solve_bytes_wp` (`Solver.solveBytesSpec`) in `CanonicalEnv`.
 -/
 
 set_option autoImplicit false
@@ -224,7 +224,7 @@ private abbrev solveBytesL30Expr (cnf_ptr cend h mv0 r : Val i64) : Expr Val Con
                                   (.jump Js.fst (Arg.imm 0, ()))))))
       (.ret (Arg.var r, ()))
 
-private theorem solve_bytes_l30_wp {Γ : Env} (hΓ : Γ.Sat Spec.deps)
+private theorem solve_bytes_l30_wp {Γ : Env} (hΓ : Γ.Sat searchDeps)
     {cnf_ptr work_ptr : BitVec 64} {cnfBytes : List UInt8} {wlen : Nat} {R : Mem 64 → Prop}
     {c0 c1 : FullCfg} {ext1 : List (BitVec 64)} {s1 : FullState} {cnf : CNF Nat} {r : BitVec 64}
     {m : Mem 64} {Q : Post [i64]} {X : XPost}
@@ -242,15 +242,12 @@ private theorem solve_bytes_l30_wp {Γ : Env} (hΓ : Γ.Sat Spec.deps)
       region work_ptr (fullAlignPad work_ptr) ⋆ R) m)
     (hk : ∀ r' m', (r' = 0#64 ∨ r' = 10#64 ∨ r' = 20#64) →
       (r' = 20#64 → ∃ cnf', Ref.parseDimacs cnfBytes = some cnf' ∧ cnf'.Unsat) →
-      (r' = 10#64 → ∃ cnf', Ref.parseDimacs cnfBytes = some cnf' ∧
-        ∀ (F : Mem 64 → Prop) (M : Mem 64), (Eq m' ⋆ F) M →
-          CNF.Sat (readModelFromWorkM6 M work_ptr) cnf') →
       (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m' → Q (r', ()) m') :
     wp Γ Q X (solveBytesL30Expr cnf_ptr (cnf_ptr + BitVec.ofNat 64 cnfBytes.length)
       c0.hdr (BitVec.ofNat 64 c0.mv) r) m := by
   dsimp only [solveBytesL30Expr]
   c0_hstraight
-  refine jnz_bv_eq rfl (fun eq10 => ?_) (fun ne10 => ?_)
+  refine jnz_bv_eq rfl (fun eq10 => ?_) (fun _ => ?_)
   · have hm_ext0 : (FullM6HdrMem c1 ext1 s1 ⋆
         (bytes cnf_ptr cnfBytes ⋆ region work_ptr (fullAlignPad work_ptr) ⋆ R)) m :=
       sep_cast hm (by ac_rfl)
@@ -270,7 +267,7 @@ private theorem solve_bytes_l30_wp {Γ : Env} (hΓ : Γ.Sat Spec.deps)
     have hld_mv : loadVal (storeMem m2 i64 c1.hdr (BitVec.ofNat 64 c0.mv)) i64
         (c0.hdr + 768#64) = some (BitVec.ofNat 64 c1.max_vars) := by
       rw [← hc1.hdr]
-      exact search_sat_load_max_vars _ s2 _ _ hm_mv
+      exact search_r10_load_max_vars _ s2 _ _ hm_mv
     rw [wp_load]; refine ⟨_, hld_mv, ?_⟩
     c0_hstraight
     have hbva_eq : BitVec.ofNat 64 c1.max_vars - BitVec.ofNat 64 c0.mv =
@@ -283,7 +280,7 @@ private theorem solve_bytes_l30_wp {Γ : Env} (hΓ : Γ.Sat Spec.deps)
       have hlt_bva : c0.bva_cap < 2 ^ 64 := by omega
       rw [BitVec.toNat_sub, BitVec.toNat_ofNat, BitVec.toNat_ofNat, BitVec.toNat_ofNat]
       omega
-    have ⟨hok_bva, hm_bva⟩ := search_sat_store_bva s2 _ _ hc1 hm_mv
+    have ⟨hok_bva, hm_bva⟩ := search_r10_store_bva s2 _ _ hc1 hm_mv
     rw [wp_store]; refine ⟨hc1.hdr.symm ▸ hok_bva, ?_⟩
     dsimp only [Arg.val]
     rw [hbva_eq]
@@ -299,7 +296,7 @@ private theorem solve_bytes_l30_wp {Γ : Env} (hΓ : Γ.Sat Spec.deps)
           FullScratchArrays c1 s2.scratch ⋆ c1.pad ⋆ array64 (c1.hdr - 2304#64) ext1 ⋆
           bytes cnf_ptr cnfBytes ⋆ region work_ptr (fullAlignPad work_ptr) ⋆ R)) _ :=
       sep_cast hm_bva (by ac_rfl)
-    rw [wp_load]; refine ⟨_, search_sat_load_pVals (c0 := c0) s2 _ _ hm_tw, ?_⟩
+    rw [wp_load]; refine ⟨_, search_r10_load_pVals (c0 := c0) s2 _ _ hm_tw, ?_⟩
     have hvals_len_raw : s2.core.vals.length = 2 * c0.max_vars := by
       rw [hlen2.core_ok.vals_len, hc1.max_vars]
     have hvals_raw_le : s2.core.vals.length ≤ 2 ^ 64 := by
@@ -355,41 +352,24 @@ private theorem solve_bytes_l30_wp {Γ : Env} (hΓ : Γ.Sat Spec.deps)
     refine ⟨BitVec.ofNat 64 c0.mv, BitVec.ofNat 64 c0.nc, s2.core.d_cur, s2.core.d_val,
       cnfBytes, s2.core.vals.map UInt8.ofBitVec, c0.mv, _, rfl, rfl, hfit_cnf, hmv_lt,
       hvals_ge, hvals_le, hm_chk_in, ?_⟩
-    intro rc mv' nc' cur' val' m_chk hrc hm_chk
+    intro rc _ _ _ _ m_chk _ hm_chk
     have hm_reg : (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m_chk :=
-      search_sat_post_to_region hfit_w hwlen hhdr0 havail0 hext1 hc1 hlen2
+      search_r10_post_to_region hfit_w hwlen hhdr0 havail0 hext1 hc1 hlen2
         (sep_cast hm_chk (by ac_rfl))
-    have hm_mod : (array64 (c0.hdr + 32#64) (hdrTailWords c0 s2) ⋆
-        bytes c0.pVals (s2.core.vals.map UInt8.ofBitVec) ⋆
-        (bytes cnf_ptr cnfBytes ⋆ dimacsState c0.hdr mv' nc' cur' val' ⋆
-          array (t := i8) c1.pLitMark s2.core.lit_mark ⋆
-          array (t := i8) c1.pMark s2.core.mrk ⋆
-          FullCoreU32A c1 s2.core ⋆ FullCoreU32B c1 s2.core ⋆ FullCoreDynArrs c1 s2.core ⋆
-          FullScratchArrays c1 s2.scratch ⋆ c1.pad ⋆ array64 (c1.hdr - 2304#64) ext1 ⋆
-          region work_ptr (fullAlignPad work_ptr) ⋆ R)) m_chk :=
-      sep_cast hm_chk (by ac_rfl)
     refine wp_join_state1 (fun rv : BitVec 64 => rv)
-      (fun rv m'' => m'' = m_chk ∧ (rv = 0#64 ∨ (rv = 10#64 ∧
-        runKissatCheckModel cnfBytes (s2.core.vals.map UInt8.ofBitVec) c0.mv = true))) ?_ ?_
+      (fun rv m'' => m'' = m_chk ∧ (rv = 0#64 ∨ rv = 10#64)) ?_ ?_
     · intro _ rv m'' ⟨hm'', hrv⟩
       rw [hm'']
       c0_hstraight
-      rcases hrv with rfl | ⟨rfl, hrun⟩
-      · exact hk 0#64 m_chk (.inl rfl) (fun h => absurd h (by decide))
-          (fun h => absurd h (by decide)) hm_reg
-      · exact hk 10#64 m_chk (.inr (.inl rfl)) (fun h => absurd h (by decide))
-          (fun _ => search_sat_model_of_check hhdr0 hc1 hlen2 hm_mod hrun) hm_reg
+      rcases hrv with rfl | rfl
+      · exact hk 0#64 m_chk (.inl rfl) (fun h => absurd h (by decide)) hm_reg
+      · exact hk 10#64 m_chk (.inr (.inl rfl)) (fun h => absurd h (by decide)) hm_reg
     · intro J hJ
       c0_hstraight
-      refine jnz_bv_eq rfl (fun eq1 => ?_) (fun _ => by
+      refine jnz_bv_eq rfl (fun _ => ?_) (fun _ => by
         c0_hstraight; exact hJ 0#64 m_chk ⟨rfl, .inl rfl⟩)
-      have hrun : runKissatCheckModel cnfBytes (s2.core.vals.map UInt8.ofBitVec) c0.mv = true := by
-        rw [eq1] at hrc
-        cases hrun' : runKissatCheckModel cnfBytes (s2.core.vals.map UInt8.ofBitVec) c0.mv
-        · simp [hrun'] at hrc
-        · rfl
       c0_hstraight
-      exact hJ 10#64 m_chk ⟨rfl, .inr ⟨rfl, hrun⟩⟩
+      exact hJ 10#64 m_chk ⟨rfl, .inr rfl⟩
   · c0_hstraight
     have hm_reg : (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m := by
       have hm_s : ((region work_ptr (fullAlignPad work_ptr) ⋆ FullM6HdrMem c1 ext1 s1) ⋆
@@ -399,43 +379,48 @@ private theorem solve_bytes_l30_wp {Γ : Env} (hΓ : Γ.Sat Spec.deps)
       exact sep_cast hm_r (by ac_rfl)
     exact hk r m hr
       (fun eq20 => ⟨cnf, hparse, Ref.shiftDownCnf_unsat (parseDimacs_cnfVarsPos hparse) (h20 eq20)⟩)
-      (fun eq10 => absurd eq10 ne10) hm_reg
+      hm_reg
 
 /-! ## 3. `kissat_solve_bytes_seeded_wp` and `kissat_solve_bytes_wp` -/
 
-theorem kissat_solve_bytes_seeded_wp {Γ : Env} (hΓ : Γ.Sat Spec.deps)
-    (hPrep : Γ.Has "full_preprocess_m6" Proof.Spec.fullM6PreprocessSpec)
-    (hSearch : Γ.Has "full_search_m6" Proof.Spec.fullM6SearchSpec) :
+theorem kissat_solve_bytes_seeded_wp {Γ : Env} (hΓ : Γ.Sat searchDeps)
+    (hPrep : Γ.Has "full_preprocess_m6" Spec.preprocessSpec)
+    (hSearch : Γ.Has "full_search_m6" Spec.searchSpec) :
     SpecEntry.Impl Γ kissat_solve_bytes_seeded
       ⟨"kissat_solve_bytes_seeded", [i64, i64, i64, i64, i64, i64], [i64],
-        Spec.fullM6SolveBytesSeededSpec, true⟩ := by
+        Spec.solveBytesSeededSpec, true⟩ := by
   refine ⟨⟨rfl, rfl, rfl⟩, fun xs m Q X hs => ?_⟩
   dsimp only [kissat_solve_bytes_seeded] at xs Q m hs ⊢
-  change Spec.fullM6SolveBytesSeededSpec xs m Q X at hs
+  change Spec.solveBytesSeededSpec xs m Q X at hs
   rcases xs with ⟨cnf_ptr, cnf_len, work_ptr, work_len, fuel, seed, ⟨⟩⟩
-  obtain ⟨cnfBytes, wlen, R, rfl, rfl, hfit_cnf, hfit_w, hm0, hk⟩ := hs
+  unfold Spec.solveBytesSeededSpec at hs
+  obtain ⟨⟨cnfBytes, wlen⟩, R, ⟨rfl, rfl, hfit_cnf, hfit_w⟩, hm0, hk_raw⟩ := FnContract.elim hs
+  dsimp only [Solver.solveBytesMem] at hm0
+  let hk : ∀ r m',
+      (r = 0#64 ∨ r = 10#64 ∨ r = 20#64) →
+      (r = 20#64 → ∃ cnf, Ref.parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) →
+      (Solver.UnitUnsatForced cnfBytes cnf_ptr work_ptr fuel wlen → r = 20#64) →
+      (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m' → Q (r, ()) m' :=
+    fun r m' hr h20 hunit hm' => hk_raw (r, ()) () m' ⟨hr, h20, hunit⟩ hm'
   dsimp only [Func.wp, kissat_solve_bytes_seeded_body]
   have hwlen_le : wlen ≤ 2 ^ 64 := by omega
   have hpad_lt : fullAlignPad work_ptr < 8 := fullAlignPad_lt8 work_ptr
-  have hret0 : ∀ (hno : ∀ mv nc i0, cnf_ptr ≠ 0#64 → work_ptr ≠ 0#64 → 0 < fuel.toNat →
-      Src.fullM6ExtBytes + fullFixedBytes mv + nc * 40 + 136 + 8 ≤ wlen → i0 ≤ cnfBytes.length →
-      Ref.parseHeader cnfBytes = some (mv, nc, List.drop i0 cnfBytes) →
-      UnitUnsatTrace mv (List.replicate (2 * mv) 0#8) (List.drop i0 cnfBytes) nc → False),
+  have hret0 : ∀ (hno : Solver.UnitUnsatForced cnfBytes cnf_ptr work_ptr fuel wlen → False),
       Q (0#64, ()) m := fun hno =>
-    hk 0#64 m (.inl rfl) (fun h => absurd h (by decide)) (fun h => absurd h (by decide))
-      (fun mv nc i0 h1 h2 h3 h4 h5 h6 h7 => False.elim (hno mv nc i0 h1 h2 h3 h4 h5 h6 h7)) hm0
+    hk 0#64 m (.inl rfl) (fun h => absurd h (by decide))
+      (fun h => False.elim (hno h)) hm0
   c0_hstraight
   refine jnz_bv_eq rfl (fun eqf => ?_) (fun nef => ?_)
   · c0_hstraight
-    exact hret0 (fun _ _ _ _ _ hf _ _ _ _ => by rw [eqf] at hf; simp at hf)
+    exact hret0 (fun ⟨_, _, _, _, _, hf, _⟩ => by rw [eqf] at hf; simp at hf)
   c0_hstraight
   refine jnz_bv_eq rfl (fun eqc => ?_) (fun nec => ?_)
   · c0_hstraight
-    exact hret0 (fun _ _ _ hc _ _ _ _ _ _ => hc eqc)
+    exact hret0 (fun ⟨_, _, _, hc, _⟩ => hc eqc)
   c0_hstraight
   refine jnz_bv_eq rfl (fun eqw => ?_) (fun new => ?_)
   · c0_hstraight
-    exact hret0 (fun _ _ _ _ hw _ _ _ _ _ => hw eqw)
+    exact hret0 (fun ⟨_, _, _, _, hw, _⟩ => hw eqw)
   c0_hstraight
   refine jnz_bv_ult rfl
     (fun hlt => absurd (bv_sub_not0_le hfit_cnf) (BitVec.not_le.mpr hlt)) (fun _ => ?_)
@@ -459,7 +444,7 @@ theorem kissat_solve_bytes_seeded_wp {Γ : Env} (hΓ : Γ.Sat Spec.deps)
       rw [BitVec.lt_def, BitVec.toNat_ofNat, BitVec.toNat_ofNat] at hlt
       have : Src.fullM6HdrTotalBytes = 3456 := rfl
       omega
-    exact hret0 (fun mv _ _ _ _ _ hneed _ _ _ => by
+    exact hret0 (fun ⟨mv, _, _, _, _, _, hneed, _⟩ => by
       have hf := fullFixedBytes_ge_1472 mv
       have h1 : Src.fullM6ExtBytes = 2304 := rfl
       have h2 : Src.fullM6HdrTotalBytes = 3456 := rfl
@@ -507,8 +492,8 @@ theorem kissat_solve_bytes_seeded_wp {Γ : Env} (hΓ : Γ.Sat Spec.deps)
         sep_cast hm1 (by ac_rfl)
       rw [region_merge_eq (by omega) hwlen_le] at h1
       exact sep_cast h1 (by ac_rfl)
-    refine hk 0#64 m1 (.inl rfl) (fun h => absurd h (by decide)) (fun h => absurd h (by decide))
-      (fun mv nc i0 _ _ _ hneed _ hhdr _ => ?_) hm1_reg
+    refine hk 0#64 m1 (.inl rfl) (fun h => absurd h (by decide)) ?_ hm1_reg
+    rintro ⟨mv, nc, i0, _, _, _, hneed, _, hhdr, _⟩
     rw [hsub_eq, havail_toNat] at hfail
     rcases hfail with hsmall | hshort
     · omega
@@ -530,11 +515,9 @@ theorem kissat_solve_bytes_seeded_wp {Γ : Env} (hΓ : Γ.Sat Spec.deps)
       rfl, rfl, hfit_cnf, hj, hdrop ▸ hph0, hcv0, hdcur0, hl0, hte0, hpr0, halen0, hoom0, hprb0,
       hinc0, hvals0, hwvec0, hinv0, hm1, ?_⟩
     intro rp ext1 s1 m2 hlen1 hext1 hrp _ _ _ h20p h1p hunit hm2
-    have hunit_force : ∀ mv nc i0, cnf_ptr ≠ 0#64 → work_ptr ≠ 0#64 → 0 < fuel.toNat →
-        Src.fullM6ExtBytes + fullFixedBytes mv + nc * 40 + 136 + 8 ≤ wlen → i0 ≤ cnfBytes.length →
-        Ref.parseHeader cnfBytes = some (mv, nc, List.drop i0 cnfBytes) →
-        UnitUnsatTrace mv (List.replicate (2 * mv) 0#8) (List.drop i0 cnfBytes) nc →
-        rp = 20#64 := fun mv nc i0 _ _ _ _ _ hph_u hu => by
+    have hunit_force : Solver.UnitUnsatForced cnfBytes cnf_ptr work_ptr fuel wlen →
+        rp = 20#64 := by
+      rintro ⟨mv, nc, i0, _, _, _, _, _, hph_u, hu⟩
       have heq := Option.some.inj ((hdrop ▸ hph0).symm.trans hph_u)
       have hmv_eq : c0.mv = mv := congrArg Prod.fst heq
       have hnc_eq : c0.nc = nc := congrArg (fun x => x.2.1) heq
@@ -560,35 +543,26 @@ theorem kissat_solve_bytes_seeded_wp {Γ : Env} (hΓ : Γ.Sat Spec.deps)
         · exact .inl rfl
         · exact absurd rfl ne1
         · exact .inr (.inr rfl)
-      exact hk rp m2 hrp' h20p
-        (fun eq10 => by rcases hrp with rfl | rfl | rfl <;> exact absurd eq10 (by decide))
-        hunit_force hm2_reg
+      exact hk rp m2 hrp' h20p hunit_force hm2_reg
     · obtain ⟨cnf, hparse, hinv1, hl1⟩ := h1p eq1
-      have hno_unit : ∀ mv nc i0, cnf_ptr ≠ 0#64 → work_ptr ≠ 0#64 → 0 < fuel.toNat →
-          Src.fullM6ExtBytes + fullFixedBytes mv + nc * 40 + 136 + 8 ≤ wlen →
-          i0 ≤ cnfBytes.length →
-          Ref.parseHeader cnfBytes = some (mv, nc, List.drop i0 cnfBytes) →
-          UnitUnsatTrace mv (List.replicate (2 * mv) 0#8) (List.drop i0 cnfBytes) nc → False :=
-        fun mv nc i0 h1 h2 h3 h4 h5 h6 h7 => by
-          have := hunit_force mv nc i0 h1 h2 h3 h4 h5 h6 h7
-          rw [eq1] at this; exact absurd this (by decide)
+      have hno_unit : Solver.UnitUnsatForced cnfBytes cnf_ptr work_ptr fuel wlen → False := by
+        intro huf
+        have := hunit_force huf
+        rw [eq1] at this; exact absurd this (by decide)
       have hk' : ∀ r' m', (r' = 0#64 ∨ r' = 10#64 ∨ r' = 20#64) →
           (r' = 20#64 → ∃ cnf', Ref.parseDimacs cnfBytes = some cnf' ∧ cnf'.Unsat) →
-          (r' = 10#64 → ∃ cnf', Ref.parseDimacs cnfBytes = some cnf' ∧
-            ∀ (F : Mem 64 → Prop) (M : Mem 64), (Eq m' ⋆ F) M →
-              CNF.Sat (readModelFromWorkM6 M work_ptr) cnf') →
           (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m' → Q (r', ()) m' :=
-        fun r' m' hr' h20' h10' hm' => hk r' m' hr' h20' h10'
-          (fun mv nc i0 h1 h2 h3 h4 h5 h6 h7 => False.elim (hno_unit mv nc i0 h1 h2 h3 h4 h5 h6 h7))
-          hm'
+        fun r' m' hr' h20' hm' => hk r' m' hr' h20' (fun huf => False.elim (hno_unit huf)) hm'
       have hm2_f : (FullM6HdrMem c0 ext1 s1 ⋆
           (bytes cnf_ptr cnfBytes ⋆ region work_ptr (fullAlignPad work_ptr) ⋆ R)) m2 :=
         sep_cast hm2 (by ac_rfl)
       rw [wp_load]; refine ⟨_, fullM6HdrMem_load_mv hm2_f, ?_⟩
       refine wp_call_of_spec _ _ (hPrep _ _ _ _ ?_)
       dsimp only [vals, Arg.val]
-      refine fullM6PreprocessSpec_of hinv1 hl1 hm2_f ?_
-      intro rpp c1 ext2 s2 m3 hc1 hlen2 hcfg2 hext2 hrpp _ h20pp h1pp h10pp hm3
+      unfold Spec.preprocessSpec
+      refine M6HdrCfgContract.intro hinv1.cfgOk hinv1.extOk hinv1.sparse.lengths
+        ⟨hinv1.sparse, hl1⟩ hm2_f ?_
+      rintro ⟨rpp, ⟨⟩⟩ c1 ext2 s2 m3 hc1 hcfg2 hext2 _ hlen2 ⟨hrpp, _, h20pp, h1pp, h10pp⟩ hm3
       have hm3' : (bytes cnf_ptr cnfBytes ⋆ FullM6HdrMem c1 ext2 s2 ⋆
           region work_ptr (fullAlignPad work_ptr) ⋆ R) m3 := sep_cast hm3 (by ac_rfl)
       c0_hstraight
@@ -603,7 +577,7 @@ theorem kissat_solve_bytes_seeded_wp {Γ : Env} (hΓ : Γ.Sat Spec.deps)
         exact hk' 20#64 m3 (.inr (.inr rfl))
           (fun _ => ⟨cnf, hparse,
             Ref.shiftDownCnf_unsat (parseDimacs_cnfVarsPos hparse) (h20pp eq20)⟩)
-          (fun h => absurd h (by decide)) hm3_reg
+          hm3_reg
       · refine wp_join_state1 (fun rv : BitVec 64 => rv)
           (fun rv m4 => ∃ c' ext' s', FullCfgCompat c0 c' ∧ s'.LengthsOk c' ∧
             FullM6HdrCfgOk c' ∧ M6HdrExtOk ext' ∧ (rv = 0#64 ∨ rv = 10#64 ∨ rv = 20#64) ∧
@@ -639,7 +613,9 @@ theorem kissat_solve_bytes_seeded_wp {Γ : Env} (hΓ : Γ.Sat Spec.deps)
                   · rfl
                   · exact absurd rfl ne10
                   · exact absurd rfl ne20
-                have ⟨hinv2, hl2⟩ := h1pp eq1pp
+                have ⟨hsp2, hl2⟩ := h1pp eq1pp
+                have hinv2 : FullM6HdrInv c1 (Ref.shiftDownCnf cnf) ext2 s2 :=
+                  ⟨hcfg2, hext2, hsp2⟩
                 c0_hstraight
                 have ⟨hok_rng, hinv2', hm3_rng⟩ :=
                   m6Hdr_store_scr .rng_state 944 rfl rfl rfl (seed &&& 4294967295#64) hinv2 hm3
@@ -651,8 +627,10 @@ theorem kissat_solve_bytes_seeded_wp {Γ : Env} (hΓ : Γ.Sat Spec.deps)
                     storeMem m3 i64 (c1.hdr + 944#64) (seed &&& 4294967295#64) := by
                   rw [hc1.hdr]; rfl
                 rw [hst_rng, ← hc1.hdr]
-                refine fullM6SearchSpec_of hinv2' hl2 hm3_rng ?_
-                intro rs c2 ext3 s3 m4 hc2 hlen3 hcfg3 hext3 hrs h20s h10s hm4
+                unfold Spec.searchSpec
+                refine M6HdrCfgContract.intro hinv2'.cfgOk hinv2'.extOk hinv2'.sparse.lengths
+                  ⟨hinv2'.sparse, hl2⟩ hm3_rng ?_
+                rintro ⟨rs, ⟨⟩⟩ c2 ext3 s3 m4 hc2 hcfg3 hext3 _ hlen3 ⟨hrs, h20s, h10s⟩ hm4
                 c0_hstraight
                 exact hJsub rs m4 ⟨c2, ext3, s3, fullCfgCompat_trans hc1 hc2, hlen3, hcfg3,
                   hext3, hrs, h20s, h10s, sep_cast hm4 (by ac_rfl)⟩
@@ -661,22 +639,22 @@ theorem kissat_solve_bytes_seeded_wp {Γ : Env} (hΓ : Γ.Sat Spec.deps)
                   fun h => absurd h (by decide), fun h => absurd h (by decide), hm3'⟩
 
 theorem kissat_solve_bytes_wp {Γ : Env}
-    (hSeeded : Γ.Has "kissat_solve_bytes_seeded" Spec.fullM6SolveBytesSeededSpec) :
+    (hSeeded : Γ.Has "kissat_solve_bytes_seeded" Spec.solveBytesSeededSpec) :
     SpecEntry.Impl Γ kissat_solve_bytes
       ⟨"kissat_solve_bytes", [i64, i64, i64, i64, i64], [i64],
-        Proof.Spec.fullM6SolveBytesCoreModelSpec, true⟩ := by
+        Solver.solveBytesSpec, true⟩ := by
   refine ⟨⟨rfl, rfl, rfl⟩, fun xs m Q X hs => ?_⟩
   dsimp only [kissat_solve_bytes] at xs Q m hs ⊢
-  change Proof.Spec.fullM6SolveBytesCoreModelSpec xs m Q X at hs
+  change Solver.solveBytesSpec xs m Q X at hs
   rcases xs with ⟨p0, p1, p2, p3, p4, ⟨⟩⟩
   dsimp only [Func.wp, kissat_solve_bytes_body]
   refine wp_call_of_spec _ _ (hSeeded _ _ _ _ ?_)
-  change Proof.Spec.fullM6SolveBytesCoreModelSpec (p0, p1, p2, p3, p4, ()) m
-    (fun r m' => wp Γ Q X (.ret (Arg.var r.fst, ())) m') X
-  unfold Proof.Spec.fullM6SolveBytesCoreModelSpec at hs ⊢
-  obtain ⟨cnfBytes, wlen, R, hcl, hwl, hfc, hfw, hm, hk⟩ := hs
-  refine ⟨cnfBytes, wlen, R, hcl, hwl, hfc, hfw, hm, fun r m' hr h20 h10 hu hm' => ?_⟩
+  unfold Solver.solveBytesSpec at hs
+  obtain ⟨⟨cnfBytes, wlen⟩, R, hpre, hm, hk⟩ := FnContract.elim hs
+  unfold Spec.solveBytesSeededSpec
+  refine FnContract.intro (cnfBytes, wlen) R hpre hm ?_
+  rintro ⟨r, ⟨⟩⟩ ⟨⟩ m' hpost hm'
   c0_hstraight
-  exact hk r m' hr h20 h10 hu hm'
+  exact hk (r, ()) () m' hpost hm'
 
 end LeanQbe.T.Examples.Kissat.Proof.Search

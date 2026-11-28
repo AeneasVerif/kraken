@@ -4,7 +4,29 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 module
 
+public import LeanQbe.T.Examples.Kissat.Proof.Analyze.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Backtrack.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Collect.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Compact.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Decide.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Dimacs.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Eliminate.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Extend.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Internal.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Limits.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Lucky.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Parse.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Probe.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.PropSearch.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Reduce.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Reorder.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Restart.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Tiers.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Walk.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Search.Spec
+public import LeanQbe.T.Examples.Kissat.Src.Search
+public import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
+public import LeanQbe.T.Examples.Kissat.Proof.Spec.SatNv
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Arena1
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.MemBridges
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Tactics
@@ -17,7 +39,7 @@ public import LeanQbe.T.Logic.ControlComb
 # Kissat Search Segment Call Wrappers & Header/Region Helpers (`Proof.Search.Helpers`)
 
 Shared parametric `(Γ : Env)` call wrappers, header load/store lemmas over `FullM6HdrMem`,
-and post-compaction SAT model-check restoration bridges for `Proof.Search.Wp0` and `Wp1`.
+and post-compaction workspace restoration bridges for `Proof.Search.Wp0`, `Wp1`, and `Wp2`.
 -/
 
 set_option autoImplicit false
@@ -738,7 +760,7 @@ private theorem hdrTailWords_set_bva (c0 c1 : FullCfg) (s : FullState)
     FullCfg.pPos, FullCfg.pScore, FullCfg.pPhases, FullCfg.pMinStk, FullCfg.pMinClr,
     FullCfg.minDepth]
 
-theorem search_sat_store_bva {c0 c1 : FullCfg} (s : FullState) (R : Mem 64 → Prop)
+theorem search_r10_store_bva {c0 c1 : FullCfg} (s : FullState) (R : Mem 64 → Prop)
     (m : Mem 64) (hc : FullCfgCompat c0 c1)
     (hm : (FullMemShrinkMid c1 (BitVec.ofNat 64 c0.mv) s ⋆ R) m) :
     storeOk m i64 (c1.hdr + 0x310#64) ∧
@@ -764,7 +786,7 @@ theorem search_sat_store_bva {c0 c1 : FullCfg} (s : FullState) (R : Mem 64 → P
   rw [hc.hdr] at h2 ⊢
   exact sep_cast h2 (by ac_rfl)
 
-theorem search_sat_load_max_vars {c : FullCfg} (mv' : BitVec 64) (s : FullState)
+theorem search_r10_load_max_vars {c : FullCfg} (mv' : BitVec 64) (s : FullState)
     (R : Mem 64 → Prop) (m : Mem 64)
     (hm : (FullMemShrinkMid c mv' s ⋆ R) m) :
     loadVal m i64 (c.hdr + 0x300#64) = some (BitVec.ofNat 64 c.max_vars) := by
@@ -783,7 +805,7 @@ theorem search_sat_load_max_vars {c : FullCfg} (mv' : BitVec 64) (s : FullState)
       HdrWordField.tailChunk2, HdrWordField.tailChunk3]
   simpa [hval] using hl
 
-theorem search_sat_load_pVals {c0 : FullCfg} (s : FullState) (R : Mem 64 → Prop)
+theorem search_r10_load_pVals {c0 : FullCfg} (s : FullState) (R : Mem 64 → Prop)
     (m : Mem 64) (hm : (array64 (c0.hdr + 32#64) (hdrTailWords c0 s) ⋆ R) m) :
     loadVal m i64 (c0.hdr + 0x40#64) = some c0.pVals := by
   have hi : 4 < (hdrTailWords c0 s).length := by rw [hdrTailWords_length]; decide
@@ -794,69 +816,6 @@ theorem search_sat_load_pVals {c0 : FullCfg} (s : FullState) (R : Mem 64 → Pro
   have hval : (hdrTailWords c0 s)[4] = c0.pVals := by
     simp [hdrTailWords, HdrWordField.tailChunk0]
   simpa [hval] using hl
-
-theorem search_sat_model_of_check {c0 c1 : FullCfg} {s : FullState}
-    {work_ptr : BitVec 64} {cnfBytes : List UInt8} {R : Mem 64 → Prop} {m' : Mem 64}
-    (hhdr : c0.hdr = fullM6WorkHdr work_ptr)
-    (hc : FullCfgCompat c0 c1) (hlen : s.LengthsOk c1)
-    (hm' : (array64 (c0.hdr + 32#64) (hdrTailWords c0 s) ⋆
-        bytes c0.pVals (s.core.vals.map UInt8.ofBitVec) ⋆ R) m')
-    (hchk : runKissatCheckModel cnfBytes (s.core.vals.map UInt8.ofBitVec) c0.mv = true) :
-    ∃ cnf, parseDimacs cnfBytes = some cnf ∧
-      ∀ (F : Mem 64 → Prop) (M : Mem 64),
-        (Eq m' ⋆ F) M → CNF.Sat (readModelFromWorkM6 M work_ptr) cnf := by
-  obtain ⟨cnf, mv, hp, hmv_le, hvars, hsat⟩ := runKissatCheckModel_sat_exact hchk
-  refine ⟨cnf, hp, fun F M hM => ?_⟩
-  have hload_pvals := search_sat_load_pVals s
-    (bytes c0.pVals (s.core.vals.map UInt8.ofBitVec) ⋆ R) m' (sep_cast hm' (by ac_rfl))
-  have hpv_addr : work_ptr + BitVec.ofNat 64 (fullAlignPad work_ptr) + 2368#64 =
-      c0.hdr + 0x40#64 := by
-    rw [hhdr]; unfold fullM6WorkHdr fullM6WorkBase
-    have hadd : BitVec.ofNat 64 Src.fullM6ExtBytes + 0x40#64 = 2368#64 := rfl
-    rw [← hadd, ← BitVec.add_assoc]
-  have hm_vals : (array (t := i8) c0.pVals s.core.vals ⋆
-      (array64 (c0.hdr + 32#64) (hdrTailWords c0 s) ⋆ R)) m' := by
-    have ha : (bytes c0.pVals (s.core.vals.map UInt8.ofBitVec) ⋆
-        (array64 (c0.hdr + 32#64) (hdrTailWords c0 s) ⋆ R)) m' :=
-      sep_cast hm' (by ac_rfl)
-    refine sep_mono (fun x hb => ?_) ha
-    rw [← bytesOf_i8_eq_map] at hb
-    have hby : (i8 : Ty).bytes = 1 := rfl
-    have hfit_v : (i8 : Ty).bytes * s.core.vals.length ≤ 2 ^ 64 := by
-      have := c0.hmaxv
-      have hbnd : Ref.dimacsBound ≤ 10 ^ 9 := by unfold Ref.dimacsBound; decide
-      have hv : s.core.vals.length = 2 * c0.max_vars := by
-        rw [hlen.core_ok.vals_len, hc.max_vars]
-      rw [hby, hv]; omega
-    exact hb ▸ array_bytes (t := i8) c0.pVals s.core.vals hfit_v
-  refine (CNF.sat_iff_all_mem_sat).mpr fun cl hcl => ?_
-  have hcl_sat := (CNF.sat_iff_all_mem_sat).mp hsat cl hcl
-  rw [CNF.Clause.sat_iff_exists_mem_eq] at hcl_sat ⊢
-  obtain ⟨⟨v, pol⟩, hmem, heq_b⟩ := hcl_sat
-  have hv_bnds := hvars cl hcl (v, pol) hmem
-  have hv1 : 1 ≤ v := hv_bnds.1
-  have hv2 : v ≤ mv := hv_bnds.2
-  have hv_lt : 2 * (v - 1) < s.core.vals.length := by
-    rw [hlen.core_ok.vals_len, hc.max_vars]
-    have := c0.hbva; omega
-  have hload_val : loadVal m' i8 (c0.pVals + BitVec.ofNat 64 (2 * (v - 1))) =
-      some s.core.vals[2 * (v - 1)] := by
-    have hby : (i8 : Ty).bytes = 1 := rfl
-    have hl := loadVal_array (t := i8) (by rw [hby]; decide) hv_lt hm_vals
-    rwa [hby, Nat.one_mul] at hl
-  have hrm := readModelFromWorkM6_frame hM (by rw [hpv_addr]; exact hload_pvals) hload_val
-  refine ⟨⟨v, pol⟩, hmem, ?_⟩
-  rw [hrm]
-  have hne0 : (v == 0) = false := by
-    cases hv : (v == 0)
-    · rfl
-    · simp at hv; omega
-  have hv_map : (s.core.vals.map UInt8.ofBitVec).getD (2 * (v - 1)) 0 =
-      UInt8.ofBitVec s.core.vals[2 * (v - 1)] := by
-    simp [List.getD, hv_lt]
-  simp only [hne0] at heq_b ⊢
-  rw [hv_map] at heq_b
-  simpa [i8BytePos] using heq_b
 
 private theorem cfg_compat_pVals {c0 c1 : FullCfg} (hc : FullCfgCompat c0 c1) :
     c0.pVals = c1.pVals := by
@@ -1042,7 +1001,7 @@ private theorem sat_scr_to_regions {c1 : FullCfg} {sc : FullScratch}
   rw [h8w, h12d, h256, h64] at h1
   exact sep_cast h1 (by ac_rfl)
 
-theorem search_sat_post_to_region {c0 c1 : FullCfg} {s : FullState}
+theorem search_r10_post_to_region {c0 c1 : FullCfg} {s : FullState}
     {mv' nc' cur' val' cnf_ptr work_ptr : BitVec 64} {wlen : Nat}
     {cnfBytes : List UInt8} {ext : List (BitVec 64)} {R : Mem 64 → Prop} {m : Mem 64}
     (hle : fullAlignPad work_ptr + Src.fullM6HdrTotalBytes ≤ wlen)
@@ -1159,7 +1118,18 @@ theorem search_sat_post_to_region {c0 c1 : FullCfg} {s : FullState}
   rw [region_merge_eq hsum2 hfit] at hm_r2
   exact sep_cast hm_r2 (by ac_rfl)
 
-/-! ## 5. Dependency Table Projections (`Spec.deps`) -/
+/-! ## 5. Dependency Table & Projections (`searchDeps`) -/
+
+/-- Combined upstream specification table across the `19` `Proof.*.Spec` callees of
+`Src.Search.fns` (`165` distinct symbols). -/
+@[expose] def searchDeps : List SpecEntry :=
+  Internal.Spec.specs ++ Limits.Spec.specs ++ Extend.Spec.specs ++
+  Collect.Spec.specs ++ Tiers.Spec.specs ++ Decide.Spec.specs ++
+  Restart.Spec.specs ++ Reorder.Spec.specs ++ Walk.Spec.specs ++
+  Compact.Spec.specs ++ Backtrack.Spec.specs ++ Reduce.Spec.specs ++
+  Analyze.Spec.specs ++ Parse.Spec.specs ++ Dimacs.Spec.specs ++
+  Probe.Spec.specs ++ Lucky.Spec.specs ++ Eliminate.Spec.specs ++
+  PropSearch.Spec.specs
 
 private theorem sat_l {Γ : Env} {a b : List SpecEntry} (h : Γ.Sat (a ++ b)) : Γ.Sat a :=
   fun _ he => h _ (List.mem_append.mpr (Or.inl he))
@@ -1167,157 +1137,155 @@ private theorem sat_l {Γ : Env} {a b : List SpecEntry} (h : Γ.Sat (a ++ b)) : 
 private theorem sat_r {Γ : Env} {a b : List SpecEntry} (h : Γ.Sat (a ++ b)) : Γ.Sat b :=
   fun _ he => h _ (List.mem_append.mpr (Or.inr he))
 
-private theorem sat_deps_prop_search {Γ : Env} (h : Γ.Sat Spec.deps) :
+private theorem sat_deps_prop_search {Γ : Env} (h : Γ.Sat searchDeps) :
     Γ.Sat PropSearch.Spec.specs := sat_r h
-private theorem sat_deps_eliminate {Γ : Env} (h : Γ.Sat Spec.deps) :
+private theorem sat_deps_eliminate {Γ : Env} (h : Γ.Sat searchDeps) :
     Γ.Sat Eliminate.Spec.specs := sat_r (sat_l h)
-private theorem sat_deps_lucky {Γ : Env} (h : Γ.Sat Spec.deps) :
+private theorem sat_deps_lucky {Γ : Env} (h : Γ.Sat searchDeps) :
     Γ.Sat Lucky.Spec.specs := sat_r (sat_l (sat_l h))
-private theorem sat_deps_probe {Γ : Env} (h : Γ.Sat Spec.deps) :
+private theorem sat_deps_probe {Γ : Env} (h : Γ.Sat searchDeps) :
     Γ.Sat Probe.Spec.specs := sat_r (sat_l (sat_l (sat_l h)))
-private theorem sat_deps_dimacs {Γ : Env} (h : Γ.Sat Spec.deps) :
+private theorem sat_deps_dimacs {Γ : Env} (h : Γ.Sat searchDeps) :
     Γ.Sat Dimacs.Spec.specs := sat_r (sat_l (sat_l (sat_l (sat_l h))))
-private theorem sat_deps_parse {Γ : Env} (h : Γ.Sat Spec.deps) :
+private theorem sat_deps_parse {Γ : Env} (h : Γ.Sat searchDeps) :
     Γ.Sat Parse.Spec.specs := sat_r (sat_l (sat_l (sat_l (sat_l (sat_l h)))))
-private theorem sat_deps_analyze {Γ : Env} (h : Γ.Sat Spec.deps) :
+private theorem sat_deps_analyze {Γ : Env} (h : Γ.Sat searchDeps) :
     Γ.Sat Analyze.Spec.specs := sat_r (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l h))))))
-private theorem sat_deps_reduce {Γ : Env} (h : Γ.Sat Spec.deps) :
+private theorem sat_deps_reduce {Γ : Env} (h : Γ.Sat searchDeps) :
     Γ.Sat Reduce.Spec.specs :=
   sat_r (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l h)))))))
-private theorem sat_deps_backtrack {Γ : Env} (h : Γ.Sat Spec.deps) :
+private theorem sat_deps_backtrack {Γ : Env} (h : Γ.Sat searchDeps) :
     Γ.Sat Backtrack.Spec.specs :=
   sat_r (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l h))))))))
-private theorem sat_deps_compact {Γ : Env} (h : Γ.Sat Spec.deps) :
+private theorem sat_deps_compact {Γ : Env} (h : Γ.Sat searchDeps) :
     Γ.Sat Compact.Spec.specs :=
   sat_r (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l h)))))))))
-private theorem sat_deps_walk {Γ : Env} (h : Γ.Sat Spec.deps) :
+private theorem sat_deps_walk {Γ : Env} (h : Γ.Sat searchDeps) :
     Γ.Sat Walk.Spec.specs :=
   sat_r (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l h))))))))))
-private theorem sat_deps_reorder {Γ : Env} (h : Γ.Sat Spec.deps) :
+private theorem sat_deps_reorder {Γ : Env} (h : Γ.Sat searchDeps) :
     Γ.Sat Reorder.Spec.specs :=
   sat_r (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l h)))))))))))
-private theorem sat_deps_restart {Γ : Env} (h : Γ.Sat Spec.deps) :
+private theorem sat_deps_restart {Γ : Env} (h : Γ.Sat searchDeps) :
     Γ.Sat Restart.Spec.specs :=
   sat_r (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l
     (sat_l (sat_l h))))))))))))
-private theorem sat_deps_decide {Γ : Env} (h : Γ.Sat Spec.deps) :
+private theorem sat_deps_decide {Γ : Env} (h : Γ.Sat searchDeps) :
     Γ.Sat Decide.Spec.specs :=
   sat_r (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l
     (sat_l h)))))))))))))
-private theorem sat_deps_tiers {Γ : Env} (h : Γ.Sat Spec.deps) :
+private theorem sat_deps_tiers {Γ : Env} (h : Γ.Sat searchDeps) :
     Γ.Sat Tiers.Spec.specs :=
   sat_r (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l
     (sat_l (sat_l h))))))))))))))
-private theorem sat_deps_collect {Γ : Env} (h : Γ.Sat Spec.deps) :
+private theorem sat_deps_collect {Γ : Env} (h : Γ.Sat searchDeps) :
     Γ.Sat Collect.Spec.specs :=
   sat_r (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l
     (sat_l (sat_l (sat_l h)))))))))))))))
-private theorem sat_deps_extend {Γ : Env} (h : Γ.Sat Spec.deps) :
+private theorem sat_deps_extend {Γ : Env} (h : Γ.Sat searchDeps) :
     Γ.Sat Extend.Spec.specs :=
   sat_r (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l
     (sat_l (sat_l (sat_l (sat_l h))))))))))))))))
-private theorem sat_deps_limits {Γ : Env} (h : Γ.Sat Spec.deps) :
+private theorem sat_deps_limits {Γ : Env} (h : Γ.Sat searchDeps) :
     Γ.Sat Limits.Spec.specs :=
   sat_r (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l
     (sat_l (sat_l (sat_l (sat_l (sat_l h)))))))))))))))))
-private theorem sat_deps_internal {Γ : Env} (h : Γ.Sat Spec.deps) :
+private theorem sat_deps_internal {Γ : Env} (h : Γ.Sat searchDeps) :
     Γ.Sat Internal.Spec.specs :=
   sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l (sat_l
     (sat_l (sat_l (sat_l (sat_l (sat_l h)))))))))))))))))
 
-theorem deps_has_mem_init {Γ : Env} (h : Γ.Sat Spec.deps) :
+theorem deps_has_mem_init {Γ : Env} (h : Γ.Sat searchDeps) :
     Γ.Has "full_m6_mem_init" Internal.Spec.fullM6MemInitExactSpec :=
   Internal.Spec.has_full_m6_mem_init_exact (sat_deps_internal h)
 
-theorem deps_has_update_classify {Γ : Env} (h : Γ.Sat Spec.deps) :
+theorem deps_has_update_classify {Γ : Env} (h : Γ.Sat searchDeps) :
     Γ.Has "full_update_classify_fid" (m6HdrW2aSpec [] []) :=
   Internal.Spec.has_full_update_classify_fid (sat_deps_internal h)
 
-theorem deps_has_scale_delta {Γ : Env} (h : Γ.Sat Spec.deps) :
+theorem deps_has_scale_delta {Γ : Env} (h : Γ.Sat searchDeps) :
     Γ.Has "full_scale_delta_m5" Limits.Spec.schedScaleDeltaSpec :=
-  Env.Sat.has (sat_deps_limits h)
-    (List.getElem_mem (l := Limits.Spec.specs) (n := 3) (by decide))
+  Lib.SpecTable.has_at (sat_deps_limits h) 3 rfl
     (Limits.Spec.specs_xfree _ (List.getElem_mem (l := Limits.Spec.specs) (n := 3) (by decide)))
 
-theorem deps_has_extend {Γ : Env} (h : Γ.Sat Spec.deps) :
+theorem deps_has_extend {Γ : Env} (h : Γ.Sat searchDeps) :
     Γ.Has "full_extend" fullExtendSpec :=
-  Env.Sat.has (sat_deps_extend h)
-    (List.getElem_mem (l := Extend.Spec.specs) (n := 4) (by decide))
+  Lib.SpecTable.has_at (sat_deps_extend h) 4 rfl
     (Extend.Spec.specs_xfree _ (List.getElem_mem (l := Extend.Spec.specs) (n := 4) (by decide)))
 
-theorem deps_has_arena_sweep {Γ : Env} (h : Γ.Sat Spec.deps) :
+theorem deps_has_arena_sweep {Γ : Env} (h : Γ.Sat searchDeps) :
     Γ.Has "full_arena_sweep" fullArenaSweepSpec :=
   Collect.Spec.has_full_arena_sweep (sat_deps_collect h)
 
-theorem deps_has_set_watermark {Γ : Env} (h : Γ.Sat Spec.deps) :
+theorem deps_has_set_watermark {Γ : Env} (h : Γ.Sat searchDeps) :
     Γ.Has "m6_hdr_set_watermark" (m6HdrW2aSpec [i64, i64] []) :=
   Tiers.Spec.has_m6_hdr_set_watermark (sat_deps_tiers h)
 
-theorem deps_has_decide {Γ : Env} (h : Γ.Sat Spec.deps) :
+theorem deps_has_decide {Γ : Env} (h : Γ.Sat searchDeps) :
     Γ.Has "m6_hdr_decide_fid" m6HdrDecideSpec :=
   Decide.Spec.has_m6_hdr_decide_fid (sat_deps_decide h)
 
-theorem deps_has_switch_mode {Γ : Env} (h : Γ.Sat Spec.deps) :
+theorem deps_has_switch_mode {Γ : Env} (h : Γ.Sat searchDeps) :
     Γ.Has "full_switch_mode_m7" Restart.Spec.fullSwitchModeM7Spec :=
   Restart.Spec.has_full_switch_mode_m7 (sat_deps_restart h)
 
-theorem deps_has_restart_due {Γ : Env} (h : Γ.Sat Spec.deps) :
+theorem deps_has_restart_due {Γ : Env} (h : Γ.Sat searchDeps) :
     Γ.Has "full_restart_due" fullRestartDueSpec :=
   Restart.Spec.has_full_restart_due (sat_deps_restart h)
 
-theorem deps_has_restart {Γ : Env} (h : Γ.Sat Spec.deps) :
+theorem deps_has_restart {Γ : Env} (h : Γ.Sat searchDeps) :
     Γ.Has "full_restart" fullRestartSpec :=
   Restart.Spec.has_full_restart (sat_deps_restart h)
 
-theorem deps_has_reorder {Γ : Env} (h : Γ.Sat Spec.deps) :
+theorem deps_has_reorder {Γ : Env} (h : Γ.Sat searchDeps) :
     Γ.Has "full_reorder_m6" Reorder.Spec.fullReorderM6Spec :=
   Reorder.Spec.has_full_reorder_m6 (sat_deps_reorder h)
 
-theorem deps_has_rephase {Γ : Env} (h : Γ.Sat Spec.deps) :
+theorem deps_has_rephase {Γ : Env} (h : Γ.Sat searchDeps) :
     Γ.Has "full_rephase" Walk.Spec.fullRephaseM6Spec :=
   Walk.Spec.has_full_rephase (sat_deps_walk h)
 
-theorem deps_has_compact_needed {Γ : Env} (h : Γ.Sat Spec.deps) :
+theorem deps_has_compact_needed {Γ : Env} (h : Γ.Sat searchDeps) :
     Γ.Has "full_compact_needed" Compact.Spec.fullCompactNeededSpec :=
   Compact.Spec.has_full_compact_needed (sat_deps_compact h)
 
-theorem deps_has_compact {Γ : Env} (h : Γ.Sat Spec.deps) :
+theorem deps_has_compact {Γ : Env} (h : Γ.Sat searchDeps) :
     Γ.Has "full_compact" Compact.Spec.fullCompactSpec :=
   Compact.Spec.has_full_compact (sat_deps_compact h)
 
-theorem deps_has_backtrack {Γ : Env} (h : Γ.Sat Spec.deps) :
+theorem deps_has_backtrack {Γ : Env} (h : Γ.Sat searchDeps) :
     Γ.Has "full_backtrack" fullBacktrackSpec :=
   Backtrack.Spec.has_full_backtrack (sat_deps_backtrack h)
 
-theorem deps_has_reduce {Γ : Env} (h : Γ.Sat Spec.deps) :
+theorem deps_has_reduce {Γ : Env} (h : Γ.Sat searchDeps) :
     Γ.Has "full_reduce_m6" Reduce.Spec.fullReduceM6Spec :=
   Reduce.Spec.has_full_reduce_m6 (sat_deps_reduce h)
 
-theorem deps_has_analyze {Γ : Env} (h : Γ.Sat Spec.deps) :
+theorem deps_has_analyze {Γ : Env} (h : Γ.Sat searchDeps) :
     Γ.Has "full_analyze_m6_hdr" m6HdrAnalyzeSpec :=
   Analyze.Spec.has_full_analyze_m6_hdr (sat_deps_analyze h)
 
-theorem deps_has_parse_body {Γ : Env} (h : Γ.Sat Spec.deps) :
+theorem deps_has_parse_body {Γ : Env} (h : Γ.Sat searchDeps) :
     Γ.Has "full_parse_body" Parse.Spec.fullParseBodyM6Spec :=
   Parse.Spec.has_full_parse_body (sat_deps_parse h)
 
-theorem deps_has_check_model {Γ : Env} (h : Γ.Sat Spec.deps) :
+theorem deps_has_check_model {Γ : Env} (h : Γ.Sat searchDeps) :
     Γ.Has "kissat_check_model" kissatCheckModelExactSpec :=
   Dimacs.Spec.has_kissat_check_model (sat_deps_dimacs h)
 
-theorem deps_has_probe {Γ : Env} (h : Γ.Sat Spec.deps) :
+theorem deps_has_probe {Γ : Env} (h : Γ.Sat searchDeps) :
     Γ.Has "full_probe_m6" Probe.Spec.fullProbeM6Spec :=
   Probe.Spec.has_full_probe_m6 (sat_deps_probe h)
 
-theorem deps_has_lucky_late {Γ : Env} (h : Γ.Sat Spec.deps) :
+theorem deps_has_lucky_late {Γ : Env} (h : Γ.Sat searchDeps) :
     Γ.Has "full_lucky_late_m7" Lucky.Spec.fullLuckyLateM7Spec :=
   Lucky.Spec.has_full_lucky_late_m7 (sat_deps_lucky h)
 
-theorem deps_has_eliminate {Γ : Env} (h : Γ.Sat Spec.deps) :
+theorem deps_has_eliminate {Γ : Env} (h : Γ.Sat searchDeps) :
     Γ.Has "full_eliminate_m6" Eliminate.Spec.fullEliminateM6Spec :=
   Eliminate.Spec.has_full_eliminate_m6 (sat_deps_eliminate h)
 
-theorem deps_has_propagate {Γ : Env} (h : Γ.Sat Spec.deps) :
+theorem deps_has_propagate {Γ : Env} (h : Γ.Sat searchDeps) :
     Γ.Has "full_propagate" PropSearch.Spec.propagateM6Spec :=
   PropSearch.Spec.has_full_propagate (sat_deps_prop_search h)
 
