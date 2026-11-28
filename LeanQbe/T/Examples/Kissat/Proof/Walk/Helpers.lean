@@ -4,6 +4,14 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 module
 
+public import LeanQbe.T.Examples.Kissat.Proof.Arena.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Backtrack.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Decide.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Dense.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Float64.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Forward.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
+public import LeanQbe.T.Examples.Kissat.Proof.PropSearch.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Walk.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Arena
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Arena1
@@ -668,9 +676,23 @@ theorem walk_call_watch_large {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost
     hk s' m' ⟨⟨hlen', F_cur, hw'⟩, hlm', hnd', hext', hdm'.trans hdm⟩
       hap' hcv' hcl' hfu' hpr' ⟨hll', hel'⟩ hm'⟩
 
+theorem walk_fullContract_of_safetySlice {extraArgs rs : List Ty}
+    {K : FullContract extraArgs rs PUnit} {xs : Tup Val (i64 :: extraArgs)}
+    {m : Mem 64} {Q : Post rs} {X : XPost} (h : K.toSpec xs m Q X)
+    (pre : FullCfg → Tup Val (i64 :: extraArgs) → FullState → Prop)
+    (post : FullCfg → Tup Val (i64 :: extraArgs) → Tup Val rs → FullState → FullState → Prop)
+    (hPre : ∀ c h a s, K.pre c s a PUnit.unit → h = c.hdr → pre c (h, a) s)
+    (hPost : ∀ c h a r s s', s'.core = s.core → s'.LengthsOk c →
+      post c (h, a) r s s' → K.post c s a PUnit.unit r s') :
+    SafetySlice.spec fullSafetySlice pre post xs m Q X := by
+  rcases xs with ⟨h0, args⟩
+  obtain ⟨c, s, ⟨⟩, R, rfl, hlen, hp, hm, hQ⟩ := FullContract.elim h
+  exact ⟨c, s, R, hPre c c.hdr args s hp rfl, hlen, hm,
+    fun r s' m' hc hl hpo hm' => hQ r s' m' hl (hPost c c.hdr args r s s' hc hl hpo) hm'⟩
+
 theorem walk_m6_frame_walk_m7 {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {m : Mem 64}
     {args : Tup (Arg Val) [i64]} {k : Tup Val [] → Expr Val Cont rs}
-    (hWm7 : Γ.Has "full_walk_m7" fullWalkM7Spec)
+    (hWm7 : Γ.Has "full_walk_m7" walkCoreSpec)
     {c : FullCfg} {F0 : CNF Nat} {ext : List (BitVec 64)} {s : FullState} {R : Mem 64 → Prop}
     (hargs : vals args = (c.hdr, ())) (hinv : FullM6HdrInv c F0 ext s)
     (hm : (FullM6HdrMem c ext s ⋆ R) m)
@@ -681,8 +703,10 @@ theorem walk_m6_frame_walk_m7 {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost
       FullExtScratchPres s s' → (FullM6HdrMem c ext s' ⋆ R) m' → wp Γ Q X (k ()) m') :
     wp Γ Q X (.call "full_walk_m7" args k) m := by
   refine wp_call_of_spec args k ?_; rw [hargs]
-  refine hWm7 _ _ _ _ ⟨c, F0, s, _, rfl, hinv.sparse, fullM6HdrMem_focus_full hm,
-    fun s' m' hsp' hap hcv hcl hfu hpr hext hm' => ?_⟩
+  refine hWm7 _ _ _ _ ?_
+  dsimp only [walkCoreSpec]
+  refine FullContract.intro hinv.sparse.lengths hinv.sparse (fullM6HdrMem_focus_full hm)
+    fun () s' m' _ ⟨hsp', hap, hcv, hcl, hfu, hpr, hext⟩ hm' => ?_
   exact hk s' m' (FullM6HdrInv.mk_inv hinv.cfgOk hinv.extOk hsp') hap hcv hcl hfu hpr hext
     (fullM6HdrMem_unfocus_full hm')
 

@@ -235,9 +235,17 @@ private theorem walk2_uns_ge2200 (ncl x : BitVec 64)
 /-! ## 2. `full_walk_flip_m7` -/
 
 theorem full_walk_flip_m7_wp (Γ : Env) :
-    ∀ a m Q X, fullWalkFlipM7Spec a m Q X →
+    ∀ a m Q X, flipSpec a m Q X →
       Func.wp Γ full_walk_flip_m7_body a m Q X := by
-  rintro ⟨h, flip_lit, ncl, ulen, ⟨⟩⟩ m Q X ⟨c, s, R, rfl, hlen, hm, hQ⟩
+  intro a m Q X hs
+  unfold flipSpec at hs
+  have hs' := walk_fullContract_of_safetySlice hs
+    (fun c (h, _) _ => h = c.hdr)
+    (fun _ (_, _, ncl, _, ()) (r, ()) s s' =>
+      FullExtScratchPres s s' ∧ WalkScrPrefixPres s s' ∧ (r &&& 0xFFFFFFFF#64).toNat ≤ ncl.toNat)
+    (fun _ _ _ _ _ hh => hh) (fun _ _ _ _ _ _ hc _ ⟨he, hp, hle⟩ => ⟨hc, he, hp, hle⟩)
+  rcases a with ⟨h, flip_lit, ncl, ulen, ⟨⟩⟩
+  rcases hs' with ⟨c, s, R, rfl, hlen, hm, hQ⟩
   dsimp only [fullSafetySlice] at hlen hm hQ
   have hmaxv := c.hmaxv; have hscr := c.hscr
   unfold dimacsBound at hmaxv hscr

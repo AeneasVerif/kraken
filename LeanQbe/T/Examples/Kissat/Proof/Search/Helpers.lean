@@ -257,7 +257,7 @@ theorem search_call_lucky_late {Γ : Env} {ret : List Ty}
     {c : FullCfg} {F0 : CNF Nat} {ext : List (BitVec 64)} {s : FullState}
     {R : Mem 64 → Prop} {m : Mem 64} {Q : Post ret} {X : XPost}
     (hargs : vals args = (c.hdr, ()))
-    (hfn : ∀ a m Q X, Lucky.Spec.fullLuckyLateM7Spec a m Q X →
+    (hfn : ∀ a m Q X, Lucky.Spec.luckySpec a m Q X →
       Γ "full_lucky_late_m7" [i64] [i64] a m Q X)
     (hinv : FullM6HdrInv c F0 ext s) (hm : (FullM6HdrMem c ext s ⋆ R) m)
     (hk : ∀ r ext' s' m',
@@ -270,9 +270,11 @@ theorem search_call_lucky_late {Γ : Env} {ret : List Ty}
       (FullM6HdrMem c ext' s' ⋆ R) m' → wp Γ Q X (k (r, ())) m') :
     wp Γ Q X (Expr.call "full_lucky_late_m7" args k) m := by
   refine wp_call_of_spec args k (hargs ▸ hfn _ m (fun rs m' => wp Γ Q X (k rs) m') X ?_)
-  exact ⟨c, F0, ext, s, R, rfl, hinv, hm,
-    fun r ext' s' m' hs' hext' hr hfuel _ h20 h02 h10 hm' =>
-      hk r ext' s' m' hs' hext' hr hfuel h20 h02 h10 hm'⟩
+  dsimp only [Lucky.Spec.luckySpec]
+  refine M6HdrContract.intro hinv.cfgOk hinv.extOk hinv.sparse.lengths hinv.sparse hm ?_
+  rintro ⟨r, ⟨⟩⟩ ext' s' m' hext' _ hlen' ⟨hr, hfuel, _, h20, h02, h10⟩ hm'
+  exact hk r ext' s' m' hlen' hext' hr hfuel h20
+    (fun eq => let ⟨hsp', hcl'⟩ := h02 eq; ⟨⟨hinv.cfgOk, hext', hsp'⟩, hcl'⟩) h10 hm'
 
 theorem search_call_propagate {Γ : Env} {ret : List Ty}
     {args : Tup (Arg Val) [i64]} {k : Tup Val [i64] → Expr Val Cont ret}
@@ -584,7 +586,7 @@ theorem search_call_switch_mode {Γ : Env} {ret : List Ty}
     {c : FullCfg} {F0 : CNF Nat} {ext : List (BitVec 64)} {s : FullState}
     {R : Mem 64 → Prop} {m : Mem 64} {Q : Post ret} {X : XPost}
     (hargs : vals args = (c.hdr, ()))
-    (hfn : ∀ a m Q X, Restart.Spec.fullSwitchModeM7Spec a m Q X →
+    (hfn : ∀ a m Q X, Restart.Spec.switchModeSpec a m Q X →
       Γ "full_switch_mode_m7" [i64] [] a m Q X)
     (hinv : FullM6HdrInv c F0 ext s) (hm : (FullM6HdrMem c ext s ⋆ R) m)
     (hk : ∀ ext' s' m',
@@ -592,8 +594,9 @@ theorem search_call_switch_mode {Γ : Env} {ret : List Ty}
       (FullM6HdrMem c ext' s' ⋆ R) m' → wp Γ Q X (k ()) m') :
     wp Γ Q X (Expr.call "full_switch_mode_m7" args k) m := by
   refine wp_call_of_spec args k (hargs ▸ hfn _ m (fun rs m' => wp Γ Q X (k rs) m') X ?_)
-  refine ⟨c, ext, s, R, rfl, hinv.cfgOk, hinv.extOk, hinv.sparse.lengths, hm, ?_⟩
-  intro ext' s' m' hcore hlen' hpr hext' hm'
+  dsimp only [Restart.Spec.switchModeSpec]
+  refine M6HdrContract.intro (w := ()) hinv.cfgOk hinv.extOk hinv.sparse.lengths trivial hm ?_
+  rintro ⟨⟩ ext' s' m' hext' _ hlen' ⟨hcore, hpr⟩ hm'
   exact hk ext' s' m' (⟨hinv.cfgOk, hext', FullSparseInv.with_fuel_scratch hinv.sparse hlen'
     (by rw [hcore]) hpr⟩) hcore hm'
 
@@ -602,7 +605,7 @@ theorem search_call_restart_due {Γ : Env} {ret : List Ty}
     {c : FullCfg} {F0 : CNF Nat} {ext : List (BitVec 64)} {s : FullState}
     {R : Mem 64 → Prop} {m : Mem 64} {Q : Post ret} {X : XPost}
     (hargs : vals args = (c.hdr, ()))
-    (hfn : ∀ a m Q X, fullRestartDueSpec a m Q X →
+    (hfn : ∀ a m Q X, Restart.Spec.restartDueSpec a m Q X →
       Γ "full_restart_due" [i64] [i64] a m Q X)
     (hinv : FullM6HdrInv c F0 ext s) (hm : (FullM6HdrMem c ext s ⋆ R) m)
     (hk : ∀ r s' m',
@@ -616,11 +619,12 @@ theorem search_call_restart_due {Γ : Env} {ret : List Ty}
     wp Γ Q X (Expr.call "full_restart_due" args k) m := by
   refine wp_m6Hdr_focus_frame hm fun hmf => ?_
   refine wp_call_of_spec args k (hargs ▸ hfn _ m (fun rs m' => wp Γ Q X (k rs) m') X ?_)
-  refine ⟨c, s, m6ExtMem (m6ExtAddr c.hdr) ext ⋆ R, rfl, hinv.sparse.lengths, hmf, ?_⟩
-  rintro ⟨r, ⟨⟩⟩ s' m' hcpres hlen' ⟨_, hextpr⟩ hm'
+  dsimp only [Restart.Spec.restartDueSpec]
+  refine FullContract.intro (w := ()) hinv.sparse.lengths trivial hmf ?_
+  rintro ⟨r, ⟨⟩⟩ s' m' hlen' ⟨hcpres, _, hextpr⟩ hm'
   have hinv' : FullM6HdrInv c F0 ext s' :=
     ⟨hinv.cfgOk, hinv.extOk, FullSparseInv.of_safetySlice hinv.sparse hlen' hcpres hextpr⟩
-  have hco := fullCoreState_agrees_with_scratch hcpres
+  have hco : s'.core = s.core := hcpres
   exact hk r s' m' hinv' (congrArg FullCoreState.cur_vars hco)
     (congrArg FullCoreState.cur_level hco) (congrArg FullCoreState.trail_end hco)
     (congrArg FullCoreState.fuel hco) (congrArg FullCoreState.oom hco)
@@ -631,7 +635,8 @@ theorem search_call_restart {Γ : Env} {ret : List Ty}
     {c : FullCfg} {F0 : CNF Nat} {ext : List (BitVec 64)} {s : FullState}
     {R : Mem 64 → Prop} {m : Mem 64} {Q : Post ret} {X : XPost}
     (hargs : vals args = (c.hdr, ()))
-    (hfn : ∀ a m Q X, fullRestartSpec a m Q X → Γ "full_restart" [i64] [] a m Q X)
+    (hfn : ∀ a m Q X, Restart.Spec.restartSpec a m Q X →
+      Γ "full_restart" [i64] [] a m Q X)
     (hinv : FullM6HdrInv c F0 ext s) (hm : (FullM6HdrMem c ext s ⋆ R) m)
     (hk : ∀ s' m',
       FullM6HdrInv c F0 ext s' → s'.core.fuel = s.core.fuel →
@@ -640,25 +645,31 @@ theorem search_call_restart {Γ : Env} {ret : List Ty}
     wp Γ Q X (Expr.call "full_restart" args k) m := by
   refine wp_m6Hdr_focus_frame hm fun hmf => ?_
   refine wp_call_of_spec args k (hargs ▸ hfn _ m (fun rs m' => wp Γ Q X (k rs) m') X ?_)
-  refine ⟨c, F0, s, m6ExtMem (m6ExtAddr c.hdr) ext ⋆ R, rfl, hinv.sparse.1, hmf, ?_⟩
-  intro vals' lvl' rsns' trl' tp' te' prop' cl' unass' sc' m' s' hcore' hle hexpr hm'
+  dsimp only [Restart.Spec.restartSpec]
+  refine FullContract.intro hinv.sparse.lengths hinv.sparse.1 hmf ?_
+  rintro ⟨⟩ s' m' _ ⟨hfields, hcore', hle, hexpr⟩ hm'
   have hll' : FullLastLearnedWf s' := by
     intro i hi
     have := hinv.sparse.2.2.2.1.1 i hi
     dsimp only [fullArenaClauseRefs] at this ⊢
-    rw [hexpr.1]; exact this
+    rw [hexpr.1]; rw [hfields]; exact this
+  have hlm' : FullLitMarksClear c s' := by
+    unfold FullLitMarksClear FullMrkZero; rw [hfields]; exact hinv.sparse.2.1
+  have hnd' : FullArenaVarsNodup s' := by
+    unfold FullArenaVarsNodup fullArenaClauseRefs fullArenaClauseGarb fullArenaClauseLits
+    rw [hfields]; exact hinv.sparse.2.2.1
   have hinv' : FullM6HdrInv c F0 ext s' :=
     ⟨hinv.cfgOk, hinv.extOk,
-      ⟨hcore', hinv.sparse.2.1, hinv.sparse.2.2.1,
-       ⟨hll', hexpr.2 ▸ hinv.sparse.2.2.2.1.2⟩, hinv.sparse.2.2.2.2⟩⟩
-  exact hk s' m' hinv' rfl hle (fullM6HdrMem_unfocus hm')
+      ⟨hcore', hlm', hnd', ⟨hll', hexpr.2 ▸ hinv.sparse.2.2.2.1.2⟩,
+       by rw [hfields]; exact hinv.sparse.2.2.2.2⟩⟩
+  exact hk s' m' hinv' (by rw [hfields]) hle (fullM6HdrMem_unfocus hm')
 
 theorem search_call_reorder {Γ : Env} {ret : List Ty}
     {args : Tup (Arg Val) [i64, i64]} {k : Tup Val [i64] → Expr Val Cont ret}
     {c : FullCfg} {F0 : CNF Nat} {ext : List (BitVec 64)} {s : FullState}
     {R : Mem 64 → Prop} {m : Mem 64} {Q : Post ret} {X : XPost} (budget : BitVec 64)
     (hargs : vals args = (c.hdr, budget, ()))
-    (hfn : ∀ a m Q X, Reorder.Spec.fullReorderM6Spec a m Q X →
+    (hfn : ∀ a m Q X, Reorder.Spec.reorderSpec a m Q X →
       Γ "full_reorder_m6" [i64, i64] [i64] a m Q X)
     (hinv : FullM6HdrInv c F0 ext s) (hm : (FullM6HdrMem c ext s ⋆ R) m)
     (hk : ∀ r s' m',
@@ -668,8 +679,9 @@ theorem search_call_reorder {Γ : Env} {ret : List Ty}
     wp Γ Q X (Expr.call "full_reorder_m6" args k) m := by
   refine wp_m6Hdr_focus_frame hm fun hmf => ?_
   refine wp_call_of_spec args k (hargs ▸ hfn _ m (fun rs m' => wp Γ Q X (k rs) m') X ?_)
-  refine ⟨c, F0, s, m6ExtMem (m6ExtAddr c.hdr) ext ⋆ R, rfl, hinv.sparse, hmf, ?_⟩
-  intro r s' m' hsp' _ hcl' hfu' hm'
+  dsimp only [Reorder.Spec.reorderSpec]
+  refine FullContract.intro hinv.sparse.lengths hinv.sparse hmf ?_
+  rintro ⟨r, ⟨⟩⟩ s' m' _ ⟨hsp', _, hcl', hfu'⟩ hm'
   exact hk r s' m' ⟨hinv.cfgOk, hinv.extOk, hsp'⟩ hcl' hfu' (fullM6HdrMem_unfocus hm')
 
 theorem search_call_rephase {Γ : Env} {ret : List Ty}
@@ -677,7 +689,7 @@ theorem search_call_rephase {Γ : Env} {ret : List Ty}
     {c : FullCfg} {F0 : CNF Nat} {ext : List (BitVec 64)} {s : FullState}
     {R : Mem 64 → Prop} {m : Mem 64} {Q : Post ret} {X : XPost}
     (hargs : vals args = (c.hdr, ()))
-    (hfn : ∀ a m Q X, Walk.Spec.fullRephaseM6Spec a m Q X →
+    (hfn : ∀ a m Q X, Walk.Spec.rephaseSpec a m Q X →
       Γ "full_rephase" [i64] [] a m Q X)
     (hinv : FullM6HdrInv c F0 ext s) (hm : (FullM6HdrMem c ext s ⋆ R) m)
     (hk : ∀ ext' s' m',
@@ -686,8 +698,10 @@ theorem search_call_rephase {Γ : Env} {ret : List Ty}
       (FullM6HdrMem c ext' s' ⋆ R) m' → wp Γ Q X (k ()) m') :
     wp Γ Q X (Expr.call "full_rephase" args k) m := by
   refine wp_call_of_spec args k (hargs ▸ hfn _ m (fun rs m' => wp Γ Q X (k rs) m') X ?_)
-  exact ⟨c, F0, ext, s, R, rfl, hinv, hm,
-    fun ext' s' m' hinv' _ _ hcl' hfl' _ hm' => hk ext' s' m' hinv' hcl' hfl' hm'⟩
+  dsimp only [Walk.Spec.rephaseSpec]
+  refine M6HdrContract.intro hinv.cfgOk hinv.extOk hinv.sparse.lengths hinv.sparse hm ?_
+  rintro ⟨⟩ ext' s' m' hext' _ _ ⟨hsp', _, _, hcl', hfl', _⟩ hm'
+  exact hk ext' s' m' ⟨hinv.cfgOk, hext', hsp'⟩ hcl' hfl' hm'
 
 theorem search_call_decide {Γ : Env} {ret : List Ty}
     {args : Tup (Arg Val) [i64]} {k : Tup Val [i64] → Expr Val Cont ret}
@@ -1226,24 +1240,29 @@ theorem deps_has_decide {Γ : Env} (h : Γ.Sat searchDeps) :
   Decide.Spec.has_m6_hdr_decide_fid (sat_deps_decide h)
 
 theorem deps_has_switch_mode {Γ : Env} (h : Γ.Sat searchDeps) :
-    Γ.Has "full_switch_mode_m7" Restart.Spec.fullSwitchModeM7Spec :=
-  Restart.Spec.has_full_switch_mode_m7 (sat_deps_restart h)
+    Γ.Has "full_switch_mode_m7" Restart.Spec.switchModeSpec :=
+  Lib.SpecTable.has_at (sat_deps_restart h) 2 rfl
+    (by unfold Restart.Spec.switchModeSpec; exact M6HdrContract.toSpec_xfree _)
 
 theorem deps_has_restart_due {Γ : Env} (h : Γ.Sat searchDeps) :
-    Γ.Has "full_restart_due" fullRestartDueSpec :=
-  Restart.Spec.has_full_restart_due (sat_deps_restart h)
+    Γ.Has "full_restart_due" Restart.Spec.restartDueSpec :=
+  Lib.SpecTable.has_at (sat_deps_restart h) 0 rfl
+    (by unfold Restart.Spec.restartDueSpec; exact FullContract.toSpec_xfree _)
 
 theorem deps_has_restart {Γ : Env} (h : Γ.Sat searchDeps) :
-    Γ.Has "full_restart" fullRestartSpec :=
-  Restart.Spec.has_full_restart (sat_deps_restart h)
+    Γ.Has "full_restart" Restart.Spec.restartSpec :=
+  Lib.SpecTable.has_at (sat_deps_restart h) 1 rfl
+    (by unfold Restart.Spec.restartSpec; exact FullContract.toSpec_xfree _)
 
 theorem deps_has_reorder {Γ : Env} (h : Γ.Sat searchDeps) :
-    Γ.Has "full_reorder_m6" Reorder.Spec.fullReorderM6Spec :=
-  Reorder.Spec.has_full_reorder_m6 (sat_deps_reorder h)
+    Γ.Has "full_reorder_m6" Reorder.Spec.reorderSpec :=
+  Lib.SpecTable.has_at (sat_deps_reorder h) 2 rfl
+    (by unfold Reorder.Spec.reorderSpec; exact FullContract.toSpec_xfree _)
 
 theorem deps_has_rephase {Γ : Env} (h : Γ.Sat searchDeps) :
-    Γ.Has "full_rephase" Walk.Spec.fullRephaseM6Spec :=
-  Walk.Spec.has_full_rephase (sat_deps_walk h)
+    Γ.Has "full_rephase" Walk.Spec.rephaseSpec :=
+  Lib.SpecTable.has_at (sat_deps_walk h) 12 rfl
+    (by unfold Walk.Spec.rephaseSpec; exact M6HdrContract.toSpec_xfree _)
 
 theorem deps_has_compact_needed {Γ : Env} (h : Γ.Sat searchDeps) :
     Γ.Has "full_compact_needed" Compact.Spec.fullCompactNeededSpec :=
@@ -1278,8 +1297,9 @@ theorem deps_has_probe {Γ : Env} (h : Γ.Sat searchDeps) :
   Probe.Spec.has_full_probe_m6 (sat_deps_probe h)
 
 theorem deps_has_lucky_late {Γ : Env} (h : Γ.Sat searchDeps) :
-    Γ.Has "full_lucky_late_m7" Lucky.Spec.fullLuckyLateM7Spec :=
-  Lucky.Spec.has_full_lucky_late_m7 (sat_deps_lucky h)
+    Γ.Has "full_lucky_late_m7" Lucky.Spec.luckySpec :=
+  Lib.SpecTable.has_at (sat_deps_lucky h) 3 rfl
+    (by unfold Lucky.Spec.luckySpec; exact M6HdrContract.toSpec_xfree _)
 
 theorem deps_has_eliminate {Γ : Env} (h : Γ.Sat searchDeps) :
     Γ.Has "full_eliminate_m6" Eliminate.Spec.fullEliminateM6Spec :=

@@ -156,8 +156,15 @@ theorem full_walk_cb_inv_m7_wp (Γ : Env)
     (hMul : Γ.Has "f64u_mul" f64uPure2Spec)
     (hDiv : Γ.Has "f64u_div" f64uPure2Spec)
     (hFrom : Γ.Has "f64u_from_u64" f64uPure1Spec) :
-    ∀ a m Q X, fullWalkCbInvM7Spec a m Q X → Func.wp Γ full_walk_cb_inv_m7_body a m Q X := by
-  rintro ⟨h, ncl, tot_lits, ⟨⟩⟩ m Q X ⟨c, s, R, rfl, hlen, hm, hQ⟩
+    ∀ a m Q X, cbInvSpec a m Q X → Func.wp Γ full_walk_cb_inv_m7_body a m Q X := by
+  intro a m Q X hs
+  unfold cbInvSpec at hs
+  have hs' := walk_fullContract_of_safetySlice hs
+    (fun c (h, _) _ => h = c.hdr)
+    (fun _ _ (r, ()) s s' => FullExtScratchPres s s' ∧ (r ≠ 0#64 → WalkTblExpsOk s'))
+    (fun _ _ _ _ _ hh => hh) (fun _ _ _ _ _ _ hc _ ⟨he, htbl⟩ => ⟨hc, he, htbl⟩)
+  rcases a with ⟨h, ncl, tot_lits, ⟨⟩⟩
+  rcases hs' with ⟨c, s, R, rfl, hlen, hm, hQ⟩
   dsimp only [fullSafetySlice] at hlen hm hQ
   have hscr := c.hscr; unfold dimacsBound at hscr
   unfold Func.wp full_walk_cb_inv_m7_body
@@ -235,8 +242,14 @@ theorem full_walk_cb_inv_m7_wp (Γ : Env)
 /-! ## 2. `full_walk_effort_m7` -/
 
 theorem full_walk_effort_m7_wp (Γ : Env) :
-    ∀ a m Q X, fullWalkEffortM7Spec a m Q X → Func.wp Γ full_walk_effort_m7_body a m Q X := by
-  rintro ⟨h, mf, ⟨⟩⟩ m Q X ⟨c, s, R, rfl, hlen, hm, hQ⟩
+    ∀ a m Q X, effortSpec a m Q X → Func.wp Γ full_walk_effort_m7_body a m Q X := by
+  intro a m Q X hs
+  unfold effortSpec readOnly at hs
+  have hs' := walk_fullContract_of_safetySlice hs
+    (fun c (h, _) _ => h = c.hdr) (fun _ _ _ s s' => s' = s)
+    (fun _ _ _ _ _ hh => hh) (fun _ _ _ _ _ _ _ _ heq => heq)
+  rcases a with ⟨h, mf, ⟨⟩⟩
+  rcases hs' with ⟨c, s, R, rfl, hlen, hm, hQ⟩
   dsimp only [fullSafetySlice] at hlen hm hQ
   unfold Func.wp full_walk_effort_m7_body
   c0_hsteps_nogrp
@@ -253,9 +266,15 @@ theorem full_walk_effort_m7_wp (Γ : Env) :
 /-! ## 3. `full_walk_init_vals_m7` -/
 
 theorem full_walk_init_vals_m7_wp (Γ : Env) :
-    ∀ a m Q X, fullWalkInitValsM7Spec a m Q X →
+    ∀ a m Q X, initValsSpec a m Q X →
       Func.wp Γ full_walk_init_vals_m7_body a m Q X := by
-  rintro ⟨h, ⟨⟩⟩ m Q X ⟨c, s, R, rfl, hlen, hm, hQ⟩
+  intro a m Q X hs
+  unfold initValsSpec scratchOnly at hs
+  have hs' := walk_fullContract_of_safetySlice hs
+    (fun c (h, _) _ => h = c.hdr) (fun _ _ _ s s' => FullExtScratchPres s s')
+    (fun _ _ _ _ _ hh => hh) (fun _ _ _ _ _ _ hc _ he => ⟨hc, he⟩)
+  rcases a with ⟨h, ⟨⟩⟩
+  rcases hs' with ⟨c, s, R, rfl, hlen, hm, hQ⟩
   dsimp only [fullSafetySlice] at hlen hm hQ
   unfold Func.wp full_walk_init_vals_m7_body
   have hmaxv := c.hmaxv; unfold dimacsBound at hmaxv
@@ -366,8 +385,14 @@ theorem full_walk_init_vals_m7_wp (Γ : Env) :
 /-! ## 4. `full_walk_break_m7` -/
 
 theorem full_walk_break_m7_wp (Γ : Env) :
-    ∀ a m Q X, fullWalkBreakM7Spec a m Q X → Func.wp Γ full_walk_break_m7_body a m Q X := by
-  rintro ⟨h, not_lit, ncl, ⟨⟩⟩ m Q X ⟨c, s, R, rfl, hlen, hm, hQ⟩
+    ∀ a m Q X, breakSpec a m Q X → Func.wp Γ full_walk_break_m7_body a m Q X := by
+  intro a m Q X hs
+  unfold breakSpec readOnly at hs
+  have hs' := walk_fullContract_of_safetySlice hs
+    (fun c (h, _) _ => h = c.hdr) (fun _ _ _ s s' => s' = s)
+    (fun _ _ _ _ _ hh => hh) (fun _ _ _ _ _ _ _ _ heq => heq)
+  rcases a with ⟨h, not_lit, ncl, ⟨⟩⟩
+  rcases hs' with ⟨c, s, R, rfl, hlen, hm, hQ⟩
   dsimp only [fullSafetySlice] at hlen hm hQ
   have hmaxv := c.hmaxv; have hscr := c.hscr; unfold dimacsBound at hmaxv hscr
   have hcv := hlen.core_ok.cur_vars_le
@@ -489,9 +514,15 @@ theorem full_walk_break_m7_wp (Γ : Env) :
 /-! ## 5. `full_walk_save_min_m7` -/
 
 theorem full_walk_save_min_m7_wp (Γ : Env) :
-    ∀ a m Q X, fullWalkSaveMinM7Spec a m Q X →
+    ∀ a m Q X, saveMinSpec a m Q X →
       Func.wp Γ full_walk_save_min_m7_body a m Q X := by
-  rintro ⟨h, best_pos, trail_ok, ⟨⟩⟩ m Q X ⟨c, s, R, rfl, hlen, hm, hQ⟩
+  intro a m Q X hs
+  unfold saveMinSpec scratchOnly at hs
+  have hs' := walk_fullContract_of_safetySlice hs
+    (fun c (h, _) _ => h = c.hdr) (fun _ _ _ s s' => FullExtScratchPres s s')
+    (fun _ _ _ _ _ hh => hh) (fun _ _ _ _ _ _ hc _ he => ⟨hc, he⟩)
+  rcases a with ⟨h, best_pos, trail_ok, ⟨⟩⟩
+  rcases hs' with ⟨c, s, R, rfl, hlen, hm, hQ⟩
   dsimp only [fullSafetySlice] at hlen hm hQ
   have hmaxv := c.hmaxv; unfold dimacsBound at hmaxv
   unfold Func.wp full_walk_save_min_m7_body

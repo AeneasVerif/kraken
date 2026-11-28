@@ -4,23 +4,22 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 module
 
+public import LeanQbe.T.Examples.Kissat.Proof.Arena.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Bump.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Float64.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Heap.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
 public import LeanQbe.T.Examples.Kissat.Proof.Reorder.Spec
 public import LeanQbe.T.Examples.Kissat.Src.Reorder
 public import LeanQbe.T.Logic.CanonicalEnv
-import LeanQbe.T.Examples.Kissat.Proof.Arena.Spec
-import LeanQbe.T.Examples.Kissat.Proof.Bump.Spec
-import LeanQbe.T.Examples.Kissat.Proof.Float64.Spec
-import LeanQbe.T.Examples.Kissat.Proof.Heap.Spec
 import LeanQbe.T.Examples.Kissat.Proof.Reorder.Wp0
 import LeanQbe.T.Examples.Kissat.Proof.Reorder.Wp2
 
 /-!
 # Canonical Segment Certificate for `Kissat.Src.Reorder` (`Proof.Reorder.Cert`)
 
-Assembles `Proof.Reorder.cert : SegCert Spec.deps Src.Reorder.fns Spec.specs` from the three
-canonical WP proofs (`full_reorder_sift_fid_wp`, `full_reorder_queue_m7_wp`, `full_reorder_m6_wp`)
-and upstream `Proof.*` capability tables (`0` legacy imports, `0` `@[expose]` on
-theorems/lemmas/sections).
+Defines `deps`, `specs_sigs`, `specs_nodup`, `specs_noExit`, and assembles
+`Proof.Reorder.cert : SegCert deps Src.Reorder.fns Spec.specs`.
 -/
 
 set_option autoImplicit false
@@ -32,29 +31,43 @@ namespace LeanQbe.T.Examples.Kissat.Proof.Reorder
 open LeanQbe.T
 open LeanQbe.T.Examples.Kissat
 open LeanQbe.T.Examples.Kissat.Proof
+open LeanQbe.T.Examples.Kissat.Proof.Lib
+open LeanQbe.T.Examples.Kissat.Proof.Spec
 
-private theorem has_f64u_add {Γ : Env} (h : Γ.Sat Spec.deps) :
+/-- External specifications required by `Kissat.Src.Reorder`. -/
+@[expose] def deps : List SpecEntry :=
+  Float64.Spec.specs ++ Arena.Spec.specs ++ Bump.Spec.specs ++ Heap.Spec.specs
+
+theorem specs_sigs : Spec.specs.map SpecEntry.sig = Src.Reorder.fns.map Fn.sig := rfl
+
+theorem specs_nodup : (Spec.specs.map SpecEntry.name).Nodup := by decide
+
+theorem specs_noExit : Spec.specs.all SpecEntry.noExit = true := rfl
+
+private theorem siftSpec_xfree : Spec.siftSpec.XFree := by
+  unfold Spec.siftSpec; exact FnContract.toSpec_xfree _
+
+private theorem queueSpec_xfree : Spec.queueSpec.XFree := by
+  unfold Spec.queueSpec; exact FullContract.toSpec_xfree _
+
+private theorem has_f64u_add {Γ : Env} (h : Γ.Sat deps) :
     Γ.Has "f64u_add" Float64.Spec.f64uPure2Spec :=
-  Env.Sat.has h.left.left.left
-    (List.getElem_mem (l := Float64.Spec.specs) (n := 2) (by decide))
-    Float64.Spec.f64uPure2Spec_xfree
+  SpecTable.has_at h.left.left.left 2 rfl Float64.Spec.f64uPure2Spec_xfree
 
-private theorem has_f64u_mul {Γ : Env} (h : Γ.Sat Spec.deps) :
+private theorem has_f64u_mul {Γ : Env} (h : Γ.Sat deps) :
     Γ.Has "f64u_mul" Float64.Spec.f64uPure2Spec :=
-  Env.Sat.has h.left.left.left
-    (List.getElem_mem (l := Float64.Spec.specs) (n := 4) (by decide))
-    Float64.Spec.f64uPure2Spec_xfree
+  SpecTable.has_at h.left.left.left 4 rfl Float64.Spec.f64uPure2Spec_xfree
 
 /-- Canonical segment certificate for `LeanQbe.T.Examples.Kissat.Src.Reorder.fns`. -/
-theorem cert : SegCert Spec.deps Src.Reorder.fns Spec.specs := by
+theorem cert : SegCert deps Src.Reorder.fns Spec.specs := by
   intro Γ hdeps hrows
   have hAdd := has_f64u_add hdeps
   have hMul := has_f64u_mul hdeps
   have hArenaNext := Arena.Spec.has_full_arena_next hdeps.left.left.right
   have hRescale := Bump.Spec.has_full_rescale hdeps.left.right
   have hHeapUp := Heap.Spec.has_full_heap_up hdeps.right
-  have hSift := Spec.has_full_reorder_sift_fid hrows
-  have hQueue := Spec.has_full_reorder_queue_m7 hrows
+  have hSift := SpecTable.has_at hrows 0 rfl siftSpec_xfree
+  have hQueue := SpecTable.has_at hrows 1 rfl queueSpec_xfree
   unfold Src.Reorder.fns Spec.specs
   refine ⟨?_, ?_, ?_, trivial⟩
   · exact SpecEntry.Impl.of (full_reorder_sift_fid_wp Γ)

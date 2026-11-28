@@ -4,7 +4,13 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 module
 
+public import LeanQbe.T.Examples.Kissat.Proof.Backtrack.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Decide.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Float64.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
 public import LeanQbe.T.Examples.Kissat.Proof.Restart.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Spec.Contracts3
+public import LeanQbe.T.Examples.Kissat.Proof.Spec.Header
 public import LeanQbe.T.Examples.Kissat.Src.Restart
 public import LeanQbe.T.Logic.CanonicalEnv
 import LeanQbe.T.Examples.Kissat.Proof.Spec.Arena1
@@ -52,24 +58,25 @@ private theorem extPres_trans {s1 s2 s3 : FullState}
     FullExtScratchPres s1 s3 :=
   ⟨h23.1.trans h12.1, h23.2.trans h12.2⟩
 
-/-- Soundness proof for `full_restart_due` against `fullRestartDueSpec`. -/
+/-- Soundness proof for `full_restart_due` against `restartDueSpec`. -/
 theorem full_restart_due_wp (Γ : Env)
     (hSub : Γ.Has "f64u_sub" f64uPure2Spec)
     (hMul : Γ.Has "f64u_mul" f64uPure2Spec)
     (hLog : Γ.Has "f64u_log10_u64" f64uPure1Spec)
     (hTo : Γ.Has "f64u_to_u64" f64uPure1Spec) :
-    ∀ a m Q X, fullRestartDueSpec a m Q X →
+    ∀ a m Q X, Spec.restartDueSpec a m Q X →
       Func.wp Γ full_restart_due_body a m Q X := by
-  rintro ⟨h, ⟨⟩⟩ m Q X ⟨c, s, R, rfl, hlen, hm, hQ⟩
-  dsimp only [fullSafetySlice] at hlen hm hQ
-  have hret0 : Q (0#64, ()) m := hQ (0#64, ()) s m rfl hlen ⟨Or.inl rfl, ⟨rfl, rfl⟩⟩ hm
+  rintro ⟨h, ⟨⟩⟩ m Q X hs
+  unfold Spec.restartDueSpec at hs
+  obtain ⟨c, s, ⟨⟩, R, rfl, hlen, _, hm, hQ⟩ := FullContract.elim hs
+  have hret0 : Q (0#64, ()) m := hQ (0#64, ()) s m hlen ⟨rfl, Or.inl rfl, rfl, rfl⟩ hm
   dsimp only [Func.wp, full_restart_due_body]
   c0_hsteps_nogrp
   · exact hret0
   · exact hret0
   · let s1 : FullState := { s with scratch := { s.scratch with rel_trigger := 0#64 } }
-    exact hQ (1#64, ()) s1 _ rfl ⟨hlen.core_ok, { hlen.scratch_ok with }⟩
-      ⟨Or.inr rfl, ⟨rfl, rfl⟩⟩ ‹_›
+    exact hQ (1#64, ()) s1 _ ⟨hlen.core_ok, { hlen.scratch_ok with }⟩
+      ⟨rfl, Or.inr rfl, rfl, rfl⟩ ‹_›
   · exact hret0
   · refine wp_join_group (ts := [Ty.bool]) (fun _ m1 => m = m1)
       (fun _ ⟨fire, ⟨⟩⟩ m1 hm1 => ?_)
@@ -115,21 +122,23 @@ theorem full_restart_due_wp (Γ : Env)
               rcases hm3 with rfl; c0_hsteps
               let s1 : FullState := { s with scratch := { s.scratch with
                 restart_limit := s.scratch.conflicts + d } }
-              exact hQ (1#64, ()) s1 _ rfl ⟨hlen.core_ok, { hlen.scratch_ok with }⟩
-                ⟨Or.inr rfl, ⟨rfl, rfl⟩⟩ ‹_›)
+              exact hQ (1#64, ()) s1 _ ⟨hlen.core_ok, { hlen.scratch_ok with }⟩
+                ⟨rfl, Or.inr rfl, rfl, rfl⟩ ‹_›)
             (fun Jd hJd => by c0_hsteps <;> exact hJd (_, ()) m rfl))
         (fun Jr hJr => by c0_hsteps <;> exact hJr (_, ()) m rfl)
     · c0_hsteps; exact hret0
 
-/-- Soundness proof for `full_restart` against `fullRestartSpec`. -/
+/-- Soundness proof for `full_restart` against `restartSpec`. -/
 theorem full_restart_wp (Γ : Env)
     (hRandec : Γ.Has "full_randec_var_lvl_fid" fullRandecVarLvlSpec)
     (hNDV : Γ.Has "full_next_dec_var" fullNextDecVarSpec)
     (hBT : Γ.Has "full_backtrack" fullBacktrackSpec) :
-    ∀ a m Q X, fullRestartSpec a m Q X →
+    ∀ a m Q X, Spec.restartSpec a m Q X →
       Func.wp Γ full_restart_body a m Q X := by
-  rintro ⟨h, ⟨⟩⟩ m Q X ⟨c, F0, s, R, rfl, hinv, hm, hQ⟩
-  have hlen := hinv.lengths; have hmax := c.hmaxv; unfold dimacsBound at hmax
+  rintro ⟨h, ⟨⟩⟩ m Q X hs
+  unfold Spec.restartSpec at hs
+  obtain ⟨c, s, F0, R, rfl, hlen, hinv, hm, hQ⟩ := FullContract.elim hs
+  have hmax := c.hmaxv; unfold dimacsBound at hmax
   obtain ⟨F_cur, hw0⟩ := hinv.witness
   have hcl_le : s.core.cur_level ≤ c.max_vars :=
     Nat.le_trans hw0.cur_level_le
@@ -180,9 +189,9 @@ theorem full_restart_wp (Γ : Env)
     have hinvB : FullCoreInv c F0 sB :=
       ⟨hsB, F_cur, hw1 F0 F_cur (by rw [hcore3]; exact hw0) hreuse⟩
     c0_hsteps
-    refine hQ vals' lvl' rsns' trl' tp' te' prop' cl' unass' sc' mB
-      (by rwa [← hsB_eq]) (by rw [hclB, hcore3]; exact Nat.min_le_left _ _)
-      (extPres_trans hpres3 hpresB.1) (by rwa [← hsB_eq])
+    refine hQ () sB mB hsB ⟨congrArg FullState.core hsB_eq, hinvB,
+      by change cl' ≤ s.core.cur_level; rw [hclB, hcore3]; exact Nat.min_le_left _ _,
+      extPres_trans hpres3 hpresB.1⟩ hmB
   · c0_hsplit; rotate_left; · c0_hsteps; exact hJre (0#64, ()) m3 ⟨rfl, Nat.zero_le _⟩
     have hnv_lt : nv.toNat < s3.core.cur_vars := by
       rw [Nat.mod_eq_of_lt (by omega : s3.core.cur_vars < 2 ^ 64)] at hc; exact hc

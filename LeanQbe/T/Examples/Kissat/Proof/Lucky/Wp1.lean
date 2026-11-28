@@ -4,7 +4,9 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 module
 
+public import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
 public import LeanQbe.T.Examples.Kissat.Proof.Lucky.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.PropSearch.Spec
 public import LeanQbe.T.Examples.Kissat.Src.Lucky
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Header
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Tactics
@@ -123,7 +125,7 @@ private theorem lk1_bv64_768 : (768#64 : BitVec 64) = (768 : BitVec 64) := rfl
 /-! ## 1. `full_lucky_scan_wp` -/
 
 theorem full_lucky_scan_wp (Γ : Env)
-    (hOrd : ∀ args m Q X, fullLuckyOrdFidSpec args m Q X →
+    (hOrd : ∀ args m Q X, luckyOrdSpec args m Q X →
       Γ "full_lucky_ord_fid" [i64] [i64] args m Q X)
     (hAssign : ∀ args m Q X, fullAssignSpec args m Q X →
       Γ "full_assign" [i64, i32, i32] [] args m Q X)
@@ -133,18 +135,28 @@ theorem full_lucky_scan_wp (Γ : Env)
       Γ "full_propagate" [i64] [i64] args m Q X)
     (hAna : ∀ args m Q X, m6HdrAnalyzeSpec args m Q X →
       Γ "full_analyze_m6_hdr" [i64] [i64] args m Q X) :
-    ∀ args m Q X, fullLuckyScanM6Spec args m Q X →
+    ∀ args m Q X, luckyScanSpec args m Q X →
       Func.wp Γ full_lucky_scan_body args m Q X := by
   rintro ⟨h, pol?, fwd?, ⟨⟩⟩ m Q X hs
-  obtain ⟨c, F0, ext, s, R, rfl, hcfg, hext, hsp, hcl0, hm, hQ⟩ := hs
+  unfold luckyScanSpec at hs
+  obtain ⟨c, ext, s, F0, R, rfl, hcfg, hext, _, ⟨hsp, hcl0⟩, hm, hQ0⟩ := M6HdrContract.elim hs
+  let hQ : ∀ r ext' s' m', s'.LengthsOk c → M6HdrExtOk ext' →
+      (r = 0#64 ∨ r = 2#64 ∨ r = 10#64 ∨ r = 20#64) → s'.core.fuel.toNat ≤ s.core.fuel.toNat →
+      (r = 20#64 → F0.Unsat) →
+      (r = 0#64 ∨ r = 2#64 → FullSparseInv c F0 s' ∧ s'.core.cur_level = 0) →
+      (r = 10#64 → s'.scratch.extend_len ≤ c.extend_cap) →
+      (FullM6HdrMem c ext' s' ⋆ R) m' → Q (r, ()) m' :=
+    fun r ext' s' m' hlen' hext' hr hfl h20 h02 h10 hm' =>
+      hQ0 (r, ()) ext' s' m' hext' trivial hlen' ⟨hr, hfl, h20, h02, h10⟩ hm'
   unfold Func.wp full_lucky_scan_body
   rw [fullM6HdrMem_iff] at hm
   lk1_steps
   lk1_call hOrd
-  refine ⟨c, s, array64 (c.hdr - 2304) ext ⋆ R, rfl, hsp.1.lengths, hm,
-    fun ⟨n_bv, ⟨⟩⟩ s0 m0 hcore0 hlen0 ⟨hn_le, hpres0⟩ hm0 => ?_⟩
-  dsimp only [fullSafetySlice_mem, fullSafetySlice_coreProj,
-    fullSafetySlice_safe] at hcore0 hlen0 hm0
+  dsimp only [luckyOrdSpec]
+  refine FullContract.intro (w := ()) hsp.1.lengths trivial hm
+    fun ⟨n_bv, ⟨⟩⟩ s0 m0 hlen0 hpost0 hm0 => ?_
+  rcases hpost0 with ⟨hcore0, hn_le, hpres0⟩
+  change n_bv.toNat ≤ s.core.cur_vars at hn_le
   have hceq0 : s0.core = s.core := hcore0
   have hsp0 : FullSparseInv c F0 s0 := by
     refine ⟨hsp.1.with_scratch hlen0 hcore0, ?_, ?_, ?_, ?_⟩
@@ -457,7 +469,7 @@ local macro "lk1_hsteps_ns_run" : tactic =>
     repeat (any_goals (lk1_strip; repeat lk1_strip); lk1_hsteps_ns)))
 
 local macro "lk1_late_scan_chain"
-    c:ident F0:ident ext2:ident s:ident s3:ident R:ident
+    c:ident F0:ident s:ident R:ident
     hScan:ident hinv3:ident hcl2_0:ident hfl2:ident hQ:ident : tactic =>
   `(tactic| (
     let LuckyRet : Tup Val [i64] → Mem 64 → Prop := fun (r, _) mr =>
@@ -467,9 +479,10 @@ local macro "lk1_late_scan_chain"
         (r = 0#64 ∨ r = 2#64 → FullM6HdrInv $c $F0 extr sr ∧ sr.core.cur_level = 0) ∧
         (r = 10#64 → sr.scratch.extend_len ≤ ($c).extend_cap) ∧ (FullM6HdrMem $c extr sr ⋆ $R) mr
     lk1_hsteps_ns_run; lk1_call $hScan
-    refine ⟨$c, $F0, $ext2, $s3, $R, rfl, ($hinv3).cfgOk, ($hinv3).extOk, ($hinv3).sparse,
-      $hcl2_0, fullM6HdrMem_unfocus_full (by assumption), ?_⟩
-    intro r1 extr1 s1_ m1_ hlen1 hext1 hr1 hfl1 huns1 h02_1 h10_1 hm1_
+    dsimp only [luckyScanSpec]
+    refine M6HdrContract.intro ($hinv3).cfgOk ($hinv3).extOk ($hinv3).sparse.1.lengths
+      ⟨($hinv3).sparse, $hcl2_0⟩ (fullM6HdrMem_unfocus_full (by assumption)) ?_
+    rintro ⟨r1, ⟨⟩⟩ extr1 s1_ m1_ hext1 _ hlen1 ⟨hr1, hfl1, huns1, h02_1, h10_1⟩ hm1_
     lk1_hsteps_ns_run
     refine wp_join_group (ts := [i64]) LuckyRet ?_ ?_
     · rintro _ ⟨rA, ⟨⟩⟩ mA ⟨extA, srA, hlenA, hextA, hrA, hflA, hunsA, h02A, h10A, hmA⟩
@@ -492,9 +505,10 @@ local macro "lk1_late_scan_chain"
           · have hrb_eq : rB = 0#64 := by simpa using ‹_›
             obtain ⟨hinvB, hclB⟩ := h02B (Or.inl hrb_eq)
             lk1_hsteps_ns_run; lk1_call $hScan
-            refine ⟨$c, $F0, extB, srB, $R, rfl, hinvB.cfgOk, hinvB.extOk, hinvB.sparse, hclB,
-              hmB, ?_⟩
-            intro r3 ext3 sr3 m3' hlen3 hext3 hr3 hfl3' huns3 h02_3 h10_3 hm3'
+            dsimp only [luckyScanSpec]
+            refine M6HdrContract.intro hinvB.cfgOk hinvB.extOk hinvB.sparse.1.lengths
+              ⟨hinvB.sparse, hclB⟩ hmB ?_
+            rintro ⟨r3, ⟨⟩⟩ ext3 sr3 m3' hext3 _ hlen3 ⟨hr3, hfl3', huns3, h02_3, h10_3⟩ hm3'
             exact hJsF (r3, ()) m3' ⟨ext3, sr3, hlen3, hext3, hr3, Nat.le_trans hfl3' hflB, huns3,
               (fun h => let ⟨hi, hc⟩ := h02_3 h
                 ⟨FullM6HdrInv.mk_inv hinvB.cfgOk hext3 hi, hc⟩),
@@ -505,9 +519,10 @@ local macro "lk1_late_scan_chain"
         · have hra_eq : rA = 0#64 := by simpa using ‹_›
           obtain ⟨hinvA, hclA⟩ := h02A (Or.inl hra_eq)
           lk1_hsteps_ns_run; lk1_call $hScan
-          refine ⟨$c, $F0, extA, srA, $R, rfl, hinvA.cfgOk, hinvA.extOk, hinvA.sparse, hclA,
-            hmA, ?_⟩
-          intro r2 ext2 sr2 m2 hlen2 hext2 hr2 hfl2' huns2 h02_2 h10_2 hm2
+          dsimp only [luckyScanSpec]
+          refine M6HdrContract.intro hinvA.cfgOk hinvA.extOk hinvA.sparse.1.lengths
+            ⟨hinvA.sparse, hclA⟩ hmA ?_
+          rintro ⟨r2, ⟨⟩⟩ ext2 sr2 m2 hext2 _ hlen2 ⟨hr2, hfl2', huns2, h02_2, h10_2⟩ hm2
           exact hJsB (r2, ()) m2 ⟨ext2, sr2, hlen2, hext2, hr2, Nat.le_trans hfl2' hflA, huns2,
             (fun h => let ⟨hi, hc⟩ := h02_2 h
               ⟨FullM6HdrInv.mk_inv hinvA.cfgOk hext2 hi, hc⟩),
@@ -520,9 +535,11 @@ local macro "lk1_late_scan_chain"
         have hinv1_m : FullM6HdrInv $c $F0 extr1 s1_ :=
           FullM6HdrInv.mk_inv ($hinv3).cfgOk hext1 hinv1_
         lk1_hsteps_ns_run; lk1_call $hScan
-        refine ⟨$c, $F0, extr1, s1_, $R, rfl, hinv1_m.cfgOk, hinv1_m.extOk, hinv1_m.sparse, hcl1_,
-          hm1_, ?_⟩
-        intro r1b ext1b sr1b m1b hlen1b hext1b hr1b hfl1b huns1b h02_1b h10_1b hm1b
+        dsimp only [luckyScanSpec]
+        refine M6HdrContract.intro hinv1_m.cfgOk hinv1_m.extOk hinv1_m.sparse.1.lengths
+          ⟨hinv1_m.sparse, hcl1_⟩ hm1_ ?_
+        rintro ⟨r1b, ⟨⟩⟩ ext1b sr1b m1b hext1b _ hlen1b
+          ⟨hr1b, hfl1b, huns1b, h02_1b, h10_1b⟩ hm1b
         exact hJsA (r1b, ()) m1b ⟨ext1b, sr1b, hlen1b, hext1b, hr1b,
           Nat.le_trans hfl1b (Nat.le_trans hfl1 $hfl2), huns1b,
           (fun h => let ⟨hi, hc⟩ := h02_1b h
@@ -535,9 +552,9 @@ local macro "lk1_late_scan_chain"
           h10_1, hm1_⟩))
 
 theorem full_lucky_late_m7_wp (Γ : Env)
-    (hPolar : ∀ args m Q X, fullLuckyPolarM7Spec args m Q X →
+    (hPolar : ∀ args m Q X, luckyPolarSpec args m Q X →
       Γ "full_lucky_polar_m7" [i64] [i64] args m Q X)
-    (hScan : ∀ args m Q X, fullLuckyScanM6Spec args m Q X →
+    (hScan : ∀ args m Q X, luckyScanSpec args m Q X →
       Γ "full_lucky_scan" [i64, .bool, .bool] [i64] args m Q X)
     (hAssign : ∀ args m Q X, fullAssignSpec args m Q X →
       Γ "full_assign" [i64, i32, i32] [] args m Q X)
@@ -545,9 +562,21 @@ theorem full_lucky_late_m7_wp (Γ : Env)
       Γ "full_backtrack" [i64, i64] [] args m Q X)
     (hProp : ∀ args m Q X, PropSearch.Spec.propagateM6Spec args m Q X →
       Γ "full_propagate" [i64] [i64] args m Q X) :
-    ∀ a m Q X, fullLuckyLateM7Spec a m Q X →
+    ∀ a m Q X, luckySpec a m Q X →
       Func.wp Γ full_lucky_late_m7_body a m Q X := by
-  rintro ⟨h, ⟨⟩⟩ m Q X ⟨c, F0, ext, s, R, rfl, hinv, hm, hQ⟩
+  rintro ⟨h, ⟨⟩⟩ m Q X hs
+  unfold luckySpec at hs
+  obtain ⟨c, ext, s, F0, R, rfl, hcfg, hext, _, hsp, hm, hQ0⟩ := M6HdrContract.elim hs
+  have hinv : FullM6HdrInv c F0 ext s := ⟨hcfg, hext, hsp⟩
+  let hQ : ∀ r ext' s' m', s'.LengthsOk c → M6HdrExtOk ext' →
+      (r = 0#64 ∨ r = 2#64 ∨ r = 10#64 ∨ r = 20#64) → s'.core.fuel.toNat ≤ s.core.fuel.toNat →
+      s'.core.probing = 0#64 → (r = 20#64 → F0.Unsat) →
+      (r = 0#64 ∨ r = 2#64 → FullM6HdrInv c F0 ext' s' ∧ s'.core.cur_level = 0) →
+      (r = 10#64 → s'.scratch.extend_len ≤ c.extend_cap) →
+      (FullM6HdrMem c ext' s' ⋆ R) m' → Q (r, ()) m' :=
+    fun r ext' s' m' hlen' hext' hr hfl hpr h20 h02 h10 hm' =>
+      hQ0 (r, ()) ext' s' m' hext' trivial hlen'
+        ⟨hr, hfl, hpr, h20, (fun h02' => let ⟨hi, hc⟩ := h02 h02'; ⟨hi.sparse, hc⟩), h10⟩ hm'
   have hmaxv := c.hmaxv; unfold dimacsBound at hmaxv
   unfold Func.wp full_lucky_late_m7_body
   refine wp_m6Hdr_focus_frame hm fun hmf => ?_
@@ -574,9 +603,11 @@ theorem full_lucky_late_m7_wp (Γ : Env)
         have hinv3 := FullM6HdrInv.mk_inv hinv2.cfgOk hinv2.extOk
           (fullSparseInv_with_probing hinv2.sparse 1#64)
         lk1_call hPolar
-        refine ⟨c, F0, s3, array64 (c.hdr - 2304) ext2 ⋆ R, rfl, hinv3.sparse.1,
-          by assumption, ?_⟩
-        intro pol hpol; lk1_hsteps_ns_run; lk1_split
+        dsimp only [luckyPolarSpec]
+        refine FullContract.intro hinv3.sparse.1.lengths hinv3.sparse.1 (by assumption) ?_
+        rintro ⟨pol, ⟨⟩⟩ s3' m3' _ ⟨hs3_eq, hpol⟩ hm3'
+        subst s3'
+        lk1_hsteps_ns_run; lk1_split
         · lk1_hsteps_ns_run
           refine wp_loop_inv (ts := [i64]) (fun (idx, ()) ml => ∃ extl st,
             idx.toNat ≤ s3.core.cur_vars ∧ st.core.cur_vars = s3.core.cur_vars ∧
@@ -729,7 +760,7 @@ theorem full_lucky_late_m7_wp (Γ : Env)
                 hfl rfl (fun h => absurd h (by decide))
                 (fun h => by rcases h with h | h <;> cases h)
                 (fun _ => hsp'.2.2.2.1.2) (fullM6HdrMem_unfocus_full (by assumption))
-        · lk1_late_scan_chain c F0 ext2 s s3 R hScan hinv3 hcl2_0 hfl2 hQ
+        · lk1_late_scan_chain c F0 s R hScan hinv3 hcl2_0 hfl2 hQ
       · intro J2 hJ2; lk1_hsteps_ns_run; lk1_split
         · obtain ⟨F_cur1, hw1⟩ := hinv1.sparse.1.witness
           lk1_call hProp

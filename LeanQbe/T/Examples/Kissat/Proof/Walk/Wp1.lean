@@ -243,9 +243,15 @@ private theorem wp_loop_mem1 {Γ : Env} {rs ts : List Ty} {Q : Post rs} {X : XPo
 
 theorem full_walk_collect_m7_wp (Γ : Env)
     (hArena : Γ.Has "full_arena_next" fullArenaNextSpec) :
-    ∀ a m Q X, fullWalkCollectM7Spec a m Q X →
+    ∀ a m Q X, collectSpec a m Q X →
       Func.wp Γ full_walk_collect_m7_body a m Q X := by
-  rintro ⟨h, ⟨⟩⟩ m Q X ⟨c, s, R, rfl, hlen, hm, hQ⟩
+  intro a m Q X hs
+  unfold collectSpec scratchOnly at hs
+  have hs' := walk_fullContract_of_safetySlice hs
+    (fun c (h, _) _ => h = c.hdr) (fun _ _ _ s s' => FullExtScratchPres s s')
+    (fun _ _ _ _ _ hh => hh) (fun _ _ _ _ _ _ hc _ he => ⟨hc, he⟩)
+  rcases a with ⟨h, ⟨⟩⟩
+  rcases hs' with ⟨c, s, R, rfl, hlen, hm, hQ⟩
   dsimp only [fullSafetySlice] at hlen hm hQ
   have hmaxv := c.hmaxv; have hscr := c.hscr; have hwcap := c.hwcap; have har := c.harena
   unfold dimacsBound at hmaxv hscr hwcap har
@@ -644,9 +650,15 @@ private theorem bv64_occ_cnt_le {scap : Nat} {ncl off : BitVec 64} {cnt : BitVec
 /-! ## 2. `full_walk_build_occ_m7` -/
 
 theorem full_walk_build_occ_m7_wp (Γ : Env) :
-    ∀ a m Q X, fullWalkBuildOccM7Spec a m Q X →
-      Func.wp Γ full_walk_build_occ_m7_body a m Q X := by
-  rintro ⟨h, ncl, ⟨⟩⟩ m Q X ⟨c, s, R, rfl, hlen, hm, hQ⟩
+    ∀ a m Q X, buildOccSpec a m Q X → Func.wp Γ full_walk_build_occ_m7_body a m Q X := by
+  intro a m Q X hs
+  unfold buildOccSpec at hs
+  have hs' := walk_fullContract_of_safetySlice hs
+    (fun c (h, _) _ => h = c.hdr)
+    (fun _ (_, ncl, ()) (r, ()) s s' =>
+      FullExtScratchPres s s' ∧ WalkScrPrefixPres s s' ∧ r.toNat ≤ ncl.toNat)
+    (fun _ _ _ _ _ hh => hh) (fun _ _ _ _ _ _ hc _ ⟨he, hp, hle⟩ => ⟨hc, he, hp, hle⟩)
+  rcases a with ⟨h, ncl, ⟨⟩⟩; rcases hs' with ⟨c, s, R, rfl, hlen, hm, hQ⟩
   dsimp only [fullSafetySlice] at hlen hm hQ
   have hmaxv := c.hmaxv; have hscr := c.hscr; have har := c.harena
   unfold dimacsBound at hmaxv hscr har
@@ -677,16 +689,14 @@ theorem full_walk_build_occ_m7_wp (Γ : Env) :
     (fun st1 (ulen, cb, ()) => FullExtScratchPres s st1 ∧ WalkScrPrefixPres s st1 ∧
       ulen.toNat ≤ ncl.toNat ∧ cb.toNat ≤ ncl.toNat)
     (fun (_ulen, cb, ()) => ncl.toNat - cb.toNat) ?_ ?_
-  · intro J1 hJ1; c0_hsteps
-    exact hJ1 s (0#64, 0#64, ()) m hm rfl hlen
+  · intro J1 hJ1; c0_hsteps; exact hJ1 s (0#64, 0#64, ()) m hm rfl hlen
       ⟨⟨rfl, rfl⟩, walkScrPrefixPres_refl s, Nat.zero_le _, Nat.zero_le _⟩
   · rintro J1 st1 ⟨ulen, cb, ⟨⟩⟩ m1 hcore1 hlen1 _ ⟨hext1, hpre1, hulen_le, hcb_le⟩ hm1 hJ1
     rw [Blocks.get_here]; dsimp only [fullSafetySlice] at hcore1 hlen1 hm1 hJ1
     have hsb1 := hlen1.scratch_ok.scratch_buf_len; have hval1 := hlen1.core_ok.vals_len
     have hwv1 := hlen1.scratch_ok.walk_vals_len; have htrc1 := hlen1.scratch_ok.tarjan_reach_len
     have har1 := hlen1.core_ok.arena_len_arr; have hal_le1 := hlen1.core_ok.arena_len_le
-    have hal_eq1 : st1.core.arena_len = s.core.arena_len :=
-      congrArg FullCoreState.arena_len hcore1
+    have hal_eq1 : st1.core.arena_len = s.core.arena_len := congrArg FullCoreState.arena_len hcore1
     c0_hsteps_nogrp
     · have hcb_lt : cb.toNat < ncl.toNat := by c0_bound
       have hw0_lt : (2200#64 + (cb <<< (1 : Nat))).toNat < st1.scratch.scratch_buf.length := by
@@ -696,8 +706,7 @@ theorem full_walk_build_occ_m7_wp (Γ : Env) :
         rw [hsb1, bv64_2200_shl1_1 (by omega)]; omega
       let w0 := st1.scratch.scratch_buf[(2200#64 + (cb <<< (1 : Nat))).toNat]'hw0_lt
       let w1 := st1.scratch.scratch_buf[(2200#64 + (cb <<< (1 : Nat)) + 1#64).toNat]'hw1_lt
-      refine wp_join_safety_slice (ts := [i32]) (fullSafetySlice c) st1 R
-        (fun _ => True) trivial
+      refine wp_join_safety_slice (ts := [i32]) (fullSafetySlice c) st1 R (fun _ => True) trivial
         (fun st2 _ => FullExtScratchPres s st2 ∧ WalkScrPrefixPres s st2) ?_ ?_
       · rintro Jsc st2 ⟨sc, ⟨⟩⟩ m2 hcore2 hlen2 _ ⟨hext2, hpre2⟩ hm2
         rw [Blocks.get_here]; dsimp only [fullSafetySlice] at hcore2 hlen2 hm2
@@ -796,8 +805,8 @@ theorem full_walk_build_occ_m7_wp (Γ : Env) :
                     (fun stj (sc, j, ()) => FullExtScratchPres s stj ∧
                       WalkScrPrefixPres s stj ∧ j.toNat ≤ csz.toNat)
                     (fun (_sc, j, ()) => csz.toNat - j.toNat) ?_ ?_
-                  · intro Jj hJj; c0_hfast
-                    exact hJj st1 (0#32, 0#32, ()) m1 hm1 rfl hlen1 ⟨hext1, hpre1, Nat.zero_le _⟩
+                  · intro Jj hJj; c0_hfast; exact hJj st1 (0#32, 0#32, ()) m1 hm1 rfl hlen1
+                      ⟨hext1, hpre1, Nat.zero_le _⟩
                   · rintro Jj stj ⟨sc, j, ⟨⟩⟩ mj hcorej hlenj _ ⟨hextj, hprej, hj_le⟩ hmj hJj
                     rw [Blocks.get_here]; dsimp only [fullSafetySlice] at hcorej hlenj hmj hJj
                     have harj := hlenj.core_ok.arena_len_arr
@@ -843,8 +852,7 @@ theorem full_walk_build_occ_m7_wp (Γ : Env) :
         (fun st2 (off, l, ()) => FullExtScratchPres s st2 ∧ WalkScrPrefixPres s st2 ∧
           off.toNat ≤ c.scratch_cap - (2200 + 5 * ncl.toNat) ∧ l.toNat ≤ 2 * s.core.cur_vars)
         (fun (_off, l, ()) => 2 * s.core.cur_vars - l.toNat) ?_ ?_
-      · intro J2 hJ2; c0_hfast
-        exact hJ2 st1 (0#64, 0#64, ()) m1 hm1 rfl hlen1
+      · intro J2 hJ2; c0_hfast; exact hJ2 st1 (0#64, 0#64, ()) m1 hm1 rfl hlen1
           ⟨hext1, hpre1, Nat.zero_le _, Nat.zero_le _⟩
       · rintro J2 st2 ⟨off, l, ⟨⟩⟩ m2 hcore2 hlen2 _ ⟨hext2, hpre2, hoff, hl_le⟩ hm2 hJ2
         rw [Blocks.get_here]; dsimp only [fullSafetySlice] at hcore2 hlen2 hm2 hJ2
@@ -896,8 +904,8 @@ theorem full_walk_build_occ_m7_wp (Γ : Env) :
             (fun st3 (cb3, ()) => FullExtScratchPres s st3 ∧ WalkScrPrefixPres s st3 ∧
               cb3.toNat ≤ ncl.toNat)
             (fun (cb3, ()) => ncl.toNat - cb3.toNat) ?_ ?_
-          · intro J3 hJ3; c0_hfast
-            exact hJ3 st2 (0#64, ()) m2 hm2 rfl hlen2 ⟨hext2, hpre2, Nat.zero_le _⟩
+          · intro J3 hJ3; c0_hfast; exact hJ3 st2 (0#64, ()) m2 hm2 rfl hlen2
+              ⟨hext2, hpre2, Nat.zero_le _⟩
           · rintro J3 st3 ⟨cb3, ⟨⟩⟩ m3 hcore3 hlen3 _ ⟨hext3, hpre3, hcb3_le⟩ hm3 hJ3
             rw [Blocks.get_here]; dsimp only [fullSafetySlice] at hcore3 hlen3 hm3 hJ3
             have hsb3 := hlen3.scratch_ok.scratch_buf_len; have hval3 := hlen3.core_ok.vals_len
@@ -936,9 +944,8 @@ theorem full_walk_build_occ_m7_wp (Γ : Env) :
                     refine wp_join_safety_slice (ts := []) (fullSafetySlice c) st4 R
                       (fun _ => True) trivial
                       (fun st5 _ => FullExtScratchPres s st5 ∧ WalkScrPrefixPres s st5) ?_ ?_
-                    · rintro Js st5 ⟨⟩ m5 hcore5 hlen5 _ ⟨hext5, hpre5⟩ hm5
-                      rw [Blocks.get_here]; c0_hfast
-                      exact hJnx st5 () m5 hm5 (hcore4.trans hcore5) hlen5 ⟨hext5, hpre5⟩
+                    · rintro Js st5 ⟨⟩ m5 hcore5 hlen5 _ ⟨hext5, hpre5⟩ hm5; rw [Blocks.get_here]
+                      c0_hfast; exact hJnx st5 () m5 hm5 (hcore4.trans hcore5) hlen5 ⟨hext5, hpre5⟩
                     · intro Js hJs; dsimp only [fullSafetySlice] at hJs; clear hQ hJ1 hJ2
                       c0_hsplit
                       · have hl1_lt : w1.toNat < 2 * s.core.cur_vars := by
@@ -994,9 +1001,8 @@ theorem full_walk_build_occ_m7_wp (Γ : Env) :
                 · refine wp_join_safety_slice (ts := []) (fullSafetySlice c) st3 R
                     (fun _ => True) trivial
                     (fun st4 _ => FullExtScratchPres s st4 ∧ WalkScrPrefixPres s st4) ?_ ?_
-                  · rintro Jnx2 st4 ⟨⟩ m4 hcore4 hlen4 _ ⟨hext4, hpre4⟩ hm4
-                    rw [Blocks.get_here]; c0_hfast
-                    exact hJnx st4 () m4 hm4 hcore4 hlen4 ⟨hext4, hpre4⟩
+                  · rintro Jnx2 st4 ⟨⟩ m4 hcore4 hlen4 _ ⟨hext4, hpre4⟩ hm4; rw [Blocks.get_here]
+                    c0_hfast; exact hJnx st4 () m4 hm4 hcore4 hlen4 ⟨hext4, hpre4⟩
                   · intro Jnx2 hJnx2; dsimp only [fullSafetySlice] at hJnx2; c0_hfast_nogrp
                     · have hw0_end : w0.toNat + 3 ≤ s.core.arena_len := by
                         have hz := bv32_lit_toNat_mod64 w0; dsimp only [w0] at hz ⊢
@@ -1022,15 +1028,14 @@ theorem full_walk_build_occ_m7_wp (Γ : Env) :
                             (fun stj (j, ()) => FullExtScratchPres s stj ∧
                               WalkScrPrefixPres s stj ∧ j.toNat ≤ csz.toNat)
                             (fun (j, ()) => csz.toNat - j.toNat) ?_ ?_
-                          · intro Jj hJj; c0_hfast
-                            exact hJj st3 (0#32, ()) m3 hm3 rfl hlen3 ⟨hext3, hpre3, Nat.zero_le _⟩
+                          · intro Jj hJj; c0_hfast; exact hJj st3 (0#32, ()) m3 hm3 rfl hlen3
+                              ⟨hext3, hpre3, Nat.zero_le _⟩
                           · rintro Jj stj ⟨j, ⟨⟩⟩ mj hcorej hlenj _ ⟨hextj, hprej, hj_le⟩ hmj hJj
                             rw [Blocks.get_here]
                             dsimp only [fullSafetySlice] at hcorej hlenj hmj hJj
                             have harj := hlenj.core_ok.arena_len_arr
                             have hsbj := hlenj.scratch_ok.scratch_buf_len
-                            have hwsj := hlenj.scratch_ok.wsort_len
-                            clear hQ hJ1 hJ2
+                            have hwsj := hlenj.scratch_ok.wsort_len; clear hQ hJ1 hJ2
                             c0_hsplit
                             · have hj_lt : j.toNat < csz.toNat := by dsimp only [csz, w0]; c0_bound
                               have hlit_ar : (w0.setWidth 64 + 3#64 + j.setWidth 64).toNat <

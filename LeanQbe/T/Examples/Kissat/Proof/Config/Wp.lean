@@ -5,6 +5,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 module
 
 public import LeanQbe.T.Examples.Kissat.Proof.Config.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Header
 public import LeanQbe.T.Examples.Kissat.Src.Config
 public import LeanQbe.T.Logic.CanonicalEnv
@@ -40,57 +41,64 @@ open scoped LeanQbe.T.Examples.Kissat.Proof.Spec.M6HdrTactics
 
 local macro "cfg_mask_wp" body:ident : tactic =>
   `(tactic| (
-    rintro ⟨⟩ m Q X hQ
+    rintro ⟨⟩ m Q X hs
+    obtain ⟨_, hQ⟩ := PureContract.elim (X := X) hs
     unfold Func.wp $body
     c0_hsteps
-    exact (congrArg (fun v => Q (v, ()) m) (by decide)).mpr hQ))
+    refine hQ _ ?_
+    decide))
 
 local macro "cfg_preset_set_wp" body:ident hSetWm:ident : tactic =>
   `(tactic| (
     rintro ⟨h, ⟨⟩⟩ m Q X hs
-    obtain ⟨c, ext, s, R, rfl, hcfg, hext, hlen, hm, hQ⟩ := m6HdrW2aSpec_elim hs
+    unfold presetSetSpec hdrContract at hs
+    obtain ⟨c, ext, s, ⟨⟩, R, rfl, hcfg, hext, hlen, _, hm, hQ⟩ := M6HdrContract.elim hs
     unfold Func.wp $body
     c0_hsteps_nogrp
     m6h_call $hSetWm
     refine m6HdrW2aSpec_of rfl hcfg hext hlen hm
       fun () ext1 s1 m1 hcore1 hlen1 hsc1 hext1 hw1 hm1 => ?_
     c0_hsteps
-    exact hQ () ext1 s1 m1 hcore1 hlen1 hsc1 hext1 hw1 hm1))
+    exact hQ () ext1 s1 m1 hext1 hw1 hlen1
+      ⟨hcore1, hsc1.probePres, trivial⟩ hm1))
 
-local macro "cfg_set_branch" hFn:ident cfg_id:ident hQ:ident cid:term : tactic =>
+local macro "cfg_set_branch" hFn:ident cfg_id:ident hcfg:ident hext:ident hlen:ident hm:ident
+    hQ:ident cid:term : tactic =>
   `(tactic| (
     m6h_call $hFn
-    refine m6HdrW2aSpec_of rfl (by assumption) (by assumption) (by assumption) (by assumption)
-      fun () ext1 s1 m1 hcore1 hlen1 hsc1 hext1 hw1 hm1 => ?_
+    dsimp only [presetSetSpec]
+    refine M6HdrContract.intro (w := PUnit.unit) $hcfg $hext $hlen trivial $hm
+      fun () ext1 s1 m1 hext1 hw1 hlen1 hpost1 hm1 => ?_
+    rcases hpost1 with ⟨hcore1, hsc1, _⟩
     c0_hsteps
-    refine $hQ (true, ()) ext1 s1 m1 hcore1 hlen1 hsc1 hext1 hw1 ?_ hm1
+    refine $hQ (true, ()) ext1 s1 m1 hext1 hw1 hlen1 ⟨hcore1, hsc1, ?_⟩ hm1
     have hid : $cfg_id = $cid := by assumption
     subst hid; dsimp only; decide))
 
 /-! ## 1. Pure Preset Mask Accessors (`5` Functions) -/
 
 theorem kissat_config_mask_default_wp (Γ : Env) :
-    ∀ a m Q X, cfgMaskSpec cfgDefault a m Q X →
+    ∀ a m Q X, maskSpec cfgDefault a m Q X →
       Func.wp Γ kissat_config_mask_default_body a m Q X := by
   cfg_mask_wp kissat_config_mask_default_body
 
 theorem kissat_config_mask_plain_wp (Γ : Env) :
-    ∀ a m Q X, cfgMaskSpec cfgPlain a m Q X →
+    ∀ a m Q X, maskSpec cfgPlain a m Q X →
       Func.wp Γ kissat_config_mask_plain_body a m Q X := by
   cfg_mask_wp kissat_config_mask_plain_body
 
 theorem kissat_config_mask_basic_wp (Γ : Env) :
-    ∀ a m Q X, cfgMaskSpec cfgBasic a m Q X →
+    ∀ a m Q X, maskSpec cfgBasic a m Q X →
       Func.wp Γ kissat_config_mask_basic_body a m Q X := by
   cfg_mask_wp kissat_config_mask_basic_body
 
 theorem kissat_config_mask_sat_wp (Γ : Env) :
-    ∀ a m Q X, cfgMaskSpec cfgSat a m Q X →
+    ∀ a m Q X, maskSpec cfgSat a m Q X →
       Func.wp Γ kissat_config_mask_sat_body a m Q X := by
   cfg_mask_wp kissat_config_mask_sat_body
 
 theorem kissat_config_mask_unsat_wp (Γ : Env) :
-    ∀ a m Q X, cfgMaskSpec cfgUnsat a m Q X →
+    ∀ a m Q X, maskSpec cfgUnsat a m Q X →
       Func.wp Γ kissat_config_mask_unsat_body a m Q X := by
   cfg_mask_wp kissat_config_mask_unsat_body
 
@@ -98,144 +106,160 @@ theorem kissat_config_mask_unsat_wp (Γ : Env) :
 
 theorem kissat_config_get_wp (Γ : Env)
     (hGetWm : Γ.Has "m6_hdr_get_watermark" (m6HdrW2aSpec [i64] [i64])) :
-    ∀ a m Q X, cfgGetSpec a m Q X →
+    ∀ a m Q X, getSpec a m Q X →
       Func.wp Γ kissat_config_get_body a m Q X := by
   rintro ⟨h, ⟨⟩⟩ m Q X hs
-  obtain ⟨c, ext, s, R, rfl, hcfg, hext, hlen, hm, hQ⟩ := configW2aSpec_elim hs
+  unfold getSpec hdrContract at hs
+  obtain ⟨c, ext, s, ⟨⟩, R, rfl, hcfg, hext, hlen, _, hm, hQ⟩ := M6HdrContract.elim hs
   unfold Func.wp kissat_config_get_body
   c0_hsteps_nogrp
   m6h_call hGetWm
   refine m6HdrW2aSpec_of rfl hcfg hext hlen hm
     fun (w, ()) ext1 s1 m1 hcore1 hlen1 hsc1 hext1 hw1 hm1 => ?_
   c0_hsteps
-  · refine hQ (cfgDefault, ()) ext1 s1 m1 hcore1 hlen1 hsc1 hext1 hw1 ?_ hm1
+  · refine hQ (cfgDefault, ()) ext1 s1 m1 hext1 hw1 hlen1
+      ⟨hcore1, hsc1.probePres, ?_⟩ hm1
     decide
-  · refine hQ (w, ()) ext1 s1 m1 hcore1 hlen1 hsc1 hext1 hw1 ?_ hm1
+  · refine hQ (w, ()) ext1 s1 m1 hext1 hw1 hlen1
+      ⟨hcore1, hsc1.probePres, ?_⟩ hm1
     rwa [show cfgFlagInit = 1#64 <<< (63 : Nat) from by decide]
 
 theorem kissat_config_flag_wp (Γ : Env)
-    (hGet : Γ.Has "kissat_config_get" cfgGetSpec) :
-    ∀ a m Q X, cfgFlagSpec a m Q X →
+    (hGet : Γ.Has "kissat_config_get" getSpec) :
+    ∀ a m Q X, flagSpec a m Q X →
       Func.wp Γ kissat_config_flag_body a m Q X := by
   rintro ⟨h, mask, ⟨⟩⟩ m Q X hs
-  obtain ⟨c, ext, s, R, rfl, hcfg, hext, hlen, hm, hQ⟩ := m6HdrW2aSpec_elim hs
+  unfold flagSpec hdrContract at hs
+  obtain ⟨c, ext, s, ⟨⟩, R, rfl, hcfg, hext, hlen, _, hm, hQ⟩ := M6HdrContract.elim hs
   unfold Func.wp kissat_config_flag_body
   c0_hsteps_nogrp
   m6h_call hGet
-  refine configW2aSpec_of rfl hcfg hext hlen hm
-    fun (w, ()) ext1 s1 m1 hcore1 hlen1 hsc1 hext1 hw1 _ hm1 => ?_
+  dsimp only [getSpec]
+  refine M6HdrContract.intro (w := PUnit.unit) hcfg hext hlen trivial hm
+    fun (w, ()) ext1 s1 m1 hext1 hw1 hlen1 ⟨hcore1, hsc1, _⟩ hm1 => ?_
   c0_hsteps
-  all_goals exact hQ _ ext1 s1 m1 hcore1 hlen1 hsc1 hext1 hw1 hm1
+  all_goals exact hQ _ ext1 s1 m1 hext1 hw1 hlen1 ⟨hcore1, hsc1, trivial⟩ hm1
 
 theorem kissat_config_stable_wp (Γ : Env)
-    (hGet : Γ.Has "kissat_config_get" cfgGetSpec) :
-    ∀ a m Q X, cfgStableSpec a m Q X →
+    (hGet : Γ.Has "kissat_config_get" getSpec) :
+    ∀ a m Q X, stableSpec a m Q X →
       Func.wp Γ kissat_config_stable_body a m Q X := by
   rintro ⟨h, ⟨⟩⟩ m Q X hs
-  obtain ⟨c, ext, s, R, rfl, hcfg, hext, hlen, hm, hQ⟩ := configW2aSpec_elim hs
+  unfold stableSpec hdrContract at hs
+  obtain ⟨c, ext, s, ⟨⟩, R, rfl, hcfg, hext, hlen, _, hm, hQ⟩ := M6HdrContract.elim hs
   unfold Func.wp kissat_config_stable_body
   c0_hsteps_nogrp
   m6h_call hGet
-  refine configW2aSpec_of rfl hcfg hext hlen hm
-    fun (w, ()) ext1 s1 m1 hcore1 hlen1 hsc1 hext1 hw1 _ hm1 => ?_
+  dsimp only [getSpec]
+  refine M6HdrContract.intro (w := PUnit.unit) hcfg hext hlen trivial hm
+    fun (w, ()) ext1 s1 m1 hext1 hw1 hlen1 ⟨hcore1, hsc1, _⟩ hm1 => ?_
   c0_hsteps
-  · exact hQ (cfgStablePlainVal, ()) ext1 s1 m1 hcore1 hlen1 hsc1 hext1 hw1
-      (Or.inr (Or.inr rfl)) hm1
-  · exact hQ (cfgStableUnsatVal, ()) ext1 s1 m1 hcore1 hlen1 hsc1 hext1 hw1 (Or.inl rfl) hm1
-  · exact hQ (cfgStableDefaultVal, ()) ext1 s1 m1 hcore1 hlen1 hsc1 hext1 hw1
-      (Or.inr (Or.inl rfl)) hm1
+  · exact hQ (cfgStablePlainVal, ()) ext1 s1 m1 hext1 hw1 hlen1
+      ⟨hcore1, hsc1, Or.inr (Or.inr rfl)⟩ hm1
+  · exact hQ (cfgStableUnsatVal, ()) ext1 s1 m1 hext1 hw1 hlen1
+      ⟨hcore1, hsc1, Or.inl rfl⟩ hm1
+  · exact hQ (cfgStableDefaultVal, ()) ext1 s1 m1 hext1 hw1 hlen1
+      ⟨hcore1, hsc1, Or.inr (Or.inl rfl)⟩ hm1
 
 theorem kissat_config_target_wp (Γ : Env)
-    (hGet : Γ.Has "kissat_config_get" cfgGetSpec) :
-    ∀ a m Q X, cfgTargetSpec a m Q X →
+    (hGet : Γ.Has "kissat_config_get" getSpec) :
+    ∀ a m Q X, targetSpec a m Q X →
       Func.wp Γ kissat_config_target_body a m Q X := by
   rintro ⟨h, ⟨⟩⟩ m Q X hs
-  obtain ⟨c, ext, s, R, rfl, hcfg, hext, hlen, hm, hQ⟩ := configW2aSpec_elim hs
+  unfold targetSpec hdrContract at hs
+  obtain ⟨c, ext, s, ⟨⟩, R, rfl, hcfg, hext, hlen, _, hm, hQ⟩ := M6HdrContract.elim hs
   unfold Func.wp kissat_config_target_body
   c0_hsteps_nogrp
   m6h_call hGet
-  refine configW2aSpec_of rfl hcfg hext hlen hm
-    fun (w, ()) ext1 s1 m1 hcore1 hlen1 hsc1 hext1 hw1 _ hm1 => ?_
+  dsimp only [getSpec]
+  refine M6HdrContract.intro (w := PUnit.unit) hcfg hext hlen trivial hm
+    fun (w, ()) ext1 s1 m1 hext1 hw1 hlen1 ⟨hcore1, hsc1, _⟩ hm1 => ?_
   c0_hsteps
-  · exact hQ (cfgTargetSatVal, ()) ext1 s1 m1 hcore1 hlen1 hsc1 hext1 hw1 (Or.inr rfl) hm1
-  · exact hQ (cfgTargetDefault, ()) ext1 s1 m1 hcore1 hlen1 hsc1 hext1 hw1 (Or.inl rfl) hm1
+  · exact hQ (cfgTargetSatVal, ()) ext1 s1 m1 hext1 hw1 hlen1 ⟨hcore1, hsc1, Or.inr rfl⟩ hm1
+  · exact hQ (cfgTargetDefault, ()) ext1 s1 m1 hext1 hw1 hlen1 ⟨hcore1, hsc1, Or.inl rfl⟩ hm1
 
 theorem kissat_config_restartint_wp (Γ : Env)
-    (hGet : Γ.Has "kissat_config_get" cfgGetSpec) :
-    ∀ a m Q X, cfgRestartintSpec a m Q X →
+    (hGet : Γ.Has "kissat_config_get" getSpec) :
+    ∀ a m Q X, restartintSpec a m Q X →
       Func.wp Γ kissat_config_restartint_body a m Q X := by
   rintro ⟨h, ⟨⟩⟩ m Q X hs
-  obtain ⟨c, ext, s, R, rfl, hcfg, hext, hlen, hm, hQ⟩ := configW2aSpec_elim hs
+  unfold restartintSpec hdrContract at hs
+  obtain ⟨c, ext, s, ⟨⟩, R, rfl, hcfg, hext, hlen, _, hm, hQ⟩ := M6HdrContract.elim hs
   unfold Func.wp kissat_config_restartint_body
   c0_hsteps_nogrp
   m6h_call hGet
-  refine configW2aSpec_of rfl hcfg hext hlen hm
-    fun (w, ()) ext1 s1 m1 hcore1 hlen1 hsc1 hext1 hw1 _ hm1 => ?_
+  dsimp only [getSpec]
+  refine M6HdrContract.intro (w := PUnit.unit) hcfg hext hlen trivial hm
+    fun (w, ()) ext1 s1 m1 hext1 hw1 hlen1 ⟨hcore1, hsc1, _⟩ hm1 => ?_
   c0_hsteps
-  · exact hQ (cfgRestartintSatVal, ()) ext1 s1 m1 hcore1 hlen1 hsc1 hext1 hw1 (Or.inr rfl) hm1
-  · exact hQ (cfgRestartintDefault, ()) ext1 s1 m1 hcore1 hlen1 hsc1 hext1 hw1 (Or.inl rfl) hm1
+  · exact hQ (cfgRestartintSatVal, ()) ext1 s1 m1 hext1 hw1 hlen1
+      ⟨hcore1, hsc1, Or.inr rfl⟩ hm1
+  · exact hQ (cfgRestartintDefault, ()) ext1 s1 m1 hext1 hw1 hlen1
+      ⟨hcore1, hsc1, Or.inl rfl⟩ hm1
 
 /-! ## 3. Preset Writers (`5` Functions) -/
 
 theorem kissat_config_default_wp (Γ : Env)
     (hSetWm : Γ.Has "m6_hdr_set_watermark" (m6HdrW2aSpec [i64, i64] [])) :
-    ∀ a m Q X, cfgPresetSetSpec a m Q X →
+    ∀ a m Q X, presetSetSpec a m Q X →
       Func.wp Γ kissat_config_default_body a m Q X := by
   cfg_preset_set_wp kissat_config_default_body hSetWm
 
 theorem kissat_config_plain_wp (Γ : Env)
     (hSetWm : Γ.Has "m6_hdr_set_watermark" (m6HdrW2aSpec [i64, i64] [])) :
-    ∀ a m Q X, cfgPresetSetSpec a m Q X →
+    ∀ a m Q X, presetSetSpec a m Q X →
       Func.wp Γ kissat_config_plain_body a m Q X := by
   cfg_preset_set_wp kissat_config_plain_body hSetWm
 
 theorem kissat_config_basic_wp (Γ : Env)
     (hSetWm : Γ.Has "m6_hdr_set_watermark" (m6HdrW2aSpec [i64, i64] [])) :
-    ∀ a m Q X, cfgPresetSetSpec a m Q X →
+    ∀ a m Q X, presetSetSpec a m Q X →
       Func.wp Γ kissat_config_basic_body a m Q X := by
   cfg_preset_set_wp kissat_config_basic_body hSetWm
 
 theorem kissat_config_sat_wp (Γ : Env)
     (hSetWm : Γ.Has "m6_hdr_set_watermark" (m6HdrW2aSpec [i64, i64] [])) :
-    ∀ a m Q X, cfgPresetSetSpec a m Q X →
+    ∀ a m Q X, presetSetSpec a m Q X →
       Func.wp Γ kissat_config_sat_body a m Q X := by
   cfg_preset_set_wp kissat_config_sat_body hSetWm
 
 theorem kissat_config_unsat_wp (Γ : Env)
     (hSetWm : Γ.Has "m6_hdr_set_watermark" (m6HdrW2aSpec [i64, i64] [])) :
-    ∀ a m Q X, cfgPresetSetSpec a m Q X →
+    ∀ a m Q X, presetSetSpec a m Q X →
       Func.wp Γ kissat_config_unsat_body a m Q X := by
   cfg_preset_set_wp kissat_config_unsat_body hSetWm
 
 /-! ## 4. Runtime Preset Dispatch (`2` Functions) -/
 
 theorem kissat_config_has_id_wp (Γ : Env) :
-    ∀ a m Q X, cfgHasIdSpec a m Q X →
+    ∀ a m Q X, hasIdSpec a m Q X →
       Func.wp Γ kissat_config_has_id_body a m Q X := by
-  rintro ⟨cfg_id, ⟨⟩⟩ m Q X hQ
+  rintro ⟨cfg_id, ⟨⟩⟩ m Q X hs
+  obtain ⟨_, hQ⟩ := PureContract.elim (X := X) hs
   unfold Func.wp kissat_config_has_id_body
   c0_hsteps
-  exact hQ
+  exact hQ _ rfl
 
 theorem kissat_set_configuration_wp (Γ : Env)
-    (hDef : Γ.Has "kissat_config_default" cfgPresetSetSpec)
-    (hPlain : Γ.Has "kissat_config_plain" cfgPresetSetSpec)
-    (hBasic : Γ.Has "kissat_config_basic" cfgPresetSetSpec)
-    (hSat : Γ.Has "kissat_config_sat" cfgPresetSetSpec)
-    (hUnsat : Γ.Has "kissat_config_unsat" cfgPresetSetSpec) :
-    ∀ a m Q X, cfgSetConfigSpec a m Q X →
+    (hDef : Γ.Has "kissat_config_default" presetSetSpec)
+    (hPlain : Γ.Has "kissat_config_plain" presetSetSpec)
+    (hBasic : Γ.Has "kissat_config_basic" presetSetSpec)
+    (hSat : Γ.Has "kissat_config_sat" presetSetSpec)
+    (hUnsat : Γ.Has "kissat_config_unsat" presetSetSpec) :
+    ∀ a m Q X, setConfigurationSpec a m Q X →
       Func.wp Γ kissat_set_configuration_body a m Q X := by
   rintro ⟨h, cfg_id, ⟨⟩⟩ m Q X hs
-  obtain ⟨c, ext, s, R, rfl, hcfg, hext, hlen, hm, hQ⟩ := configW2aSpec_elim hs
+  unfold setConfigurationSpec hdrContract at hs
+  obtain ⟨c, ext, s, ⟨⟩, R, rfl, hcfg, hext, hlen, _, hm, hQ⟩ := M6HdrContract.elim hs
   unfold Func.wp kissat_set_configuration_body
   c0_hsteps_nogrp
-  · cfg_set_branch hDef cfg_id hQ 0#64
-  · cfg_set_branch hPlain cfg_id hQ 1#64
-  · cfg_set_branch hBasic cfg_id hQ 2#64
-  · cfg_set_branch hSat cfg_id hQ 3#64
-  · cfg_set_branch hUnsat cfg_id hQ 4#64
-  · refine hQ (false, ()) ext s m rfl hlen (M6HdrScratchPres.refl s) hext
-      (fun hi => ⟨hi, M6ExtW2bPres.refl ext⟩) ?_ hm
+  · cfg_set_branch hDef cfg_id hcfg hext hlen hm hQ 0#64
+  · cfg_set_branch hPlain cfg_id hcfg hext hlen hm hQ 1#64
+  · cfg_set_branch hBasic cfg_id hcfg hext hlen hm hQ 2#64
+  · cfg_set_branch hSat cfg_id hcfg hext hlen hm hQ 3#64
+  · cfg_set_branch hUnsat cfg_id hcfg hext hlen hm hQ 4#64
+  · refine hQ (false, ()) ext s m hext (fun hi => ⟨hi, M6ExtW2bPres.refl ext⟩) hlen
+      ⟨CorePres.refl s, ⟨⟨rfl, rfl⟩, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩, ?_⟩ hm
     have hgt : 4 < cfg_id.toNat := by
       have h0 : cfg_id ≠ 0#64 := by assumption
       have h1 : cfg_id ≠ 1#64 := by assumption

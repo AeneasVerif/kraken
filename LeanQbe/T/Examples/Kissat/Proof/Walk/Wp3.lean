@@ -9,6 +9,7 @@ public import LeanQbe.T.Examples.Kissat.Proof.Decide.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Dense.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Float64.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Forward.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
 public import LeanQbe.T.Examples.Kissat.Proof.PropSearch.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Walk.Helpers
 public import LeanQbe.T.Examples.Kissat.Proof.Walk.Spec
@@ -126,31 +127,33 @@ private theorem fullSparseInv_of_scratch {c : FullCfg} {F0 : CNF Nat} {s s' : Fu
 
 private theorem walk_call_init_vals {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     {m : Mem 64} {args : Tup (Arg Val) [i64]} {k : Tup Val [] → Expr Val Cont rs}
-    (hIv : Γ.Has "full_walk_init_vals_m7" fullWalkInitValsM7Spec)
+    (hIv : Γ.Has "full_walk_init_vals_m7" initValsSpec)
     {c : FullCfg} {s : FullState} {R : Mem 64 → Prop}
     (hargs : vals args = (c.hdr, ())) (hlen : s.LengthsOk c) (hm : (FullMem c s ⋆ R) m)
     (hk : ∀ s' m', s'.core = s.core → s'.LengthsOk c → FullExtScratchPres s s' →
       (FullMem c s' ⋆ R) m' → wp Γ Q X (k ()) m') :
     wp Γ Q X (.call "full_walk_init_vals_m7" args k) m := by
   refine wp_call_of_spec args k ?_; rw [hargs]
-  exact hIv _ _ _ _ ⟨c, s, R, rfl, hlen, hm, fun _ s' m' hc hs' hext hm' =>
-    hk s' m' hc hs' hext hm'⟩
+  refine hIv _ _ _ _ ?_; dsimp only [initValsSpec, scratchOnly]
+  exact FullContract.intro (w := PUnit.unit) hlen trivial hm fun () s' m' hs' ⟨hc, hext⟩ hm' =>
+    hk s' m' hc hs' hext hm'
 
 private theorem walk_call_collect {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     {m : Mem 64} {args : Tup (Arg Val) [i64]} {k : Tup Val [i64] → Expr Val Cont rs}
-    (hCol : Γ.Has "full_walk_collect_m7" fullWalkCollectM7Spec)
+    (hCol : Γ.Has "full_walk_collect_m7" collectSpec)
     {c : FullCfg} {s : FullState} {R : Mem 64 → Prop}
     (hargs : vals args = (c.hdr, ())) (hlen : s.LengthsOk c) (hm : (FullMem c s ⋆ R) m)
     (hk : ∀ r s' m', s'.core = s.core → s'.LengthsOk c → FullExtScratchPres s s' →
       (FullMem c s' ⋆ R) m' → wp Γ Q X (k (r, ())) m') :
     wp Γ Q X (.call "full_walk_collect_m7" args k) m := by
   refine wp_call_of_spec args k ?_; rw [hargs]
-  exact hCol _ _ _ _ ⟨c, s, R, rfl, hlen, hm, fun (r, ()) s' m' hc hs' hext hm' =>
-    hk r s' m' hc hs' hext hm'⟩
+  refine hCol _ _ _ _ ?_; dsimp only [collectSpec, scratchOnly]
+  exact FullContract.intro (w := PUnit.unit) hlen trivial hm
+    fun (r, ()) s' m' hs' ⟨hc, hext⟩ hm' => hk r s' m' hc hs' hext hm'
 
 private theorem walk_call_cb_inv {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     {m : Mem 64} {args : Tup (Arg Val) [i64, i64, i64]} {k : Tup Val [i64] → Expr Val Cont rs}
-    (hCb : Γ.Has "full_walk_cb_inv_m7" fullWalkCbInvM7Spec)
+    (hCb : Γ.Has "full_walk_cb_inv_m7" cbInvSpec)
     {c : FullCfg} {s : FullState} {R : Mem 64 → Prop}
     (hargs : vals args = (c.hdr, args.2.1.val, args.2.2.1.val, ()))
     (hlen : s.LengthsOk c) (hm : (FullMem c s ⋆ R) m)
@@ -158,12 +161,13 @@ private theorem walk_call_cb_inv {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XP
       (r ≠ 0#64 → WalkTblExpsOk s') → (FullMem c s' ⋆ R) m' → wp Γ Q X (k (r, ())) m') :
     wp Γ Q X (.call "full_walk_cb_inv_m7" args k) m := by
   refine wp_call_of_spec args k ?_; rw [hargs]
-  exact hCb _ _ _ _ ⟨c, s, R, rfl, hlen, hm, fun (r, ()) s' m' hc hs' ⟨hext, hexps⟩ hm' =>
-    hk r s' m' hc hs' hext hexps hm'⟩
+  refine hCb _ _ _ _ ?_; dsimp only [cbInvSpec]
+  exact FullContract.intro (w := PUnit.unit) hlen trivial hm
+    fun (r, ()) s' m' hs' ⟨hc, hext, hexps⟩ hm' => hk r s' m' hc hs' hext hexps hm'
 
 private theorem walk_call_build_occ {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     {m : Mem 64} {args : Tup (Arg Val) [i64, i64]} {k : Tup Val [i64] → Expr Val Cont rs}
-    (hBo : Γ.Has "full_walk_build_occ_m7" fullWalkBuildOccM7Spec)
+    (hBo : Γ.Has "full_walk_build_occ_m7" buildOccSpec)
     {c : FullCfg} {s : FullState} {R : Mem 64 → Prop}
     (hargs : vals args = (c.hdr, args.2.1.val, ()))
     (hlen : s.LengthsOk c) (hm : (FullMem c s ⋆ R) m)
@@ -172,24 +176,26 @@ private theorem walk_call_build_occ {Γ : Env} {rs : List Ty} {Q : Post rs} {X :
       wp Γ Q X (k (r, ())) m') :
     wp Γ Q X (.call "full_walk_build_occ_m7" args k) m := by
   refine wp_call_of_spec args k ?_; rw [hargs]
-  exact hBo _ _ _ _ ⟨c, s, R, rfl, hlen, hm, fun (r, ()) s' m' hc hs' ⟨hext, hpre, hle⟩ hm' =>
-    hk r s' m' hc hs' hext hpre hle hm'⟩
+  refine hBo _ _ _ _ ?_; dsimp only [buildOccSpec]
+  exact FullContract.intro (w := PUnit.unit) hlen trivial hm
+    fun (r, ()) s' m' hs' ⟨hc, hext, hpre, hle⟩ hm' => hk r s' m' hc hs' hext hpre hle hm'
 
 private theorem walk_call_effort {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     {m : Mem 64} {args : Tup (Arg Val) [i64, i64]} {k : Tup Val [i64] → Expr Val Cont rs}
-    (hEff : Γ.Has "full_walk_effort_m7" fullWalkEffortM7Spec)
+    (hEff : Γ.Has "full_walk_effort_m7" effortSpec)
     {c : FullCfg} {s : FullState} {R : Mem 64 → Prop}
     (hargs : vals args = (c.hdr, args.2.1.val, ()))
     (hlen : s.LengthsOk c) (hm : (FullMem c s ⋆ R) m)
     (hk : ∀ r m', (FullMem c s ⋆ R) m' → wp Γ Q X (k (r, ())) m') :
     wp Γ Q X (.call "full_walk_effort_m7" args k) m := by
   refine wp_call_of_spec args k ?_; rw [hargs]
-  exact hEff _ _ _ _ ⟨c, s, R, rfl, hlen, hm, fun (r, ()) s' m' _ _ heq hm' => by
-    dsimp only [fullSafetySlice] at heq hm'; subst s'; exact hk r m' hm'⟩
+  refine hEff _ _ _ _ ?_; dsimp only [effortSpec, readOnly]
+  exact FullContract.intro (w := PUnit.unit) hlen trivial hm fun (r, ()) s' m' _ heq hm' => by
+    subst s'; exact hk r m' hm'
 
 private theorem walk_call_pick {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     {m : Mem 64} {args : Tup (Arg Val) [i64, i32, i64]} {k : Tup Val [i64] → Expr Val Cont rs}
-    (hPick : Γ.Has "full_walk_pick_m7" fullWalkPickM7Spec)
+    (hPick : Γ.Has "full_walk_pick_m7" pickSpec)
     {c : FullCfg} {s : FullState} {R : Mem 64 → Prop}
     (hargs : vals args = (c.hdr, args.2.1.val, args.2.2.1.val, ()))
     (hexps : WalkTblExpsOk s) (hlen : s.LengthsOk c) (hm : (FullMem c s ⋆ R) m)
@@ -197,13 +203,14 @@ private theorem walk_call_pick {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPos
       WalkTblExpsOk s' → (FullMem c s' ⋆ R) m' → wp Γ Q X (k (r, ())) m') :
     wp Γ Q X (.call "full_walk_pick_m7" args k) m := by
   refine wp_call_of_spec args k ?_; rw [hargs]
-  exact hPick _ _ _ _ ⟨c, s, R, ⟨rfl, hexps⟩, hlen, hm,
-    fun (r, ()) s' m' hc hs' ⟨hext, hexps'⟩ hm' => hk r s' m' hc hs' hext hexps' hm'⟩
+  refine hPick _ _ _ _ ?_; dsimp only [pickSpec]
+  exact FullContract.intro (w := PUnit.unit) hlen hexps hm
+    fun (r, ()) s' m' hs' ⟨hc, hext, hexps'⟩ hm' => hk r s' m' hc hs' hext hexps' hm'
 
 private theorem walk_call_flip {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     {m : Mem 64} {args : Tup (Arg Val) [i64, i32, i64, i64]}
     {k : Tup Val [i64] → Expr Val Cont rs}
-    (hFlip : Γ.Has "full_walk_flip_m7" fullWalkFlipM7Spec)
+    (hFlip : Γ.Has "full_walk_flip_m7" flipSpec)
     {c : FullCfg} {s : FullState} {R : Mem 64 → Prop}
     (hargs : vals args = (c.hdr, args.2.1.val, args.2.2.1.val, args.2.2.2.1.val, ()))
     (hlen : s.LengthsOk c) (hm : (FullMem c s ⋆ R) m)
@@ -212,13 +219,14 @@ private theorem walk_call_flip {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPos
       (FullMem c s' ⋆ R) m' → wp Γ Q X (k (r, ())) m') :
     wp Γ Q X (.call "full_walk_flip_m7" args k) m := by
   refine wp_call_of_spec args k ?_; rw [hargs]
-  exact hFlip _ _ _ _ ⟨c, s, R, rfl, hlen, hm, fun (r, ()) s' m' hc hs' ⟨hext, hpre, hle⟩ hm' =>
-    hk r s' m' hc hs' hext hpre hle hm'⟩
+  refine hFlip _ _ _ _ ?_; dsimp only [flipSpec]
+  exact FullContract.intro (w := PUnit.unit) hlen trivial hm
+    fun (r, ()) s' m' hs' ⟨hc, hext, hpre, hle⟩ hm' => hk r s' m' hc hs' hext hpre hle hm'
 
 private theorem walk_call_save_min {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     {m : Mem 64} {args : Tup (Arg Val) [i64, i64, .bool]}
     {k : Tup Val [] → Expr Val Cont rs}
-    (hSm : Γ.Has "full_walk_save_min_m7" fullWalkSaveMinM7Spec)
+    (hSm : Γ.Has "full_walk_save_min_m7" saveMinSpec)
     {c : FullCfg} {s : FullState} {R : Mem 64 → Prop}
     (hargs : vals args = (c.hdr, args.2.1.val, args.2.2.1.val, ()))
     (hlen : s.LengthsOk c) (hm : (FullMem c s ⋆ R) m)
@@ -226,8 +234,9 @@ private theorem walk_call_save_min {Γ : Env} {rs : List Ty} {Q : Post rs} {X : 
       (FullMem c s' ⋆ R) m' → wp Γ Q X (k ()) m') :
     wp Γ Q X (.call "full_walk_save_min_m7" args k) m := by
   refine wp_call_of_spec args k ?_; rw [hargs]
-  exact hSm _ _ _ _ ⟨c, s, R, rfl, hlen, hm, fun () s' m' hc hs' hext hm' =>
-    hk s' m' hc hs' hext hm'⟩
+  refine hSm _ _ _ _ ?_; dsimp only [saveMinSpec, scratchOnly]
+  exact FullContract.intro (w := PUnit.unit) hlen trivial hm
+    fun () s' m' hs' ⟨hc, hext⟩ hm' => hk s' m' hc hs' hext hm'
 
 private theorem decide_preserves_fullCore {c : FullCfg} {F0 : CNF Nat} {s : FullState}
     (hinv : FullCoreInv c F0 s) {v : Nat} {lit : BitVec 32}
@@ -338,17 +347,24 @@ private theorem decide_preserves_fullCore {c : FullCfg} {F0 : CNF Nat} {s : Full
 theorem full_walk_m7_wp (Γ : Env)
     (hRoundtrip : Γ.Has "full_dense_bin_roundtrip_fid" fullDenseBinRoundtripFidSpec)
     (hWatchLarge : Γ.Has "full_watch_large_clauses_fid" fullWatchLargeClausesSpec)
-    (hInitVals : Γ.Has "full_walk_init_vals_m7" fullWalkInitValsM7Spec)
-    (hCollect : Γ.Has "full_walk_collect_m7" fullWalkCollectM7Spec)
-    (hCbInv : Γ.Has "full_walk_cb_inv_m7" fullWalkCbInvM7Spec)
-    (hBuildOcc : Γ.Has "full_walk_build_occ_m7" fullWalkBuildOccM7Spec)
-    (hEffort : Γ.Has "full_walk_effort_m7" fullWalkEffortM7Spec)
-    (hPick : Γ.Has "full_walk_pick_m7" fullWalkPickM7Spec)
-    (hFlip : Γ.Has "full_walk_flip_m7" fullWalkFlipM7Spec)
-    (hSaveMin : Γ.Has "full_walk_save_min_m7" fullWalkSaveMinM7Spec) :
-    ∀ a m Q X, fullWalkM7Spec a m Q X → Func.wp Γ full_walk_m7_body a m Q X := by
-  rintro ⟨h, ⟨⟩⟩ m Q X ⟨c, F0, s, R, rfl, hsp, hm, hQ⟩
-  have hlen := hsp.lengths
+    (hInitVals : Γ.Has "full_walk_init_vals_m7" initValsSpec)
+    (hCollect : Γ.Has "full_walk_collect_m7" collectSpec)
+    (hCbInv : Γ.Has "full_walk_cb_inv_m7" cbInvSpec)
+    (hBuildOcc : Γ.Has "full_walk_build_occ_m7" buildOccSpec)
+    (hEffort : Γ.Has "full_walk_effort_m7" effortSpec)
+    (hPick : Γ.Has "full_walk_pick_m7" pickSpec)
+    (hFlip : Γ.Has "full_walk_flip_m7" flipSpec)
+    (hSaveMin : Γ.Has "full_walk_save_min_m7" saveMinSpec) :
+    ∀ a m Q X, walkCoreSpec a m Q X → Func.wp Γ full_walk_m7_body a m Q X := by
+  rintro ⟨h, ⟨⟩⟩ m Q X hs
+  unfold walkCoreSpec at hs
+  obtain ⟨c, s, F0, R, rfl, hlen, hsp, hm, hQ0⟩ := FullContract.elim hs
+  let hQ : ∀ s' m', FullSparseInv c F0 s' → FullArenaPermEq s.core s'.core →
+      s'.core.cur_vars = s.core.cur_vars → s'.core.cur_level = s.core.cur_level →
+      s'.core.fuel.toNat ≤ s.core.fuel.toNat → s'.core.probing = s.core.probing →
+      FullExtScratchPres s s' → (FullMem c s' ⋆ R) m' → Q () m' :=
+    fun s' m' hsp' hap hcv hcl hfu hpr hext hm' =>
+      hQ0 () s' m' hsp'.lengths ⟨hsp', hap, hcv, hcl, hfu, hpr, hext⟩ hm'
   have hcv_le := hlen.core_ok.cur_vars_le
   have hmax := c.hmaxv; have hscr := c.hscr; unfold dimacsBound at hmax hscr
   have hret0 : Q () m :=
@@ -728,9 +744,19 @@ theorem full_warmup_m7_wp (Γ : Env)
     (hAssign : Γ.Has "full_assign" fullAssignSpec)
     (hPropBey : Γ.Has "full_propagate_beyond_m7" propagateBeyondM6Spec)
     (hBt : Γ.Has "full_backtrack" fullBacktrackSpec) :
-    ∀ a m Q X, fullWarmupM7Spec a m Q X → Func.wp Γ full_warmup_m7_body a m Q X := by
-  rintro ⟨h, ⟨⟩⟩ m Q X ⟨c, F0, ext, s, R, rfl, hinv, hm, hQ⟩
-  have hcfg := hinv.cfgOk; have hext := hinv.extOk; have hsp := hinv.sparse
+    ∀ a m Q X, walkSpec a m Q X → Func.wp Γ full_warmup_m7_body a m Q X := by
+  rintro ⟨h, ⟨⟩⟩ m Q X hs
+  unfold walkSpec at hs
+  obtain ⟨c, ext, s, F0, R, rfl, hcfg, hext, _, hsp, hm, hQ0⟩ := M6HdrContract.elim hs
+  have hinv : FullM6HdrInv c F0 ext s := ⟨hcfg, hext, hsp⟩
+  let hQ : ∀ ext' s' m', FullM6HdrInv c F0 ext' s' → FullArenaPermEq s.core s'.core →
+      s'.core.cur_vars = s.core.cur_vars → s'.core.cur_level = s.core.cur_level →
+      s'.core.fuel.toNat ≤ s.core.fuel.toNat →
+      (s.core.probing = 0#64 → s'.core.probing = 0#64) →
+      FullExtScratchPres s s' → (FullM6HdrMem c ext' s' ⋆ R) m' → Q () m' :=
+    fun ext' s' m' hinv' hap hcv hcl hfu hpr hext' hm' =>
+      hQ0 () ext' s' m' hinv'.extOk trivial hinv'.sparse.lengths
+        ⟨hinv'.sparse, hap, hcv, hcl, hfu, hpr, hext'⟩ hm'
   have hlen := hsp.lengths; have hmax := c.hmaxv; unfold dimacsBound at hmax
   have hcl0_lt : s.core.cur_level ≤ s.core.cur_vars := by
     obtain ⟨_, hw0⟩ := hsp.1.witness; exact Nat.le_trans hw0.cur_level_le hlen.core_ok.trail_end_le
@@ -988,29 +1014,44 @@ theorem full_warmup_m7_wp (Γ : Env)
 /-! ## 4. `full_walk` (`fullWalkM6Spec`) -/
 
 theorem full_walk_wp (Γ : Env)
-    (hWarmup : Γ.Has "full_warmup_m7" fullWarmupM7Spec)
-    (hWalkM7 : Γ.Has "full_walk_m7" fullWalkM7Spec) :
-    ∀ a m Q X, fullWalkM6Spec a m Q X → Func.wp Γ full_walk_body a m Q X := by
-  rintro ⟨h, ⟨⟩⟩ m Q X ⟨c, F0, ext, s, R, rfl, hinv, hm, hQ⟩
+    (hWarmup : Γ.Has "full_warmup_m7" walkSpec)
+    (hWalkM7 : Γ.Has "full_walk_m7" walkCoreSpec) :
+    ∀ a m Q X, walkSpec a m Q X → Func.wp Γ full_walk_body a m Q X := by
+  rintro ⟨h, ⟨⟩⟩ m Q X hs
+  unfold walkSpec at hs
+  obtain ⟨c, ext, s, F0, R, rfl, hcfg, hext, hlen, hsp, hm, hQ⟩ := M6HdrContract.elim hs
   unfold Func.wp full_walk_body
-  refine wp_call_of_spec _ _ (hWarmup _ _ _ _ ⟨c, F0, ext, s, R, rfl, hinv, hm, ?_⟩)
-  intro ext1 s1 m1 hinv1 hperm1 hcv1 hcl1 hfu1 hprob1 hpres1 hm1
+  refine wp_call_of_spec _ _ (hWarmup _ _ _ _ ?_)
+  dsimp only [walkSpec]
+  refine M6HdrContract.intro hcfg hext hlen hsp hm
+    fun () ext1 s1 m1 hext1 _ _ ⟨hsp1, hperm1, hcv1, hcl1, hfu1, hprob1, hpres1⟩ hm1 => ?_
+  have hinv1 : FullM6HdrInv c F0 ext1 s1 := ⟨hcfg, hext1, hsp1⟩
   refine walk_m6_frame_walk_m7 hWalkM7 rfl hinv1 hm1
     fun s2 m2 hinv2 hperm2 hcv2 hcl2 hfu2 hprob2 hpres2 hm2 => ?_
-  exact hQ ext1 s2 m2 hinv2 (fullArenaPermEq_trans hperm1 hperm2) (hcv2.trans hcv1)
-    (hcl2.trans hcl1) (Nat.le_trans hfu2 hfu1) (fun h0 => hprob2.trans (hprob1 h0))
-    (fullExtScratchPres_trans' hpres1 hpres2) hm2
+  exact hQ () ext1 s2 m2 hinv2.extOk trivial hinv2.sparse.lengths
+    ⟨hinv2.sparse, fullArenaPermEq_trans hperm1 hperm2, hcv2.trans hcv1,
+      hcl2.trans hcl1, Nat.le_trans hfu2 hfu1, fun h0 => hprob2.trans (hprob1 h0),
+      fullExtScratchPres_trans' hpres1 hpres2⟩ hm2
 
-/-! ## 5. `full_rephase` (`fullRephaseM6Spec`) -/
+/-! ## 5. `full_rephase` (`rephaseSpec`) -/
 
 theorem full_rephase_wp (Γ : Env)
     (hBt : Γ.Has "full_backtrack" fullBacktrackSpec)
-    (hWalk : Γ.Has "full_walk" fullWalkM6Spec)
+    (hWalk : Γ.Has "full_walk" walkSpec)
     (hNlog : Γ.Has "f64u_nlogpown" f64uPure2Spec)
     (hTo : Γ.Has "f64u_to_u64" f64uPure1Spec) :
-    ∀ a m Q X, fullRephaseM6Spec a m Q X → Func.wp Γ full_rephase_body a m Q X := by
-  rintro ⟨h, ⟨⟩⟩ m Q X ⟨c, F0, ext, s, R, rfl, hinv, hm, hQ⟩
-  have hcfg := hinv.cfgOk; have hext := hinv.extOk; have hsp := hinv.sparse
+    ∀ a m Q X, rephaseSpec a m Q X → Func.wp Γ full_rephase_body a m Q X := by
+  rintro ⟨h, ⟨⟩⟩ m Q X hs
+  unfold rephaseSpec at hs
+  obtain ⟨c, ext, s, F0, R, rfl, hcfg, hext, _, hsp, hm, hQ0⟩ := M6HdrContract.elim hs
+  have hinv : FullM6HdrInv c F0 ext s := ⟨hcfg, hext, hsp⟩
+  let hQ : ∀ ext' s' m', FullM6HdrInv c F0 ext' s' → FullArenaPermEq s.core s'.core →
+      (s.scratch.stable ≠ 0#64 → s'.core.cur_level = 0) →
+      s'.core.cur_level ≤ s.core.cur_level → s'.core.fuel.toNat ≤ s.core.fuel.toNat →
+      FullExtScratchPres s s' → (FullM6HdrMem c ext' s' ⋆ R) m' → Q () m' :=
+    fun ext' s' m' hinv' hap hst hcl hfu hext' hm' =>
+      hQ0 () ext' s' m' hinv'.extOk trivial hinv'.sparse.lengths
+        ⟨hinv'.sparse, hap, hst, hcl, hfu, hext'⟩ hm'
   have hlen := hsp.lengths; have hmax := c.hmaxv; unfold dimacsBound at hmax
   rw [fullM6HdrMem_iff] at hm
   unfold Func.wp full_rephase_body
@@ -1159,10 +1200,12 @@ theorem full_rephase_wp (Γ : Env)
                 (fun _ mW => (FullMem c s2 ⋆ (array64 (c.hdr - 2304) ext ⋆ R)) mW)
                 (fun _ ⟨⟩ mW hmW => by
                   c0_hsteps_nogrp
-                  refine wp_call_of_spec _ _
-                    (hWalk _ _ _ _ ⟨c, F0, ext, s2, R, rfl, .mk_inv hcfg hext hsp2,
-                      (fullM6HdrMem_iff ..).mpr hmW, ?_⟩)
-                  intro extW sW mW' hinvW hpermW hcvW hclW hfuelW _ hpresW hmW'
+                  refine wp_call_of_spec _ _ (hWalk _ _ _ _ ?_)
+                  dsimp only [walkSpec]
+                  refine M6HdrContract.intro hcfg hext hlen2 hsp2 ((fullM6HdrMem_iff ..).mpr hmW)
+                    fun () extW sW mW' hextW _ _ ⟨hspW, hpermW, hcvW, hclW, hfuelW, _, hpresW⟩
+                      hmW' => ?_
+                  have hinvW : FullM6HdrInv c F0 extW sW := ⟨hcfg, hextW, hspW⟩
                   rw [fullM6HdrMem_iff] at hmW'; c0_hsteps
                   exact hJ14 () mW' ⟨extW, sW, hinvW, fullArenaPermEq_trans hperm1 hpermW, hcvW,
                     by rw [hclW]; exact hcl1, by rw [← hfuel1]; exact hfuelW,

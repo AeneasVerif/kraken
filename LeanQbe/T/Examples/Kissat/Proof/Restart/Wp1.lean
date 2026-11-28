@@ -4,7 +4,13 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 module
 
+public import LeanQbe.T.Examples.Kissat.Proof.Float64.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Heap.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
+public import LeanQbe.T.Examples.Kissat.Proof.Limits.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Restart.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Spec.Contracts3
+public import LeanQbe.T.Examples.Kissat.Proof.Spec.Header
 public import LeanQbe.T.Examples.Kissat.Src.Restart
 public import LeanQbe.T.Logic.CanonicalEnv
 import LeanQbe.T.Examples.Kissat.Proof.Spec.Arena1
@@ -93,7 +99,7 @@ private theorem rs_call_set64 {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost
                  else s.scratch.glue_used } }
   exact hk s' m' rfl (rs_m7_set64_len hlen idx.toNat val) ⟨rfl, rfl⟩ hm'
 
-/-- Soundness proof for `full_switch_mode_m7` against `Spec.fullSwitchModeM7Spec`. -/
+/-- Soundness proof for `full_switch_mode_m7` against `Spec.switchModeSpec`. -/
 theorem full_switch_mode_m7_wp (Γ : Env)
     (hWm4Get : Γ.Has "m6_wm4_get" (m6HdrW2aSpec [] [i64]))
     (hWm4Set : Γ.Has "m6_wm4_set" (m6HdrW2aSpec [i64] []))
@@ -109,9 +115,11 @@ theorem full_switch_mode_m7_wp (Γ : Env)
     (hSet64 : Γ.Has "full_m7_set64" m7Set64Spec)
     (hLog : Γ.Has "f64u_log10_u64" f64uPure1Spec)
     (hMul : Γ.Has "f64u_mul" f64uPure2Spec) :
-    ∀ a m Q X, Spec.fullSwitchModeM7Spec a m Q X →
+    ∀ a m Q X, Spec.switchModeSpec a m Q X →
       Func.wp Γ full_switch_mode_m7_body a m Q X := by
-  rintro ⟨h, ⟨⟩⟩ m Q X ⟨c, ext, s, R, rfl, hcfg, hext, hlen, hm, hQ⟩
+  rintro ⟨h, ⟨⟩⟩ m Q X hs
+  unfold Spec.switchModeSpec at hs
+  obtain ⟨c, ext, s, ⟨⟩, R, rfl, hcfg, hext, hlen, _, hm, hQ⟩ := M6HdrContract.elim hs
   have hmax := c.hmaxv; unfold dimacsBound at hmax
   have hcv_le := hlen.core_ok.cur_vars_le
   rw [fullM6HdrMem_iff] at hm
@@ -221,18 +229,22 @@ theorem full_switch_mode_m7_wp (Γ : Env)
                 c0_hsteps_nogrp
                 refine rs_call_set64 hSet64 rfl hlen4 hm4 fun s5 m5 hcore5 hlen5 hps5 hm5 => ?_
                 c0_hsteps
-                exact hQ extD2 s5 m5 (hcore5.trans (hcore4.trans (hcore3.trans hcore20))) hlen5
-                  (rs_ext_trans hps20 (rs_ext_trans hps3 (rs_ext_trans hps4 hps5)))
-                  hextD2 ((fullM6HdrMem_iff ..).mpr hm5))
+                exact hQ () extD2 s5 m5 hextD2 trivial hlen5
+                  ⟨hcore5.trans (hcore4.trans (hcore3.trans hcore20)),
+                   rs_ext_trans hps20 (rs_ext_trans hps3 (rs_ext_trans hps4 hps5))⟩
+                  ((fullM6HdrMem_iff ..).mpr hm5))
               (fun Jr hJr => by c0_hsteps <;> exact hJr (_, ()) m3 rfl))
           (fun Jq hJq => by c0_hsteps <;> exact hJq (_, ()) m3 rfl)
-      · c0_hsteps; exact hQ extD2 s2 m2 hcore20 hlen2 hps20 hextD2 ((fullM6HdrMem_iff ..).mpr hm2)
-    · c0_hsteps; exact hQ extD2 sSw _ hcoreSw0 hlenSw hpsSw0 hextD2 ((fullM6HdrMem_iff ..).mpr ‹_›)
+      · c0_hsteps; exact hQ () extD2 s2 m2 hextD2 trivial hlen2 ⟨hcore20, hps20⟩
+          ((fullM6HdrMem_iff ..).mpr hm2)
+    · c0_hsteps; exact hQ () extD2 sSw _ hextD2 trivial hlenSw ⟨hcoreSw0, hpsSw0⟩
+        ((fullM6HdrMem_iff ..).mpr ‹_›)
   · -- Pre-join: Focused -> Stable vs Stable -> Focused
     c0_hsplit
     · -- `h->stable == 0` (Focused -> Stable)
       c0_hsplit
-      · c0_hsteps; exact hQ ext s m rfl hlen ⟨rfl, rfl⟩ hext ((fullM6HdrMem_iff ..).mpr hm)
+      · c0_hsteps; exact hQ () ext s m hext trivial hlen ⟨rfl, rfl, rfl⟩
+          ((fullM6HdrMem_iff ..).mpr hm)
       c0_hsteps_nogrp
       let s1 : FullState := { s with scratch := { s.scratch with stable := 1#64 } }
       refine wp_join_group (ts := [i64])
@@ -475,7 +487,8 @@ theorem full_switch_mode_m7_wp (Γ : Env)
               ⟨Nat.zero_le _, by simp, s4, hcore4, hlen4, hps4, hm4⟩
     · -- `h->stable != 0` (Stable -> Focused)
       c0_hsplit
-      · c0_hsteps; exact hQ ext s m rfl hlen ⟨rfl, rfl⟩ hext ((fullM6HdrMem_iff ..).mpr hm)
+      · c0_hsteps; exact hQ () ext s m hext trivial hlen ⟨rfl, rfl, rfl⟩
+          ((fullM6HdrMem_iff ..).mpr hm)
       c0_hsteps_nogrp
       let s1 : FullState := { s with scratch := { s.scratch with stable := 0#64 } }
       rs_call hNlog; intro _; c0_hsteps_nogrp

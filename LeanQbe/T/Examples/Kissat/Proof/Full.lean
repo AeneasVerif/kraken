@@ -213,11 +213,11 @@ private def fullCerts : List SubsystemCert :=
       Analyze.Spec.specs_noExit, Analyze.cert⟩
   , ⟨Src.Decide.fns, Decide.Spec.specs, Decide.Spec.deps, Decide.Spec.specs_sigs,
       Decide.Spec.specs_noExit, Decide.cert⟩
-  , ⟨Src.Restart.fns, Restart.Spec.specs, Restart.Spec.deps, Restart.Spec.specs_sigs,
-      Restart.Spec.specs_noExit, Restart.cert⟩
+  , ⟨Src.Restart.fns, Restart.Spec.specs, Restart.deps, Restart.specs_sigs,
+      Restart.specs_noExit, Restart.cert⟩
   , ⟨Src.Extend.fns, Extend.Spec.specs, [], Extend.Spec.specs_sigs, rfl, Extend.cert⟩
-  , ⟨Src.Lucky.fns, Lucky.Spec.specs, Lucky.Spec.deps, Lucky.Spec.specs_sigs,
-      Lucky.Spec.specs_noExit, Lucky.cert⟩
+  , ⟨Src.Lucky.fns, Lucky.Spec.specs, Lucky.deps, Lucky.specs_sigs,
+      Lucky.specs_noExit, Lucky.cert⟩
   , ⟨Src.Vivify.fns, Vivify.Spec.specs, Vivify.Spec.deps, Vivify.Spec.specs_sigs,
       Vivify.Spec.specs_noExit, Vivify.cert⟩
   , ⟨Src.Backbone.fns, Backbone.Spec.specs, Backbone.Spec.deps, Backbone.Spec.specs_sigs,
@@ -245,12 +245,12 @@ private def fullCerts : List SubsystemCert :=
       Eliminate.Spec.specs_sigs, Eliminate.Spec.specs_noExit, Eliminate.cert⟩
   , ⟨Src.Factor.fns, Factor.Spec.specs, Factor.Spec.deps, Factor.Spec.specs_sigs,
       Factor.Spec.specs_noExit, Factor.cert⟩
-  , ⟨Src.Reorder.fns, Reorder.Spec.specs, Reorder.Spec.deps, Reorder.Spec.specs_sigs,
-      Reorder.Spec.specs_noExit, Reorder.cert⟩
+  , ⟨Src.Reorder.fns, Reorder.Spec.specs, Reorder.deps, Reorder.specs_sigs,
+      Reorder.specs_noExit, Reorder.cert⟩
   , ⟨Src.Probe.fns, Probe.Spec.specs, Probe.Spec.deps, Probe.Spec.specs_sigs,
       Probe.Spec.specs_noExit, Probe.cert⟩
-  , ⟨Src.Walk.fns, Walk.Spec.specs, Walk.Spec.deps, Walk.Spec.specs_sigs,
-      List.all_eq_true.mpr Walk.Spec.specs_noExit, Walk.cert⟩
+  , ⟨Src.Walk.fns, Walk.Spec.specs, Walk.deps, Walk.specs_sigs,
+      Walk.specs_noExit, Walk.cert⟩
   , ⟨Src.Search.fns, Search.Spec.specs, Search.deps, Search.specs_sigs,
       Search.specs_noExit, Search.cert⟩ ]
 

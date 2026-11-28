@@ -8,6 +8,7 @@ public import LeanQbe.T.Examples.Kissat.Src.Reorder
 public import LeanQbe.T.Examples.Kissat.Proof.Float64.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Arena.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Heap.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
 public import LeanQbe.T.Examples.Kissat.Proof.Reorder.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Reorder.WpMem
 public import LeanQbe.T.Examples.Kissat.Proof.Reorder.Wp0
@@ -184,7 +185,7 @@ private theorem reorder_phase2_wp {Γ : Env} {Q : Post [i64]} {X : XPost}
 private theorem reorder_focus_wp {Γ : Env} {Q : Post [i64]} {X : XPost}
     {c : FullCfg} {s : FullState} {R : Mem 64 → Prop} {wl4 wr4 : Arr64 c.max_vars}
     {m4 : Mem 64}
-    (hSift : Γ.Has "full_reorder_sift_fid" fullReorderSiftFidSpec)
+    (hSift : Γ.Has "full_reorder_sift_fid" siftSpec)
     (hlen : s.LengthsOk c) (hQ' : ∀ r m', RPostOk c s R m' → Q r m')
     (hcv_le : s.core.cur_vars ≤ c.max_vars) (hcv_29 : s.core.cur_vars < 2 ^ 29)
     (hcv_30 : s.core.cur_vars < 2 ^ 30) (hflags_len : s.core.flags.length = c.max_vars)
@@ -265,11 +266,12 @@ private theorem reorder_focus_wp {Γ : Env} {Q : Post [i64]} {X : XPost}
           (fun J_bld i m6 ⟨hi, s6, wl6, wr6, hs6_eq, hws6_len, hwb6, hm6⟩ hJ_bld => ?_)
         c0_hsplit
         · have hip := r_sub1 hn_29 hi ‹_›
-          c0_hsteps_nogrp; apply r_call_spec hSift
-          refine ⟨c, s6, wl6, wr6, R, rfl, rw_lengthsOk hlen hs6_eq hws6_len,
-            (by change WsortBounded s6.scratch.wsort n.toNat s6.core.cur_vars
-                rw [rw_curVars hs6_eq]; exact hwb6),
-            hm6, fun ws' m6' hwl' hwb' _ hm6' => ?_⟩
+          c0_hsteps_nogrp; apply r_call_spec hSift; dsimp only [siftSpec]
+          refine FnContract.intro ⟨c, s6, wl6, wr6⟩ R
+            ⟨rfl, rw_lengthsOk hlen hs6_eq hws6_len,
+              by change WsortBounded s6.scratch.wsort n.toNat s6.core.cur_vars
+                 rw [rw_curVars hs6_eq]; exact hwb6⟩
+            hm6 fun () ws' m6' ⟨hwl', hwb', _⟩ hm6' => ?_
           c0_hsteps
           exact hJ_bld (i - 1#64) m6' hip.2.1
             ⟨hip.2.2.1, { s6 with scratch := { s6.scratch with wsort := ws' } },
@@ -305,14 +307,14 @@ private theorem reorder_focus_wp {Γ : Env} {Q : Post [i64]} {X : XPost}
               (e - 1#64).toNat (s7.scratch.wsort[0]'h0_ws)
             have hwb_sw : WsortBounded ws_sw n.toNat s.core.cur_vars :=
               wb_swap hwb7 hve_lt hv0_lt
-            apply r_call_spec hSift
-            refine ⟨c, { s7 with scratch := { s7.scratch with wsort := ws_sw } },
-              wl7, wr7, R, rfl,
-              rw_lengthsOk hlen (rw_set hs7_eq ws_sw) (by simpa [ws_sw] using hws7_len),
-              (by change WsortBounded ws_sw (e - 1#64).toNat s7.core.cur_vars
-                  rw [rw_curVars hs7_eq]
-                  exact wb_shrink hwb_sw (Nat.le_of_lt he1_n)),
-              by assumption, fun ws' m7' hwl' hwb' hpres' hm7' => ?_⟩
+            apply r_call_spec hSift; dsimp only [siftSpec]
+            refine FnContract.intro
+              ⟨c, { s7 with scratch := { s7.scratch with wsort := ws_sw } }, wl7, wr7⟩ R
+              ⟨rfl, rw_lengthsOk hlen (rw_set hs7_eq ws_sw) (by simpa [ws_sw] using hws7_len),
+                by change WsortBounded ws_sw (e - 1#64).toNat s7.core.cur_vars
+                   rw [rw_curVars hs7_eq]
+                   exact wb_shrink hwb_sw (Nat.le_of_lt he1_n)⟩
+              (by assumption) fun () ws' m7' ⟨hwl', hwb', hpres'⟩ hm7' => ?_
             c0_hsteps
             exact hJ_pop (e - 1#64) m7' hep.2.1
               ⟨Nat.le_of_lt he1_n, { s7 with scratch := { s7.scratch with wsort := ws' } },
@@ -334,7 +336,7 @@ private theorem reorder_loop34_wp {Γ : Env} {Q : Post [i64]} {X : XPost}
     (hFmul : Γ.Has "f64u_mul" f64uPure2Spec)
     (hRescale : Γ.Has "full_rescale" fullRescaleSpec)
     (hHeapUp : Γ.Has "full_heap_up" fullHeapUpSpec)
-    (hSift : Γ.Has "full_reorder_sift_fid" fullReorderSiftFidSpec)
+    (hSift : Γ.Has "full_reorder_sift_fid" siftSpec)
     (hlen : s.LengthsOk c) (hQ' : ∀ r m', RPostOk c s R m' → Q r m')
     (hcv_le : s.core.cur_vars ≤ c.max_vars) (hcv_29 : s.core.cur_vars < 2 ^ 29)
     (hcv_30 : s.core.cur_vars < 2 ^ 30) (h2cv_le : 2 * s.core.cur_vars ≤ 2 * c.max_vars)
@@ -530,12 +532,14 @@ theorem full_reorder_queue_m7_wp (Γ : Env)
     (hArenaNext : Γ.Has "full_arena_next" fullArenaNextSpec)
     (hRescale : Γ.Has "full_rescale" fullRescaleSpec)
     (hHeapUp : Γ.Has "full_heap_up" fullHeapUpSpec)
-    (hSift : Γ.Has "full_reorder_sift_fid" fullReorderSiftFidSpec) :
-    ∀ a m Q X, fullReorderQueueSpec a m Q X →
+    (hSift : Γ.Has "full_reorder_sift_fid" siftSpec) :
+    ∀ a m Q X, queueSpec a m Q X →
       Func.wp Γ full_reorder_queue_m7_body a m Q X := by
-  rintro ⟨h, ⟨⟩⟩ m Q X ⟨c, s, R, rfl, hlen, hmF, hQ⟩
+  rintro ⟨h, ⟨⟩⟩ m Q X hs
+  unfold queueSpec at hs
+  obtain ⟨c, s, ⟨⟩, R, rfl, hlen, _, hmF, hQ⟩ := FullContract.elim hs
   have hQ' : ∀ r m', RPostOk c s R m' → Q r m' := by
-    intro r m' ⟨s', hcore, hlen', hext, hm'⟩; exact hQ r s' m' hcore hlen' hext hm'
+    intro r m' ⟨s', hcore, hlen', hext, hm'⟩; exact hQ r s' m' hlen' ⟨hcore, hext⟩ hm'
   clear hQ
   have hmx := c.hmaxv; have har := c.harena; have hwc := c.hwcap
   unfold dimacsBound at hmx har hwc

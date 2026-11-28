@@ -4,6 +4,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 module
 
+public import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
 public import LeanQbe.T.Examples.Kissat.Proof.Lucky.Spec
 public import LeanQbe.T.Examples.Kissat.Src.Lucky
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Header
@@ -458,11 +459,15 @@ private theorem ord_fid_post_mark_wp {Γ : Env} {c : FullCfg} {s s0 : FullState}
           hs3 ⟨ho3_le, hext3⟩ hm3
 
 theorem full_lucky_ord_fid_wp (Γ : Env) :
-    ∀ a m Q X, fullLuckyOrdFidSpec a m Q X →
+    ∀ a m Q X, luckyOrdSpec a m Q X →
       Func.wp Γ full_lucky_ord_fid_body a m Q X := by
   rintro ⟨h, ⟨⟩⟩ m Q X hs
-  obtain ⟨c, s, R, rfl, hlen, hm, hQ⟩ := hs
-  dsimp only [fullSafetySlice] at hlen hm hQ
+  unfold luckyOrdSpec at hs
+  obtain ⟨c, s, ⟨⟩, R, rfl, hlen, _, hm, hQ0⟩ := FullContract.elim hs
+  let hQ : ∀ (r : Tup Val [i64]) (s' : FullState) (m' : Mem 64),
+      s'.core = s.core → s'.LengthsOk c → r.1.toNat ≤ s.core.cur_vars ∧ FullExtScratchPres s s' →
+      (FullMem c s' ⋆ R) m' → Q r m' :=
+    fun r s' m' hcore hlen' ⟨hle, hext⟩ hm' => hQ0 r s' m' hlen' ⟨hcore, hle, hext⟩ hm'
   have hmaxv := c.hmaxv; unfold dimacsBound at hmaxv
   have hext := c.hext; unfold dimacsBound at hext
   have hcl := hlen.core_ok
@@ -883,12 +888,16 @@ local macro "lk0_polar_watch_loop"
 theorem full_lucky_polar_m7_wp (Γ : Env)
     (hNext : ∀ args m Q X, fullArenaNextSpec args m Q X →
       Γ "full_arena_next" [i64, i32] [i32] args m Q X) :
-    ∀ a m Q X, fullLuckyPolarM7Spec a m Q X →
+    ∀ a m Q X, luckyPolarSpec a m Q X →
       Func.wp Γ full_lucky_polar_m7_body a m Q X := by
-  rintro ⟨h, ⟨⟩⟩ m Q X ⟨c, F0, s, R, rfl, hinv, hm, hQ⟩
+  rintro ⟨h, ⟨⟩⟩ m Q X hs
+  unfold luckyPolarSpec at hs
+  obtain ⟨c, s, F0, R, rfl, hlen_all, hinv, hm, hQ0⟩ := FullContract.elim hs
+  let hQ : ∀ r : Tup Val [i64], (r.1 = 0#64 ∨ r.1 = 1#64 ∨ r.1 = 2#64) → Q r m :=
+    fun r hr => hQ0 r s m hlen_all ⟨rfl, hr⟩ hm
   unfold Func.wp full_lucky_polar_m7_body
   lk0_to_group_ns
-  rcases hinv with ⟨hlen_all, F_cur, hwe⟩
+  rcases hinv with ⟨_, F_cur, hwe⟩
   have hlen := hlen_all.core_ok
   have hmaxv := c.hmaxv; unfold dimacsBound at hmaxv
   have hdb : (268435456 : Nat) < 2 ^ 30 := by decide

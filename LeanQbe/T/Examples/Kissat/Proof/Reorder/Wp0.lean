@@ -5,6 +5,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 module
 
 public import LeanQbe.T.Examples.Kissat.Src.Reorder
+public import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
 public import LeanQbe.T.Examples.Kissat.Proof.Reorder.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Reorder.WpMem
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Arena
@@ -438,15 +439,18 @@ theorem r_call_spec {Γ : Env} {rs as bs : List Ty} {Q : Post rs} {X : XPost}
 
 /-- Canonical `Func.wp` proof for `full_reorder_sift_fid` against `fullReorderSiftFidSpec`. -/
 theorem full_reorder_sift_fid_wp (Γ : Env) :
-    ∀ a m Q X, fullReorderSiftFidSpec a m Q X → Func.wp Γ full_reorder_sift_fid_body a m Q X := by
-  rintro ⟨h, start, n, ⟨⟩⟩ m Q X ⟨c, s, wl, wr, R, rfl, hlen, hwb, hm, hQ⟩
+    ∀ a m Q X, siftSpec a m Q X → Func.wp Γ full_reorder_sift_fid_body a m Q X := by
+  rintro ⟨h, start, n, ⟨⟩⟩ m Q X hs
+  unfold siftSpec at hs
+  obtain ⟨⟨c, s, wl, wr⟩, R, ⟨rfl, hlen, hwb⟩, hm, hQ⟩ := FnContract.elim hs
+  dsimp only at hlen hwb hm hQ
   have hQ' : ∀ (s1 : FullState) (m1 : Mem 64),
       RWsortEq s s1 → s1.scratch.wsort.length = s.scratch.wsort.length →
       WsortBounded s1.scratch.wsort n.toNat s.core.cur_vars →
       (∀ j, n.toNat ≤ j → s1.scratch.wsort[j]? = s.scratch.wsort[j]?) →
       (ReorderMem c s1 wl wr ⋆ R) m1 → Q () m1 :=
     fun s1 m1 hs1_eq hlen1 hwb1 hpres1 hm1 =>
-      hQ s1.scratch.wsort m1 hlen1 hwb1 hpres1 (hs1_eq ▸ hm1)
+      hQ () s1.scratch.wsort m1 ⟨hlen1, hwb1, hpres1⟩ (hs1_eq ▸ hm1)
   clear hQ
   have hmx := c.hmaxv; unfold dimacsBound at hmx
   have hcv_le := hlen.core_ok.cur_vars_le; have hcv_29 : s.core.cur_vars < 2 ^ 29 := by omega
@@ -585,18 +589,22 @@ private theorem fid_arenaPermEq_refl (k : FullCoreState) : FullArenaPermEq k k :
 
 /-- Canonical `Func.wp` proof for `full_reorder_m6` against `fullReorderM6Spec`. -/
 theorem full_reorder_m6_wp (Γ : Env)
-    (hQueue : Γ.Has "full_reorder_queue_m7" fullReorderQueueSpec) :
-    ∀ a m Q X, fullReorderM6Spec a m Q X → Func.wp Γ full_reorder_m6_body a m Q X := by
-  rintro ⟨h, budget, ⟨⟩⟩ m Q X ⟨c, F0, s, R, rfl, hsp, hm, hQ⟩
+    (hQueue : Γ.Has "full_reorder_queue_m7" queueSpec) :
+    ∀ a m Q X, reorderSpec a m Q X → Func.wp Γ full_reorder_m6_body a m Q X := by
+  rintro ⟨h, budget, ⟨⟩⟩ m Q X hs
+  unfold reorderSpec at hs
+  obtain ⟨c, s, F0, R, rfl, hlen, hsp, hm, hQ⟩ := FullContract.elim hs
   unfold Func.wp full_reorder_m6_body
   c0_hsteps
-  · exact hQ 0#64 s m hsp (fid_arenaPermEq_refl s.core) rfl rfl hm
+  · exact hQ (0#64, ()) s m hsp.lengths ⟨hsp, fid_arenaPermEq_refl s.core, rfl, rfl⟩ hm
   · c0_call hQueue
-    refine ⟨c, s, R, rfl, hsp.lengths, hm, ?_⟩
-    rintro ⟨r, ⟨⟩⟩ s1 m1 hc1 hlen1 hpres1 hm1
-    have hce1 := fullCoreState_agrees_with_scratch hc1
+    dsimp only [queueSpec]
+    refine FullContract.intro (w := PUnit.unit) hsp.lengths trivial hm ?_
+    rintro ⟨r, ⟨⟩⟩ s1 m1 hlen1 ⟨hc1, hpres1⟩ hm1
+    have hce1 : s1.core = s.core := hc1
     c0_hsteps
-    exact hQ r s1 m1 (fullSparseInv_of_core_eq hsp hlen1 hce1 hpres1)
-      (hce1 ▸ fid_arenaPermEq_refl s.core) (by rw [hce1]) (by rw [hce1]) hm1
+    exact hQ (r, ()) s1 m1 hlen1
+      ⟨fullSparseInv_of_core_eq hsp hlen1 hce1 hpres1,
+       hce1 ▸ fid_arenaPermEq_refl s.core, by rw [hce1], by rw [hce1]⟩ hm1
 
 end LeanQbe.T.Examples.Kissat.Proof.Reorder

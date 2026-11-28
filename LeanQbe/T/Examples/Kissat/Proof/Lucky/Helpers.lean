@@ -4,9 +4,14 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 module
 
+public import LeanQbe.T.Examples.Kissat.Proof.Analyze.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Arena.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Backtrack.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Lucky.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.PropSearch.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Contracts
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Contracts1
+public import LeanQbe.T.Examples.Kissat.Proof.Spec.Contracts3
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Header
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Tactics
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.WitnessInv1

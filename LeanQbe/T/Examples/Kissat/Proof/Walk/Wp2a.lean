@@ -268,7 +268,7 @@ private theorem bv64_pack_low32_and {hi lo : BitVec 64} {n : Nat}
 
 private theorem walk_call_break_m7 {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     {m : Mem 64} {args : Tup (Arg Val) [i64, i32, i64]} {k : Tup Val [i32] → Expr Val Cont rs}
-    (hBrk : Γ.Has "full_walk_break_m7" fullWalkBreakM7Spec)
+    (hBrk : Γ.Has "full_walk_break_m7" breakSpec)
     {c : FullCfg} {s : FullState} {nl : BitVec 32} {ncl : BitVec 64} {R : Mem 64 → Prop}
     (hargs : vals args = (c.hdr, nl, ncl, ())) (hlen : s.LengthsOk c)
     (hm : (FullMem c s ⋆ R) m)
@@ -276,8 +276,9 @@ private theorem walk_call_break_m7 {Γ : Env} {rs : List Ty} {Q : Post rs} {X : 
       (FullMem c s ⋆ R) m' → wp Γ Q X (k (brk, ())) m') :
     wp Γ Q X (.call "full_walk_break_m7" args k) m := by
   refine wp_call_of_spec args k ?_; rw [hargs]
-  refine hBrk _ _ _ _ ⟨c, s, R, rfl, hlen, hm, ?_⟩
-  rintro ⟨brk, ⟨⟩⟩ s' m' _ _ heq hm'
+  refine hBrk _ _ _ _ ?_; dsimp only [breakSpec, readOnly]
+  refine FullContract.intro (w := PUnit.unit) hlen trivial hm ?_
+  rintro ⟨brk, ⟨⟩⟩ s' m' _ heq hm'
   subst s'; exact hk brk m' hm'
 
 private theorem walkTblExpsOk_of_sb_eq {s1 s2 : FullState}
@@ -305,10 +306,17 @@ theorem full_walk_pick_m7_wp (Γ : Env)
     (hAdd : Γ.Has "f64u_add" f64uPure2Spec)
     (hMul : Γ.Has "f64u_mul" f64uPure2Spec)
     (hFrom : Γ.Has "f64u_from_u64" f64uPure1Spec)
-    (hBrk : Γ.Has "full_walk_break_m7" fullWalkBreakM7Spec) :
-    ∀ a m Q X, fullWalkPickM7Spec a m Q X →
+    (hBrk : Γ.Has "full_walk_break_m7" breakSpec) :
+    ∀ a m Q X, pickSpec a m Q X →
       Func.wp Γ full_walk_pick_m7_body a m Q X := by
-  rintro ⟨h, cl_id, ncl, ⟨⟩⟩ m Q X ⟨c, s, R, ⟨rfl, hexps⟩, hlen, hm, hQ⟩
+  intro a m Q X hs
+  unfold pickSpec at hs
+  have hs' := walk_fullContract_of_safetySlice hs
+    (fun c (h, _) s => h = c.hdr ∧ WalkTblExpsOk s)
+    (fun _ _ _ s s' => FullExtScratchPres s s' ∧ WalkTblExpsOk s')
+    (fun _ _ _ _ hp hh => ⟨hh, hp⟩) (fun _ _ _ _ _ _ hc _ ⟨he, htbl⟩ => ⟨hc, he, htbl⟩)
+  rcases a with ⟨h, cl_id, ncl, ⟨⟩⟩
+  rcases hs' with ⟨c, s, R, ⟨rfl, hexps⟩, hlen, hm, hQ⟩
   dsimp only [fullSafetySlice] at hlen hm hQ
   have hmaxv := c.hmaxv; have hscr := c.hscr; have har := c.harena
   unfold dimacsBound at hmaxv hscr har
