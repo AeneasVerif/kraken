@@ -19,3 +19,5 @@ __pycache__/
 *.o
 asm-tests/test
 *.orig
+# lean-beam local session state (beam_bounded.sh isolates state under /tmp)
+.beam/
