@@ -943,7 +943,7 @@ theorem full_m6_mem_init_wp (Γ : Env)
     (hInitState : ∀ a m Q X, fullInitStateSpec a m Q X →
       Γ "full_init_state" [i64, i64, i64, i64, i64] [.bool] a m Q X)
     (hHdrInit : ∀ a m Q X, m6HdrInitSpec a m Q X → Γ "m6_hdr_init" [i64] [] a m Q X) :
-    ∀ a m Q X, fullM6MemInitSpec a m Q X → Func.wp Γ full_m6_mem_init_body a m Q X := by
+    ∀ a m Q X, Spec.fullM6MemInitExactSpec a m Q X → Func.wp Γ full_m6_mem_init_body a m Q X := by
   rintro ⟨cnf_ptr, cend, work_base, avail, fuel, ⟨⟩⟩ m Q X
     ⟨cnfBytes, R, hcend, hfit, hwfit, hm, hFail, hOk⟩
   unfold Func.wp full_m6_mem_init_body
@@ -1004,7 +1004,7 @@ theorem full_m6_mem_init_wp (Γ : Env)
       exact hFail m1 hre (Or.inr fun mv nc rest hp => by
         have := hfail1 mv nc rest hp; rwa [hsub_eq] at this)
     · intro c s j rest m1 hchdr hcavail hparse hj hdrop hsp hcv hdcur hal hwl hte hpr hcl
-        hfu _ _ _ _ hoom hinc _ _ _ _ _ hm1
+        hfu _ hprob _ _ hoom hinc hvals hwvec _ _ _ hm1
       have hcfg : FullM6HdrCfgOk c := by
         unfold FullM6HdrCfgOk; rw [hchdr, hhdr_to]; exact Nat.le_add_left ..
       have hwa : m6ExtAddr c.hdr = work_base := by
@@ -1031,6 +1031,6 @@ theorem full_m6_mem_init_wp (Γ : Env)
       rw [← hchdr]
       exact hOk c ext1 s j rest m2 (hchdr.trans hhdr_bv) (by rwa [hsub_eq] at hcavail) hcfg
         hinit1 hparse hj hdrop ⟨hcfg, hinit1.toOk, hsp⟩ hcv hdcur hal hwl hte hpr hcl hfu
-        hoom hinc (sep_init_unpack hm2)
+        hoom hinc hprob hvals hwvec (sep_init_unpack hm2)
 
 end LeanQbe.T.Examples.Kissat.Proof.Internal

@@ -82,6 +82,48 @@ abbrev fullInitStateSpec : Spec [i64, i64, i64, i64, i64] [.bool] :=
 abbrev fullM6MemInitSpec : Spec [i64, i64, i64, i64, i64] [i64] :=
   Proof.Spec.fullM6MemInitSpec
 
+/-- Exact `full_m6_mem_init` contract exposing the already-proved `probing = 0#64`,
+zeroed `vals`, and zeroed `wvec` postconditions required by `Proof.Parse.Spec.fullParseBodyM6Spec`.
+-/
+@[expose] def fullM6MemInitExactSpec : Spec [i64, i64, i64, i64, i64] [i64] :=
+  fun (cnf_ptr, cend, work_base, avail, fuel, ()) m Q _ =>
+    ∃ (cnfBytes : List UInt8) (R : Mem 64 → Prop),
+      cend = cnf_ptr + BitVec.ofNat 64 cnfBytes.length ∧
+      cnf_ptr.toNat + cnfBytes.length < 2 ^ 64 ∧
+      work_base.toNat + avail.toNat < 2 ^ 64 ∧
+      (bytes cnf_ptr cnfBytes ⋆ region work_base avail.toNat ⋆ R) m ∧
+      (∀ m', (bytes cnf_ptr cnfBytes ⋆ region work_base avail.toNat ⋆ R) m' →
+        (avail.toNat < fullM6HdrTotalBytes ∨
+          ∀ mv nc rest, parseHeader cnfBytes = some (mv, nc, rest) →
+            avail.toNat - fullM6ExtBytes < fullFixedBytes mv + nc * 40 + 136) →
+        Q (0#64, ()) m') ∧
+      (∀ (c : FullCfg) (ext : List (BitVec 64)) (s : FullState) (j : Nat) (rest : List UInt8)
+          (m' : Mem 64),
+        c.hdr = work_base + BitVec.ofNat 64 fullM6ExtBytes →
+        c.avail = avail.toNat - fullM6ExtBytes →
+        FullM6HdrCfgOk c → M6HdrExtInitOk ext →
+        parseHeader cnfBytes = some (c.mv, c.nc, rest) →
+        j ≤ cnfBytes.length → cnfBytes.drop j = rest →
+        FullM6HdrInv c (shiftDownCnf CNF.empty) ext s →
+        s.core.cur_vars = c.mv → s.core.d_cur = cnf_ptr + BitVec.ofNat 64 j →
+        s.core.arena_len = 0 → s.core.wlen = 1 → s.core.trail_end = 0 →
+        s.core.propagated = 0 → s.core.cur_level = 0 → s.core.fuel = fuel →
+        s.core.oom = 0#64 → s.core.inconsistent = 0#64 →
+        s.core.probing = 0#64 →
+        s.core.vals = List.replicate (2 * c.max_vars) 0#8 →
+        s.core.wvec = List.replicate (4 * c.max_vars) 0#32 →
+        (bytes cnf_ptr cnfBytes ⋆ FullM6HdrMem c ext s ⋆ R) m' →
+        Q (c.hdr, ()) m')
+
+theorem fullM6MemInitSpec_le_exact :
+    ∀ a m Q X, fullM6MemInitSpec a m Q X → fullM6MemInitExactSpec a m Q X := by
+  rintro ⟨cnf_ptr, cend, work_base, avail, fuel, ⟨⟩⟩ m Q X
+    ⟨cnfBytes, R, hcend, hfit, hwfit, hm, hFail, hOk⟩
+  exact ⟨cnfBytes, R, hcend, hfit, hwfit, hm, hFail,
+    fun c ext s j rest m' h1 h2 h3 h4 h5 h6 h7 h8 h9 h10 h11 h12 h13 h14 h15 h16 h17 h18
+        _ _ _ hm' =>
+      hOk c ext s j rest m' h1 h2 h3 h4 h5 h6 h7 h8 h9 h10 h11 h12 h13 h14 h15 h16 h17 h18 hm'⟩
+
 /-- Canonical `Step-13` `full_set_inactive` contract preserving `s.core` (modulo `flags` and
 `unassigned`) and `FullProbeScratchPres s s'` across VMTF queue removal and EVSIDS heap
 rebalance (`full_heap_up` / `full_heap_down`). -/
@@ -144,6 +186,7 @@ theorem fullCalcScrCapM5Spec_xfree : Spec.XFree fullCalcScrCapM5Spec := by xfree
 theorem fullInitArenasSpec_xfree : Spec.XFree fullInitArenasSpec := by xfree
 theorem fullInitStateSpec_xfree : Spec.XFree fullInitStateSpec := by xfree
 theorem fullM6MemInitSpec_xfree : Spec.XFree fullM6MemInitSpec := by xfree
+theorem fullM6MemInitExactSpec_xfree : Spec.XFree fullM6MemInitExactSpec := by xfree
 theorem fullSetInactiveSpec_xfree : Spec.XFree fullSetInactiveSpec := by xfree
 theorem fullInitFreshVarSpec_xfree : Spec.XFree fullInitFreshVarSpec := by xfree
 theorem fullUpdateClassifyFidSpec_xfree : Spec.XFree fullUpdateClassifyFidSpec :=
@@ -168,7 +211,7 @@ theorem fullUpdateClassifyFidSpec_xfree : Spec.XFree fullUpdateClassifyFidSpec :
   , ⟨"full_init_arenas", [i64, i64, i64, i64], [], fullInitArenasSpec, true⟩
   , ⟨"full_init_state_m5", [i64, i64, i64, i64, i64], [.bool], fullInitStateSpec, true⟩
   , ⟨"full_init_state", [i64, i64, i64, i64, i64], [.bool], fullInitStateSpec, true⟩
-  , ⟨"full_m6_mem_init", [i64, i64, i64, i64, i64], [i64], fullM6MemInitSpec, true⟩
+  , ⟨"full_m6_mem_init", [i64, i64, i64, i64, i64], [i64], fullM6MemInitExactSpec, true⟩
   , ⟨"full_set_inactive", [i64, i32, i32], [], fullSetInactiveSpec, true⟩
   , ⟨"full_init_fresh_var", [i64, i32], [], fullInitFreshVarSpec, true⟩
   , ⟨"full_update_classify_fid", [i64], [], fullUpdateClassifyFidSpec, true⟩ ]
@@ -195,7 +238,7 @@ theorem specs_xfree : ∀ e ∈ specs, e.spec.XFree := by
   · exact fullInitArenasSpec_xfree
   · exact fullInitStateSpec_xfree
   · exact fullInitStateSpec_xfree
-  · exact fullM6MemInitSpec_xfree
+  · exact fullM6MemInitExactSpec_xfree
   · exact fullSetInactiveSpec_xfree
   · exact fullInitFreshVarSpec_xfree
   · exact fullUpdateClassifyFidSpec_xfree
@@ -244,9 +287,13 @@ theorem has_full_init_state {Γ : Env} (h : Γ.Sat specs) :
     Γ.Has "full_init_state" fullInitStateSpec :=
   Env.Sat.has h (List.getElem_mem (l := specs) (n := 10) (by decide)) fullInitStateSpec_xfree
 
+theorem has_full_m6_mem_init_exact {Γ : Env} (h : Γ.Sat specs) :
+    Γ.Has "full_m6_mem_init" fullM6MemInitExactSpec :=
+  Env.Sat.has h (List.getElem_mem (l := specs) (n := 11) (by decide)) fullM6MemInitExactSpec_xfree
+
 theorem has_full_m6_mem_init {Γ : Env} (h : Γ.Sat specs) :
     Γ.Has "full_m6_mem_init" fullM6MemInitSpec :=
-  Env.Sat.has h (List.getElem_mem (l := specs) (n := 11) (by decide)) fullM6MemInitSpec_xfree
+  (has_full_m6_mem_init_exact h).of_le fullM6MemInitSpec_le_exact
 
 theorem has_full_set_inactive {Γ : Env} (h : Γ.Sat specs) :
     Γ.Has "full_set_inactive" fullSetInactiveSpec :=
