@@ -238,6 +238,14 @@ public import LeanQbe.T.Examples.Kissat.Proof.Backtrack.WitnessLemmas
 public import LeanQbe.T.Examples.Kissat.Proof.Backtrack.Wp0
 public import LeanQbe.T.Examples.Kissat.Proof.Backtrack.Wp1
 public import LeanQbe.T.Examples.Kissat.Proof.Backtrack.Wp2
+public import LeanQbe.T.Examples.Kissat.Proof.Bump.Cert
+public import LeanQbe.T.Examples.Kissat.Proof.Bump.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Bump.Wp0
+public import LeanQbe.T.Examples.Kissat.Proof.Bump.WpBump
+public import LeanQbe.T.Examples.Kissat.Proof.Bump.WpBumpHelpers
+public import LeanQbe.T.Examples.Kissat.Proof.Bump.WpSort
+public import LeanQbe.T.Examples.Kissat.Proof.Bump.WpSortHelpers
+public import LeanQbe.T.Examples.Kissat.Proof.Bump.WpSortRadix
 public import LeanQbe.T.Examples.Kissat.Proof.Config.Cert
 public import LeanQbe.T.Examples.Kissat.Proof.Config.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Config.Wp
