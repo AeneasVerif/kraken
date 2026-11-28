@@ -3,7 +3,6 @@ module
 public import BvDecideQbe.FFI
 public import BvDecideQbe.Encode
 public import BvDecideQbe.Counterexample
-public import LeanQbe.T.Examples.Bitblast.Ref.BVProg
 public import Std.Tactic.BVDecide.Reflect
 public import Lean.Meta.Tactic.BVDecide.Prover.Basic
 public import Lean.Meta.Tactic.BVDecide.Counterexample
@@ -12,15 +11,16 @@ public import Lean.Meta.Tactic.BVDecide.Reflect
 /-!
 # Trust-Pure `UnsatProver` (`Step 2`)
 
-1. Encodes `bvExpr` via `BvDecideQbe.encode` and sizes the scratch workspace upfront via
-   `estimateWorkSize` (with `2x` retry on `.workTooSmall` inside `FFI.solveBVProgWithStats` up to
-   `512 MiB`).
+1. Encodes `bvExpr` via `BvDecideQbe.encodeForProver` and sizes the scratch workspace upfront via
+   `estimateWorkSize` (with `2x` retry on `.workTooSmall` inside `FFI.solveBVProgArrayWithStats`
+   up to `1 GiB`).
 2. Calls **ONLY** the verified in-process `bv_solve_bytes` entry point via
-   `FFI.solveBVProgWithStats` (no public injectable `solveFn`, no `solveDimacsBackend` fallback).
+   `FFI.solveBVProgArrayWithStats` (no public injectable `solveFn`, no `solveDimacsBackend`
+   fallback).
 3. On `.unsat witness`: guards no `FVar`/`MVar`, adds `_expr_def : BVLogicalExpr` via `Lean.addDecl`
-   ONLY (no `compileDecl`), invokes `witness.addAxiom` to emit `_leanqbe.bv_solve.ax`, proves
-   `BVProg.parseWords witness.words = some _expr_def` by pure kernel `Eq.refl`, applies
-   `BVProg.unsat_of_bv_solve_words`, and closes via `satExpr.proveFalse`.
+   ONLY (no `compileDecl`), invokes `witness.addAxiomWithWsExpr` to emit `_leanqbe.bv_solve.ax` and
+   reuse the single `wsExpr`, proves `BVProg.parseWords witness.words = some _expr_def` by pure
+   kernel `Eq.refl`, applies `BVProg.unsat_of_bv_solve_words`, and closes via `satExpr.proveFalse`.
 4. On `.sat model`: decodes via `Counterexample.lean` (`evalEfficient`-validated) and returns
    counterexample equations (zero axioms emitted).
 -/
@@ -36,11 +36,9 @@ open Lean.Meta
 open Lean.Meta.Tactic.BVDecide
 open Std.Sat
 open Std.Tactic.BVDecide
-open LeanQbe.T.Examples.Bitblast.Ref
 
-/-- Verify `FFI.lean`'s name constants match `BVProg.wordsToBytesLE` and `BVProg.parse`. -/
-example : ``BVProg.wordsToBytesLE = `LeanQbe.T.Examples.Bitblast.Ref.BVProg.wordsToBytesLE := rfl
-example : ``BVProg.parse = `LeanQbe.T.Examples.Bitblast.Ref.BVProg.parse := rfl
+private def bvProgUnsatOfWordsName : Name :=
+  `LeanQbe.T.Examples.Bitblast.Ref.BVProg.unsat_of_bv_solve_words
 
 /-- Execution preset mode for `bv_decide_qbe`:
 - `.upstream`: disables all enhanced divergences (`D1–D8`), keeping only the verified
@@ -213,37 +211,37 @@ def mkUnsatProof (reflectionResult : ReflectionResult) (witness : UnsatWitness)
       hints := .abbrev
       safety := .safe
     }
-  let auxAxiomName ← witness.addAxiom axiomDeclRange?
-  let wsExpr := mkNatListExpr witness.words
+  let (auxAxiomName, wsExpr) ← witness.addAxiomWithWsExpr axiomDeclRange?
   let bvLogTy := mkConst ``BVLogicalExpr
   let optBvLogTy := mkApp (mkConst ``Option [0]) bvLogTy
   let reflectedExpr := mkConst exprDefName
   let someExpr := mkApp2 (mkConst ``Option.some [0]) bvLogTy reflectedExpr
   let hparse := mkApp2 (mkConst ``Eq.refl [1]) optBvLogTy someExpr
-  let unsatPrf := mkApp4 (mkConst ``BVProg.unsat_of_bv_solve_words)
+  let unsatPrf := mkApp4 (mkConst bvProgUnsatOfWordsName)
     wsExpr reflectedExpr (mkConst auxAxiomName) hparse
   let falsePrf ←
     withTraceNode `Meta.Tactic.sat (fun _ => return "Kernel-checking BVProg.parseWords") do
       reflectionResult.satExpr.proveFalse unsatPrf
   return (auxAxiomName, exprDefName, falsePrf)
 
-/-- Encode `bvExpr` into `BVP1` and solve in-process via `FFI.solveBVProgWithStats` without
+/-- Encode `bvExpr` into `BVP1` and solve in-process via `FFI.solveBVProgArrayWithStats` without
 emitting any axioms. Shared by `unsatProver` and `+uf` CEGAR probing. -/
 def probeBVExpr (bvExpr : BVLogicalExpr) (ctx : QbeContext := {}) :
     ReifyM (Except (Array (Expr × Bool × BVExpr.PackedBitVec)) (UnsatWitness × Nat × Nat)) := do
-  let some enc := BvDecideQbe.encode bvExpr
+  let some enc := BvDecideQbe.encodeForProver bvExpr
     | throwError "Tactic `bv_decide_qbe` failed: BVLogicalExpr exceeds BVP1 32-bit limits"
   let initWork := ctx.initWorkOverride?.getD (estimateWorkSize enc.stats).toNat
   let outcome ←
     withTraceNode `Meta.Tactic.sat (fun _ => return "Solving BVP1 problem in-process") do
-      (solveBVProgWithStats enc.words initWork.toUInt64
+      (solveBVProgArrayWithStats enc.words initWork.toUInt64
         ctx.maxWorkBytes.toUInt64 ctx.fuel : IO SolveOutcome)
   match outcome.result with
   | .unsat witness =>
     return .ok (witness, outcome.workBytesUsed, outcome.attempts)
   | .sat model =>
     let atomsAssignment ← ReifyM.atomsAssignmentMap
-    match reconstructValidatedCounterExample bvExpr enc model atomsAssignment with
+    match reconstructValidatedCounterExampleCore bvExpr enc.varTable enc.atomBase model
+        atomsAssignment with
     | .error err =>
       throwError m!"Tactic `bv_decide_qbe` internal error: {err}"
     | .ok (_, eqs) =>

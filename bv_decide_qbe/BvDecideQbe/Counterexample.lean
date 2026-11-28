@@ -96,8 +96,8 @@ def decodeAssignment (varTable : Array (Nat × Nat)) (atomBase : Array Nat)
 def validateAssignment (expr : BVLogicalExpr) (assign : BVExpr.Assignment) : Bool :=
   EfficientEval.BVLogicalExpr.evalEfficient assign.get expr
 
-/-- Decode `model` from `(enc.varTable, enc.atomBase)` and validate via `BVLogicalExpr.evalEfficient`.
-Returns `none` if `evalEfficient` rejects the decoded assignment. -/
+/-- Decode `model` from `(enc.varTable, enc.atomBase)` and validate via
+`BVLogicalExpr.evalEfficient`. Returns `none` if `evalEfficient` rejects the decoded assignment. -/
 def decodeAndValidate (expr : BVLogicalExpr) (enc : EncodedProg) (model : ByteArray) :
     Option BVExpr.Assignment :=
   let assign := decodeAssignment enc.varTable enc.atomBase model
@@ -110,10 +110,11 @@ def decodeAndValidate (expr : BVLogicalExpr) (enc : EncodedProg) (model : ByteAr
 `(Expr × Bool × BVExpr.PackedBitVec)` equations for `Lean.Meta.Tactic.BVDecide.CounterExample`.
 Fails with an error if `evalEfficient` returns `false` or an atom ID is missing from
 `atomsAssignment`. -/
-def reconstructValidatedCounterExample (expr : BVLogicalExpr) (enc : EncodedProg)
+def reconstructValidatedCounterExampleCore (expr : BVLogicalExpr)
+    (varTable : Array (Nat × Nat)) (atomBase : Array Nat)
     (model : ByteArray) (atomsAssignment : Std.HashMap Nat (Nat × Expr × Bool)) :
     Except String (BVExpr.Assignment × Array (Expr × Bool × BVExpr.PackedBitVec)) := do
-  let pairs := decodeVarValues enc.varTable enc.atomBase model
+  let pairs := decodeVarValues varTable atomBase model
   let assign := assignmentOfPairs pairs
   if !validateAssignment expr assign then
     throw "decoded SAT model failed BVLogicalExpr.evalEfficient validation"
@@ -131,5 +132,11 @@ def reconstructValidatedCounterExample (expr : BVLogicalExpr) (enc : EncodedProg
     if !seen.contains atomId then
       eqs := eqs.push (atomExpr, synthetic, ⟨BitVec.ofNat width 0⟩)
   return (assign, eqs)
+
+/-- Convenience wrapper over `reconstructValidatedCounterExampleCore` for `EncodedProg`. -/
+def reconstructValidatedCounterExample (expr : BVLogicalExpr) (enc : EncodedProg)
+    (model : ByteArray) (atomsAssignment : Std.HashMap Nat (Nat × Expr × Bool)) :
+    Except String (BVExpr.Assignment × Array (Expr × Bool × BVExpr.PackedBitVec)) :=
+  reconstructValidatedCounterExampleCore expr enc.varTable enc.atomBase model atomsAssignment
 
 end BvDecideQbe

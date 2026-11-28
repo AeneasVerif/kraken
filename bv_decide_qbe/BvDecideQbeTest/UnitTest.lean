@@ -200,6 +200,24 @@ theorem thm_override_upstream_auto_acnf_true (a b : BitVec 64) : a * b = b * a :
 theorem thm_upstream_explicit_acnf_64 (a b : BitVec 64) : a * b = b * a := by
   bv_decide_qbe_upstream (config := { acNf := true })
 
+/-! ## 1e. `signExtend` / `08_baugh_wooley` Cast-Free Replicate Lowering & Aux-Clause Soundness -/
+
+theorem thm_signExtend_add_8 (a b : BitVec 8) :
+    (a.signExtend 16 + b.signExtend 16) = (b.signExtend 16 + a.signExtend 16) := by
+  bv_decide_qbe
+
+theorem thm_signExtend_neg_mask_16 (a : BitVec 16) :
+    (bif a.msb then 0#16 else 0xffff#16) = ~~~(BitVec.replicate 16 (a.extractLsb' 15 1)) := by
+  bv_decide_qbe
+
+theorem thm_nonmask_cond_aux_sound (a b : BitVec 8) :
+    (bif a.msb then a + b else b + a) = a + b := by
+  bv_decide_qbe
+
+theorem thm_int8_to_int16_add (a b : Int8) :
+    a.toInt16 + b.toInt16 = b.toInt16 + a.toInt16 := by
+  bv_decide_qbe
+
 /--
 error: Invalid value `bogus` for option `bv_decide_qbe.mode` (expected "enhanced" or "upstream")
 -/
@@ -240,6 +258,8 @@ private def checkTheoremAxioms (thmName : Name) (expectPerGoalAx : Bool) : CoreM
     let some axInfo := env.find? expectedAx
       | throwError "missing axiom {expectedAx}"
     assertTrue s!"{expectedAx}: must be axiomInfo" (axInfo matches .axiomInfo _)
+    assertTrue s!"{expectedAx}: valid bv_solve axiom type shape"
+      (isValidBvSolveAxiomType axInfo.type)
   for ax in axs do
     if !stdAxioms.contains ax && (!expectPerGoalAx || ax != expectedAx) then
       throwError "unexpected axiom {ax} in {thmName}"
@@ -412,6 +432,108 @@ private meta def runQbeConfigElabTests : CoreM Unit := do
 
 #eval runQbeConfigElabTests
 
+private def reflectGoalForGating (prop : Expr) (runElim : Bool)
+    (cfg : Lean.Elab.Tactic.BVDecide.BVDecideConfig := {}) :
+    MetaM (Option (BVLogicalExpr × Nat)) := do
+  let mvar ← mkFreshExprMVar prop
+  let tacticCtx := mkQbeTacticContext cfg
+  let params ← Grind.mkDefaultParams {}
+  Grind.GrindM.run (params := params) do
+    Normalize.PreProcessM.run' tacticCtx.preProcessContext (.mvarIdTarget mvar.mvarId!) do
+      let solved ← Normalize.bvNormalize
+      if solved then return none
+      let g ← Normalize.PreProcessM.getTargetMVarId
+      let rawHyps ← Normalize.PreProcessM.getHyps
+      let hyps ← if runElim then g.withContext <| elimSignExtendConds rawHyps else pure rawHyps
+      ReifyM.run (hypotheses := hyps) (cfg := cfg) do
+        let reflRes ← reflectBV g
+        let atomsMap ← ReifyM.atomsAssignmentMap
+        let synthCount := atomsMap.fold (init := 0) fun acc _ (_, _, synth) =>
+          if synth then acc + 1 else acc
+        return some (reflRes.satExpr.bvExpr, synthCount)
+
+private def runSignExtendAndAxiomTests : MetaM Unit := do
+  -- 1. §2.5 axiom type shape guard rejects spoofed axioms
+  assertTrue "isValidBvSolveAxiomType rejects False"
+    (!isValidBvSolveAxiomType (mkConst ``False))
+  let fakeExists := mkApp2 (mkConst ``Exists [1]) (mkConst ``BVLogicalExpr)
+    (mkLambda `e .default (mkConst ``BVLogicalExpr)
+      (mkApp2 (mkConst ``And) (mkConst ``True) (mkApp (mkConst ``BVLogicalExpr.Unsat) (mkBVar 0))))
+  assertTrue "isValidBvSolveAxiomType rejects forged Exists"
+    (!isValidBvSolveAxiomType fakeExists)
+
+  -- 2. 08_baugh_wooley_{16,32,64} signExtend miter gating regression:
+  --    without elimSignExtendConds -> 2 synthetic cond atoms & 4 aux clauses (miterEqWidth?=none)
+  --    with    elimSignExtendConds -> 0 synthetic atoms & pure BNot(Eq) miter (some (2*w))!
+  for w in [16, 32, 64] do
+    let w2 := 2 * w
+    let bvW := mkApp (mkConst ``BitVec) (mkNatLit w)
+    let prop ← withLocalDeclD `a bvW fun a =>
+      withLocalDeclD `b bvW fun b => do
+        let seA := mkApp3 (mkConst ``BitVec.signExtend) (mkNatLit w) (mkNatLit w2) a
+        let seB := mkApp3 (mkConst ``BitVec.signExtend) (mkNatLit w) (mkNatLit w2) b
+        let zeA := mkApp3 (mkConst ``BitVec.zeroExtend) (mkNatLit w) (mkNatLit w2) a
+        let zeB := mkApp3 (mkConst ``BitVec.zeroExtend) (mkNatLit w) (mkNatLit w2) b
+        let lhs ← mkAppM ``HMul.hMul #[zeA, zeB]
+        let rhs ← mkAppM ``HMul.hMul #[seA, seB]
+        mkForallFVars #[a, b] (← mkEq lhs rhs)
+    -- Baseline without elimSignExtendConds reproduces the 2-synth-atom / 4-aux-clause miss
+    let some (bvOrig, synthOrig) ← reflectGoalForGating prop false
+      | throwError s!"expected non-trivial reflection for w={w} orig"
+    assertTrue s!"w={w} orig has 2 synthetic cond atoms (got {synthOrig})" (synthOrig == 2)
+    assertTrue s!"w={w} orig misses miterEqWidth?" (miterEqWidth? bvOrig == none)
+    -- With elimSignExtendConds: 0 synthetic atoms, pure unconditional BNot(Eq) miter!
+    let some (bvFix, synthFix) ← reflectGoalForGating prop true
+      | throwError s!"expected non-trivial reflection for w={w} fixed"
+    assertTrue s!"w={w} fixed has 0 synthetic atoms (got {synthFix})" (synthFix == 0)
+    assertTrue s!"w={w} fixed miterEqWidth? == some {w2}" (miterEqWidth? bvFix == some w2)
+    let some encFix := BvDecideQbe.encodeForProver bvFix
+      | throwError s!"encodeForProver failed for w={w}"
+    assertTrue s!"w={w} fixed isAriscaMiterCandidate == true"
+      (isAriscaMiterCandidate bvFix encFix.stats)
+
+  -- 3. Soundness negative checks: real hypotheses & w > 128 & non-mask cond stay rejected!
+  let bv16 := mkApp (mkConst ``BitVec) (mkNatLit 16)
+  let propGuarded ← withLocalDeclD `a bv16 fun a =>
+    withLocalDeclD `b bv16 fun b => do
+      let c100 := mkApp2 (mkConst ``BitVec.ofNat) (mkNatLit 16) (mkNatLit 100)
+      let hyp ← mkAppM ``LT.lt #[a, c100]
+      let seA := mkApp3 (mkConst ``BitVec.signExtend) (mkNatLit 16) (mkNatLit 32) a
+      let seB := mkApp3 (mkConst ``BitVec.signExtend) (mkNatLit 16) (mkNatLit 32) b
+      let lhs ← mkAppM ``HMul.hMul #[seA, seB]
+      let rhs ← mkAppM ``HAdd.hAdd #[seA, seB]
+      mkForallFVars #[a, b] (← mkArrow hyp (← mkEq lhs rhs))
+  let some (bvGuarded, synthGuarded) ← reflectGoalForGating propGuarded true
+    | throwError "expected reflection for guarded goal"
+  assertTrue "guarded signExtend has 0 synthetic cond atoms" (synthGuarded == 0)
+  assertTrue "guarded goal soundly rejected by miterEqWidth?" (miterEqWidth? bvGuarded == none)
+
+  let bv128 := mkApp (mkConst ``BitVec) (mkNatLit 128)
+  let propWide ← withLocalDeclD `a bv128 fun a =>
+    withLocalDeclD `b bv128 fun b => do
+      let seA := mkApp3 (mkConst ``BitVec.signExtend) (mkNatLit 128) (mkNatLit 256) a
+      let seB := mkApp3 (mkConst ``BitVec.signExtend) (mkNatLit 128) (mkNatLit 256) b
+      let lhs ← mkAppM ``HMul.hMul #[seA, seB]
+      let rhs ← mkAppM ``HAdd.hAdd #[seA, seB]
+      mkForallFVars #[a, b] (← mkEq lhs rhs)
+  let some (bvWide, synthWide) ← reflectGoalForGating propWide true
+    | throwError "expected reflection for 256-bit goal"
+  assertTrue "256-bit signExtend has 0 synthetic cond atoms" (synthWide == 0)
+  assertTrue "256-bit goal (>128) rejected by miterEqWidth?" (miterEqWidth? bvWide == none)
+
+  let propNonMask ← withLocalDeclD `a bv16 fun a =>
+    withLocalDeclD `b bv16 fun b => do
+      let msb := mkApp2 (mkConst ``BitVec.msb) (mkNatLit 16) a
+      let ab ← mkAppM ``HAdd.hAdd #[a, b]
+      let ba ← mkAppM ``HXor.hXor #[a, b]
+      let c := mkApp4 (mkConst ``cond [1]) bv16 msb ab ba
+      let cPlusA ← mkAppM ``HAdd.hAdd #[c, a]
+      mkForallFVars #[a, b] (← mkEq cPlusA b)
+  let some (bvNonMask, synthNonMask) ← reflectGoalForGating propNonMask true
+    | throwError "expected reflection for non-mask cond goal"
+  assertTrue s!"non-mask cond preserves synthetic atom (got {synthNonMask})" (synthNonMask ≥ 1)
+  assertTrue "non-mask cond soundly rejected by miterEqWidth?" (miterEqWidth? bvNonMask == none)
+
 private def runAllCore : CoreM Unit := do
   -- 1. Audit axioms and non-compilation of _expr_def on reflected theorems
   for thm in [``thm_a1, ``thm_a2, ``thm_a3, ``thm_a5, ``thm_b1, ``thm_b2,
@@ -430,11 +552,19 @@ private def runAllCore : CoreM Unit := do
               ``thm_upstream_explicit_acnf_64] do
     checkTheoremAxioms thm false
   for thm in [``thm_preproc_only, ``thm_sym_push, ``thm_sym_std_push,
-              ``thm_sym_types, ``thm_grind_basic] do
+              ``thm_sym_types, ``thm_grind_basic,
+              ``thm_signExtend_add_8, ``thm_signExtend_neg_mask_16,
+              ``thm_nonmask_cond_aux_sound, ``thm_int8_to_int16_add] do
     let axs ← collectAxioms thm
+    let env ← getEnv
     for ax in axs do
-      if !stdAxioms.contains ax && !ax.toString.contains "_leanqbe.bv_solve.ax" then
-        throwError "unexpected axiom {ax} in {thm}"
+      if !stdAxioms.contains ax then
+        if !ax.toString.contains "_leanqbe.bv_solve.ax" then
+          throwError "unexpected axiom {ax} in {thm}"
+        let some axInfo := env.find? ax
+          | throwError "missing axiom {ax}"
+        assertTrue s!"{ax}: valid bv_solve axiom type shape"
+          (isValidBvSolveAxiomType axInfo.type)
 
   -- 2. Verify zero non-per-goal axioms across all BvDecideQbe / BvDecideQbeTest decls
   let env ← getEnv
@@ -447,18 +577,22 @@ private def runAllCore : CoreM Unit := do
      ``thm_upstream_alias_mul_4, ``thm_upstream_alias_sym_4,
      ``thm_upstream_config_mul_4, ``thm_upstream_compat_config,
      ``thm_upstream_opt_mul_4, ``thm_upstream_opt_sym_4,
-     ``thm_upstream_opt_push_mul_4, ``thm_override_auto_acnf_false]
+     ``thm_upstream_opt_push_mul_4, ``thm_override_auto_acnf_false,
+     ``thm_signExtend_add_8, ``thm_signExtend_neg_mask_16,
+     ``thm_nonmask_cond_aux_sound, ``thm_int8_to_int16_add]
   for (name, _) in env.constants do
     let s := name.toString
     if (s.startsWith "BvDecideQbe." || s.startsWith "BvDecideQbeTest.") &&
        !reflectedNames.contains name && !s.endsWith "._leanqbe.bv_solve.ax_1" &&
-       !s.contains "._test_" && !s.contains ".runAll" && !s.contains ".runQbeModeTests" then
+       !s.contains "._test_" && !s.contains ".runAll" && !s.contains ".runQbeModeTests" &&
+       !s.contains ".runSignExtendAndAxiomTests" && !s.contains ".reflectGoalForGating" then
       let axs ← collectAxioms name
       for ax in axs do
         if !stdAxioms.contains ax then
           throwError "unexpected axiom {ax} used by {name}"
 
   runQbeModeTests
+  MetaM.run' runSignExtendAndAxiomTests
 
   -- 3. Kernel Eq.refl timing gate (< 5 ms small) + wide/DAG checks
   MetaM.run' do

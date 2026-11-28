@@ -333,9 +333,11 @@ int main(void) {
 
   printf("== c_det_test: ASan/UBSan + 4-mmap determinism + bv_solve_bytes ==\n");
 
-  verify_4_mmap_determinism("bv_triv_unsat", p_triv_unsat, l_triv_unsat, 262144, 100000000ULL, 0, 0, 0);
+  verify_4_mmap_determinism("bv_triv_unsat", p_triv_unsat, l_triv_unsat,
+                            262144, 100000000ULL, 0, 0, 0);
   verify_4_mmap_determinism("bv_triv_sat", p_triv_sat, l_triv_sat, 262144, 100000000ULL, 1, 0, 0);
-  verify_4_mmap_determinism("bv_xor_self_unsat", p_xor_self, l_xor_self, 262144, 100000000ULL, 0, 0, 0);
+  verify_4_mmap_determinism("bv_xor_self_unsat", p_xor_self, l_xor_self,
+                            262144, 100000000ULL, 0, 0, 0);
   verify_4_mmap_determinism("bv_dist8_unsat", p_dist8, l_dist8, 262144, 100000000ULL, 0, 0, 0);
   verify_4_mmap_determinism("bv_sat_add1", p_sat_add1, l_sat_add1, 262144, 100000000ULL, 1, 1, 5);
 
@@ -360,7 +362,7 @@ int main(void) {
   verify_4_mmap_determinism("too_small_4096", p_dist8, l_dist8, 4096, 100000000ULL, 3, 0, 0);
   verify_4_mmap_determinism("too_small_8192", p_dist8, l_dist8, 8192, 100000000ULL, 3, 0, 0);
 
-  /* Explicit regression check: tight 8-bit mul OOM escalates via tag 3 -> tag 0 without .unknown. */
+  /* Regression check: tight 8-bit mul OOM escalates via tag 3 -> tag 0 without .unknown. */
   {
     static const uint32_t w_tight_mul8[] = {
       0x31505642u, 1u, 2u, 6u, 0u, 5u, 0u, 0u,
@@ -394,8 +396,10 @@ int main(void) {
   /* timeout (tag 4) on fuel = 0 and fuel = 1; unknown (tag 2) on invalid BVP1 */
   verify_4_mmap_determinism("timeout_fuel0", p_dist8, l_dist8, 262144, 0ULL, 4, 0, 0);
   verify_4_mmap_determinism("timeout_fuel1", p_dist8, l_dist8, 262144, 1ULL, 4, 0, 0);
-  verify_4_mmap_determinism("invalid_magic", p_bad_magic, l_bad_magic, 262144, 100000000ULL, 2, 0, 0);
-  verify_4_mmap_determinism("invalid_opcode", p_bad_opcode, l_bad_opcode, 262144, 100000000ULL, 2, 0, 0);
+  verify_4_mmap_determinism("invalid_magic", p_bad_magic, l_bad_magic,
+                            262144, 100000000ULL, 2, 0, 0);
+  verify_4_mmap_determinism("invalid_opcode", p_bad_opcode, l_bad_opcode,
+                            262144, 100000000ULL, 2, 0, 0);
 
   /* Explicit COW test (rc = 2 -> untouched) & dirty exclusive buffer clearing test (rc = 1). */
   {
@@ -410,11 +414,54 @@ int main(void) {
     for (size_t i = 0; i < 128; i++) {
       assert(p[i] == 0xA5);
     }
-    /* Reuse same dirty buffer (now rc = 1) with fuel = 1 -> must clear M6Hdr & return timeout (4). */
+    /* Reuse dirty buffer (rc = 1) with fuel = 1 -> clears M6Hdr & returns timeout (4). */
     unpacked_res_t r2 = run_shim(g_prog.obj, w, 1ULL);
     assert(r2.tag == 4);
     free_guarded_sarray(g_prog);
-    printf("  [OK] %-22s COW (rc=2) untouched & exclusive dirty reuse (rc=1) clean\n", "cow_and_reuse");
+    printf("  [OK] %-22s COW (rc=2) untouched & exclusive dirty reuse (rc=1) clean\n",
+           "cow_and_reuse");
+  }
+
+  /* Direct dirty-workspace determinism check across 0x00 / 0xA5 / 0xFF fills (lazy alloc). */
+  {
+    static const uint8_t kFills[3] = { 0x00u, 0xA5u, 0xFFu };
+    struct {
+      const char *name;
+      const uint8_t *prog;
+      size_t len;
+      unsigned tag;
+    } cases[] = {
+      { "bv_triv_unsat", p_triv_unsat, l_triv_unsat, 0u },
+      { "bv_triv_sat", p_triv_sat, l_triv_sat, 1u },
+      { "bv_xor_self_unsat", p_xor_self, l_xor_self, 0u },
+      { "bv_dist8_unsat", p_dist8, l_dist8, 0u },
+      { "bv_sat_add1", p_sat_add1, l_sat_add1, 1u },
+    };
+    for (size_t c = 0; c < sizeof(cases) / sizeof(cases[0]); c++) {
+      unpacked_res_t base_r = {0, 0, NULL};
+      for (int f = 0; f < 3; f++) {
+        guarded_sarray_t g_prog = alloc_guarded_sarray_at(
+            0, cases[c].prog, cases[c].len, 16, 0, 0);
+        lean_obj_res w = leanqbe_alloc_work_buf(262144);
+        memset(lean_sarray_cptr(w), kFills[f], 262144);
+        unpacked_res_t cur = run_shim(g_prog.obj, w, 100000000ULL);
+        assert(cur.tag == cases[c].tag);
+        if (f == 0) {
+          base_r = cur;
+        } else {
+          assert(cur.tag == base_r.tag);
+          assert(cur.model_len == base_r.model_len);
+          if (cur.model_len > 0) {
+            assert(memcmp(cur.model, base_r.model, cur.model_len) == 0);
+          }
+          free(cur.model);
+        }
+        free_guarded_sarray(g_prog);
+      }
+      free(base_r.model);
+    }
+    printf("  [OK] %-22s 0x00/0xA5/0xFF dirty-buffer determinism bit-identical\n",
+           "dirty_fill_det");
   }
 
   /* Direct test/guarded_buf.h guard-page verification on bv_solve_bytes */

@@ -301,6 +301,136 @@ theorem cond_sshiftRight'_right {w v : Nat} (c : Bool) (b d : BitVec w) (s : Bit
       BitVec.sshiftRight' (cond c b d) s := by
   cases c <;> rfl
 
+/-! ## 4b. Cast-Free `signExtend` / Mask `cond` → `BitVec.replicate` Rules -/
+
+private theorem bitVec1_cases (b : BitVec 1) : b = 0#1 ∨ b = 1#1 := by
+  have hlt : b.toNat < 2 := b.isLt
+  have h01 : b.toNat = 0 ∨ b.toNat = 1 := by omega
+  cases h01 with
+  | inl h0 => exact Or.inl (BitVec.eq_of_toNat_eq (by simpa using h0))
+  | inr h1 => exact Or.inr (BitVec.eq_of_toNat_eq (by simpa using h1))
+
+private theorem ofNat_two_pow_sub_one_eq_allOnes (m : Nat) :
+    BitVec.ofNat (1 * m) (2 ^ m - 1) = BitVec.allOnes (1 * m) := by
+  apply BitVec.eq_of_toNat_eq
+  rw [BitVec.toNat_ofNat, BitVec.toNat_allOnes, Nat.one_mul]
+  exact Nat.mod_eq_of_lt (Nat.sub_lt (Nat.two_pow_pos m) Nat.zero_lt_one)
+
+/-- Cast-free mask elimination for `signExtend` lowered to `cond`: when `m` is a concrete `Nat`,
+`1 * m` is definitionally equal to `m` so `BitVec.replicate m b` requires zero `BitVec.cast`
+and introduces zero synthetic `Reflect` atoms or auxiliary propositional clauses. -/
+theorem cond_beq_one_allOnes_zero_raw (m : Nat) (b : BitVec 1) :
+    (bif b == 1#1 then BitVec.ofNat (1 * m) (2 ^ m - 1) else BitVec.ofNat (1 * m) 0) =
+      BitVec.replicate m b := by
+  cases bitVec1_cases b with
+  | inl hb =>
+    subst hb
+    apply BitVec.eq_of_getLsbD_eq
+    intro i _
+    simp [BitVec.getLsbD_replicate]
+  | inr hb =>
+    subst hb
+    rw [beq_self_eq_true, Bool.cond_true, ofNat_two_pow_sub_one_eq_allOnes]
+    apply BitVec.eq_of_getLsbD_eq
+    intro i _
+    simp [BitVec.getLsbD_replicate, Nat.mod_one]
+
+theorem cond_beq_one_zero_allOnes_raw (m : Nat) (b : BitVec 1) :
+    (bif b == 1#1 then BitVec.ofNat (1 * m) 0 else BitVec.ofNat (1 * m) (2 ^ m - 1)) =
+      BitVec.replicate m (~~~b) := by
+  cases bitVec1_cases b with
+  | inl hb =>
+    subst hb
+    rw [show ((0#1 : BitVec 1) == 1#1) = false by decide, Bool.cond_false,
+      show (~~~(0#1 : BitVec 1)) = 1#1 by decide, ofNat_two_pow_sub_one_eq_allOnes]
+    apply BitVec.eq_of_getLsbD_eq
+    intro i _
+    simp [BitVec.getLsbD_replicate, Nat.mod_one]
+  | inr hb =>
+    subst hb
+    rw [beq_self_eq_true, Bool.cond_true, show (~~~(1#1 : BitVec 1)) = 0#1 by decide]
+    apply BitVec.eq_of_getLsbD_eq
+    intro i _
+    simp [BitVec.getLsbD_replicate]
+
+theorem cond_one_beq_allOnes_zero_raw (m : Nat) (b : BitVec 1) :
+    (bif 1#1 == b then BitVec.ofNat (1 * m) (2 ^ m - 1) else BitVec.ofNat (1 * m) 0) =
+      BitVec.replicate m b := by
+  rw [show (1#1 == b) = (b == 1#1) by cases bitVec1_cases b with | inl h | inr h => subst h; rfl]
+  exact cond_beq_one_allOnes_zero_raw m b
+
+theorem cond_one_beq_zero_allOnes_raw (m : Nat) (b : BitVec 1) :
+    (bif 1#1 == b then BitVec.ofNat (1 * m) 0 else BitVec.ofNat (1 * m) (2 ^ m - 1)) =
+      BitVec.replicate m (~~~b) := by
+  rw [show (1#1 == b) = (b == 1#1) by cases bitVec1_cases b with | inl h | inr h => subst h; rfl]
+  exact cond_beq_one_zero_allOnes_raw m b
+
+theorem cond_beq_zero_allOnes_zero_raw (m : Nat) (b : BitVec 1) :
+    (bif b == 0#1 then BitVec.ofNat (1 * m) (2 ^ m - 1) else BitVec.ofNat (1 * m) 0) =
+      BitVec.replicate m (~~~b) := by
+  rw [show (b == 0#1) = !(b == 1#1) by
+    cases bitVec1_cases b with | inl h | inr h => subst h; rfl]
+  cases h : (b == 1#1) <;> simp [← cond_beq_one_zero_allOnes_raw m b, h]
+
+theorem cond_beq_zero_zero_allOnes_raw (m : Nat) (b : BitVec 1) :
+    (bif b == 0#1 then BitVec.ofNat (1 * m) 0 else BitVec.ofNat (1 * m) (2 ^ m - 1)) =
+      BitVec.replicate m b := by
+  rw [show (b == 0#1) = !(b == 1#1) by
+    cases bitVec1_cases b with | inl h | inr h => subst h; rfl]
+  cases h : (b == 1#1) <;> simp [← cond_beq_one_allOnes_zero_raw m b, h]
+
+theorem cond_zero_beq_allOnes_zero_raw (m : Nat) (b : BitVec 1) :
+    (bif 0#1 == b then BitVec.ofNat (1 * m) (2 ^ m - 1) else BitVec.ofNat (1 * m) 0) =
+      BitVec.replicate m (~~~b) := by
+  rw [show (0#1 == b) = (b == 0#1) by cases bitVec1_cases b with | inl h | inr h => subst h; rfl]
+  exact cond_beq_zero_allOnes_zero_raw m b
+
+theorem cond_zero_beq_zero_allOnes_raw (m : Nat) (b : BitVec 1) :
+    (bif 0#1 == b then BitVec.ofNat (1 * m) 0 else BitVec.ofNat (1 * m) (2 ^ m - 1)) =
+      BitVec.replicate m b := by
+  rw [show (0#1 == b) = (b == 0#1) by cases bitVec1_cases b with | inl h | inr h => subst h; rfl]
+  exact cond_beq_zero_zero_allOnes_raw m b
+
+private theorem extractLsb'_one_beq_one_eq_getLsbD {v : Nat} (x : BitVec v) (i : Nat) :
+    (BitVec.extractLsb' i 1 x == 1#1) = x.getLsbD i := by
+  have hbit : (BitVec.extractLsb' i 1 x).getLsbD 0 = x.getLsbD i := by
+    simp
+  cases h : BitVec.extractLsb' i 1 x |> bitVec1_cases with
+  | inl h0 =>
+    rw [h0] at hbit ⊢
+    simpa using hbit.symm
+  | inr h1 =>
+    rw [h1] at hbit ⊢
+    simpa using hbit.symm
+
+theorem cond_getLsbD_allOnes_zero_raw {v : Nat} (m : Nat) (x : BitVec v) (i : Nat) :
+    (bif x.getLsbD i then BitVec.ofNat (1 * m) (2 ^ m - 1) else BitVec.ofNat (1 * m) 0) =
+      BitVec.replicate m (BitVec.extractLsb' i 1 x) := by
+  rw [← extractLsb'_one_beq_one_eq_getLsbD]
+  exact cond_beq_one_allOnes_zero_raw m (BitVec.extractLsb' i 1 x)
+
+theorem cond_getLsbD_zero_allOnes_raw {v : Nat} (m : Nat) (x : BitVec v) (i : Nat) :
+    (bif x.getLsbD i then BitVec.ofNat (1 * m) 0 else BitVec.ofNat (1 * m) (2 ^ m - 1)) =
+      BitVec.replicate m (~~~BitVec.extractLsb' i 1 x) := by
+  rw [← extractLsb'_one_beq_one_eq_getLsbD]
+  exact cond_beq_one_zero_allOnes_raw m (BitVec.extractLsb' i 1 x)
+
+theorem signExtend_eq_replicate_append {v w : Nat} (x : BitVec v) (hle : v ≤ w) :
+    BitVec.signExtend w x =
+      ((BitVec.replicate (w - v) (BitVec.extractLsb' (v - 1) 1 x)).cast (Nat.one_mul (w - v)) ++
+        x).cast (Nat.sub_add_cancel hle) := by
+  apply BitVec.eq_of_getLsbD_eq
+  intro i hi
+  simp only [BitVec.getLsbD_signExtend, hi, decide_true, Bool.true_and,
+    BitVec.getLsbD_cast, BitVec.getLsbD_append, BitVec.getLsbD_replicate,
+    BitVec.getLsbD_extractLsb', Nat.mod_one, Nat.add_zero]
+  by_cases hlt : i < v
+  · simp [hlt]
+  · have hmsb : x.msb = x.getLsbD (v - 1) := by
+      simp [BitVec.msb_eq_getLsbD_last]
+    have hlt2 : i - v < w - v := by omega
+    simp [hlt, hlt2, hmsb]
+
 /-! ## 5. Strictly Scoped `[bv_normalize]` Registration & Programmatic Rule Lists -/
 
 attribute [scoped bv_normalize]

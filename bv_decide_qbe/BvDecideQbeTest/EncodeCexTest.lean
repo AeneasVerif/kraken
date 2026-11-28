@@ -363,8 +363,10 @@ private def workSizeValid (e : BVLogicalExpr) : Bool :=
 #guard workSizeValid m0_c5
 #guard (estimateWorkSizeOfExpr m0_b6).toNat > (estimateWorkSizeOfExpr m0_a1).toNat
 #guard (estimateWorkSizeOfExpr m0_b4).toNat >= (estimateWorkSizeOfExpr m0_a2).toNat
-#guard (estimateWorkSizeOfExpr (.literal (.bin (.bin (.var 0 : BVExpr 64) .mul (.var 1 : BVExpr 64)) .eq (.const 0#64)))).toNat >=
-  (estimateWorkSizeOfExpr (.literal (.bin (.bin (.var 0 : BVExpr 16) .mul (.var 1 : BVExpr 16)) .eq (.const 0#16)))).toNat
+#guard (estimateWorkSizeOfExpr
+  (.literal (.bin (.bin (.var 0 : BVExpr 64) .mul (.var 1 : BVExpr 64)) .eq (.const 0#64)))).toNat
+  >= (estimateWorkSizeOfExpr
+  (.literal (.bin (.bin (.var 0 : BVExpr 16) .mul (.var 1 : BVExpr 16)) .eq (.const 0#16)))).toNat
 private def hugeStats : ProgStats :=
   { nVars := 100
     nNodes := 10000
@@ -409,11 +411,14 @@ private def testCexDecodeSat (expr : BVLogicalExpr) (vals : List (Nat × Nat)) :
 
 #guard testCexDecodeSat (.literal (.bin (.var 0 : BVExpr 4) .eq (.const 5#4))) [(0, 5)]
 #guard !testCexDecodeSat (.literal (.bin (.var 0 : BVExpr 4) .eq (.const 5#4))) [(0, 6)]
-#guard testCexDecodeSat (.literal (.bin (.bin (.var 0 : BVExpr 8) .add (.const 1#8)) .eq (.const 0#8))) [(0, 255)]
+#guard testCexDecodeSat
+  (.literal (.bin (.bin (.var 0 : BVExpr 8) .add (.const 1#8)) .eq (.const 0#8))) [(0, 255)]
 #guard testCexDecodeSat (.gate .and (.literal (.bin (.var 10 : BVExpr 8) .ult (.var 20 : BVExpr 8)))
   (.literal (.bin (.var 20 : BVExpr 8) .eq (.const 42#8)))) [(10, 7), (20, 42)]
-#guard testCexDecodeSat (.literal (.bin (.var 0 : BVExpr 256) .eq (.const big256Const))) [(0, big256Const.toNat)]
-#guard !testCexDecodeSat (.literal (.bin (.var 0 : BVExpr 256) .eq (.const big256Const))) [(0, big256Const.toNat ^^^ 1)]
+#guard testCexDecodeSat (.literal (.bin (.var 0 : BVExpr 256) .eq (.const big256Const)))
+  [(0, big256Const.toNat)]
+#guard !testCexDecodeSat (.literal (.bin (.var 0 : BVExpr 256) .eq (.const big256Const)))
+  [(0, big256Const.toNat ^^^ 1)]
 #guard testCexDecodeSat widthZeroExpr [(7, 0), (1, 0)]
 #guard match BvDecideQbe.encode (.const true) with
   | some enc => (decodeAndValidate (.const true) enc ByteArray.empty).isSome
@@ -433,7 +438,8 @@ def runAll : IO Unit := do
 
   -- Reconstruct validated counterexample with atomsAssignment (including synthetic + unencoded)
   let expr : BVLogicalExpr :=
-    .gate .and (.literal (.bin (.bin (.var 10 : BVExpr 8) .add (.var 20 : BVExpr 8)) .eq (.const 50#8)))
+    .gate .and
+      (.literal (.bin (.bin (.var 10 : BVExpr 8) .add (.var 20 : BVExpr 8)) .eq (.const 50#8)))
       (.literal (.bin (.var 10 : BVExpr 8) .ult (.const 30#8)))
   let some enc := BvDecideQbe.encode expr
     | throw (IO.userError "encode sparse sat expr failed")
@@ -466,7 +472,29 @@ def runAll : IO Unit := do
   let ws256 := (estimateWorkSizeOfExpr m0_b6).toNat
   assertTrue s!"ws256 ({ws256}) >= ws16 ({ws16})" (ws256 >= ws16)
 
-  IO.println "EncodeCexTest: ALL PASSED (25 M0 + 32 opcodes + 256-bit + w=0 + DAG200 + sizing + CEX evalEfficient)"
+  -- Shared diamond DAG depth=30 (2^30 tree size, 34 DAG nodes): must stay O(|DAG|), < 50 ms
+  let diamond30 : BVLogicalExpr := Id.run do
+    let mut cur : BVExpr 32 := .var 0
+    for _ in [0:30] do
+      cur := .bin cur .xor cur
+    return .not (.literal (.bin cur .eq (.const 0#32)))
+  let td0 ← IO.monoNanosNow
+  let some dEnc := BvDecideQbe.encodeForProver diamond30
+    | throw (IO.userError "encodeForProver diamond30 failed")
+  let td1 ← IO.monoNanosNow
+  assertTrue s!"diamond30 nNodes <= 40 (got {dEnc.stats.nNodes})" (dEnc.stats.nNodes ≤ 40)
+  assertTrue s!"diamond30 encode took {(td1 - td0) / 1000} us (< 50000 us)" (td1 - td0 < 50000000)
+  assertTrue "diamond30 miterEqWidth? == some 32" (miterEqWidth? diamond30 == some 32)
+  assertTrue "diamond30 hasMulInLogicalExpr == false" (!hasMulInLogicalExpr diamond30)
+  assertTrue "m0_c1 miterEqWidth? == some 7" (miterEqWidth? m0_c1 == some 7)
+  assertTrue "m0_c1 hasMulInLogicalExpr == true" (hasMulInLogicalExpr m0_c1)
+  assertTrue "m0_c1 isAriscaMiterCandidate == true"
+    (isAriscaMiterCandidate m0_c1 (BvDecideQbe.encodeForProver m0_c1).get!.stats)
+  assertTrue "m0_b4 (256-bit) miterEqWidth? == none" (miterEqWidth? m0_b4 == none)
+  assertTrue "m0_c2 (guarded hyp) miterEqWidth? == none" (miterEqWidth? m0_c2 == none)
+
+  IO.println
+    "EncodeCexTest: ALL PASSED (25 M0 + 32 ops + 256-bit + w=0 + DAG200 + diamond30 + miter + CEX)"
 
 #eval runAll
 

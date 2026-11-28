@@ -84,13 +84,13 @@ static int is_bv_init_oom(const uint8_t *prog_ptr, size_t prog_len, uint64_t ava
   return 0;
 }
 
+/* Allocate unzeroed scratch workspace (lazy page commit).
+ * `leanqbe_solve_bv_bytes` zeroes the 3456 B header (`LEANQBE_M6_HDR_TOTAL_BYTES`),
+ * and verified `bv_solve_bytes` / Kissat `full_zero_tables1` initialize all live
+ * state under `bvSolveBytesSpec` (`region workPtr workCap`, arbitrary bytes). */
 LEAN_EXPORT lean_obj_res leanqbe_alloc_work_buf(uint64_t n) {
   size_t sz = (size_t)n;
-  lean_obj_res arr = lean_alloc_sarray(1, sz, sz);
-  if (sz > 0) {
-    memset(lean_sarray_cptr(arr), 0, sz);
-  }
-  return arr;
+  return lean_alloc_sarray(1, sz, sz);
 }
 
 LEAN_EXPORT lean_obj_res leanqbe_solve_bv_bytes(b_lean_obj_arg prog,
@@ -113,9 +113,6 @@ LEAN_EXPORT lean_obj_res leanqbe_solve_bv_bytes(b_lean_obj_arg prog,
   if (!lean_is_exclusive(work)) {
     lean_dec_ref(work);
     work = lean_alloc_sarray(1, wsize, wsize);
-    if (wsize > 0) {
-      memset(lean_sarray_cptr(work), 0, wsize);
-    }
   }
 
   uintptr_t raw_addr = (uintptr_t)lean_sarray_cptr(work);

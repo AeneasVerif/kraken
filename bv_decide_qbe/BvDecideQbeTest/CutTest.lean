@@ -335,9 +335,15 @@ private def assertZeroSolverAxioms (thmName : Name) : CoreM Unit := do
 
 private def assertOnlyAllowedAxioms (thmName : Name) : CoreM Unit := do
   let axs ← collectAxioms thmName
+  let env ← getEnv
   for ax in axs do
-    if !stdAxioms.contains ax && !ax.toString.contains "_leanqbe.bv_solve.ax" then
-      throwError "unexpected axiom {ax} in {thmName}"
+    if !stdAxioms.contains ax then
+      if !ax.toString.contains "_leanqbe.bv_solve.ax" then
+        throwError "unexpected axiom {ax} in {thmName}"
+      let some axInfo := env.find? ax
+        | throwError "missing axiom info for {ax} in {thmName}"
+      assertTrue s!"{ax}: valid bv_solve axiom type shape"
+        (isValidBvSolveAxiomType axInfo.type)
 
 private def mkArxGoalExpr (n : Nat) (injectBug : Bool) : MetaM Expr := do
   let rots : Array Nat := #[7, 9, 13, 18, 5, 11, 3, 25, 16, 12, 8, 21, 19, 23, 2, 29]

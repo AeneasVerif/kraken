@@ -2,16 +2,19 @@ module
 
 public import Std.Tactic.BVDecide.Bitblast.BVExpr.Basic
 public import Std.Data.HashMap
+public import Std.Data.HashSet
 
 /-!
-# Untrusted DAG-Sharing `BVP1` Encoder and Upfront Workspace Sizing (`S3a`)
+# Untrusted DAG-Sharing `BVP1` Encoder, Workspace Sizing & ARiSCA Miter Gate (`S3a`)
 
 Encodes `Std.Tactic.BVDecide.BVLogicalExpr` into:
-- `words : List Nat` (matching `Bitblast.Ref.BVProg.parseWords` 1:1 on all 32 opcodes)
+- `words : List Nat` / `Array Nat` (matching `Bitblast.Ref.BVProg.parseWords` 1:1 on all 32 opcodes)
 - `bytes : ByteArray` (canonical little-endian 32-bit word stream)
 - `varTable : Array (Nat × Nat)` (`(bvIdx, width)` per variable slot)
 - `atomBase : Array Nat` (`atomBase[0] = 1`, `atomBase[k+1] = atomBase[k] + varTable[k].2`)
-- `stats : ProgStats` + deterministic `estimateWorkSize` clamped to `[256 KiB, 512 MiB]`.
+- `stats : ProgStats` + deterministic `estimateWorkSize` clamped to `[256 KiB, 1 GiB]`
+- Strict ARiSCA miter gating predicates (`miterEqWidth?`, `hasMulInLogicalExpr`,
+  `isAriscaMiterCandidate`).
 -/
 
 set_option autoImplicit false
@@ -66,54 +69,8 @@ def opIte : Nat := 31
 @[inline] private def isU32 (x : Nat) : Bool :=
   Nat.blt x u32Bound
 
-private def binOpEq : BVBinOp → BVBinOp → Bool
-  | .and, .and | .or, .or | .xor, .xor | .add, .add
-  | .mul, .mul | .udiv, .udiv | .umod, .umod => true
-  | _, _ => false
-
-private def unOpEq : BVUnOp → BVUnOp → Bool
-  | .not, .not | .reverse, .reverse | .clz, .clz | .cpop, .cpop => true
-  | .rotateLeft a, .rotateLeft b => a == b
-  | .rotateRight a, .rotateRight b => a == b
-  | .arithShiftRightConst a, .arithShiftRightConst b => a == b
-  | _, _ => false
-
-private def bvExprHEq : {w1 w2 : Nat} → BVExpr w1 → BVExpr w2 → Bool
-  | w1, w2, .var i1, .var i2 => w1 == w2 && i1 == i2
-  | w1, w2, .const v1, .const v2 => w1 == w2 && v1.toNat == v2.toNat
-  | w1, w2, .extract s1 _ e1, .extract s2 _ e2 => w1 == w2 && s1 == s2 && bvExprHEq e1 e2
-  | w1, w2, .bin l1 op1 r1, .bin l2 op2 r2 =>
-    w1 == w2 && binOpEq op1 op2 && bvExprHEq l1 l2 && bvExprHEq r1 r2
-  | w1, w2, .un op1 e1, .un op2 e2 => w1 == w2 && unOpEq op1 op2 && bvExprHEq e1 e2
-  | w1, w2, .append l1 r1 _, .append l2 r2 _ => w1 == w2 && bvExprHEq l1 l2 && bvExprHEq r1 r2
-  | w1, w2, .replicate n1 e1 _, .replicate n2 e2 _ => w1 == w2 && n1 == n2 && bvExprHEq e1 e2
-  | w1, w2, .shiftLeft l1 r1, .shiftLeft l2 r2 => w1 == w2 && bvExprHEq l1 l2 && bvExprHEq r1 r2
-  | w1, w2, .shiftRight l1 r1, .shiftRight l2 r2 => w1 == w2 && bvExprHEq l1 l2 && bvExprHEq r1 r2
-  | w1, w2, .arithShiftRight l1 r1, .arithShiftRight l2 r2 =>
-    w1 == w2 && bvExprHEq l1 l2 && bvExprHEq r1 r2
-  | _, _, _, _ => false
-
-private def bvPredEq : BVPred → BVPred → Bool
-  | .bin l1 .eq r1, .bin l2 .eq r2 => bvExprHEq l1 l2 && bvExprHEq r1 r2
-  | .bin l1 .ult r1, .bin l2 .ult r2 => bvExprHEq l1 l2 && bvExprHEq r1 r2
-  | .getLsbD e1 i1, .getLsbD e2 i2 => i1 == i2 && bvExprHEq e1 e2
-  | _, _ => false
-
-private def gateEq : Gate → Gate → Bool
-  | .and, .and | .xor, .xor | .beq, .beq | .or, .or => true
-  | _, _ => false
-
-private def logicalExprEq : BVLogicalExpr → BVLogicalExpr → Bool
-  | .literal p1, .literal p2 => bvPredEq p1 p2
-  | .const b1, .const b2 => b1 == b2
-  | .not x1, .not x2 => logicalExprEq x1 x2
-  | .gate g1 l1 r1, .gate g2 l2 r2 => gateEq g1 g2 && logicalExprEq l1 l2 && logicalExprEq r1 r2
-  | .ite d1 l1 r1, .ite d2 l2 r2 =>
-    logicalExprEq d1 d2 && logicalExprEq l1 l2 && logicalExprEq r1 r2
-  | _, _ => false
-
-/-- Minimum upfront scratch workspace (`2 MiB`, sized for `KissatFidelity` `M6Hdr`). -/
-def minWorkBytes : Nat := 2 * 1024 * 1024
+/-- Minimum upfront scratch workspace (`256 KiB`; auto-doubles on `.workTooSmall`). -/
+def minWorkBytes : Nat := 256 * 1024
 
 /-- Maximum upfront scratch workspace (`1 GiB`). -/
 def maxWorkBytes : Nat := 1024 * 1024 * 1024
@@ -128,6 +85,15 @@ structure ProgStats where
   estClauses : Nat
   maxWidth : Nat
   deriving Repr, BEq, Inhabited
+
+/-- Lightweight prover-side `BVP1` encoding keeping `words : Array Nat` without eager
+`ByteArray` packing or `List Nat` conversion. -/
+structure EncodedProverProg where
+  words : Array Nat
+  varTable : Array (Nat × Nat)
+  atomBase : Array Nat
+  stats : ProgStats
+  deriving Inhabited
 
 /-- Result of encoding a `BVLogicalExpr` into the `BVP1` wire format. -/
 structure EncodedProg where
@@ -217,7 +183,11 @@ private structure BVKey where
   expr : BVExpr w
 
 private instance : BEq BVKey where
-  beq a b := bvExprHEq a.expr b.expr
+  beq a b :=
+    if h : a.w = b.w then
+      a.expr == (h ▸ b.expr)
+    else
+      false
 
 private instance : Hashable BVKey where
   hash a := a.expr.hashCode a.w
@@ -226,7 +196,7 @@ private structure LogicalKey where
   expr : BVLogicalExpr
 
 private instance : BEq LogicalKey where
-  beq a b := logicalExprEq a.expr b.expr
+  beq a b := a.expr == b.expr
 
 private instance : Hashable LogicalKey where
   hash a := a.expr.hashCode
@@ -378,10 +348,10 @@ private def encodeBVLogical (st : EncodeState) (e : BVLogicalExpr) :
       emitNode st3 opIte 1 a b c
   return (idx, { st' with logMap := st'.logMap.insert key idx })
 
-/-- Untrusted DAG-sharing `BVLogicalExpr` encoder producing `BVP1` words, packed LE bytes,
-variable table, `atomBase` offsets, and sizing stats. Returns `none` if any parameter or pool
-count reaches `2^32`. -/
-def encode (e : BVLogicalExpr) : Option EncodedProg := do
+/-- Untrusted DAG-sharing `BVLogicalExpr` encoder returning `Array Nat` words, variable table,
+`atomBase` offsets, and sizing stats without eager `ByteArray` packing or `List Nat` conversion.
+Returns `none` if any parameter or pool count reaches `2^32`. -/
+def encodeForProver (e : BVLogicalExpr) : Option EncodedProverProg := do
   let (root, st) ← encodeBVLogical {} e
   let nVars := st.vars.size
   let nNodes := st.nodes.size
@@ -409,7 +379,6 @@ def encode (e : BVLogicalExpr) : Option EncodedProg := do
     ws := ws.push a
     ws := ws.push b
     ws := ws.push c
-  let bytes := ws.foldl pushWordLE (ByteArray.emptyWithCapacity (ws.size * 4))
   let stats : ProgStats := {
     nVars := nVars
     nNodes := nNodes
@@ -420,21 +389,95 @@ def encode (e : BVLogicalExpr) : Option EncodedProg := do
     maxWidth := st.maxWidth
   }
   return {
-    words := ws.toList
-    bytes := bytes
+    words := ws
     varTable := st.vars
     atomBase := st.atomBase
     stats := stats
   }
 
+/-- Untrusted DAG-sharing `BVLogicalExpr` encoder producing `BVP1` words, packed LE bytes,
+variable table, `atomBase` offsets, and sizing stats. Returns `none` if any parameter or pool
+count reaches `2^32`. -/
+def encode (e : BVLogicalExpr) : Option EncodedProg := do
+  let p ← encodeForProver e
+  let bytes := p.words.foldl pushWordLE (ByteArray.emptyWithCapacity (p.words.size * 4))
+  return {
+    words := p.words.toList
+    bytes := bytes
+    varTable := p.varTable
+    atomBase := p.atomBase
+    stats := p.stats
+  }
+
 /-- Encode a `BVLogicalExpr` into `BVP1` 32-bit `Nat` words (`none` if any limit reaches `2^32`). -/
 def encodeWords (e : BVLogicalExpr) : Option (List Nat) :=
-  (encode e).map (·.words)
+  (encodeForProver e).map (·.words.toList)
 
 /-- Convenience upfront workspace size estimate directly from a `BVLogicalExpr`. -/
 def estimateWorkSizeOfExpr (e : BVLogicalExpr) : UInt64 :=
-  match encode e with
-  | some p => p.estimateWorkSize
+  match encodeForProver e with
+  | some p => estimateWorkSize p.stats
   | none => minWorkBytes.toUInt64
+
+/-- Return `some w` iff `e` is strictly an unconditional `BNot (Eq lhs rhs)` miter with
+`1 ≤ w ≤ 128`. Deliberately rejects `.gate .and` goals so real side-condition hypotheses are
+never dropped (soundness invariant for `SPEC_MITER` ARiSCA dispatch). -/
+def miterEqWidth? : BVLogicalExpr → Option Nat
+  | .not (.literal (.bin (w := w) _ .eq _)) =>
+    if 1 ≤ w && w ≤ 128 then some w else none
+  | _ => none
+
+private structure MulScanState where
+  seenBv : Std.HashSet BVKey := {}
+  seenLog : Std.HashSet LogicalKey := {}
+
+private def bvExprHasMulAux (st : MulScanState) : {w : Nat} → BVExpr w → Bool × MulScanState
+  | w, e =>
+    let key : BVKey := ⟨w, e⟩
+    if st.seenBv.contains key then
+      (false, st)
+    else
+      let st := { st with seenBv := st.seenBv.insert key }
+      match e with
+      | .var _ | .const _ => (false, st)
+      | .extract _ _ a | .un _ a | .replicate _ a _ => bvExprHasMulAux st a
+      | .bin _ .mul _ => (true, st)
+      | .bin l _ r | .append l r _ | .shiftLeft l r | .shiftRight l r | .arithShiftRight l r =>
+        let (hl, st1) := bvExprHasMulAux st l
+        if hl then (true, st1) else bvExprHasMulAux st1 r
+
+private def logExprHasMulAux (st : MulScanState) (e : BVLogicalExpr) : Bool × MulScanState :=
+  let key : LogicalKey := ⟨e⟩
+  if st.seenLog.contains key then
+    (false, st)
+  else
+    let st := { st with seenLog := st.seenLog.insert key }
+    match e with
+    | .const _ => (false, st)
+    | .not x => logExprHasMulAux st x
+    | .gate _ l r =>
+      let (hl, st1) := logExprHasMulAux st l
+      if hl then (true, st1) else logExprHasMulAux st1 r
+    | .ite d l r =>
+      let (hd, st1) := logExprHasMulAux st d
+      if hd then (true, st1)
+      else
+        let (hl, st2) := logExprHasMulAux st1 l
+        if hl then (true, st2) else logExprHasMulAux st2 r
+    | .literal (.bin l _ r) =>
+      let (hl, st1) := bvExprHasMulAux st l
+      if hl then (true, st1) else bvExprHasMulAux st1 r
+    | .literal (.getLsbD a _) =>
+      bvExprHasMulAux st a
+
+/-- Memoized `O(|DAG|)` check for whether `e` contains any `BVBinOp.mul` node. -/
+def hasMulInLogicalExpr (e : BVLogicalExpr) : Bool :=
+  (logExprHasMulAux {} e).1
+
+/-- Canonical ARiSCA `SPEC_MITER` eligibility gate: strict unconditional `BitVec w`
+(`1 ≤ w ≤ 128`) equality miter with non-trivial AIG size (`estAigGates ≥ 100`) or
+multiplication. -/
+def isAriscaMiterCandidate (e : BVLogicalExpr) (stats : ProgStats) : Bool :=
+  (miterEqWidth? e).isSome && (stats.estAigGates ≥ 100 || hasMulInLogicalExpr e)
 
 end BvDecideQbe

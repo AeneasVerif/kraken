@@ -10,7 +10,6 @@ public import BvDecideQbe.Cut
 public import Lean.Elab.Tactic.BVDecide
 public import Lean.Elab.ConfigEval
 public import Lean.Elab.Tactic.Grind.Basic
-public import Lean.Meta.Tactic.BVDecide.Main
 public import Lean.Meta.Tactic.Grind.Main
 public meta import BvDecideQbe.FFI
 public meta import BvDecideQbe.NormalizeRules
@@ -21,7 +20,6 @@ public meta import BvDecideQbe.Cut
 public meta import Lean.Elab.Tactic.BVDecide
 public meta import Lean.Elab.ConfigEval
 public meta import Lean.Elab.Tactic.Grind.Basic
-public meta import Lean.Meta.Tactic.BVDecide.Main
 public meta import Lean.Meta.Tactic.Grind.Main
 
 /-!
@@ -47,6 +45,13 @@ open Lean.Elab.Tactic
 open Lean.Elab.Tactic.BVDecide
 open Lean.Meta.Tactic.BVDecide
 open Lean.Parser.Tactic
+open LeanQbe.T.Examples.Bitblast.Ref
+
+/-- Verify `FFI.lean` & `Prover.lean` name constants match `BVProg`. -/
+example : ``BVProg.wordsToBytesLE = `LeanQbe.T.Examples.Bitblast.Ref.BVProg.wordsToBytesLE := rfl
+example : ``BVProg.parse = `LeanQbe.T.Examples.Bitblast.Ref.BVProg.parse := rfl
+example : ``BVProg.unsat_of_bv_solve_words =
+    `LeanQbe.T.Examples.Bitblast.Ref.BVProg.unsat_of_bv_solve_words := rfl
 
 /-- Trust-pure `BitVec` decision tactic backed by `BVP1` + verified `KissatFidelity`
 + kernel `rfl`. -/

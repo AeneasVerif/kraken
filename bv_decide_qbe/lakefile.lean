@@ -29,7 +29,9 @@ target kissat_asm (pkg : NPackage __name__) : FilePath := do
      ] ++ if arch == "arm64" then
        #[`LeanQbe.T.Arm64.BitblastFidelityParam, `LeanQbe.T.Arm64.Isa, `Kraken.AArch64.Print]
      else
-       #[`LeanQbe.T.Amd64.BitblastFidelityParam, `LeanQbe.T.Amd64.Isa, `LeanQbe.T.Amd64.PrintATTAlign]
+       #[ `LeanQbe.T.Amd64.BitblastFidelityParam
+        , `LeanQbe.T.Amd64.Isa
+        , `LeanQbe.T.Amd64.PrintATTAlign ]
   let modJobs ← needMods.mapM fun modName => do
     let some mod ← findModule? modName
       | error s!"kissat_asm: module '{modName}' not found in workspace"
@@ -81,7 +83,14 @@ target libkissat_qbe : Dynlib := do
 
 lean_lib BvDecideQbeNative where
   roots := #[]
-  globs := #[`BvDecideQbe.FFI, `BvDecideQbe.Encode, `BvDecideQbe.Counterexample]
+  globs := #[
+    `BvDecideQbe.FFI,
+    `BvDecideQbe.Encode,
+    `BvDecideQbe.Counterexample,
+    `BvDecideQbe.NormalizeRules,
+    `BvDecideQbe.Prover,
+    `BvDecideQbe.Cegar
+  ]
   precompileModules := true
   moreLinkLibs := #[libkissat_qbe]
 
@@ -90,9 +99,6 @@ lean_lib BvDecideQbe where
   roots := #[]
   globs := #[
     `BvDecideQbe,
-    `BvDecideQbe.NormalizeRules,
-    `BvDecideQbe.Prover,
-    `BvDecideQbe.Cegar,
     `BvDecideQbe.CutCore,
     `BvDecideQbe.Cut,
     `BvDecideQbe.Tactic
