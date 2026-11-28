@@ -321,6 +321,12 @@ public import LeanQbe.T.Examples.Kissat.Proof.Minimize.WpSortAsts
 public import LeanQbe.T.Examples.Kissat.Proof.Minimize.WpSortMerge
 public import LeanQbe.T.Examples.Kissat.Proof.Minimize.WpSortPerm
 public import LeanQbe.T.Examples.Kissat.Proof.Minimize.WpSortSteps
+public import LeanQbe.T.Examples.Kissat.Proof.Reorder.Cert
+public import LeanQbe.T.Examples.Kissat.Proof.Reorder.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Reorder.Wp0
+public import LeanQbe.T.Examples.Kissat.Proof.Reorder.Wp1
+public import LeanQbe.T.Examples.Kissat.Proof.Reorder.Wp2
+public import LeanQbe.T.Examples.Kissat.Proof.Reorder.WpMem
 public import LeanQbe.T.Examples.Kissat.Proof.Restart.Cert
 public import LeanQbe.T.Examples.Kissat.Proof.Restart.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Restart.Wp0
