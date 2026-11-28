@@ -401,15 +401,11 @@ def _walk_all_imports(
     start_imports: list[ImportStmt],
     cache: dict[Path, list[ImportStmt]],
     stop_bridge: bool = False,
-    stop_cert_bridge: bool = False,
 ) -> dict[str, tuple[list[str], int]]:
     """Return shortest import chains across all import edges (`public`, private, `meta`).
 
     When `stop_bridge` is True, traversal does not expand through allowlisted
-    metaprogramming bridge modules (`Kraken.*`, `*Lemmas*`, or
-    transitional `KissatCertCommon`). When `stop_cert_bridge` is True, traversal
-    does not expand past transitional `KissatCertCommon` (to be tightened after
-    `KissatCertCommon` switches `MainCertInline` -> `MainCertInlineProof`).
+    metaprogramming bridge modules (`Kraken.*`, `*Lemmas*`, or proof kits).
     """
     queue: list[tuple[str, list[str], int]] = [
         (imp.module, [imp.module], imp.line) for imp in start_imports
@@ -420,12 +416,9 @@ def _walk_all_imports(
         if mod in reached:
             continue
         reached[mod] = (chain, first_line)
-        if stop_cert_bridge and mod == "LeanQbe.T.Examples.Kissat.KissatCertCommon":
-            continue
         if stop_bridge and (
             mod
             in {
-                "LeanQbe.T.Examples.Kissat.KissatCertCommon",
                 "LeanQbe.T.Logic.C0Grind",
                 "LeanQbe.T.Logic.ProofKit",
                 "Kraken.Attribute",
@@ -516,28 +509,16 @@ def check_l5_param_and_guards(
     for rel in param_files:
         imps = _load_imports(root / rel, cache)
         reached = _walk_all_imports(root, imps, cache)
-        cert_unbridged = _walk_all_imports(root, imps, cache, stop_cert_bridge=True)
         unbridged = _walk_all_imports(root, imps, cache, stop_bridge=True)
         bad_arch = _l5_arch_prefixes(rel)
 
         violations.extend(
             _flag_chain_violations(
                 rel,
-                cert_unbridged,
+                reached,
                 lambda m: bool(CERT_MOD_RE.match(m)) or _is_cert_elab_mod(m),
                 "param-cert-leak",
                 "Tier-1 *Param module pulls cert/elab module",
-            )
-        )
-        violations.extend(
-            _flag_chain_violations(
-                rel,
-                reached,
-                lambda m: bool(CERT_MOD_RE.match(m))
-                or m.startswith("LeanQbe.T.MainCertSlices")
-                or m in {"LeanQbe.T.MainCertInlineChunk", "LeanQbe.T.MainCertScc"},
-                "param-cert-leak",
-                "Tier-1 *Param module pulls cert/chunk/slice module",
             )
         )
         violations.extend(

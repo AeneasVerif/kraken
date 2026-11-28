@@ -3770,7 +3770,7 @@ def render_cert_link(cfg: CertConfig, arch: ArchSpec) -> str:
     link_open_items = ["LeanQbe.T", arch.ns_prefix, cert_mod, cfg.open_source_ns]
     if cfg.abi_common:
         link_pub_imports.append(
-            "public import LeanQbe.T.Examples.Kissat.KissatCertCommon"
+            "public import LeanQbe.T.Examples.Kissat.KissatAbiCommon"
         )
         link_priv_imports.append(f"import {arch.ns_prefix}.KissatAbi")
         link_open_items.append("LeanQbe.T.Examples.Kissat.KissatCertCommon")
@@ -3861,7 +3861,9 @@ def render_top_wrapper(cfg: CertConfig, arch: ArchSpec) -> str:
     priv_imports: list[str] = [f"import {arch.lemmas_mod}"]
     abi_full = cfg.abi_common and cfg.wrapper_mode == "full" and cfg.hdr_model == "m6"
     if abi_full:
-        pub_imports.append("public import LeanQbe.T.Examples.Kissat.KissatCertCommon")
+        pub_imports.append(
+            "public import LeanQbe.T.Examples.Kissat.Build.Common.CertParamCommon"
+        )
         priv_imports.append(f"import {arch.ns_prefix}.KissatAbi")
     if cfg.wrapper_mode == "full" and cfg.hdr_model == "m6":
         sound_mod = (
@@ -3900,7 +3902,13 @@ def render_top_wrapper(cfg: CertConfig, arch: ArchSpec) -> str:
         "Kraken",
     ]
     if abi_full:
-        open_parts.append("LeanQbe.T.Examples.Kissat.KissatCertCommon")
+        open_parts.extend(
+            [
+                "LeanQbe.T.Examples.Kissat.KissatCertCommon",
+                "LeanQbe.T.Examples.Kissat.Proof.Spec",
+                "LeanQbe.T.Examples.Kissat.Build.Common.CertParamCommon",
+            ]
+        )
     if cfg.wrapper_mode == "full" and cfg.hdr_model == "m6":
         open_parts.extend(
             [
@@ -4020,7 +4028,7 @@ def render_top_wrapper(cfg: CertConfig, arch: ArchSpec) -> str:
     if cfg.wrapper_mode in ("fnspec", "full"):
         if abi_full:
             mk_call = _wrap_lean_app(
-                "  Examples.Kissat.KissatCertCommon.module_fnspec_of_abi",
+                "  Examples.Kissat.Build.Common.CertParamCommon.module_fnspec_of_abi",
                 [
                     arch.kissat_abi,
                     unsat_pkg,
@@ -4337,7 +4345,7 @@ def render_m6_unsat_section(
             "    (fun _ ⟨hpc, hdom, hu', ⟨hcal, hsp'⟩, hst⟩ =>",
             "      ⟨hpc, hdom, hu', hcal, hsp', hst⟩)",
             *_wrap_lean_app(
-                "    (Examples.Kissat.KissatCertCommon.solve_bytes_unsat_of_abi",
+                "    (Examples.Kissat.Build.Common.CertParamCommon.solve_bytes_unsat_of_abi",
                 [
                     arch.kissat_abi,
                     pkg_nm,
@@ -4364,7 +4372,7 @@ def render_m6_unsat_section(
             ),
         ]
         correct_proof_lines = _wrap_lean_app(
-            "  Examples.Kissat.KissatCertCommon.unsat_correct_of_abi",
+            "  Examples.Kissat.Build.Common.CertParamCommon.unsat_correct_of_abi",
             [
                 arch.kissat_abi,
                 pkg_nm,
@@ -4524,7 +4532,7 @@ def render_m6_unsat_section(
             "  obtain ⟨cp, wp, fu, cb, wl, s, ra, R, hcf, hwf,",
             "    ⟨h0, h1, h2, h3, h4⟩, hsp, hdm, hev⟩ :=",
             *_wrap_lean_app(
-                "    Examples.Kissat.KissatCertCommon.unsat_nonvacuous_of_abi",
+                "    Examples.Kissat.Build.Common.CertParamCommon.unsat_nonvacuous_of_abi",
                 [arch.kissat_abi, nv_pkg_nm, compiled_name, cfg.legal_sig, "hh", "k₀", "hc", "hu"],
                 indent="      ",
             ),
@@ -4536,7 +4544,7 @@ def render_m6_unsat_section(
             *run_ret[:-1],
             f"{run_ret[-1]} :=",
             *_wrap_lean_app(
-                "  Examples.Kissat.KissatCertCommon.run_unsat_of_abi",
+                "  Examples.Kissat.Build.Common.CertParamCommon.run_unsat_of_abi",
                 [arch.kissat_abi, nv_pkg_nm, compiled_name, cfg.legal_sig],
             ),
             "",
@@ -6274,7 +6282,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help=(
             "Delegate <Prefix>CertLink.lean and M6Hdr <Prefix>.lean proofs to "
-            "arch-free KissatCertCommon + {Amd64,Arm64}.KissatAbi. Default: per "
+            "arch-free KissatAbiCommon / CertParamCommon + {Amd64,Arm64}.KissatAbi. Default: per "
             "preset (FullFidelity/FullM8Opt: on), else off."
         ),
     )

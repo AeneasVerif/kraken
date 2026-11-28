@@ -20,7 +20,7 @@ import LeanQbe.T.Logic.MemLemmas
 
 set_option autoImplicit false
 
-section
+public section
 
 namespace LeanQbeTest.T.KissatDimacsProofTest
 

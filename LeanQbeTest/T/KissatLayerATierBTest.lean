@@ -1,10 +1,12 @@
 module
 
-public import LeanQbe.T.Examples.Kissat.LayerASubstitute
-public import LeanQbe.T.Examples.Kissat.LayerAGates
-meta import LeanQbe.T.Examples.Kissat.Core
-meta import LeanQbe.T.Examples.Kissat.LayerASubstitute
-meta import LeanQbe.T.Examples.Kissat.LayerAGates
+public import LeanQbe.T.Examples.Kissat.Ref.Substitute
+public import LeanQbe.T.Examples.Kissat.Ref.Gates
+public import LeanQbe.T.Examples.Kissat.Ref.Factor
+meta import LeanQbe.T.Examples.Kissat.Ref.Sat
+meta import LeanQbe.T.Examples.Kissat.Ref.Substitute
+meta import LeanQbe.T.Examples.Kissat.Ref.Gates
+meta import LeanQbe.T.Examples.Kissat.Ref.Factor
 
 /-!
 # Verification, Closed Sample Theorems, and Axiom Audit for Kissat `D-Full` Elimination Theories
@@ -22,12 +24,12 @@ Executable `#guard` / `#eval` checks, closed end-to-end theorems, and single-lin
 
 set_option autoImplicit false
 
-section
+public section
 
 namespace KissatTierBTest
 
 open Std.Sat
-open LeanQbe.T.Examples.Kissat
+open LeanQbe.T.Examples.Kissat.Ref
 
 /-! ## 1. Equivalence / SCC Literal Substitution (`LayerASubstitute`) -/
 
@@ -412,39 +414,39 @@ theorem sample_pipe_sat :
 
 /-! ## 6. Single-line `#print axioms` checks -/
 
-#print axioms LeanQbe.T.Examples.Kissat.subst_unsat_sound
-#print axioms LeanQbe.T.Examples.Kissat.subst_sat_reconstruct
-#print axioms LeanQbe.T.Examples.Kissat.subst_equisat
-#print axioms LeanQbe.T.Examples.Kissat.subst_var_elim
-#print axioms LeanQbe.T.Examples.Kissat.substTrace_unsat
-#print axioms LeanQbe.T.Examples.Kissat.substTrace_sat
-#print axioms LeanQbe.T.Examples.Kissat.substTrace_equisat
-#print axioms LeanQbe.T.Examples.Kissat.binReach_scc_equiv
-#print axioms LeanQbe.T.Examples.Kissat.binReach_contra_unsat
-#print axioms LeanQbe.T.Examples.Kissat.substMap_unsat_sound
-#print axioms LeanQbe.T.Examples.Kissat.substMap_sat_recon
-#print axioms LeanQbe.T.Examples.Kissat.bce_extend_sat
-#print axioms LeanQbe.T.Examples.Kissat.bce_erase_unsat
-#print axioms LeanQbe.T.Examples.Kissat.bce_erase_sat
-#print axioms LeanQbe.T.Examples.Kissat.bce_erase_equisat
-#print axioms LeanQbe.T.Examples.Kissat.bceStack_unsat_sound
-#print axioms LeanQbe.T.Examples.Kissat.bceStack_sat_recon
-#print axioms LeanQbe.T.Examples.Kissat.gateBve_unsat_sound
-#print axioms LeanQbe.T.Examples.Kissat.gateBve_sat_recon
-#print axioms LeanQbe.T.Examples.Kissat.gateFunc_bve_sat
-#print axioms LeanQbe.T.Examples.Kissat.gateFunc_bve_equisat
-#print axioms LeanQbe.T.Examples.Kissat.gateBlocked_bve_sat
-#print axioms LeanQbe.T.Examples.Kissat.equivGate_functional
-#print axioms LeanQbe.T.Examples.Kissat.andGate_functional
-#print axioms LeanQbe.T.Examples.Kissat.iteGate_functional
-#print axioms LeanQbe.T.Examples.Kissat.xorGate_functional
-#print axioms LeanQbe.T.Examples.Kissat.defGate_functional
-#print axioms LeanQbe.T.Examples.Kissat.bca_unsat_sound
-#print axioms LeanQbe.T.Examples.Kissat.bvaFactor_unsat_sound
-#print axioms LeanQbe.T.Examples.Kissat.bvaFactor_sat_recon
-#print axioms LeanQbe.T.Examples.Kissat.bvaFactor_equisat
-#print axioms LeanQbe.T.Examples.Kissat.tierBTrace_unsat
-#print axioms LeanQbe.T.Examples.Kissat.tierBTrace_sat_recon
+#print axioms LeanQbe.T.Examples.Kissat.Ref.subst_unsat_sound
+#print axioms LeanQbe.T.Examples.Kissat.Ref.subst_sat_reconstruct
+#print axioms LeanQbe.T.Examples.Kissat.Ref.subst_equisat
+#print axioms LeanQbe.T.Examples.Kissat.Ref.subst_var_elim
+#print axioms LeanQbe.T.Examples.Kissat.Ref.substTrace_unsat
+#print axioms LeanQbe.T.Examples.Kissat.Ref.substTrace_sat
+#print axioms LeanQbe.T.Examples.Kissat.Ref.substTrace_equisat
+#print axioms LeanQbe.T.Examples.Kissat.Ref.binReach_scc_equiv
+#print axioms LeanQbe.T.Examples.Kissat.Ref.binReach_contra_unsat
+#print axioms LeanQbe.T.Examples.Kissat.Ref.substMap_unsat_sound
+#print axioms LeanQbe.T.Examples.Kissat.Ref.substMap_sat_recon
+#print axioms LeanQbe.T.Examples.Kissat.Ref.bce_extend_sat
+#print axioms LeanQbe.T.Examples.Kissat.Ref.bce_erase_unsat
+#print axioms LeanQbe.T.Examples.Kissat.Ref.bce_erase_sat
+#print axioms LeanQbe.T.Examples.Kissat.Ref.bce_erase_equisat
+#print axioms LeanQbe.T.Examples.Kissat.Ref.bceStack_unsat_sound
+#print axioms LeanQbe.T.Examples.Kissat.Ref.bceStack_sat_recon
+#print axioms LeanQbe.T.Examples.Kissat.Ref.gateBve_unsat_sound
+#print axioms LeanQbe.T.Examples.Kissat.Ref.gateBve_sat_recon
+#print axioms LeanQbe.T.Examples.Kissat.Ref.gateFunc_bve_sat
+#print axioms LeanQbe.T.Examples.Kissat.Ref.gateFunc_bve_equisat
+#print axioms LeanQbe.T.Examples.Kissat.Ref.gateBlocked_bve_sat
+#print axioms LeanQbe.T.Examples.Kissat.Ref.equivGate_functional
+#print axioms LeanQbe.T.Examples.Kissat.Ref.andGate_functional
+#print axioms LeanQbe.T.Examples.Kissat.Ref.iteGate_functional
+#print axioms LeanQbe.T.Examples.Kissat.Ref.xorGate_functional
+#print axioms LeanQbe.T.Examples.Kissat.Ref.defGate_functional
+#print axioms LeanQbe.T.Examples.Kissat.Ref.bca_unsat_sound
+#print axioms LeanQbe.T.Examples.Kissat.Ref.bvaFactor_unsat_sound
+#print axioms LeanQbe.T.Examples.Kissat.Ref.bvaFactor_sat_recon
+#print axioms LeanQbe.T.Examples.Kissat.Ref.bvaFactor_equisat
+#print axioms LeanQbe.T.Examples.Kissat.Ref.tierBTrace_unsat
+#print axioms LeanQbe.T.Examples.Kissat.Ref.tierBTrace_sat_recon
 #print axioms sample_subst_sat
 #print axioms sample_scc_unsat
 #print axioms sample_subst_unsat

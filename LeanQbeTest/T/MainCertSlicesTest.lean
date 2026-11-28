@@ -4,7 +4,9 @@ public import LeanQbe.T.MainCertSlices
 public import LeanQbe.T.MainCertInline
 public import LeanQbe.T.Amd64.TargLemmas
 public import LeanQbe.T.Amd64.KissatAbi
-public import LeanQbe.T.Examples.Kissat.KissatCertCommon
+public import LeanQbe.T.Examples.Kissat.KissatAbiCommon
+public import LeanQbe.T.Examples.Kissat.Build.Common.CertParamCommon
+public import LeanQbe.T.Examples.Kissat.Proof.Spec.SatNv1
 public import LeanQbe.T.Logic.MemLemmas
 public import LeanQbeTest.T.Common.Fixtures
 public import Std.Sat.CNF
@@ -41,7 +43,7 @@ Tests all additive M8+ certificate infrastructure (`0` dual-arch co-imports, `st
 
 set_option autoImplicit false
 
-section
+public section
 
 namespace LeanQbeTest.T.MainCertSlicesTest
 
@@ -50,6 +52,7 @@ open LeanQbe.T LeanQbe.T.Amd64 Kraken
 open LeanQbe.T.Examples.Kissat.Ref
 open LeanQbe.T.Examples.Kissat.Proof.Spec hiding sep_exists_eq
 open LeanQbe.T.Examples.Kissat.KissatCertCommon
+open LeanQbe.T.Examples.Kissat.Build.Common.CertParamCommon
 open LeanQbeTest.T.Common.Fixtures
 
 theorem certMod_legalSig : LegalSigAll x64LegalTarget certMod.fns :=
@@ -98,7 +101,7 @@ noncomputable def certSlices :
 
 noncomputable def certCompiled := certSlices.toCompiled
 
-theorem certSlices_chunks : certSlices.numChunks = 3 := rfl
+private theorem certSlices_chunks : certSlices.numChunks = 3 := rfl
 
 theorem certSlices_fnspec [hh : Host] (k₀ : Nat)
     (hc : certSlices.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
@@ -267,7 +270,7 @@ theorem modArg5_wp : ∀ f ∈ modArg5.fns, ∀ xs m Q X,
 compile_linked_chunks! certArg5Raw
   x64Target x64Layout x64LegalTarget x64LabelClean modArg5 1
 
-theorem modArg5_len : modArg5.fns.length = 1 := rfl
+private theorem modArg5_len : modArg5.fns.length = 1 := rfl
 
 noncomputable def arg5Slices :
     List (ChunkSlice x64Target x64LegalTarget [] 0 2048 modArg5.fns) :=

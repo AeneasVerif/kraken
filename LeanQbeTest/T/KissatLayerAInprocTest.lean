@@ -1,13 +1,12 @@
 module
 
-public import LeanQbe.T.Examples.Kissat.LayerASubsume
-public import LeanQbe.T.Examples.Kissat.LayerAVivify
-public import LeanQbe.T.Examples.Kissat.LayerABve
-meta import LeanQbe.T.Examples.Kissat.Core
-meta import LeanQbe.T.Examples.Kissat.LayerASubsume
-meta import LeanQbe.T.Examples.Kissat.LayerAVivify
-meta import LeanQbe.T.Examples.Kissat.LayerABve1
-meta import LeanQbe.T.Examples.Kissat.LayerABve
+public import LeanQbe.T.Examples.Kissat.Ref.Subsume
+public import LeanQbe.T.Examples.Kissat.Ref.Vivify
+public import LeanQbe.T.Examples.Kissat.Ref.Eliminate
+meta import LeanQbe.T.Examples.Kissat.Ref.Sat
+meta import LeanQbe.T.Examples.Kissat.Ref.Subsume
+meta import LeanQbe.T.Examples.Kissat.Ref.Vivify
+meta import LeanQbe.T.Examples.Kissat.Ref.Eliminate
 
 /-!
 # Verification and Axiom Audit for Kissat Pure-Lean Layer-A Inprocessing
@@ -25,7 +24,7 @@ set_option autoImplicit false
 namespace LeanQbeTest.T.KissatLayerAInprocTest
 
 open Std.Sat
-open LeanQbe.T.Examples.Kissat
+open LeanQbe.T.Examples.Kissat.Ref
 
 /-! ## 1. Subsumption & Self-Subsuming Resolution (`LayerASubsume`) -/
 
@@ -256,44 +255,44 @@ public theorem nv_cdcl_bve_sound :
 
 /-! ## 5. Single-line `#print axioms` checks -/
 
-#print axioms LeanQbe.T.Examples.Kissat.subsume_cnf_equiv
-#print axioms LeanQbe.T.Examples.Kissat.subsume_clauses_equiv
-#print axioms LeanQbe.T.Examples.Kissat.ssr_cnf_equiv
-#print axioms LeanQbe.T.Examples.Kissat.ssr_clauses_equiv
-#print axioms LeanQbe.T.Examples.Kissat.otfs_clauses_equiv
-#print axioms LeanQbe.T.Examples.Kissat.subsume_pass_equiv
-#print axioms LeanQbe.T.Examples.Kissat.ssr_pass_equiv
-#print axioms LeanQbe.T.Examples.Kissat.subsume_ssr_equiv
-#print axioms LeanQbe.T.Examples.Kissat.subsume_db_equiv
-#print axioms LeanQbe.T.Examples.Kissat.ssr_db_equiv
-#print axioms LeanQbe.T.Examples.Kissat.subsume_preserves_inv
-#print axioms LeanQbe.T.Examples.Kissat.failedLit_add_equiv
-#print axioms LeanQbe.T.Examples.Kissat.failedLit_drop_equiv
-#print axioms LeanQbe.T.Examples.Kissat.probeFailedLit_sound
-#print axioms LeanQbe.T.Examples.Kissat.failedLit_probe_equiv
-#print axioms LeanQbe.T.Examples.Kissat.failedLitStep_equiv
-#print axioms LeanQbe.T.Examples.Kissat.failedAnalyze_equiv
-#print axioms LeanQbe.T.Examples.Kissat.vivify_conflict_equiv
-#print axioms LeanQbe.T.Examples.Kissat.vivify_implied_equiv
-#print axioms LeanQbe.T.Examples.Kissat.vivify_confl_clauses
-#print axioms LeanQbe.T.Examples.Kissat.vivify_imp_clauses
-#print axioms LeanQbe.T.Examples.Kissat.vivify_clause_equiv
-#print axioms LeanQbe.T.Examples.Kissat.vivify_pass_equiv
-#print axioms LeanQbe.T.Examples.Kissat.bve_var_absent
-#print axioms LeanQbe.T.Examples.Kissat.bveClauses_unsat
-#print axioms LeanQbe.T.Examples.Kissat.bve_unsat_sound
-#print axioms LeanQbe.T.Examples.Kissat.extendBveStep_sound
-#print axioms LeanQbe.T.Examples.Kissat.extendBveStep_sat
-#print axioms LeanQbe.T.Examples.Kissat.extendBveStepArr_sound
-#print axioms LeanQbe.T.Examples.Kissat.bveElim_unsat_sound
-#print axioms LeanQbe.T.Examples.Kissat.bveElimCnf_unsat_sound
-#print axioms LeanQbe.T.Examples.Kissat.extendBve_sound
-#print axioms LeanQbe.T.Examples.Kissat.extendBve_cnf_sound
-#print axioms LeanQbe.T.Examples.Kissat.extendBveArray_sound
-#print axioms LeanQbe.T.Examples.Kissat.extendBveArray_cnf
-#print axioms LeanQbe.T.Examples.Kissat.bveElim_equisat
-#print axioms LeanQbe.T.Examples.Kissat.bveBounded_sound
-#print axioms LeanQbe.T.Examples.Kissat.cdclSolveAfterBve_sound
+#print axioms LeanQbe.T.Examples.Kissat.Ref.subsume_cnf_equiv
+#print axioms LeanQbe.T.Examples.Kissat.Ref.subsume_clauses_equiv
+#print axioms LeanQbe.T.Examples.Kissat.Ref.ssr_cnf_equiv
+#print axioms LeanQbe.T.Examples.Kissat.Ref.ssr_clauses_equiv
+#print axioms LeanQbe.T.Examples.Kissat.Ref.otfs_clauses_equiv
+#print axioms LeanQbe.T.Examples.Kissat.Ref.subsume_pass_equiv
+#print axioms LeanQbe.T.Examples.Kissat.Ref.ssr_pass_equiv
+#print axioms LeanQbe.T.Examples.Kissat.Ref.subsume_ssr_equiv
+#print axioms LeanQbe.T.Examples.Kissat.Ref.subsume_db_equiv
+#print axioms LeanQbe.T.Examples.Kissat.Ref.ssr_db_equiv
+#print axioms LeanQbe.T.Examples.Kissat.Ref.subsume_preserves_inv
+#print axioms LeanQbe.T.Examples.Kissat.Ref.failedLit_add_equiv
+#print axioms LeanQbe.T.Examples.Kissat.Ref.failedLit_drop_equiv
+#print axioms LeanQbe.T.Examples.Kissat.Ref.probeFailedLit_sound
+#print axioms LeanQbe.T.Examples.Kissat.Ref.failedLit_probe_equiv
+#print axioms LeanQbe.T.Examples.Kissat.Ref.failedLitStep_equiv
+#print axioms LeanQbe.T.Examples.Kissat.Ref.failedAnalyze_equiv
+#print axioms LeanQbe.T.Examples.Kissat.Ref.vivify_conflict_equiv
+#print axioms LeanQbe.T.Examples.Kissat.Ref.vivify_implied_equiv
+#print axioms LeanQbe.T.Examples.Kissat.Ref.vivify_confl_clauses
+#print axioms LeanQbe.T.Examples.Kissat.Ref.vivify_imp_clauses
+#print axioms LeanQbe.T.Examples.Kissat.Ref.vivify_clause_equiv
+#print axioms LeanQbe.T.Examples.Kissat.Ref.vivify_pass_equiv
+#print axioms LeanQbe.T.Examples.Kissat.Ref.bve_var_absent
+#print axioms LeanQbe.T.Examples.Kissat.Ref.bveClauses_unsat
+#print axioms LeanQbe.T.Examples.Kissat.Ref.bve_unsat_sound
+#print axioms LeanQbe.T.Examples.Kissat.Ref.extendBveStep_sound
+#print axioms LeanQbe.T.Examples.Kissat.Ref.extendBveStep_sat
+#print axioms LeanQbe.T.Examples.Kissat.Ref.extendBveStepArr_sound
+#print axioms LeanQbe.T.Examples.Kissat.Ref.bveElim_unsat_sound
+#print axioms LeanQbe.T.Examples.Kissat.Ref.bveElimCnf_unsat_sound
+#print axioms LeanQbe.T.Examples.Kissat.Ref.extendBve_sound
+#print axioms LeanQbe.T.Examples.Kissat.Ref.extendBve_cnf_sound
+#print axioms LeanQbe.T.Examples.Kissat.Ref.extendBveArray_sound
+#print axioms LeanQbe.T.Examples.Kissat.Ref.extendBveArray_cnf
+#print axioms LeanQbe.T.Examples.Kissat.Ref.bveElim_equisat
+#print axioms LeanQbe.T.Examples.Kissat.Ref.bveBounded_sound
+#print axioms LeanQbe.T.Examples.Kissat.Ref.cdclSolveAfterBve_sound
 #print axioms nv_subsume_ssr_sample
 #print axioms nv_vivify_sample
 #print axioms nv_bve_sat_sample

@@ -1,14 +1,14 @@
 module
 
-public import LeanQbe.T.Examples.Kissat.LayerAMinimize
-public import LeanQbe.T.Examples.Kissat.LayerACollect
-meta import LeanQbe.T.Examples.Kissat.Core
-meta import LeanQbe.T.Examples.Kissat.LayerAMinimize1
-meta import LeanQbe.T.Examples.Kissat.LayerAMinimize2
-meta import LeanQbe.T.Examples.Kissat.LayerAMinimize3
-meta import LeanQbe.T.Examples.Kissat.LayerAMinimize
-meta import LeanQbe.T.Examples.Kissat.LayerACollect1
-meta import LeanQbe.T.Examples.Kissat.LayerACollect
+public import LeanQbe.T.Examples.Kissat.Ref.FailedLit
+public import LeanQbe.T.Examples.Kissat.Ref.Collect
+meta import LeanQbe.T.Examples.Kissat.Ref.Sat
+meta import LeanQbe.T.Examples.Kissat.Ref.Minimize
+meta import LeanQbe.T.Examples.Kissat.Ref.MinimizeDfs
+meta import LeanQbe.T.Examples.Kissat.Ref.Shrink
+meta import LeanQbe.T.Examples.Kissat.Ref.FailedLit
+meta import LeanQbe.T.Examples.Kissat.Ref.Reduce
+meta import LeanQbe.T.Examples.Kissat.Ref.Collect
 
 /-!
 # Verification and Axiom Audit for Kissat Pure-Lean Layer-A Theories
@@ -28,7 +28,7 @@ set_option autoImplicit false
 namespace LeanQbeTest.T.KissatLayerATest
 
 open Std.Sat
-open LeanQbe.T.Examples.Kissat
+open LeanQbe.T.Examples.Kissat.Ref
 
 /-! ## 1. Iterative `minimize` (`LayerAMinimize1` & `LayerAMinimize2`) -/
 
@@ -272,7 +272,8 @@ private theorem lazyMin_rs (k : Fin 7) :
     stateReason lazyMinCdcl
       (lazyMinCdcl.trail[k.1]'(Nat.lt_of_lt_of_eq k.2 lazyMin_sz.symm)) =
       [.unit, .decision, .decision, .large 0, .binary 3, .large 1, .large 2][k.1] := by
-  decide +revert
+  rcases k with ⟨_ | _ | _ | _ | _ | _ | _ | _, hk⟩
+  all_goals first | omega | simp [stateReason, lazyMinCdcl, litVar]
 
 private theorem lazyMin_trl {i : Nat} (hi : i < lazyMinCdcl.trail.size) :
     lazyMinCdcl.trail[i]'hi = [0, 2, 4, 6, 8, 10, 12][i]'(Nat.lt_of_lt_of_eq hi lazyMin_sz) :=
@@ -291,7 +292,9 @@ private theorem collectRich_tr (k : Fin 4) :
 private theorem collectRich_rs (k : Fin 4) :
     stateReason collectRichState
       (collectRichState.trail[k.1]'(Nat.lt_of_lt_of_eq k.2 collectRich_sz.symm)) =
-      [.unit, .decision, .large 0, .large 5][k.1] := by decide +revert
+      [.unit, .decision, .large 0, .large 5][k.1] := by
+  rcases k with ⟨_ | _ | _ | _ | _, hk⟩
+  all_goals first | omega | simp [stateReason, collectRichState, litVar]
 
 private theorem collectRich_trl {i : Nat} (hi : i < collectRichState.trail.size) :
     collectRichState.trail[i]'hi = [0, 2, 4, 6][i]'(Nat.lt_of_lt_of_eq hi collectRich_sz) :=
@@ -311,11 +314,31 @@ public theorem nv_lazyMin_inv : LazyTrailInv lazyMinCdcl := by
   · have hfin : ∀ i : Fin 7,
         stateLevel lazyMinCdcl lazyMinCdcl.trail[i.1] ≤ lazyMinCdcl.level := by decide
     intro i hi; exact hfin ⟨i, hi⟩
-  · have hfin : ∀ i j : Fin 7,
-        stateLevel lazyMinCdcl lazyMinCdcl.trail[i.1] =
-          stateLevel lazyMinCdcl lazyMinCdcl.trail[j.1] →
-        stateReason lazyMinCdcl lazyMinCdcl.trail[j.1] = .decision → j.1 ≤ i.1 := by decide
-    intro i j hi hj hleq hrd; exact hfin ⟨i, hi⟩ ⟨j, hj⟩ hleq hrd
+  · have hlv : ∀ k : Fin 7,
+        stateLevel lazyMinCdcl
+          (lazyMinCdcl.trail[k.1]'(Nat.lt_of_lt_of_eq k.2 lazyMin_sz.symm)) =
+          [0, 1, 2, 2, 1, 2, 2][k.1] := by decide +revert
+    intro i j hi hj hleq hrd
+    have hsj := lazyMin_rsl hj
+    have hli := hlv ⟨i, Nat.lt_of_lt_of_eq hi lazyMin_sz⟩
+    have hlj := hlv ⟨j, Nat.lt_of_lt_of_eq hj lazyMin_sz⟩
+    rw [hsj] at hrd
+    rw [hli, hlj] at hleq
+    have hj7 : j < 7 := Nat.lt_of_lt_of_eq hj lazyMin_sz
+    rcases j with _ | _ | _ | _ | _ | _ | _ | _
+    · cases hrd
+    · rcases i with _ | _
+      · simp at hleq
+      · omega
+    · rcases i with _ | _ | _
+      · simp at hleq
+      · simp at hleq
+      · omega
+    · cases hrd
+    · cases hrd
+    · cases hrd
+    · cases hrd
+    · omega
   · intro cid c hget
     match cid with
     | 0 => simp [lazyMinCdcl] at hget; subst hget; exact entails_of_mem_clauses (by decide)
@@ -455,9 +478,9 @@ public theorem nv_collectRich_inv :
     ReasonLevelsPos collectRichState ∧
     ReasonHasNonRootAntecedent collectRichState := by
   have hc0 : collectRichState.clauses[0]? =
-      some (some { lits := [1, 3, 4], redundant := true, garbage := false }) := by decide
+      some (some { lits := [1, 3, 4], redundant := true, garbage := false }) := rfl
   have hc5 : collectRichState.clauses[5]? =
-      some (some { lits := [3, 5, 6], redundant := false, garbage := false }) := by decide
+      some (some { lits := [3, 5, 6], redundant := false, garbage := false }) := rfl
   refine ⟨⟨?_, ?_, ?_, ?_, ?_, ?_, fun h => by simp [collectRichState] at h⟩, ?_, ?_⟩
   · have hfin : ∀ i j : Fin 4,
         litVar collectRichState.trail[i.1] = litVar collectRichState.trail[j.1] → i = j := by
@@ -467,12 +490,25 @@ public theorem nv_collectRich_inv :
         stateLevel collectRichState collectRichState.trail[i.1] ≤ collectRichState.level := by
       decide
     intro i hi; exact hfin ⟨i, hi⟩
-  · have hfin : ∀ i j : Fin 4,
-        stateLevel collectRichState collectRichState.trail[i.1] =
-          stateLevel collectRichState collectRichState.trail[j.1] →
-        stateReason collectRichState collectRichState.trail[j.1] = .decision →
-        j.1 ≤ i.1 := by decide
-    intro i j hi hj hleq hrd; exact hfin ⟨i, hi⟩ ⟨j, hj⟩ hleq hrd
+  · have hlv : ∀ k : Fin 4,
+        stateLevel collectRichState
+          (collectRichState.trail[k.1]'(Nat.lt_of_lt_of_eq k.2 collectRich_sz.symm)) =
+          [0, 1, 1, 1][k.1] := by decide +revert
+    intro i j hi hj hleq hrd
+    have hsj := collectRich_rsl hj
+    have hli := hlv ⟨i, Nat.lt_of_lt_of_eq hi collectRich_sz⟩
+    have hlj := hlv ⟨j, Nat.lt_of_lt_of_eq hj collectRich_sz⟩
+    rw [hsj] at hrd
+    rw [hli, hlj] at hleq
+    have hj4 : j < 4 := Nat.lt_of_lt_of_eq hj collectRich_sz
+    rcases j with _ | _ | _ | _ | _
+    · cases hrd
+    · rcases i with _ | _
+      · simp at hleq
+      · omega
+    · cases hrd
+    · cases hrd
+    · omega
   · intro cid c hget
     match cid with
     | 0 => simp [collectRichState] at hget; subst hget; exact entails_of_mem_clauses (by decide)
@@ -647,25 +683,30 @@ public theorem nv_core_flush_reduce :
 
 /-! ## 5. Single-line `#print axioms` checks -/
 
-#print axioms LeanQbe.T.Examples.Kissat.seedRemovable_preserves
-#print axioms LeanQbe.T.Examples.Kissat.cut_delete_sound
-#print axioms LeanQbe.T.Examples.Kissat.minimizeLiteralWorklist_sound
-#print axioms LeanQbe.T.Examples.Kissat.minimize_worklist_sound
-#print axioms LeanQbe.T.Examples.Kissat.shrink_block_cut_sound
-#print axioms LeanQbe.T.Examples.Kissat.shrink_block_sound
-#print axioms LeanQbe.T.Examples.Kissat.shrink_clause_sound
-#print axioms LeanQbe.T.Examples.Kissat.failedLit_other_ne_unit
-#print axioms LeanQbe.T.Examples.Kissat.analyzeFailedLiteralExec_sound
-#print axioms LeanQbe.T.Examples.Kissat.collect_remap_sound
-#print axioms LeanQbe.T.Examples.Kissat.core_collect_lazy_sound
-#print axioms LeanQbe.T.Examples.Kissat.markGarbageIf_sound
-#print axioms LeanQbe.T.Examples.Kissat.sweepClauses_sound
-#print axioms LeanQbe.T.Examples.Kissat.sweep_collect_sound
-#print axioms LeanQbe.T.Examples.Kissat.partitionIrredFirst_sound
-#print axioms LeanQbe.T.Examples.Kissat.reduceAndCollect_sound
-#print axioms LeanQbe.T.Examples.Kissat.activeReason_not_rootSatisfied
-#print axioms LeanQbe.T.Examples.Kissat.flushRootReasons_sound
-#print axioms LeanQbe.T.Examples.Kissat.flushRoot_of_trailInv
+public abbrev ax_min_lit := @LeanQbe.T.Examples.Kissat.Ref.minimizeLiteralWorklist_sound
+public abbrev ax_ana_fl := @LeanQbe.T.Examples.Kissat.Ref.analyzeFailedLiteralExec_sound
+public abbrev ax_part_irred := @LeanQbe.T.Examples.Kissat.Ref.partitionIrredFirst_sound
+public abbrev ax_act_rsn := @LeanQbe.T.Examples.Kissat.Ref.activeReason_not_rootSatisfied
+
+#print axioms LeanQbe.T.Examples.Kissat.Ref.seedRemovable_preserves
+#print axioms LeanQbe.T.Examples.Kissat.Ref.cut_delete_sound
+#print axioms ax_min_lit
+#print axioms LeanQbe.T.Examples.Kissat.Ref.minimize_worklist_sound
+#print axioms LeanQbe.T.Examples.Kissat.Ref.shrink_block_cut_sound
+#print axioms LeanQbe.T.Examples.Kissat.Ref.shrink_block_sound
+#print axioms LeanQbe.T.Examples.Kissat.Ref.shrink_clause_sound
+#print axioms LeanQbe.T.Examples.Kissat.Ref.failedLit_other_ne_unit
+#print axioms ax_ana_fl
+#print axioms LeanQbe.T.Examples.Kissat.Ref.collect_remap_sound
+#print axioms LeanQbe.T.Examples.Kissat.Ref.core_collect_lazy_sound
+#print axioms LeanQbe.T.Examples.Kissat.Ref.markGarbageIf_sound
+#print axioms LeanQbe.T.Examples.Kissat.Ref.sweepClauses_sound
+#print axioms LeanQbe.T.Examples.Kissat.Ref.sweep_collect_sound
+#print axioms ax_part_irred
+#print axioms LeanQbe.T.Examples.Kissat.Ref.reduceAndCollect_sound
+#print axioms ax_act_rsn
+#print axioms LeanQbe.T.Examples.Kissat.Ref.flushRootReasons_sound
+#print axioms LeanQbe.T.Examples.Kissat.Ref.flushRoot_of_trailInv
 #print axioms nv_lazyMin_inv
 #print axioms nv_minimize_sound
 #print axioms nv_collectRich_inv

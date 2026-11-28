@@ -1,9 +1,9 @@
 module
 
-public import LeanQbe.T.Examples.Kissat.CoreLemmas
+public import LeanQbe.T.Examples.Kissat.Ref.Cdcl
 public import LeanQbe.T.Examples.LratBytes
 public import LeanQbe.T.Examples.LratBytesLemmas
-meta import LeanQbe.T.Examples.Kissat.Core
+meta import LeanQbe.T.Examples.Kissat.Ref.Sat
 meta import LeanQbe.T.Examples.LratBytes
 
 /-!
@@ -23,7 +23,7 @@ set_option autoImplicit false
 namespace LeanQbeTest.T.KissatCoreTest
 
 open Std.Sat
-open LeanQbe.T.Examples.Kissat
+open LeanQbe.T.Examples.Kissat.Ref
 open LeanQbe.T.Examples.LratBytes
 
 /-! ## 1. Helper CNF builders (Pigeonhole Principle `PHP(p, h)`) -/
@@ -228,13 +228,15 @@ public theorem nv_cdcl_unsat (h : cdclSolve 20 nvBytesCnf = .unsat) : nvBytesCnf
   have hsolve := parse_cdcl_ok 20 nvDimacsBytes_parse
   rw [h] at hsolve; exact hsolve
 
-#print axioms LeanQbe.T.Examples.Kissat.checkModel_sound
-#print axioms LeanQbe.T.Examples.Kissat.analyze1UIP_sound
-#print axioms LeanQbe.T.Examples.Kissat.failedLit_sound
-#print axioms LeanQbe.T.Examples.Kissat.minimizeCut_sound
-#print axioms LeanQbe.T.Examples.Kissat.collect_preserves_inv
-#print axioms LeanQbe.T.Examples.Kissat.deleteClauseState_preserves_inv
-#print axioms LeanQbe.T.Examples.Kissat.cdclSolve_sound
+public abbrev ax_del_inv := @LeanQbe.T.Examples.Kissat.Ref.deleteClauseState_preserves_inv
+
+#print axioms LeanQbe.T.Examples.Kissat.Ref.checkModel_sound
+#print axioms LeanQbe.T.Examples.Kissat.Ref.analyze1UIP_sound
+#print axioms LeanQbe.T.Examples.Kissat.Ref.failedLit_sound
+#print axioms LeanQbe.T.Examples.Kissat.Ref.minimizeCut_sound
+#print axioms LeanQbe.T.Examples.Kissat.Ref.collect_preserves_inv
+#print axioms ax_del_inv
+#print axioms LeanQbe.T.Examples.Kissat.Ref.cdclSolve_sound
 #print axioms LeanQbeTest.T.KissatCoreTest.parse_model_ok
 #print axioms LeanQbeTest.T.KissatCoreTest.parse_cdcl_ok
 #print axioms LeanQbeTest.T.KissatCoreTest.nv_cdcl_unsat

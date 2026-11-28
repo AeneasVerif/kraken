@@ -1,7 +1,7 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.Dimacs
-public import LeanQbe.T.Examples.Kissat.CoreLemmas1
+public import LeanQbe.T.Examples.Kissat.Ref.Base
 public import LeanQbe.T.Examples.LratBytesDimacsLemmas
 public import LeanQbe.T.Logic.Bytes
 public import LeanQbe.T.Logic.Rules
@@ -16,7 +16,7 @@ Defines:
    and `BitVec`/cursor arithmetic helpers.
 2. Pure mirrors (`nextLitPure`, `evalLitVals`, `checkClauseValsAux`, `checkClausesVals`,
    `runKissatCheckModel`, `modelOfVals`) and pure soundness bridging `LratBytes.parseDimacs` to
-   `CoreLemmas1.checkModel_sound`.
+   `Ref.Base.checkModel_sound`.
 3. `Spec` contracts for all 8 functions in `dimacs_fns`, plus `mkDimacsEnv`, `dimacsExactEnv`,
    and `dimacsEnv`.
 4. `Func.wp` proofs for the 5 low-level scanner primitives: `kissat_is_ws`, `kissat_is_digit`,
@@ -34,6 +34,13 @@ open LeanQbe.T
 open LeanQbe.T.ProofUtil
 open LeanQbe.T.Examples.LratBytes
 open Kraken.Bedrock2.Test
+
+export LeanQbe.T.Examples.Kissat.Ref
+  ( litVar litSign litNeg mkLit litToLiteral cnfClause resolveOn evalVar
+    checkModel checkModel_iff_sat checkModel_sound litNeg_eq litVar_litNeg
+    litSign_litNeg litNeg_litNeg litNeg_ne_self litVar_eq_iff
+    clause_sat_cnfClause_iff sat_cnfClause_singleton sat_cnfClause_litNeg_iff
+    unsat_of_entails_nil entails_resolve )
 
 /-! ## 1. `KissatDimacs` memory predicate, field helpers, and bit-vector lemmas -/
 
@@ -460,7 +467,7 @@ private theorem checkClausesVals_sound {mv k : Nat} {valsBytes bs : List UInt8}
         exact ⟨cnf, by simp [parseClauses, hpc, hpc'], hsat'⟩
 
 /-- Pure soundness of `runKissatCheckModel`, bridging `LratBytes.parseDimacs` directly to
-`CoreLemmas1.checkModel_sound`. -/
+`Ref.Base.checkModel_sound`. -/
 theorem runKissatCheckModel_sound {cnfBytes valsBytes : List UInt8} {mv_max : Nat}
     (h : runKissatCheckModel cnfBytes valsBytes mv_max = true) :
     ∃ cnf mv, parseDimacs cnfBytes = some cnf ∧

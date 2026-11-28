@@ -1,12 +1,12 @@
 module
 
-public import LeanQbe.T.Examples.Kissat.LayerAFull1
-public import LeanQbe.T.Examples.Kissat.LayerAFull
+public import LeanQbe.T.Examples.Kissat.Ref.Sweep
+public import LeanQbe.T.Examples.Kissat.Ref.Chrono
 public import LeanQbe.T.Examples.LratBytes
 public import LeanQbe.T.Examples.LratBytesDimacsLemmas
-meta import LeanQbe.T.Examples.Kissat.Core
-meta import LeanQbe.T.Examples.Kissat.LayerAFull1
-meta import LeanQbe.T.Examples.Kissat.LayerAFull
+meta import LeanQbe.T.Examples.Kissat.Ref.Sat
+meta import LeanQbe.T.Examples.Kissat.Ref.Sweep
+meta import LeanQbe.T.Examples.Kissat.Ref.Chrono
 meta import LeanQbe.T.Examples.LratBytes
 
 /-!
@@ -27,12 +27,12 @@ Executable `#guard` checks, closed end-to-end non-vacuity theorems, and single-l
 
 set_option autoImplicit false
 
-section
+public section
 
 namespace KissatLayerAFullTest
 
 open Std.Sat
-open LeanQbe.T.Examples.Kissat
+open LeanQbe.T.Examples.Kissat.Ref
 open LeanQbe.T.Examples.LratBytes
 
 /-! ## Pure helper lemmas (avoiding kernel reduction on unexposed `CNF.Clause.ofLiterals`) -/
@@ -107,9 +107,9 @@ theorem nv_dimacs_del_bve :
   have hs0 := extUnsatSound_shift_of_parse hp hb
   have hshift : clausesOfCnf (shiftDimacsCnf dimacsUnsatCnf) =
       [[0, 2], [0, 3], [1, 2], [1, 3]] := by
-    simp [dimacsUnsatCnf, clausesOfCnf, shiftDimacsCnf, shiftDimacsClause, cnfOfClauses,
-      cnfClause, clauseOfCnf, CNF.Clause.literals_ofLiterals, litToLiteral, litOfLiteral,
-      litVar, litSign, mkLit]
+    simp [dimacsUnsatCnf, clausesOfCnf, shiftDimacsCnf, shiftDownCnf, shiftDownClause,
+      cnfOfClauses, cnfClause, clauseOfCnf, CNF.Clause.literals_ofLiterals, litToLiteral,
+      litOfLiteral, litVar, litSign, mkLit]
   refine ⟨dimacsUnsatCnf, hp, hs0, ?_⟩
   have hs1 : ExtUnsatSound dimacsUnsatCnf 2 [[0, 2], [0, 3], [1, 2], [1, 3]] := by
     rwa [hshift] at hs0
@@ -446,7 +446,7 @@ private theorem litStatus_of_trail_eq {s : ChronoState} {ts : List Nat} {l : Nat
     (chronoInit f).isDecision x = false := by
   simp only [chronoInit, ChronoState.ofCdcl, ChronoState.isDecision, Array.getD_eq_getD_getElem?,
     Array.getElem?_map, initState, Array.getElem?_replicate]
-  split <;> rfl
+  split <;> simp
 
 @[simp] private theorem isDecision_chronoDecide (s : ChronoState) (l x : Nat) :
     (chronoDecide s l).isDecision x =
@@ -645,46 +645,60 @@ theorem nv_chrono_entail_min_shrink :
 
 /-! ## 7. Single-line `#print axioms` checks -/
 
-#print axioms LeanQbe.T.Examples.Kissat.extUnsatSound_init_shift
-#print axioms LeanQbe.T.Examples.Kissat.extUnsatSound_init_of_parse
-#print axioms LeanQbe.T.Examples.Kissat.extUnsatSound_of_subset
-#print axioms LeanQbe.T.Examples.Kissat.extUnsatSound_of_sublist
-#print axioms LeanQbe.T.Examples.Kissat.extUnsatSound_filter
-#print axioms LeanQbe.T.Examples.Kissat.extUnsatSound_eraseIdx
-#print axioms LeanQbe.T.Examples.Kissat.extUnsatSound_addClause
-#print axioms LeanQbe.T.Examples.Kissat.extUnsatSound_otfs
-#print axioms LeanQbe.T.Examples.Kissat.extUnsatSound_ssr
-#print axioms LeanQbe.T.Examples.Kissat.extUnsatSound_eagerSubsume
-#print axioms LeanQbe.T.Examples.Kissat.extUnsatSound_vivifyPass
-#print axioms LeanQbe.T.Examples.Kissat.extUnsatSound_failedLit
-#print axioms LeanQbe.T.Examples.Kissat.hbr_entails
-#print axioms LeanQbe.T.Examples.Kissat.hbr_trail_entails
-#print axioms LeanQbe.T.Examples.Kissat.hbrCheck_sound
-#print axioms LeanQbe.T.Examples.Kissat.extUnsatSound_hbr
-#print axioms LeanQbe.T.Examples.Kissat.congruence_equivGate
-#print axioms LeanQbe.T.Examples.Kissat.congruence_andGate
-#print axioms LeanQbe.T.Examples.Kissat.congruence_iteGate
-#print axioms LeanQbe.T.Examples.Kissat.congruence_xorGate
-#print axioms LeanQbe.T.Examples.Kissat.extUnsatSound_congruence
-#print axioms LeanQbe.T.Examples.Kissat.sweep_imp_entails
-#print axioms LeanQbe.T.Examples.Kissat.extUnsatSound_sweep_equiv
-#print axioms LeanQbe.T.Examples.Kissat.sweep_backbone_entails
-#print axioms LeanQbe.T.Examples.Kissat.sweepCheckImplies_sound
-#print axioms LeanQbe.T.Examples.Kissat.sweepCheckBackbone_sound
-#print axioms LeanQbe.T.Examples.Kissat.extUnsatSound_bve
-#print axioms LeanQbe.T.Examples.Kissat.extUnsatSound_gateBve
-#print axioms LeanQbe.T.Examples.Kissat.extUnsatSound_binReach_contra
-#print axioms LeanQbe.T.Examples.Kissat.extUnsatSound_substMap
-#print axioms LeanQbe.T.Examples.Kissat.extUnsatSound_bvaFactor
-#print axioms LeanQbe.T.Examples.Kissat.chronoTrailEntailment
-#print axioms LeanQbe.T.Examples.Kissat.chronoAssignUip_inv
-#print axioms LeanQbe.T.Examples.Kissat.chronoBacktrack_preserves_inv
-#print axioms LeanQbe.T.Examples.Kissat.restartReuseTrail_preserves_inv
-#print axioms LeanQbe.T.Examples.Kissat.restartReusePrefix_preserves_inv
-#print axioms LeanQbe.T.Examples.Kissat.chronoAnalyze1UIP_sound
-#print axioms LeanQbe.T.Examples.Kissat.chronoMinimize_sound
-#print axioms LeanQbe.T.Examples.Kissat.chronoShrink_sound
-#print axioms LeanQbe.T.Examples.Kissat.chronoConflictStep_preserves_inv
+abbrev ax_init_shift := @LeanQbe.T.Examples.Kissat.Ref.extUnsatSound_init_shift
+abbrev ax_init_parse := @LeanQbe.T.Examples.Kissat.Ref.extUnsatSound_init_of_parse
+abbrev ax_sublist := @LeanQbe.T.Examples.Kissat.Ref.extUnsatSound_of_sublist
+abbrev ax_eager_sub := @LeanQbe.T.Examples.Kissat.Ref.extUnsatSound_eagerSubsume
+abbrev ax_viv_pass := @LeanQbe.T.Examples.Kissat.Ref.extUnsatSound_vivifyPass
+abbrev ax_congr := @LeanQbe.T.Examples.Kissat.Ref.extUnsatSound_congruence
+abbrev ax_sw_equiv := @LeanQbe.T.Examples.Kissat.Ref.extUnsatSound_sweep_equiv
+abbrev ax_sw_bb := @LeanQbe.T.Examples.Kissat.Ref.sweepCheckBackbone_sound
+abbrev ax_bin_contra := @LeanQbe.T.Examples.Kissat.Ref.extUnsatSound_binReach_contra
+abbrev ax_chr_bt := @LeanQbe.T.Examples.Kissat.Ref.chronoBacktrack_preserves_inv
+abbrev ax_rst_trl := @LeanQbe.T.Examples.Kissat.Ref.restartReuseTrail_preserves_inv
+abbrev ax_rst_pref := @LeanQbe.T.Examples.Kissat.Ref.restartReusePrefix_preserves_inv
+abbrev ax_chr_step := @LeanQbe.T.Examples.Kissat.Ref.chronoConflictStep_preserves_inv
+
+#print axioms ax_init_shift
+#print axioms ax_init_parse
+#print axioms LeanQbe.T.Examples.Kissat.Ref.extUnsatSound_of_subset
+#print axioms ax_sublist
+#print axioms LeanQbe.T.Examples.Kissat.Ref.extUnsatSound_filter
+#print axioms LeanQbe.T.Examples.Kissat.Ref.extUnsatSound_eraseIdx
+#print axioms LeanQbe.T.Examples.Kissat.Ref.extUnsatSound_addClause
+#print axioms LeanQbe.T.Examples.Kissat.Ref.extUnsatSound_otfs
+#print axioms LeanQbe.T.Examples.Kissat.Ref.extUnsatSound_ssr
+#print axioms ax_eager_sub
+#print axioms ax_viv_pass
+#print axioms LeanQbe.T.Examples.Kissat.Ref.extUnsatSound_failedLit
+#print axioms LeanQbe.T.Examples.Kissat.Ref.hbr_entails
+#print axioms LeanQbe.T.Examples.Kissat.Ref.hbr_trail_entails
+#print axioms LeanQbe.T.Examples.Kissat.Ref.hbrCheck_sound
+#print axioms LeanQbe.T.Examples.Kissat.Ref.extUnsatSound_hbr
+#print axioms LeanQbe.T.Examples.Kissat.Ref.congruence_equivGate
+#print axioms LeanQbe.T.Examples.Kissat.Ref.congruence_andGate
+#print axioms LeanQbe.T.Examples.Kissat.Ref.congruence_iteGate
+#print axioms LeanQbe.T.Examples.Kissat.Ref.congruence_xorGate
+#print axioms ax_congr
+#print axioms LeanQbe.T.Examples.Kissat.Ref.sweep_imp_entails
+#print axioms ax_sw_equiv
+#print axioms LeanQbe.T.Examples.Kissat.Ref.sweep_backbone_entails
+#print axioms LeanQbe.T.Examples.Kissat.Ref.sweepCheckImplies_sound
+#print axioms ax_sw_bb
+#print axioms LeanQbe.T.Examples.Kissat.Ref.extUnsatSound_bve
+#print axioms LeanQbe.T.Examples.Kissat.Ref.extUnsatSound_gateBve
+#print axioms ax_bin_contra
+#print axioms LeanQbe.T.Examples.Kissat.Ref.extUnsatSound_substMap
+#print axioms LeanQbe.T.Examples.Kissat.Ref.extUnsatSound_bvaFactor
+#print axioms LeanQbe.T.Examples.Kissat.Ref.chronoTrailEntailment
+#print axioms LeanQbe.T.Examples.Kissat.Ref.chronoAssignUip_inv
+#print axioms ax_chr_bt
+#print axioms ax_rst_trl
+#print axioms ax_rst_pref
+#print axioms LeanQbe.T.Examples.Kissat.Ref.chronoAnalyze1UIP_sound
+#print axioms LeanQbe.T.Examples.Kissat.Ref.chronoMinimize_sound
+#print axioms LeanQbe.T.Examples.Kissat.Ref.chronoShrink_sound
+#print axioms ax_chr_step
 #print axioms nv_dimacs_del_bve
 #print axioms nv_bve_del_unsat
 #print axioms nv_inproc_rules

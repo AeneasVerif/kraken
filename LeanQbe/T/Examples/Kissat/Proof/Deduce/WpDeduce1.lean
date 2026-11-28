@@ -7,7 +7,6 @@ module
 public import LeanQbe.T.Examples.Kissat.Proof.Deduce.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Deduce.WpDeduce0
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.WitnessInv
-import LeanQbe.T.Examples.Kissat.CoreLemmas1
 import LeanQbe.T.Examples.Kissat.Proof.Deduce.WpCommon
 import LeanQbe.T.Examples.Kissat.Proof.Spec.Contracts
 import LeanQbe.T.Examples.Kissat.Proof.Spec.Contracts1

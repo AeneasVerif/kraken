@@ -3,15 +3,12 @@ module
 public import LeanQbe.T.Examples.Kissat.Plain
 public import LeanQbe.T.Examples.Kissat.PlainArena
 public import LeanQbe.T.Examples.Kissat.PlainSpec
-public import LeanQbe.T.Examples.Kissat.Core
-public import LeanQbe.T.Examples.Kissat.CoreLemmas
 public import LeanQbe.T.Examples.LratBytes
 public import LeanQbe.T.PrintCpp
 public import LeanQbe.T.PrintQbe
 public import LeanQbe.T.Legal
 public import LeanQbeTest.T.KissatC0Harness
 meta import LeanQbe.T.Examples.Kissat.Plain
-meta import LeanQbe.T.Examples.Kissat.Core
 meta import LeanQbe.T.Examples.LratBytes
 meta import LeanQbe.T.PrintCpp
 meta import LeanQbe.T.PrintQbe

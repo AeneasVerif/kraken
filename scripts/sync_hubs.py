@@ -83,8 +83,8 @@ HUB_DOCSTRINGS: dict[str, str] = {
         "benchmark program modules. -/"
     ),
     "LeanQbe.T.Examples.Kissat.BaseHub": (
-        "/-!\nSubsystem hub re-exporting Kissat Src, Proof, Ref, Build, Core, "
-        "LayerA, Dimacs,\nPlain, Solver, and ExportCnf modules.\n-/"
+        "/-!\nSubsystem hub re-exporting Kissat Src, Proof, Ref, Build, "
+        "Dimacs, Plain,\nSolver, and ExportCnf modules.\n-/"
     ),
 }
 

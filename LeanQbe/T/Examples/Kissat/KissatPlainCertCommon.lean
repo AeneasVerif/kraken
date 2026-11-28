@@ -1,6 +1,6 @@
 module
 
-public import LeanQbe.T.Examples.Kissat.KissatCertCommon
+public import LeanQbe.T.Examples.Kissat.KissatAbiCommon
 public import LeanQbe.T.Examples.Kissat.PlainLemmas
 import LeanQbe.T.AbiLemmas
 import all Kraken.Mem

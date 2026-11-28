@@ -5,7 +5,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 module
 
 public import LeanQbe.T.Examples.Kissat.ExportCnfFmt
-public import LeanQbe.T.Examples.Kissat.Core
+public import LeanQbe.T.Examples.Kissat.Ref.Base
 public import LeanQbe.T.Examples.LratBytes
 public import LeanQbe.T.Examples.LratBytesDimacsLemmas
 public import LeanQbe.T.Logic.ByteArrayDecimal
@@ -53,7 +53,7 @@ open LeanQbe.T.ProofKit
 open LeanQbe.T.C0HeadStep
 open LeanQbe.T.ByteArrayDecimal
 open LeanQbe.T.Examples.LratBytes
-open LeanQbe.T.Examples.Kissat
+open LeanQbe.T.Examples.Kissat LeanQbe.T.Examples.Kissat.Ref
 
 /-! ## 1. Pure Bounded Byte-Buffer Model and DIMACS Stream Specification -/
 

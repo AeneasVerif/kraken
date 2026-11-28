@@ -622,7 +622,7 @@ class GenCertSlicesTest(unittest.TestCase):
 
             link = files[f"LeanQbe/T/{arch_dir}/KissatM8CertLink.lean"]
             ladder_link = ladder_files[f"LeanQbe/T/{arch_dir}/KissatM8CertLink.lean"]
-            self.assertIn("public import LeanQbe.T.Examples.Kissat.KissatCertCommon", link)
+            self.assertIn("public import LeanQbe.T.Examples.Kissat.KissatAbiCommon", link)
             self.assertIn(f"import LeanQbe.T.{arch_dir}.KissatAbi", link)
             self.assertIn("KissatCertCommon.solve_of_abi_fnspec", link)
             self.assertIn(abi_const, link)
@@ -632,16 +632,18 @@ class GenCertSlicesTest(unittest.TestCase):
 
             top = files[f"LeanQbe/T/{arch_dir}/KissatM8.lean"]
             ladder_top = ladder_files[f"LeanQbe/T/{arch_dir}/KissatM8.lean"]
-            self.assertIn("public import LeanQbe.T.Examples.Kissat.KissatCertCommon", top)
+            self.assertIn(
+                "public import LeanQbe.T.Examples.Kissat.Build.Common.CertParamCommon", top
+            )
             self.assertIn(f"import LeanQbe.T.{arch_dir}.KissatAbi", top)
             self.assertIn("private def m8UnsatPkg : KissatUnsatPkg where", top)
             self.assertIn("m6NvWorkLen", top)
             self.assertIn("m6NvPayload", top)
-            self.assertIn("KissatCertCommon.module_fnspec_of_abi", top)
-            self.assertIn("KissatCertCommon.solve_bytes_unsat_of_abi", top)
-            self.assertIn("KissatCertCommon.unsat_correct_of_abi", top)
-            self.assertIn("KissatCertCommon.unsat_nonvacuous_of_abi", top)
-            self.assertIn("KissatCertCommon.run_unsat_of_abi", top)
+            self.assertIn("CertParamCommon.module_fnspec_of_abi", top)
+            self.assertIn("CertParamCommon.solve_bytes_unsat_of_abi", top)
+            self.assertIn("CertParamCommon.unsat_correct_of_abi", top)
+            self.assertIn("CertParamCommon.unsat_nonvacuous_of_abi", top)
+            self.assertIn("CertParamCommon.run_unsat_of_abi", top)
             self.assertNotIn("def m8NvWorkLen", top)
             self.assertNotIn("def m8NvPayload", top)
             self.assertNotIn("theorem sep_exists_eq", top)

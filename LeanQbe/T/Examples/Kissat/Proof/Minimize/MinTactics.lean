@@ -6,7 +6,7 @@ module
 
 public import LeanQbe.T.Examples.Kissat.Proof.Minimize.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Tactics
-public import LeanQbe.T.Examples.Kissat.CoreLemmas1
+public import LeanQbe.T.Examples.Kissat.Ref.Base
 public import LeanQbe.T.Examples.LratBytes
 import LeanQbe.T.Logic.C0Step
 

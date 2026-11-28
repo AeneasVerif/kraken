@@ -1,13 +1,13 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.Solver
-public import LeanQbe.T.Examples.Kissat.Core
+public import LeanQbe.T.Examples.Kissat.Ref.Sat
 public import LeanQbe.T.Examples.LratBytes
 public import LeanQbe.T.PrintCpp
 public import LeanQbe.T.PrintQbe
 public import LeanQbe.T.Legal
 meta import LeanQbe.T.Examples.Kissat.Solver
-meta import LeanQbe.T.Examples.Kissat.Core
+meta import LeanQbe.T.Examples.Kissat.Ref.Sat
 meta import LeanQbe.T.Examples.LratBytes
 meta import LeanQbe.T.PrintCpp
 meta import LeanQbe.T.PrintQbe
@@ -29,6 +29,7 @@ namespace LeanQbeTest.T.KissatC0Harness
 open LeanQbe.T
 open LeanQbe.T.PrintCpp
 open LeanQbe.T.Examples.Kissat
+open LeanQbe.T.Examples.Kissat.Ref
 open LeanQbe.T.Examples.LratBytes
 
 /-! ## 1. Shared DIMACS Formula Generators -/

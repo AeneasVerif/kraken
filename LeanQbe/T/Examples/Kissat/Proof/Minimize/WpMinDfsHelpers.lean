@@ -23,6 +23,7 @@ namespace LeanQbe.T.Examples.Kissat.Proof.Minimize
 open Std Std.Sat
 open LeanQbe.T LeanQbe.T.ProofUtil
 open LeanQbe.T.Examples.Kissat
+open LeanQbe.T.Examples.Kissat.Ref
 open LeanQbe.T.Examples.Kissat.Proof.Spec
 open LeanQbe.T.Examples.Kissat.Proof.Spec.FullArenaTactics
 open LeanQbe.T.Examples.Kissat.Proof.Minimize.Spec
