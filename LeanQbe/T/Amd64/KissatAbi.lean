@@ -1,12 +1,12 @@
 module
 
-public import LeanQbe.T.Examples.Kissat.KissatCertCommon
+public import LeanQbe.T.Examples.Kissat.KissatAbiCommon
 public import LeanQbe.T.Amd64.TargLemmas
 
 /-!
 # SysV x64 `ArchKissatAbi` Instance (`Amd64.KissatAbi`)
 
-Connects `LeanQbe.T.Examples.Kissat.KissatCertCommon.ArchKissatAbi` to `x64Target`, `x64Layout`,
+Connects `ArchKissatAbi` (legacy-free `KissatAbiCommon`) to `x64Target`, `x64Layout`,
 `x64LegalTarget`, `x64LabelClean`, and `x64Init`. Reducible so concrete Kraken-x64 theorem
 statements unify definitionally without unfolding overhead.
 -/

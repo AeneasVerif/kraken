@@ -15,6 +15,7 @@ public import LeanQbe.T.Examples.BenchmarkCertKit
 public import LeanQbe.T.Examples.Bignum
 public import LeanQbe.T.Examples.BignumProg
 public import LeanQbe.T.Examples.Bitblast.Build.Flat
+public import LeanQbe.T.Examples.Bitblast.FidelityBridgeLemmas
 public import LeanQbe.T.Examples.Bitblast.Proof.Aig
 public import LeanQbe.T.Examples.Bitblast.Proof.Arena
 public import LeanQbe.T.Examples.Bitblast.Proof.Bvp1
