@@ -2,10 +2,12 @@ module
 
 public import BvDecideQbe.Prover
 public import BvDecideQbe.NormalizeTheorems
+public import BvDecideQbe.Normalize.AC
 public import Lean.Meta.Tactic.BVDecide.Prover.Cegar
 public import Lean.Meta.Tactic.BVDecide.Normalize
 public import Lean.Meta.Tactic.BVDecide.TacticContext
 public import Lean.Meta.Sym.LitValues
+import Lean.Meta.Sym.InferType
 
 /-!
 # Single-Solve Phase-1 CEGAR Wrapper for `bv_decide_qbe` (`BB-07`)
@@ -36,6 +38,501 @@ structure CegarResult where
   proveResult? : Option ProveResult := none
   deriving Inhabited
 
+/-! ## Lightweight Batched UF Congruence & McCarthy Array Refinement (`Gap #15`) -/
+
+private def mkPairKey (a b : Expr) : Sym.ExprPtr × Sym.ExprPtr :=
+  if Expr.lt a b then (⟨a⟩, ⟨b⟩) else (⟨b⟩, ⟨a⟩)
+
+private def pushKernelCegarHyp (name : Name) (prf : Expr) : CegarM Unit := do
+  let prf ← Sym.share prf
+  let stmt ← Sym.inferType prf
+  CegarM.pushNewHyp {
+    hyp := {
+      name := name
+      type := stmt
+      value := prf
+      source := .cegar
+    }
+    tacticProof := do
+      `(tacticSeq| simp +$(mkIdent `contextual):ident only [$(mkIdent ``implies_true):ident])
+    grindProof := pure none
+  }
+
+private def addCongrLemmaLocal (lhs rhs : Expr) (mask : Array Bool) (pattern : Expr) :
+    CegarM Unit := do
+  let lhsArgs := lhs.getAppArgs
+  let rhsArgs := rhs.getAppArgs
+  let mut congrLemma ← getCongrLemma pattern
+  for lhsArg in lhsArgs, rhsArg in rhsArgs, m in mask do
+    unless m do continue
+    congrLemma := mkApp2 congrLemma lhsArg rhsArg
+  pushKernelCegarHyp `congr congrLemma
+where
+  getCongrLemma (pattern : Expr) : CegarM Expr := do
+    let key : Sym.ExprPtr := { expr := pattern }
+    if let some lem := (← CegarM.getTheoryState).funState.congrCache[key]? then
+      return lem
+    let lem ← mkCongrLemma pattern
+    CegarM.modifyTheoryState fun ts =>
+      { ts with funState.congrCache := ts.funState.congrCache.insert key lem }
+    return lem
+
+  mkCongrLemma (pattern : Expr) : CegarM Expr :=
+    lambdaTelescope pattern fun lhsArgs _ =>
+    lambdaTelescope pattern fun rhsArgs _ => do
+      let mut eqDecls := #[]
+      for lhsArg in lhsArgs, rhsArg in rhsArgs do
+        eqDecls := eqDecls.push (.anonymous, ← mkEq lhsArg rhsArg)
+      withLocalDeclsDND eqDecls fun eqs => do
+        let mut lem ← mkAppM ``congrArg #[pattern, eqs[0]!]
+        for eq in eqs[1...*] do
+          lem ← mkAppM ``congr #[lem, eq]
+        let mut fvars := #[]
+        for lhsArg in lhsArgs, rhsArg in rhsArgs do
+          fvars := fvars.push lhsArg |>.push rhsArg
+        fvars := fvars ++ eqs
+        mkLambdaFVars fvars lem
+
+private inductive ReifiedArg where
+  | bv {w : Nat} (e : BVExpr w)
+  | bool (e : BVLogicalExpr)
+
+private structure PreparedUfAtom where
+  funExpr : Expr
+  atomKey : Expr
+  atomNum : Nat
+  mask : Array Bool
+  pattern : Expr
+  args : Array ReifiedArg
+  deriving Inhabited
+
+private def prepareUfAtoms : CegarM (Array PreparedUfAtom) := do
+  let funState := (← getThe Lean.Meta.Tactic.BVDecide.State).theoryState.funState
+  let mut out : Array PreparedUfAtom := Array.emptyWithCapacity funState.atoms.size
+  for funAtom in funState.atoms, mask in funState.masks, funPattern in funState.patterns do
+    let atomKey ← funAtom.atomExpr
+    let some atomNum ← ReifyM.getAtomNumber atomKey | continue
+    let rawArgs := funAtom.funExpr.getAppArgs
+    let mut rargs : Array ReifiedArg := #[]
+    for h : idx in 0...rawArgs.size do
+      if !mask[idx]! then continue
+      let arg := rawArgs[idx]
+      if (← isValidBitVecAtom arg).isSome then
+        let some reified ← ReifiedBVExpr.of arg | unreachable!
+        rargs := rargs.push (.bv reified.bvExpr)
+      else if ← isValidBoolAtom arg then
+        let some reified ← ReifiedBVLogical.of arg | unreachable!
+        rargs := rargs.push (.bool reified.bvExpr)
+      else
+        unreachable!
+    out := out.push {
+      funExpr := funAtom.funExpr
+      atomKey := atomKey
+      atomNum := atomNum
+      mask := mask
+      pattern := funPattern
+      args := rargs
+    }
+  return out
+
+open Std.Tactic.BVDecide.EfficientEval in
+private def evalPreparedArgs (atomCex : Std.HashMap Nat BVExpr.PackedBitVec)
+    (args : Array ReifiedArg) : Array BVExpr.PackedBitVec :=
+  args.map fun
+    | .bv e => ⟨BVExpr.evalEfficient (atomCex.getD · ⟨0#1⟩) e⟩
+    | .bool e => ⟨BitVec.ofBool (BVLogicalExpr.evalEfficient (atomCex.getD · ⟨0#1⟩) e)⟩
+
+private def checkUfBatched (cex : CegarM.CounterExample)
+    (seenCongr : IO.Ref (Std.HashSet (Sym.ExprPtr × Sym.ExprPtr)))
+    (cascade : Bool) : CegarM Bool :=
+  withTraceNode `Meta.Tactic.bv (fun _ => return m!"Batched UF conflict detection") do
+    unless (← CegarM.getTacticContext).config.uf do return false
+    let funState := (← getThe Lean.Meta.Tactic.BVDecide.State).theoryState.funState
+    if funState.atoms.size ≤ 1 then return false
+    let atoms ← prepareUfAtoms
+    let mut atomByExpr : Std.HashMap Sym.ExprPtr Nat := {}
+    let mut argValsArr : Array (Array BVExpr.PackedBitVec) := Array.emptyWithCapacity atoms.size
+    let mut valsArr : Array (Option BVExpr.PackedBitVec) := Array.emptyWithCapacity atoms.size
+    let mut buckets :
+        Std.HashMap (Sym.ExprPtr × Array BVExpr.PackedBitVec)
+          (Array (Nat × BVExpr.PackedBitVec)) := {}
+    let mut funModel : Cegar.FunModel := {}
+    for h : idx in 0...atoms.size do
+      let a := atoms[idx]
+      atomByExpr := atomByExpr.insert ⟨a.funExpr⟩ idx
+      let argVals := evalPreparedArgs cex.atomCex a.args
+      argValsArr := argValsArr.push argVals
+      let val? := cex.exprCex[a.atomKey]?
+      valsArr := valsArr.push val?
+      if let some val := val? then
+        funModel := {
+          model := funModel.model.alter ⟨a.pattern⟩ fun
+            | some entry => some { map := entry.map.insert argVals (val, a.funExpr) }
+            | none => some { map := {(argVals, (val, a.funExpr))} }
+        }
+        let bkey : Sym.ExprPtr × Array BVExpr.PackedBitVec := (⟨a.pattern⟩, argVals)
+        buckets := buckets.alter bkey fun
+          | some arr => some (arr.push (idx, val))
+          | none => some #[(idx, val)]
+    CegarM.modifyTheoryState fun s => { s with funState.currentModel := funModel }
+    let mut addedAny := false
+    let mut emitted := 0
+    let maxLemmasPerRound := 64
+    let mut cascadeQueue : Array (Nat × Nat) := #[]
+    let emitPair (iIdx jIdx : Nat) (emitted : Nat) : CegarM (Bool × Nat) := do
+      if emitted ≥ maxLemmasPerRound then return (false, emitted)
+      let ai := atoms[iIdx]!
+      let aj := atoms[jIdx]!
+      if ai.funExpr == aj.funExpr || ai.pattern != aj.pattern then
+        return (false, emitted)
+      let pkey := mkPairKey ai.funExpr aj.funExpr
+      if (← seenCongr.get).contains pkey then
+        return (false, emitted)
+      seenCongr.modify (·.insert pkey)
+      addCongrLemmaLocal ai.funExpr aj.funExpr ai.mask ai.pattern
+      return (true, emitted + 1)
+    -- 1. Emit ALL violated congruence pairs in every (pattern, args) bucket
+    for (_, items) in buckets do
+      if items.size < 2 then continue
+      for i in [0:items.size] do
+        if emitted ≥ maxLemmasPerRound then break
+        let (iIdx, vi) := items[i]!
+        for j in [i + 1:items.size] do
+          if emitted ≥ maxLemmasPerRound then break
+          let (jIdx, vj) := items[j]!
+          if vi != vj then
+            let (didEmit, emitted') ← emitPair iIdx jIdx emitted
+            emitted := emitted'
+            if didEmit then
+              addedAny := true
+              if cascade then
+                cascadeQueue := cascadeQueue.push (iIdx, jIdx)
+    -- 2. Top-down argument cascade: recursively instantiate sub-call congruences whose args
+    --    already agree in `cex` and will be forced apart in the next CEGAR round
+    if cascade then
+      let mut qHead := 0
+      while qHead < cascadeQueue.size && emitted < maxLemmasPerRound do
+        let (pIdx, qIdx) := cascadeQueue[qHead]!
+        qHead := qHead + 1
+        let ap := atoms[pIdx]!
+        let aq := atoms[qIdx]!
+        let pArgs := ap.funExpr.getAppArgs
+        let qArgs := aq.funExpr.getAppArgs
+        for argP in pArgs, argQ in qArgs, m in ap.mask do
+          if !m || argP == argQ || emitted ≥ maxLemmasPerRound then continue
+          match atomByExpr.get? ⟨argP⟩, atomByExpr.get? ⟨argQ⟩ with
+          | some i1, some i2 =>
+            if atoms[i1]!.pattern == atoms[i2]!.pattern && argValsArr[i1]! == argValsArr[i2]! then
+              let (didEmit, emitted') ← emitPair i1 i2 emitted
+              emitted := emitted'
+              if didEmit then
+                addedAny := true
+                cascadeQueue := cascadeQueue.push (i1, i2)
+          | some i1, none =>
+            if let some v1 := valsArr[i1]! then
+              let bkey : Sym.ExprPtr × Array BVExpr.PackedBitVec :=
+                (⟨atoms[i1]!.pattern⟩, argValsArr[i1]!)
+              if let some sibs := buckets.get? bkey then
+                for (sIdx, sVal) in sibs do
+                  if sIdx != i1 && sVal == v1 then
+                    let (didEmit, emitted') ← emitPair i1 sIdx emitted
+                    emitted := emitted'
+                    if didEmit then
+                      addedAny := true
+                      cascadeQueue := cascadeQueue.push (i1, sIdx)
+          | none, some i2 =>
+            if let some v2 := valsArr[i2]! then
+              let bkey : Sym.ExprPtr × Array BVExpr.PackedBitVec :=
+                (⟨atoms[i2]!.pattern⟩, argValsArr[i2]!)
+              if let some sibs := buckets.get? bkey then
+                for (sIdx, sVal) in sibs do
+                  if sIdx != i2 && sVal == v2 then
+                    let (didEmit, emitted') ← emitPair i2 sIdx emitted
+                    emitted := emitted'
+                    if didEmit then
+                      addedAny := true
+                      cascadeQueue := cascadeQueue.push (i2, sIdx)
+          | none, none => pure ()
+    return addedAny
+
+private def unwrapBoolAtomExpr (e : Expr) : Expr :=
+  match_expr e with
+  | BitVec.ofBool inner => inner
+  | _ => e
+
+private def evalKnownBvExpr? (exprCex : Std.HashMap Expr BVExpr.PackedBitVec) (e : Expr) :
+    Option BVExpr.PackedBitVec :=
+  if let some v := exprCex[e]? then
+    some v
+  else
+    (Sym.getBitVecValue? e).run.map fun ⟨_, bv⟩ => ⟨bv⟩
+
+private def matchBvToNat? (e : Expr) : Option (Expr × Expr) :=
+  match_expr e with
+  | BitVec.toNat w x => some (w, x)
+  | _ => none
+
+private structure RowStep where
+  lemmaPrf : Expr
+  iBv : Expr
+  vExpr : Expr
+  nextRead : Expr
+
+private def mkLtOfSizeEq (idxExpr sizeEq hj : Expr) : MetaM Expr := do
+  let ltFn ← mkAppM ``LT.lt #[idxExpr]
+  let propEq ← mkCongrArg ltFn sizeEq
+  mkEqMP propEq hj
+
+/-- Build a kernel proof of `curRead = cond (iBv == jBv) vExpr nextRead` from
+`rowEq : lhs = if iBv.toNat = jBv.toNat then vExpr else r0` using only `Init` constants. -/
+private def mkToNatIteEqCond (elemTy wExpr iBv jBv vExpr nextRead curRead rowEq : Expr) :
+    MetaM Expr := do
+  let bvTy := mkApp (mkConst ``BitVec) wExpr
+  let iNat ← mkAppM ``BitVec.toNat #[iBv]
+  let jNat ← mkAppM ``BitVec.toNat #[jBv]
+  let bProp ← mkEq iNat jNat
+  let decB ← synthInstance (mkApp (mkConst ``Decidable) bProp)
+  let hToNat ← mkAppOptM ``BitVec.toNat_eq #[some wExpr, some iBv, some jBv]
+  let h1 ← mkAppM ``Iff.symm #[hToNat]
+  let hBeq ← mkAppOptM ``beq_iff_eq #[some bvTy, none, none, some iBv, some jBv]
+  let h2 ← mkAppM ``Iff.symm #[hBeq]
+  let hPropEq ← mkAppM ``propext #[← mkAppM ``Iff.trans #[h1, h2]]
+  let beqExpr ← mkAppM ``BEq.beq #[iBv, jBv]
+  let beqTrue ← mkEq beqExpr (mkConst ``Bool.true)
+  let hcLam ← withLocalDeclD `hc beqTrue fun hc => do
+    mkLambdaFVars #[hc] (← mkEqRefl vExpr)
+  let hncLam ← withLocalDeclD `hnc (mkApp (mkConst ``Not) beqTrue) fun hnc => do
+    mkLambdaFVars #[hnc] (← mkEqRefl nextRead)
+  let hIte ← mkAppOptM ``ite_congr
+    #[some elemTy, some bProp, some beqTrue, some vExpr, some nextRead, some vExpr, some nextRead,
+      some decB, none, some hPropEq, some hcLam, some hncLam]
+  let hCond ← mkEqSymm (← mkAppM ``cond_eq_ite #[beqExpr, vExpr, nextRead])
+  let inner ← mkEqTrans rowEq (← mkEqTrans hIte hCond)
+  let condExpr ← mkAppM ``cond #[beqExpr, vExpr, nextRead]
+  let u ← getLevel elemTy
+  let reflCur := mkApp2 (mkConst ``Eq.refl [u]) elemTy curRead
+  return mkApp6 (mkConst ``Eq.trans [u]) elemTy curRead curRead condExpr reflCur inner
+
+/-- Build a kernel proof of `iBv = jBv → read1 = read2` for `GetElem` reads indexed by
+`BitVec.toNat`, using only `Init` constants (`Eq.ndrec`, `Eq.refl`). -/
+private def mkGetElemToNatCongr (getElemFn collTy idxTy elemTy valid inst wExpr arrExpr
+    iBv jBv hj read1 : Expr) : MetaM Expr := do
+  let bvTy := mkApp (mkConst ``BitVec) wExpr
+  let iNat ← mkAppM ``BitVec.toNat #[iBv]
+  withLocalDeclD `heq (← mkEq iBv jBv) fun heq => do
+    let motive ← withLocalDeclD `k bvTy fun k => do
+      let kNat ← mkAppM ``BitVec.toNat #[k]
+      let body ← withLocalDeclD `hk (mkApp2 valid arrExpr kNat) fun hk => do
+        let readK := mkApp8 getElemFn collTy idxTy elemTy valid inst arrExpr kNat hk
+        mkForallFVars #[hk] (← mkEq read1 readK)
+      mkLambdaFVars #[k] body
+    let base ← withLocalDeclD `hk (mkApp2 valid arrExpr iNat) fun hk => do
+      mkLambdaFVars #[hk] (← mkEqRefl read1)
+    let step ← mkAppOptM ``Eq.ndrec
+      #[some bvTy, some iBv, some motive, some base, some jBv, some heq]
+    mkLambdaFVars #[heq] (mkApp step hj)
+
+private def mkGetElemRowStep?
+    (existingReads : Std.HashMap (Sym.ExprPtr × Sym.ExprPtr) Expr)
+    (curRead getElemFn collTy idxTy elemTy valid inst arrExpr idxExpr jBv wExpr hj : Expr) :
+    Sym.SymM (Option RowStep) := do
+  let mkNext (xs hj0 : Expr) : Sym.SymM Expr :=
+    Sym.share (mkApp8 getElemFn collTy idxTy elemTy valid inst xs idxExpr hj0)
+  match_expr arrExpr with
+  | Array.set α xs iNat v hi =>
+    let some (wi, iBv) := matchBvToNat? iNat | return none
+    if wi != wExpr then return none
+    let hj0 ← match existingReads.get? (⟨xs⟩, ⟨jBv⟩) with
+      | some p => pure p
+      | none =>
+        let sizeEq ← mkAppOptM ``Array.size_set #[some α, some xs, some iNat, some v, some hi]
+        Sym.share (← mkLtOfSizeEq idxExpr sizeEq hj)
+    let nextRead ← mkNext xs hj0
+    let rowEq ← mkAppOptM ``Array.getElem_set
+      #[some α, some xs, some iNat, some hi, some v, some idxExpr, some hj]
+    let prf ← mkToNatIteEqCond elemTy wExpr iBv jBv v nextRead curRead rowEq
+    return some { lemmaPrf := prf, iBv, vExpr := v, nextRead }
+  | Array.setIfInBounds α xs iNat v =>
+    let some (wi, iBv) := matchBvToNat? iNat | return none
+    if wi != wExpr then return none
+    let hj0 ← match existingReads.get? (⟨xs⟩, ⟨jBv⟩) with
+      | some p => pure p
+      | none =>
+        let sizeEq ← mkAppOptM ``Array.size_setIfInBounds #[some α, some xs, some iNat, some v]
+        Sym.share (← mkLtOfSizeEq idxExpr sizeEq hj)
+    let nextRead ← mkNext xs hj0
+    let rowEq ← mkAppOptM ``Array.getElem_setIfInBounds
+      #[some α, some xs, some iNat, some v, some idxExpr, some hj0]
+    let prf ← mkToNatIteEqCond elemTy wExpr iBv jBv v nextRead curRead rowEq
+    return some { lemmaPrf := prf, iBv, vExpr := v, nextRead }
+  | Array.set! α xs iNat v =>
+    let some (wi, iBv) := matchBvToNat? iNat | return none
+    if wi != wExpr then return none
+    let hj0 ← match existingReads.get? (⟨xs⟩, ⟨jBv⟩) with
+      | some p => pure p
+      | none =>
+        let sizeEq ← mkAppOptM ``Array.size_set! #[some α, some xs, some iNat, some v]
+        Sym.share (← mkLtOfSizeEq idxExpr sizeEq hj)
+    let nextRead ← mkNext xs hj0
+    let rowEq ← mkAppOptM ``Array.getElem_setIfInBounds
+      #[some α, some xs, some iNat, some v, some idxExpr, some hj0]
+    let prf ← mkToNatIteEqCond elemTy wExpr iBv jBv v nextRead curRead rowEq
+    return some { lemmaPrf := prf, iBv, vExpr := v, nextRead }
+  | Vector.set α n xs iNat v hi =>
+    let some (wi, iBv) := matchBvToNat? iNat | return none
+    if wi != wExpr then return none
+    let hj0 := (existingReads.get? (⟨xs⟩, ⟨jBv⟩)).getD hj
+    let nextRead ← mkNext xs hj0
+    let rowEq ← mkAppOptM ``Vector.getElem_set
+      #[some α, some n, some xs, some iNat, some v, some hi, some idxExpr, some hj0]
+    let prf ← mkToNatIteEqCond elemTy wExpr iBv jBv v nextRead curRead rowEq
+    return some { lemmaPrf := prf, iBv, vExpr := v, nextRead }
+  | Vector.setIfInBounds α n xs iNat v =>
+    let some (wi, iBv) := matchBvToNat? iNat | return none
+    if wi != wExpr then return none
+    let hj0 := (existingReads.get? (⟨xs⟩, ⟨jBv⟩)).getD hj
+    let nextRead ← mkNext xs hj0
+    let rowEq ← mkAppOptM ``Vector.getElem_setIfInBounds
+      #[some α, some n, some idxExpr, some iNat, some xs, some v, some hj0]
+    let prf ← mkToNatIteEqCond elemTy wExpr iBv jBv v nextRead curRead rowEq
+    return some { lemmaPrf := prf, iBv, vExpr := v, nextRead }
+  | Vector.set! α n xs iNat v =>
+    let some (wi, iBv) := matchBvToNat? iNat | return none
+    if wi != wExpr then return none
+    let hj0 := (existingReads.get? (⟨xs⟩, ⟨jBv⟩)).getD hj
+    let nextRead ← mkNext xs hj0
+    let rowEq ← mkAppOptM ``Vector.getElem_set!
+      #[some α, some n, some idxExpr, some iNat, some xs, some v, some hj0]
+    let prf ← mkToNatIteEqCond elemTy wExpr iBv jBv v nextRead curRead rowEq
+    return some { lemmaPrf := prf, iBv, vExpr := v, nextRead }
+  | List.set α xs iNat v =>
+    let some (wi, iBv) := matchBvToNat? iNat | return none
+    if wi != wExpr then return none
+    let hj0 ← match existingReads.get? (⟨xs⟩, ⟨jBv⟩) with
+      | some p => pure p
+      | none =>
+        let sizeEq ← mkAppOptM ``List.length_set #[some α, some xs, some iNat, some v]
+        Sym.share (← mkLtOfSizeEq idxExpr sizeEq hj)
+    let nextRead ← mkNext xs hj0
+    let rowEq ← mkAppOptM ``List.getElem_set
+      #[some α, some xs, some iNat, some idxExpr, some v, some hj]
+    let prf ← mkToNatIteEqCond elemTy wExpr iBv jBv v nextRead curRead rowEq
+    return some { lemmaPrf := prf, iBv, vExpr := v, nextRead }
+  | _ => return none
+
+private def mkHashMapRowStep? (e : Expr) : Sym.SymM (Option (Expr × RowStep)) := do
+  if !(← getEnv).contains ``Std.HashMap.getD_insert then return none
+  match_expr e with
+  | Std.HashMap.getD keyTy valTy beqInst hashInst mExpr jBv dExpr =>
+    let_expr BitVec wExpr := keyTy | return none
+    match_expr mExpr with
+    | Std.HashMap.insert keyTy' valTy' beqInst' hashInst' baseMap iBv vExpr =>
+      if keyTy' != keyTy || valTy' != valTy || beqInst' != beqInst || hashInst' != hashInst then
+        return none
+      let hashOk := match_expr hashInst with
+        | BitVec.instHashable w' => w' == wExpr
+        | _ => false
+      if !hashOk then return none
+      let beqOk ← withTransparency .default do
+        let some canonBeq ← synthInstance? (mkApp (mkConst ``BEq [0]) keyTy) | return false
+        isDefEq canonBeq beqInst
+      if !beqOk then return none
+      let nextRead ← Sym.share (mkApp7 e.getAppFn keyTy valTy beqInst hashInst baseMap jBv dExpr)
+      let rowEq ← mkAppOptM ``Std.HashMap.getD_insert
+        #[some keyTy, some valTy, some beqInst, some hashInst, some baseMap,
+          none, none, some iBv, some jBv, some dExpr, some vExpr]
+      let beqExpr ← mkAppOptM ``BEq.beq #[some keyTy, some beqInst, some iBv, some jBv]
+      let hCond ← mkEqSymm (← mkAppM ``cond_eq_ite #[beqExpr, vExpr, nextRead])
+      let prf ← mkEqTrans (← mkEqRefl e) (← mkEqTrans rowEq hCond)
+      return some (jBv, { lemmaPrf := prf, iBv, vExpr, nextRead })
+    | _ => return none
+  | _ => return none
+
+private def isArrayReadHead (e : Expr) : Bool :=
+  match (unwrapBoolAtomExpr e).getAppFn.constName? with
+  | some ``GetElem.getElem | some ``Std.HashMap.getD => true
+  | _ => false
+
+private def checkArrayRow (cex : CegarM.CounterExample)
+    (seenRow : IO.Ref (Std.HashSet Sym.ExprPtr))
+    (seenCongr : IO.Ref (Std.HashSet (Sym.ExprPtr × Sym.ExprPtr))) : CegarM Bool :=
+  withTraceNode `Meta.Tactic.bv (fun _ => return m!"McCarthy array ROW refinement") do
+    let atomsMap := (← getThe Lean.Meta.Tactic.BVDecide.State).atoms
+    let mut candAtoms : Array Expr := #[]
+    for (ptr, atom) in atomsMap do
+      if !atom.synthetic && isArrayReadHead ptr.expr then
+        candAtoms := candAtoms.push ptr.expr
+    if candAtoms.isEmpty then return false
+    -- Index existing `GetElem.getElem` reads so McCarthy ROW reuses proof terms & atom ExprPtrs
+    let mut existingReads : Std.HashMap (Sym.ExprPtr × Sym.ExprPtr) Expr := {}
+    let mut readGroups :
+        Std.HashMap (Sym.ExprPtr × Sym.ExprPtr × Sym.ExprPtr × BVExpr.PackedBitVec)
+          (Array (Expr × Expr × Expr × Expr × Expr × Expr × Expr × Expr × Expr ×
+            BVExpr.PackedBitVec)) := {}
+    for rawAtom in candAtoms do
+      let e := unwrapBoolAtomExpr rawAtom
+      match_expr e with
+      | GetElem.getElem collTy idxTy elemTy valid inst arrExpr idxExpr proofExpr =>
+        if idxTy.isConstOf ``Nat then
+          if let some (wExpr, jBv) := matchBvToNat? idxExpr then
+            existingReads := existingReads.insert (⟨arrExpr⟩, ⟨jBv⟩) proofExpr
+            if let (some jVal, some rVal) :=
+                (evalKnownBvExpr? cex.exprCex jBv, cex.exprCex[rawAtom]?) then
+              let gkey : Sym.ExprPtr × Sym.ExprPtr × Sym.ExprPtr × BVExpr.PackedBitVec :=
+                (⟨collTy⟩, ⟨arrExpr⟩, ⟨wExpr⟩, jVal)
+              let recItem :=
+                (rawAtom, e, e.getAppFn, idxTy, elemTy, valid, inst, jBv, proofExpr, rVal)
+              readGroups := readGroups.alter gkey fun
+                | some arr => some (arr.push recItem)
+                | none => some #[recItem]
+      | _ => pure ()
+    let mut added := false
+    -- 1. Targeted McCarthy read-over-write lemmas (chaining along `else` branch in one round)
+    for rawAtom in candAtoms do
+      let mut curExpr := unwrapBoolAtomExpr rawAtom
+      for _ in [0:8] do
+        if (← seenRow.get).contains ⟨curExpr⟩ then break
+        let stepOpt ← match_expr curExpr with
+          | GetElem.getElem collTy idxTy elemTy valid inst arrExpr idxExpr proofExpr =>
+            if idxTy.isConstOf ``Nat then
+              match matchBvToNat? idxExpr with
+              | some (wExpr, jBv) =>
+                match ← mkGetElemRowStep? existingReads curExpr curExpr.getAppFn collTy idxTy
+                    elemTy valid inst arrExpr idxExpr jBv wExpr proofExpr with
+                | some st => pure (some (jBv, st))
+                | none => pure none
+              | none => pure none
+            else pure none
+          | _ => mkHashMapRowStep? curExpr
+        let some (jBv, st) := stepOpt | break
+        let vi? := evalKnownBvExpr? cex.exprCex st.iBv
+        let vj? := evalKnownBvExpr? cex.exprCex jBv
+        let sameIdx := match vi?, vj? with
+          | some vi, some vj => vi == vj
+          | _, _ => false
+        seenRow.modify (·.insert ⟨curExpr⟩)
+        pushKernelCegarHyp `array_row st.lemmaPrf
+        added := true
+        if sameIdx then
+          break
+        curExpr := st.nextRead
+    -- 2. `BitVec.toNat` read congruence (`i = j → arr[i.toNat] = arr[j.toNat]`)
+    for ((collPtr, arrPtr, wPtr, _), items) in readGroups do
+      if items.size < 2 then continue
+      for i in [0:items.size] do
+        let (raw1, read1, getElemFn, idxTy, elemTy, valid, inst, iBv, _, v1) := items[i]!
+        for j in [i + 1:items.size] do
+          let (raw2, _, _, _, _, _, _, jBv, hj, v2) := items[j]!
+          if v1 != v2 && raw1 != raw2 then
+            let pkey := mkPairKey raw1 raw2
+            if !(← seenCongr.get).contains pkey then
+              seenCongr.modify (·.insert pkey)
+              let prf ← mkGetElemToNatCongr getElemFn collPtr.expr idxTy elemTy valid inst
+                wPtr.expr arrPtr.expr iBv jBv hj read1
+              pushKernelCegarHyp `array_congr prf
+              added := true
+    return added
+
 private def checkBitVecQbe (qbeCtx : QbeContext) :
     CegarM (Except (Array (Expr × Bool × BVExpr.PackedBitVec)) ProveResult) := do
   withTraceNode `Meta.Tactic.bv (fun _ => return m!"Checking BitVec abstraction") do
@@ -52,7 +549,8 @@ private def checkBitVecQbe (qbeCtx : QbeContext) :
 
 /-- Trust-pure single-solve Phase-1 CEGAR wrapper: uses `unsatProver` directly unless
 `ctx.config.needsIncremental` is enabled, in which case incremental CEGAR discovers kernel-proved
-congruence lemmas via zero-axiom `bv_solve_bytes` probes and commits once on UNSAT. -/
+congruence and (in `.enhanced` mode) batched/cascading UF + McCarthy array read-over-write lemmas
+via zero-axiom `bv_solve_bytes` probes and commits once on UNSAT. -/
 def cegarBlaster (ctx : TacticContext) (qbeCtx : QbeContext := {}) : UnsatProver CegarResult :=
   if ctx.config.needsIncremental then
     cegarLoop
@@ -68,6 +566,9 @@ where
     CegarM.consumeRound
 
   cegarLoop : UnsatProver CegarResult := CegarM.run ctx do
+    let useEnh := qbeCtx.features.mode == .enhanced
+    let seenCongr ← IO.mkRef ({} : Std.HashSet (Sym.ExprPtr × Sym.ExprPtr))
+    let seenRow ← IO.mkRef ({} : Std.HashSet Sym.ExprPtr)
     let mut lastCex := #[]
     CegarM.setDidChange true
     while ← CegarM.getDidChange do
@@ -78,7 +579,11 @@ where
       | .error cex =>
         lastCex := cex
         let cex ← CegarM.CounterExample.ofArray cex
-        discard <| Cegar.checkUf cex
+        if useEnh then
+          discard <| checkUfBatched cex seenCongr true
+          discard <| checkArrayRow cex seenRow seenCongr
+        else
+          discard <| Cegar.checkUf cex
 
       match ← Cegar.processNewHyps with
       | .solved =>
@@ -484,6 +989,9 @@ def bvDecideQbe' (target : Normalize.Target) (ctx : TacticContext)
   Normalize.PreProcessM.run' ctx.preProcessContext target do
     let solved ← Normalize.bvNormalize
     if solved then return .ok { lemmas := #[], proveResult? := none }
+    if qbeCtx.features.mode == .enhanced && ctx.config.acNf then
+      let solvedAc ← Normalize.AC.bvMulSubtermNormalize
+      if solvedAc then return .ok { lemmas := #[], proveResult? := none }
     let g ← Normalize.PreProcessM.getTargetMVarId
     let rawHyps ← Normalize.PreProcessM.getHyps
     let hyps ←

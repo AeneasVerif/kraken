@@ -103,6 +103,7 @@ lean_lib BvDecideQbeNative where
     `BvDecideQbe.Encode,
     `BvDecideQbe.Counterexample,
     `BvDecideQbe.NormalizeRules,
+    `BvDecideQbe.Normalize.AC,
     `BvDecideQbe.Prover,
     `BvDecideQbe.Cegar,
     `BvDecideQbe.CutCore,
