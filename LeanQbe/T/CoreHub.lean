@@ -52,6 +52,9 @@ public import LeanQbe.T.IfOptLemmas2
 public import LeanQbe.T.Inline
 public import LeanQbe.T.InlineChunk
 public import LeanQbe.T.InlineLemmas
+public import LeanQbe.T.InlinePlan
+public import LeanQbe.T.InlinePlanLemmas
+public import LeanQbe.T.InlinePlanSeg
 public import LeanQbe.T.InterpKissat
 public import LeanQbe.T.IselStepAttr
 public import LeanQbe.T.Legal
@@ -133,6 +136,8 @@ public import LeanQbe.T.MainCertInlineChunk
 public import LeanQbe.T.MainCertInlineProof
 public import LeanQbe.T.MainCertProof
 public import LeanQbe.T.MainCertScc
+public import LeanQbe.T.MainCertSeg
+public import LeanQbe.T.MainCertSegElab
 public import LeanQbe.T.MainCertSlices
 public import LeanQbe.T.MainFlat
 public import LeanQbe.T.MainFlatLemmas
