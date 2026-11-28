@@ -2,6 +2,7 @@ module
 
 public import LeanQbe.T.Examples.Kissat.Solver
 public import LeanQbe.T.Examples.Kissat.DimacsLemmas
+public import LeanQbe.T.Examples.Kissat.Proof.Ref.Dimacs
 import all Kraken.Mem
 import all Kraken.Separation
 

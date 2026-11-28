@@ -6,6 +6,7 @@ module
 
 public import LeanQbe.T.Examples.Kissat.ExportCnfFmt
 public import LeanQbe.T.Examples.Kissat.Ref.Base
+public import LeanQbe.T.Examples.Kissat.Proof.Ref.Base
 public import LeanQbe.T.Examples.LratBytes
 public import LeanQbe.T.Examples.LratBytesDimacsLemmas
 public import LeanQbe.T.Logic.ByteArrayDecimal

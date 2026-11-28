@@ -115,6 +115,7 @@ public import LeanQbe.T.Examples.Bitblast.Src.Validate
 public import LeanQbe.T.Examples.BvDecideBridge
 public import LeanQbe.T.Examples.ChaCha
 public import LeanQbe.T.Examples.ChaChaProg
+public import LeanQbe.T.Examples.KissatBeyond.Proof.XorF2
 public import LeanQbe.T.Examples.KissatBeyond.Ref.XorF2
 public import LeanQbe.T.Examples.LinkRec
 public import LeanQbe.T.Examples.LitmusProgs

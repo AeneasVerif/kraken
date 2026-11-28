@@ -5,6 +5,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 module
 
 public import LeanQbe.T.Examples.Kissat.Proof.Congruence.Mem
+public import LeanQbe.T.Examples.Kissat.Proof.Ref.Subsume
 public import LeanQbe.T.Examples.Kissat.Ref.Sweep
 
 /-!

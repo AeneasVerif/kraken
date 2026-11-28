@@ -5,7 +5,6 @@ Released under Apache 2.0 license as described in the file LICENSE.
 module
 
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.MemBridges
-public import LeanQbe.T.Examples.Kissat.Ref.Chrono
 public import LeanQbe.T.Logic.C0Agrees
 public import Kraken.SeparationTactics
 public import Kraken.Mem

@@ -8,6 +8,7 @@ public import LeanQbe.T.Examples.Kissat.Proof.Spec.Contracts3
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Header
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Tactics
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Tactics1
+public import LeanQbe.T.Examples.Kissat.Proof.Ref.Substitute
 public import LeanQbe.T.Examples.Kissat.Ref.Sweep
 public import LeanQbe.T.Logic.C0Agrees
 public import LeanQbe.T.Logic.C0HeadStep

@@ -5,6 +5,8 @@ Released under Apache 2.0 license as described in the file LICENSE.
 module
 
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Arena
+public import LeanQbe.T.Examples.Kissat.Ref.Chrono
+public import LeanQbe.T.Examples.Kissat.Proof.Ref.Dimacs
 
 /-!
 # Kissat `D-Full` UNSAT-Only Core Invariant & `ChronoTrailInv` Bridge (`Stage 4`, Part 1)

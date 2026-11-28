@@ -1,6 +1,7 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.Ref.Cdcl
+public import LeanQbe.T.Examples.Kissat.Proof.Ref.Cdcl
 public import LeanQbe.T.Examples.LratBytes
 public import LeanQbe.T.Examples.LratBytesLemmas
 meta import LeanQbe.T.Examples.Kissat.Ref.Sat

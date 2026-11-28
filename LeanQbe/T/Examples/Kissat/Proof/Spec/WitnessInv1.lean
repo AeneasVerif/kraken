@@ -5,6 +5,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 module
 
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.WitnessInv
+public import LeanQbe.T.Examples.Kissat.Proof.Ref.Sweep
 
 /-!
 # Kissat `D-Full` UNSAT-Only Core Invariant Transitions (`Stage 4`, Part 2)

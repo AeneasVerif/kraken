@@ -2,6 +2,7 @@ module
 
 public import LeanQbe.T.Examples.Kissat.Dimacs
 public import LeanQbe.T.Examples.Kissat.Ref.Base
+public import LeanQbe.T.Examples.Kissat.Proof.Ref.Base
 public import LeanQbe.T.Examples.LratBytesDimacsLemmas
 public import LeanQbe.T.Logic.Bytes
 public import LeanQbe.T.Logic.Rules

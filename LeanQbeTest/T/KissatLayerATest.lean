@@ -2,6 +2,8 @@ module
 
 public import LeanQbe.T.Examples.Kissat.Ref.FailedLit
 public import LeanQbe.T.Examples.Kissat.Ref.Collect
+public import LeanQbe.T.Examples.Kissat.Proof.Ref.FailedLit
+public import LeanQbe.T.Examples.Kissat.Proof.Ref.Collect
 meta import LeanQbe.T.Examples.Kissat.Ref.Sat
 meta import LeanQbe.T.Examples.Kissat.Ref.Minimize
 meta import LeanQbe.T.Examples.Kissat.Ref.MinimizeDfs

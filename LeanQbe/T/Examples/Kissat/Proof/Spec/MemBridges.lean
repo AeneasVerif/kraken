@@ -6,6 +6,7 @@ module
 
 public import LeanQbe.T.Examples.Kissat.Ref.Dimacs
 public import LeanQbe.T.Examples.Kissat.Ref.Sat
+public import LeanQbe.T.Examples.Kissat.Proof.Ref.Base
 public import LeanQbe.T.Logic.Bytes
 public import LeanQbe.T.Logic.Rules
 public import Kraken.Mem

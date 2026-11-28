@@ -3,6 +3,8 @@ module
 public import LeanQbe.T.Examples.Kissat.Ref.Subsume
 public import LeanQbe.T.Examples.Kissat.Ref.Vivify
 public import LeanQbe.T.Examples.Kissat.Ref.Eliminate
+public import LeanQbe.T.Examples.Kissat.Proof.Ref.Vivify
+public import LeanQbe.T.Examples.Kissat.Proof.Ref.Eliminate
 meta import LeanQbe.T.Examples.Kissat.Ref.Sat
 meta import LeanQbe.T.Examples.Kissat.Ref.Subsume
 meta import LeanQbe.T.Examples.Kissat.Ref.Vivify
