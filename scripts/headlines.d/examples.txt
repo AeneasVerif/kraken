@@ -8,3 +8,6 @@ LeanQbeTest.T.AriscaTest LeanQbeTest.T.AriscaTest.s_booth_8_flip_mul
 LeanQbeTest.T.AriscaTest LeanQbeTest.T.AriscaTest.s_booth_8_flip_mulB
 LeanQbeTest.T.AriscaTest LeanQbeTest.T.AriscaTest.u_array_4_drop_rejected
 LeanQbeTest.T.AriscaTest LeanQbeTest.T.AriscaTest.u_array_4_drop_rejectedB
+LeanQbe.T.Examples.Arisca.Proof.Full LeanQbe.T.Examples.Arisca.Proof.ariscaModule_ok
+LeanQbe.T.Examples.Arisca.Proof.Full LeanQbe.T.Examples.Arisca.Proof.arisca_check_bytes_sound
+LeanQbe.T.Examples.Arisca.Proof.Full LeanQbe.T.Examples.Arisca.Proof.arisca_check_bytes_nv
