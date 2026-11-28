@@ -65,7 +65,9 @@ theorem cert : SegCert deps Src.Analyze.fns Spec.specs := fun Γ hDeps hSat => b
   have hTiersSpecs := hDeps.right
   have hBt := Backtrack.Spec.has_full_backtrack_ac_fid hBtSpecs
   have hAsgn := Backtrack.Spec.has_full_assign_lvl hBtSpecs
-  have hBumpMode := Bump.Spec.has_full_bump_analyzed_mode_fid hBumpSpecs
+  have hBumpMode : Γ.Has "full_bump_analyzed_mode_fid" Bump.Spec.bumpAnalyzedModeSpec :=
+    SpecTable.has_at hBumpSpecs 8 rfl
+      (by unfold Bump.Spec.bumpAnalyzedModeSpec; exact M6HdrContract.toSpec_xfree _)
   have hClear := Deduce.Spec.has_full_clear_ana hDeduceSpecs
   have hDeduce := Deduce.Spec.has_full_deduce_1uip_m6_hdr hDeduceSpecs
   have hOneLit := SpecTable.has_at hLearnSpecs 1 rfl

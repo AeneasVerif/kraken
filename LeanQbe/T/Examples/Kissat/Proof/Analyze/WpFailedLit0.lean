@@ -9,6 +9,8 @@ public import LeanQbe.T.Examples.Kissat.Proof.Backtrack.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Bump.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Deduce.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Limits.Spec
+import LeanQbe.T.Examples.Kissat.Proof.Bump.Helpers
+import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
 import LeanQbe.T.Logic.C0Step
 import LeanQbe.T.Logic.C0HeadStep
 import LeanQbe.T.Logic.ControlComb
@@ -160,7 +162,7 @@ local macro "c0_hcall " h:term : tactic =>
 
 theorem s13_fl_post_loop_hdr_wp {Γ Q X}
     (hClear : ∀ a m Q X, fullClearAnaSpec a m Q X → Γ "full_clear_ana" [i64] [] a m Q X)
-    (hBumpMode : ∀ a m Q X, fullBumpAnalyzedModeSpec a m Q X →
+    (hBumpMode : ∀ a m Q X, bumpAnalyzedModeSpec a m Q X →
       Γ "full_bump_analyzed_mode_fid" [i64, .bool] [] a m Q X)
     (hBacktrackAc : ∀ a m Q X, fullBacktrackSpec a m Q X →
       Γ "full_backtrack_ac_fid" [i64, i64] [] a m Q X)
@@ -253,11 +255,27 @@ theorem s13_fl_post_loop_hdr_wp {Γ Q X}
           exact ⟨hnf_lt, hnf_ent⟩
       try clear hm_f
       m6h_call hBumpMode
-      refine fullBumpAnalyzedModeSpec_of hcfg hext hok_t.len (fullBumpPre_of_cov false hok_t.cov)
-        (fullM6HdrMem_unfocus hm_t)
-        fun mrk_b mcl_b repr_b sc_b ext' m_b
-          hlen_b hcov_bf _ _ hpres_b hws2_b hext' hinit' hm_b => ?_
+      refine M6HdrContract.intro (w := ()) hcfg hext hok_t.len (fullBumpPre_of_cov false hok_t.cov)
+        (fullM6HdrMem_unfocus hm_t) ?_
+      rintro ⟨⟩ ext' s_b m_b hext' hw2b hlen_b ⟨hcore_agr, hcov_bf, _, _, hpres_b, hws2_b⟩ hm_b
       have hcov_b := hcov_bf hok_t.cov
+      have hcore_b : s_b.core =
+          { s_t.core with mrk := s_b.core.mrk, min_clr_len := s_b.core.min_clr_len,
+                          repr := s_b.core.repr } := by
+        cases hc_t : s_t.core; cases hc_b : s_b.core
+        dsimp only [AgreesExcept, bumpAnalyzedCoreMask] at hcore_agr
+        rw [hc_t, hc_b] at hcore_agr; cases hcore_agr; rfl
+      let mrk_b := s_b.core.mrk
+      let mcl_b := s_b.core.min_clr_len
+      let repr_b := s_b.core.repr
+      let sc_b := s_b.scratch
+      have hs_b_eq : s_b =
+          { s_t with
+            core := { s_t.core with mrk := mrk_b, min_clr_len := mcl_b, repr := repr_b },
+            scratch := sc_b } := by
+        rcases s_b with ⟨c_b, sc_b'⟩
+        exact congrArg (fun k => FullState.mk k sc_b') hcore_b
+      rw [hs_b_eq] at hlen_b hcov_b hpres_b hws2_b hm_b
       let s_b : FullState := { s_t with
         core := { s_t.core with mrk := mrk_b, min_clr_len := mcl_b, repr := repr_b },
         scratch := sc_b }
@@ -344,7 +362,7 @@ theorem s13_fl_post_loop_hdr_wp {Γ Q X}
             have hunsat : F0.Unsat :=
               fl_unsat_of_unit_pair hsp_k.2.1.ext_sound.2 hu_ent hnu_ent
             c0_hsteps
-            exact hQ 20#64 ext' s_k m_k hext' hinit' hsp_k.1 (Or.inr (Or.inr rfl))
+            exact hQ 20#64 ext' s_k m_k hext' hw2b hsp_k.1 (Or.inr (Or.inr rfl))
               hcv_k hfu_k hws2_k (fun _ => ⟨hunsat, hsp_k.toOtfs, by omega, hdm_k⟩)
               (fun h => by cases h) (fun h => by cases h) (fullM6HdrMem_unfocus hm_k)
           · refine wp_join_state (ts := []) (α := FullState) (proj := fun _ => ())
@@ -412,7 +430,7 @@ theorem s13_fl_post_loop_hdr_wp {Γ Q X}
                              | (dsimp only [FullScratch.LengthsOk, s_fin] at hsE ⊢; exact hsE)⟩
             have hsp_fin' : FullSparseInvW c F0 F_cur s_fin :=
               fullSparseInvW_of_core_eq hspE hlen_fin rfl ⟨rfl, rfl⟩
-            exact hQ 1#64 ext' s_fin _ hext' hinit' hsp_fin'.1 (Or.inr (Or.inl rfl))
+            exact hQ 1#64 ext' s_fin _ hext' hw2b hsp_fin'.1 (Or.inr (Or.inl rfl))
               (hcvE.trans hcv_k) (hfuE.trans hfu_k) (hws2E.trans hws2_k)
               (fun h => by cases h) (fun h => by cases h)
               (fun _ => ⟨hsp_fin', by dsimp [s_fin]; rw [hclE]; omega⟩)

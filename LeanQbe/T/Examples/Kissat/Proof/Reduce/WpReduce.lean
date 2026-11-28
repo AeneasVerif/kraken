@@ -15,6 +15,7 @@ public import LeanQbe.T.Examples.Kissat.Proof.Internal.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Limits.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.PropSearch.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Tiers.Spec
+import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
 import LeanQbe.T.Examples.Kissat.Proof.Reduce.WpReduceShared
 import LeanQbe.T.Examples.Kissat.Proof.Reduce.WpReduceTail
 import LeanQbe.T.Examples.Kissat.Proof.Spec.Tactics
@@ -599,7 +600,7 @@ private theorem reduce_collect_loop_wp {Γ : Env}
       · exact hDone rc stI mI hstI hrmI hrrI hrcI hclI hoomI hufI)
 
 private theorem reduce_sort_and_drop_wp {Γ : Env}
-    (hSort : Γ.Has "full_sort_reds" Spec.fullSortRedsSpec)
+    (hSort : Γ.Has "full_sort_reds" Spec.sortRedsSpec)
     (hLog10 : Γ.Has "f64u_log10_u64" Float64.Spec.f64uPure1Spec)
     (hDiv : Γ.Has "f64u_div" Float64.Spec.f64uPure2Spec)
     (hSub : Γ.Has "f64u_sub" Float64.Spec.f64uPure2Spec)
@@ -630,22 +631,29 @@ private theorem reduce_sort_and_drop_wp {Γ : Env}
       omega
     refine wp_m6Hdr_focus_frame hst.mem fun hmF => ?_
     refine wp_call_of_spec _ _ (hSort _ _ _ X ?_)
-    refine ⟨c, st, m6ExtMem (m6ExtAddr c.hdr) ext ⋆ R, rfl, hlen, hrc_cap, h_in_cap, hmF,
-      fun rr' sb' m' hrr_len hsb_len hrr_perm hm' => ?_⟩
-    let sc' : FullScratch := { st.scratch with red_refs := rr', scratch_buf := sb' }
+    refine FullContract.intro (w := ()) hlen ⟨hrc_cap, h_in_cap⟩ hmF ?_
+    rintro ⟨⟩ ⟨c_st', sc'⟩ m' hlen' ⟨hcore', hmod', hrr_perm⟩ hm'
+    dsimp only [CorePres] at hcore'; subst c_st'
+    have hll' : sc'.last_learned = st.scratch.last_learned :=
+      ScratchModifies.get_of_not_mem hmod' (f := .last_learned) (by decide)
+    have hext' : sc'.extend_len = st.scratch.extend_len :=
+      ScratchModifies.get_of_not_mem hmod' (f := .extend_len) (by decide)
+    have hws1' : sc'.work_stk1 = st.scratch.work_stk1 :=
+      ScratchModifies.get_of_not_mem hmod' (f := .work_stk1) (by decide)
+    have hws2' : sc'.work_stk2 = st.scratch.work_stk2 :=
+      ScratchModifies.get_of_not_mem hmod' (f := .work_stk2) (by decide)
+    have hst' : RedSt c F0 F_cur s R ext { st with scratch := sc' } m' :=
+      redSt_with_scratch hst hlen'.scratch_ok hll' hext' hws1' hws2' (fullM6HdrMem_unfocus_full hm')
     let st' : FullState := { core := st.core, scratch := sc' }
-    have hsc_ok : FullScratch.LengthsOk c sc' := by
-      have hso := hlen.scratch_ok
-      exact { hso with red_refs_len := hrr_len, scratch_buf_len := hsb_len }
-    have hst' : RedSt c F0 F_cur s R ext st' m' :=
-      redSt_with_scratch hst hsc_ok rfl rfl rfl rfl (fullM6HdrMem_unfocus_full hm')
+    have hrr_len := hlen'.scratch_ok.red_refs_len
+    have hsb_len := hlen'.scratch_ok.scratch_buf_len
     have hrm' : FullReasonsMarked st' := hrm
     have hrr' : RedRefsOk st' rc.toNat := by
       intro j hj
       obtain ⟨k, hk, hjk⟩ := hrr_perm j hj
       have hreq : (sc'.red_refs[j]?.getD 0#32).toNat =
           (st.scratch.red_refs[k]?.getD 0#32).toNat := by
-        dsimp [sc']; rw [hjk]
+        rw [hjk]
       change (sc'.red_refs[j]?.getD 0#32).toNat ∈ fullArenaClauseRefs st' ∧
         fullArenaHdr st' (sc'.red_refs[j]?.getD 0#32).toNat &&& 2097152#32 = 0#32
       rw [hreq]
@@ -677,7 +685,7 @@ private theorem reduce_sort_and_drop_wp {Γ : Env}
   · exact hJ4 st ml hst hrm rfl rfl rfl
 
 private theorem reduce_compact_wp {Γ : Env}
-    (hCmp : Γ.Has "full_compact" Compact.Spec.fullCompactSpec)
+    (hCmp : Γ.Has "full_compact" Compact.Spec.compactSpec)
     {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)} {s st : FullState}
     {R : Mem 64 → Prop} {ext : List (BitVec 64)} {ml : Mem 64}
     {Js_exit : Cont [i64, Ty.bool]} {Q : Post [i64]} {X : XPost}
@@ -704,8 +712,10 @@ private theorem reduce_compact_wp {Γ : Env}
         have hdc : do_compact = true := by assumption
         have hforce : force = false := h_nf hdc
         refine wp_call_of_spec _ _ (hCmp _ _ _ X ?_)
-        refine ⟨c, F0, ext, st, R, rfl, hst.inv.toInv, hst.mem,
-          fun r_c c' ext' s' m' hcompat hinv' hr_c hcv' hfu' huns' hcl' hm' => ?_⟩
+        refine M6HdrCfgContract.intro (w := F0) hst.inv.cfgOk hst.inv.extOk
+          hst.inv.sparseW.1 hst.inv.toInv hst.mem ?_
+        rintro ⟨r_c, ⟨⟩⟩ c' ext' s' m' hcompat _ _ _ _
+          ⟨hinv', hr_c, hcv', hfu', huns', hcl'⟩ hm'
         have hcv_s : s'.core.cur_vars ≤ s.core.cur_vars := hst.cv ▸ hcv'
         have hfu_s : s'.core.fuel.toNat ≤ s.core.fuel.toNat := Nat.le_trans hfu' hst.fu
         have hnf_vac : ∀ (r0 : BitVec 64), force = true →
@@ -745,7 +755,7 @@ private theorem reduce_dc_body_wp {Γ : Env}
     (hRec : Γ.Has "m6_hdr_recompute_tiers" (m6HdrW2aSpec [] []))
     (hMark : Γ.Has "full_mark_reasons" fullMarkReasonsSpec)
     (hNext : Γ.Has "full_arena_next" fullArenaNextSpec)
-    (hSort : Γ.Has "full_sort_reds" Spec.fullSortRedsSpec)
+    (hSort : Γ.Has "full_sort_reds" Spec.sortRedsSpec)
     (hLog10 : Γ.Has "f64u_log10_u64" Float64.Spec.f64uPure1Spec)
     (hDiv : Γ.Has "f64u_div" Float64.Spec.f64uPure2Spec)
     (hSub : Γ.Has "f64u_sub" Float64.Spec.f64uPure2Spec)
@@ -754,7 +764,7 @@ private theorem reduce_dc_body_wp {Γ : Env}
     (hToU : Γ.Has "f64u_to_u64" Float64.Spec.f64uPure1Spec)
     (hSweep : Γ.Has "full_arena_sweep" Collect.Spec.step13ArenaSweepSpec)
     (hProp : Γ.Has "full_propagate" PropSearch.Spec.propagateM6Spec)
-    (hCmp : Γ.Has "full_compact" Compact.Spec.fullCompactSpec)
+    (hCmp : Γ.Has "full_compact" Compact.Spec.compactSpec)
     {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)} {s st : FullState}
     {R : Mem 64 → Prop} {ext : List (BitVec 64)} {ml : Mem 64}
     {Js_exit : Cont [i64, Ty.bool]} {Q : Post [i64]} {X : XPost}
@@ -810,11 +820,11 @@ private theorem reduce_dc_body_wp {Γ : Env}
           hJ3 () ml4 ⟨st4, hst4, hrm4, hcl4, hoom4, huf4⟩))
 
 private theorem reduce_core_wp {Γ : Env}
-    (hCmpNeed : Γ.Has "full_compact_needed" Compact.Spec.fullCompactNeededSpec)
+    (hCmpNeed : Γ.Has "full_compact_needed" Compact.Spec.compactNeededSpec)
     (hRec : Γ.Has "m6_hdr_recompute_tiers" (m6HdrW2aSpec [] []))
     (hMark : Γ.Has "full_mark_reasons" fullMarkReasonsSpec)
     (hNext : Γ.Has "full_arena_next" fullArenaNextSpec)
-    (hSort : Γ.Has "full_sort_reds" Spec.fullSortRedsSpec)
+    (hSort : Γ.Has "full_sort_reds" Spec.sortRedsSpec)
     (hLog10 : Γ.Has "f64u_log10_u64" Float64.Spec.f64uPure1Spec)
     (hDiv : Γ.Has "f64u_div" Float64.Spec.f64uPure2Spec)
     (hSub : Γ.Has "f64u_sub" Float64.Spec.f64uPure2Spec)
@@ -823,7 +833,7 @@ private theorem reduce_core_wp {Γ : Env}
     (hToU : Γ.Has "f64u_to_u64" Float64.Spec.f64uPure1Spec)
     (hSweep : Γ.Has "full_arena_sweep" Collect.Spec.step13ArenaSweepSpec)
     (hProp : Γ.Has "full_propagate" PropSearch.Spec.propagateM6Spec)
-    (hCmp : Γ.Has "full_compact" Compact.Spec.fullCompactSpec)
+    (hCmp : Γ.Has "full_compact" Compact.Spec.compactSpec)
     {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)} {s st : FullState}
     {R : Mem 64 → Prop} {ext : List (BitVec 64)} {ml : Mem 64}
     {Js_exit : Cont [i64, Ty.bool]} {Q : Post [i64]} {X : XPost}
@@ -874,23 +884,27 @@ private theorem reduce_core_wp {Γ : Env}
         refine wp_m6Hdr_focus_frame hst.mem fun hmF => ?_
         c0_hsteps_ng
         · refine wp_call_of_spec _ _ (hCmpNeed _ _ _ X ?_)
-          refine ⟨c, st, m6ExtMem (m6ExtAddr c.hdr) ext ⋆ R, rfl, hlen, hcl_lt, hmF,
-            fun res _ => ?_⟩
+          refine FullContract.intro (w := ()) hlen hcl_lt hmF ?_
+          rintro ⟨_res, ⟨⟩⟩ s_cn m_cn _ ⟨hs_eq, _⟩ hm_cn
+          subst s_cn
+          have hst_cn : RedSt c F0 F_cur s R ext st m_cn :=
+            ⟨hst.inv, hst.cl, hst.fu, hst.cv, hst.tmp, hst.tl, hst.prb, hst.mcl,
+             hst.ws1, hst.ws2, hst.pos, fullM6HdrMem_unfocus_full hm_cn⟩
           c0_hsteps_ng
-          · exact hJs (true, ()) ml ⟨hst, fun _ => hfnf⟩
-          · exact hJs (false, ()) ml ⟨hst, fun h => by cases h⟩
+          · exact hJs (true, ()) m_cn ⟨hst_cn, fun _ => hfnf⟩
+          · exact hJs (false, ()) m_cn ⟨hst_cn, fun h => by cases h⟩
         · exact hJs (false, ()) ml ⟨hst, fun h => by cases h⟩)
 
-/-- `full_reduce_m6` satisfies `Spec.fullReduceM6Spec`. -/
+/-- `full_reduce_m6` satisfies `Spec.reduceSpec`. -/
 public theorem full_reduce_m6_wp (Γ : Env)
     (hIsqrt : Γ.Has "full_isqrt" fullIsqrtSpec)
     (hBtk : Γ.Has "full_backtrack" fullBacktrackSpec)
     (hProp : Γ.Has "full_propagate" PropSearch.Spec.propagateM6Spec)
-    (hCmpNeed : Γ.Has "full_compact_needed" Compact.Spec.fullCompactNeededSpec)
+    (hCmpNeed : Γ.Has "full_compact_needed" Compact.Spec.compactNeededSpec)
     (hRec : Γ.Has "m6_hdr_recompute_tiers" (m6HdrW2aSpec [] []))
     (hMark : Γ.Has "full_mark_reasons" fullMarkReasonsSpec)
     (hNext : Γ.Has "full_arena_next" fullArenaNextSpec)
-    (hSort : Γ.Has "full_sort_reds" Spec.fullSortRedsSpec)
+    (hSort : Γ.Has "full_sort_reds" Spec.sortRedsSpec)
     (hLog10 : Γ.Has "f64u_log10_u64" Float64.Spec.f64uPure1Spec)
     (hDiv : Γ.Has "f64u_div" Float64.Spec.f64uPure2Spec)
     (hSub : Γ.Has "f64u_sub" Float64.Spec.f64uPure2Spec)
@@ -898,11 +912,36 @@ public theorem full_reduce_m6_wp (Γ : Env)
     (hMul : Γ.Has "f64u_mul" Float64.Spec.f64uPure2Spec)
     (hToU : Γ.Has "f64u_to_u64" Float64.Spec.f64uPure1Spec)
     (hSweep : Γ.Has "full_arena_sweep" Collect.Spec.step13ArenaSweepSpec)
-    (hCmp : Γ.Has "full_compact" Compact.Spec.fullCompactSpec)
+    (hCmp : Γ.Has "full_compact" Compact.Spec.compactSpec)
     (hWm : Γ.Has "m6_hdr_set_watermark" (m6HdrW2aSpec [i64, i64] []))
     (hFid : Γ.Has "full_update_classify_fid" (m6HdrW2aSpec [] [])) :
-    ∀ a m Q X, Spec.fullReduceM6Spec a m Q X → Func.wp Γ full_reduce_m6_body a m Q X := by
-  rintro ⟨h, force, ⟨⟩⟩ m Q X ⟨c, F0, F_cur, ext0, s, R, rfl, hinv0, hm0, hQ⟩
+    ∀ a m Q X, Spec.reduceSpec a m Q X → Func.wp Γ full_reduce_m6_body a m Q X := by
+  rintro ⟨h, force, ⟨⟩⟩ m Q X hs
+  obtain ⟨c, ext0, s, ⟨F0, F_cur⟩, R, rfl, _hcfg0, _hext0, _hlen0, hinv0, hm0, hQ0⟩ :=
+    M6HdrCfgContract.elim hs
+  let hQ : ∀ r0 c0 ext0 s0 m0,
+      FullCfgCompat c c0 → FullM6HdrInv c0 F0 ext0 s0 →
+      (r0 = 0#64 ∨ r0 = 1#64 ∨ r0 = 20#64) →
+      s0.core.cur_vars ≤ s.core.cur_vars → s0.core.fuel.toNat ≤ s.core.fuel.toNat →
+      (r0 = 20#64 → F0.Unsat) → (r0 = 1#64 → s0.core.cur_level ≤ s.core.cur_level) →
+      (force = true →
+        c0 = c ∧ FullM6HdrInvW c F0 F_cur ext0 s0 ∧
+        s0.core.cur_level ≤ s.core.cur_level ∧ s0.core.cur_vars = s.core.cur_vars ∧
+        s0.core.tmp = s.core.tmp ∧ s0.core.tmp_len = s.core.tmp_len ∧
+        s0.core.probing = s.core.probing ∧ s0.core.min_clr_len = s.core.min_clr_len ∧
+        s0.scratch.work_stk1 = s.scratch.work_stk1 ∧
+        s0.scratch.work_stk2 = s.scratch.work_stk2 ∧
+        (r0 = 1#64 → s.core.oom = 0#64 → s0.core.oom = 0#64) ∧
+        (0 < s0.core.cur_level →
+          s0.core.cur_level = s.core.cur_level ∧ s0.core.vals = s.core.vals ∧
+          s0.core.lvl = s.core.lvl ∧ s0.core.trl = s.core.trl ∧
+          s0.core.trail_pos = s.core.trail_pos ∧ s0.core.trail_end = s.core.trail_end)) →
+      (FullM6HdrMem c0 ext0 s0 ⋆ R) m0 → Q (r0, ()) m0 := by
+    intro r0 c0 ext0 s0 m0 hcmp hinv hr hcv hfu h20 h1 hf hm
+    refine hQ0 (r0, ()) c0 ext0 s0 m0 hcmp hinv.cfgOk hinv.extOk trivial hinv.sparse.lengths
+      ⟨hinv, hr, hcv, hfu, h20, h1, fun hft => ?_⟩ hm
+    obtain ⟨rfl, hinvW, hcl, hcv', htmp, htl, hprb, hmcl, hws1, hws2, hoom, hpos⟩ := hf hft
+    exact ⟨rfl, ⟨hinvW, hcl, hcv', htmp, htl, hprb, hmcl, hws1, hws2, hoom, hpos⟩⟩
   unfold Func.wp full_reduce_m6_body
   dsimp only
   have hst0 := redSt_refl hinv0 hm0

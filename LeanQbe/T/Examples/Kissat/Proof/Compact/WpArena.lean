@@ -10,6 +10,7 @@ public import LeanQbe.T.Examples.Kissat.Proof.Watch.Spec
 public import LeanQbe.T.Examples.Kissat.Src.Compact
 public import LeanQbe.T.Logic.CanonicalEnv
 import LeanQbe.T.Examples.Kissat.Proof.Compact.Inv
+import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
 import LeanQbe.T.Examples.Kissat.Proof.Spec.Arena1
 import LeanQbe.T.Examples.Kissat.Proof.Spec.Contracts1
 import LeanQbe.T.Examples.Kissat.Proof.Spec.MemBridges
@@ -1060,15 +1061,30 @@ private theorem full_compact_arena_inner {Γ : Env} {Q : Post [i64]} {X : XPost}
 
 public section
 
-/-- Canonical WP proof for `full_compact_arena` (`Proof.Compact.Spec.fullCompactArenaSpec`). -/
+/-- Canonical WP proof for `full_compact_arena` (`Proof.Compact.Spec.compactArenaSpec`). -/
 theorem full_compact_arena_wp (Γ : Env)
     (hnext : Γ.Has "full_arena_next" fullArenaNextSpec)
     (hpush : Γ.Has "full_watch_push" fullWatchPushSpec) :
-    ∀ a m Q X, fullCompactArenaSpec a m Q X →
+    ∀ a m Q X, compactArenaSpec a m Q X →
       Func.wp Γ full_compact_arena_body a m Q X := by
-  rintro ⟨h, old_cv, ⟨⟩⟩ m Q X
-    ⟨c, F0, F_cur, ncv, s, R, rfl, hlen, hext_s, har_inv, hnd, hdm, hcl0, hold, hncv_le,
-     hbij, hdom, hfent, hbin0, hm, hQ⟩
+  rintro ⟨h, old_cv, ⟨⟩⟩ m Q X hs
+  obtain ⟨c, s, ⟨F0, F_cur, ncv⟩, R, rfl, hlen,
+    ⟨hext_s, har_inv, hnd, hdm, hcl0, hold, hncv_le, hbij, hdom, hfent, hbin0⟩, hm, hQ0⟩ :=
+    FullContract.elim hs
+  let hQ : ∀ ast ar' al' fred' ni' nr' wvec' wstk' wlen' wu' nb' oom' ll' ws' m',
+      let s' : FullState :=
+        { core := { s.core with arena := ar', arena_len := al', arena_garbage := 0#64,
+                                first_reducible := fred', num_irred := ni', num_redundant := nr',
+                                wvec := wvec', wstk := wstk', wlen := wlen', wusable := wu',
+                                num_binary := nb', oom := oom' }
+          scratch := { s.scratch with last_learned := ll', wsort := ws' } }
+      s'.LengthsOk c → (ast = 0#64 ∨ ast = 2#64 ∨ ast = 3#64) → (ast = 2#64 → F0.Unsat) →
+      (ast = 3#64 → oom' = 1#64) → CompactUnmapBinsOk ncv s.scratch.work_stk2 F_cur s'.core →
+      CompactArenaOk ncv s.scratch.work_stk2 F_cur s'.core → FullLastLearnedWf s' →
+      (FullMem c s' ⋆ R) m' → Q (ast, ()) m' :=
+    fun ast ar' al' fred' ni' nr' wvec' wstk' wlen' wu' nb' oom' ll' ws' m'
+      hlen' hret h2 h3 hbin' har' hll' hm' =>
+      hQ0 (ast, ()) _ m' hlen' ⟨rfl, rfl, hret, h2, h3, hbin', har', hll'⟩ hm'
   have hck0 := hlen.core_ok
   have hcv_le := hck0.cur_vars_le
   have har_len := hck0.arena_len_arr
@@ -1157,7 +1173,7 @@ theorem full_compact_arena_wp (Γ : Env)
         have hckF : FullState.LengthsOk c sF :=
           ⟨{ hckE with arena_len_le := by change dst.toNat ≤ c.arena_cap; omega },
            { hlen.scratch_ok with last_learned_len := hllL, wsort_len := hwsE_len }⟩
-        have harF : CompactArenaOk c ncv inv F_cur sF.core :=
+        have harF : CompactArenaOk ncv inv F_cur sF.core :=
           compactArenaPrefix_to_ok (k := sF.core) hpreE hckE.arena_len_arr
         have hbinF : CompactUnmapBinsOk ncv inv F_cur sF.core :=
           ⟨⟨fun l hl => hbinE.layout.bounds l hl,

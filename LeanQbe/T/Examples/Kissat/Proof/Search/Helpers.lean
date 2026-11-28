@@ -362,10 +362,11 @@ theorem search_call_compact_needed {Γ : Env} {ret : List Ty}
     {c : FullCfg} {F0 : CNF Nat} {ext : List (BitVec 64)} {s : FullState}
     {R : Mem 64 → Prop} {m : Mem 64} {Q : Post ret} {X : XPost}
     (hargs : vals args = (c.hdr, ()))
-    (hfn : ∀ a m Q X, Compact.Spec.fullCompactNeededSpec a m Q X →
+    (hfn : ∀ a m Q X, Compact.Spec.compactNeededSpec a m Q X →
       Γ "full_compact_needed" [i64] [.bool] a m Q X)
     (hinv : FullM6HdrInv c F0 ext s) (hm : (FullM6HdrMem c ext s ⋆ R) m)
-    (hk : ∀ res : Bool, wp Γ Q X (k (res, ())) m) :
+    (hk : ∀ (res : Bool) (m' : Mem 64),
+      (FullM6HdrMem c ext s ⋆ R) m' → wp Γ Q X (k (res, ())) m') :
     wp Γ Q X (Expr.call "full_compact_needed" args k) m := by
   refine wp_m6Hdr_focus_frame hm fun hmf => ?_
   refine wp_call_of_spec args k (hargs ▸ hfn _ m (fun rs m' => wp Γ Q X (k rs) m') X ?_)
@@ -378,15 +379,17 @@ theorem search_call_compact_needed {Γ : Env} {ret : List Ty}
     have := hw.cur_level_le
     have := hinv.sparse.lengths.core_ok.trail_end_le
     omega
-  exact ⟨c, s, m6ExtMem (m6ExtAddr c.hdr) ext ⋆ R, rfl, hinv.sparse.lengths, hcl_lt, hmf,
-    fun res _ => hk res⟩
+  dsimp only [Compact.Spec.compactNeededSpec]
+  refine FullContract.intro (w := ()) hinv.sparse.lengths hcl_lt hmf ?_
+  rintro ⟨res, ⟨⟩⟩ s' m' _ ⟨rfl, _⟩ hm'
+  exact hk res m' (fullM6HdrMem_unfocus_full hm')
 
 theorem search_call_compact {Γ : Env} {ret : List Ty}
     {args : Tup (Arg Val) [i64]} {k : Tup Val [i64] → Expr Val Cont ret}
     {c : FullCfg} {F0 : CNF Nat} {ext : List (BitVec 64)} {s : FullState}
     {R : Mem 64 → Prop} {m : Mem 64} {Q : Post ret} {X : XPost}
     (hargs : vals args = (c.hdr, ()))
-    (hfn : ∀ a m Q X, Compact.Spec.fullCompactSpec a m Q X →
+    (hfn : ∀ a m Q X, Compact.Spec.compactSpec a m Q X →
       Γ "full_compact" [i64] [i64] a m Q X)
     (hinv : FullM6HdrInv c F0 ext s) (hm : (FullM6HdrMem c ext s ⋆ R) m)
     (hk : ∀ r c' ext' s' m',
@@ -398,7 +401,10 @@ theorem search_call_compact {Γ : Env} {ret : List Ty}
       (FullM6HdrMem c' ext' s' ⋆ R) m' → wp Γ Q X (k (r, ())) m') :
     wp Γ Q X (Expr.call "full_compact" args k) m := by
   refine wp_call_of_spec args k (hargs ▸ hfn _ m (fun rs m' => wp Γ Q X (k rs) m') X ?_)
-  exact ⟨c, F0, ext, s, R, rfl, hinv, hm, hk⟩
+  dsimp only [Compact.Spec.compactSpec]
+  refine M6HdrCfgContract.intro (w := F0) hinv.cfgOk hinv.extOk hinv.sparse.lengths hinv hm ?_
+  rintro ⟨r, ⟨⟩⟩ c' ext' s' m' hc _ _ _ _ ⟨hinv', hr, hcv, hfl, h20, h1⟩ hm'
+  exact hk r c' ext' s' m' hc hinv' hr hcv hfl h20 h1 hm'
 
 theorem search_call_scale_delta {Γ : Env} {ret : List Ty}
     {args : Tup (Arg Val) [i64, i64]} {k : Tup Val [i64] → Expr Val Cont ret}
@@ -560,7 +566,7 @@ theorem search_call_reduce {Γ : Env} {ret : List Ty}
     {c : FullCfg} {F0 : CNF Nat} {ext : List (BitVec 64)} {s : FullState}
     {R : Mem 64 → Prop} {m : Mem 64} {Q : Post ret} {X : XPost}
     (hargs : vals args = (c.hdr, false, ()))
-    (hfn : ∀ a m Q X, Reduce.Spec.fullReduceM6Spec a m Q X →
+    (hfn : ∀ a m Q X, Reduce.Spec.reduceSpec a m Q X →
       Γ "full_reduce_m6" [i64, .bool] [i64] a m Q X)
     (hinv : FullM6HdrInv c F0 ext s) (hm : (FullM6HdrMem c ext s ⋆ R) m)
     (hk : ∀ r c' ext' s' m',
@@ -577,9 +583,11 @@ theorem search_call_reduce {Γ : Env} {ret : List Ty}
       ⟨hinv.sparse.lengths, hw, hinv.sparse.2.1, hinv.sparse.2.2.1,
        hinv.sparse.2.2.2.1, hinv.sparse.2.2.2.2⟩
   refine wp_call_of_spec args k (hargs ▸ hfn _ m (fun rs m' => wp Γ Q X (k rs) m') X ?_)
-  exact ⟨c, F0, F_cur, ext, s, R, rfl, hinvW, hm,
-    fun r c' ext' s' m' hc hinv' hr hcv hfl h20 h1 _ hm' =>
-      hk r c' ext' s' m' hc hinv' hr hcv hfl h20 h1 hm'⟩
+  dsimp only [Reduce.Spec.reduceSpec]
+  refine M6HdrCfgContract.intro (w := (F0, F_cur))
+    hinv.cfgOk hinv.extOk hinv.sparse.lengths hinvW hm ?_
+  rintro ⟨r, ⟨⟩⟩ c' ext' s' m' hc _ _ _ _ ⟨hinv', hr, hcv, hfl, h20, h1, _⟩ hm'
+  exact hk r c' ext' s' m' hc hinv' hr hcv hfl h20 h1 hm'
 
 theorem search_call_switch_mode {Γ : Env} {ret : List Ty}
     {args : Tup (Arg Val) [i64]} {k : Tup Val [] → Expr Val Cont ret}
@@ -1274,20 +1282,23 @@ theorem deps_has_rephase {Γ : Env} (h : Γ.Sat searchDeps) :
     (by unfold Walk.Spec.rephaseSpec; exact M6HdrContract.toSpec_xfree _)
 
 theorem deps_has_compact_needed {Γ : Env} (h : Γ.Sat searchDeps) :
-    Γ.Has "full_compact_needed" Compact.Spec.fullCompactNeededSpec :=
-  Compact.Spec.has_full_compact_needed (sat_deps_compact h)
+    Γ.Has "full_compact_needed" Compact.Spec.compactNeededSpec :=
+  Lib.SpecTable.has_at (sat_deps_compact h) 0 rfl
+    (by unfold Compact.Spec.compactNeededSpec; exact FullContract.toSpec_xfree _)
 
 theorem deps_has_compact {Γ : Env} (h : Γ.Sat searchDeps) :
-    Γ.Has "full_compact" Compact.Spec.fullCompactSpec :=
-  Compact.Spec.has_full_compact (sat_deps_compact h)
+    Γ.Has "full_compact" Compact.Spec.compactSpec :=
+  Lib.SpecTable.has_at (sat_deps_compact h) 12 rfl
+    (by unfold Compact.Spec.compactSpec; exact M6HdrCfgContract.toSpec_xfree _)
 
 theorem deps_has_backtrack {Γ : Env} (h : Γ.Sat searchDeps) :
     Γ.Has "full_backtrack" fullBacktrackSpec :=
   Backtrack.Spec.has_full_backtrack (sat_deps_backtrack h)
 
 theorem deps_has_reduce {Γ : Env} (h : Γ.Sat searchDeps) :
-    Γ.Has "full_reduce_m6" Reduce.Spec.fullReduceM6Spec :=
-  Reduce.Spec.has_full_reduce_m6 (sat_deps_reduce h)
+    Γ.Has "full_reduce_m6" Reduce.Spec.reduceSpec :=
+  Lib.SpecTable.has_at (sat_deps_reduce h) 3 rfl
+    (by unfold Reduce.Spec.reduceSpec; exact M6HdrCfgContract.toSpec_xfree _)
 
 theorem deps_has_analyze {Γ : Env} (h : Γ.Sat searchDeps) :
     Γ.Has "full_analyze_m6_hdr" m6HdrAnalyzeSpec := by

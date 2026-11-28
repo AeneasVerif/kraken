@@ -11,6 +11,7 @@ public import LeanQbe.T.Examples.Kissat.Proof.Arena.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Backtrack.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Collect.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.PropSearch.Spec
+import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
 import LeanQbe.T.Examples.Kissat.Proof.Spec.Tactics
 import LeanQbe.T.Logic.C0Step
 import LeanQbe.T.Logic.C0HeadStep
@@ -353,16 +354,22 @@ private theorem purge_unflushed_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
           exact hJB () m ⟨s, hst0, hcl0, id⟩)
   · exact hJs () m ⟨ext0, s, hst0, id⟩
 
-/-- `full_reduce_purge_c0` satisfies `Spec.fullReducePurgeC0Spec`. -/
+/-- `full_reduce_purge_c0` satisfies `Spec.reducePurgeSpec`. -/
 public theorem full_reduce_purge_c0_wp (Γ : Env)
     (hBt : Γ.Has "full_backtrack" fullBacktrackSpec)
     (hProp : Γ.Has "full_propagate" PropSearch.Spec.propagateM6Spec)
     (hMark : Γ.Has "full_mark_reasons" fullMarkReasonsSpec)
     (hSweep : Γ.Has "full_arena_sweep" Collect.Spec.step13ArenaSweepSpec)
     (hNext : Γ.Has "full_arena_next" fullArenaNextSpec) :
-    ∀ a m Q X, Spec.fullReducePurgeC0Spec a m Q X →
+    ∀ a m Q X, Spec.reducePurgeSpec a m Q X →
       Func.wp Γ full_reduce_purge_c0_body a m Q X := by
-  rintro ⟨h, ⟨⟩⟩ m Q X ⟨c, F0, F_cur, ext0, s, R, rfl, hinv0, hm0, hQ⟩
+  rintro ⟨h, ⟨⟩⟩ m Q X hs
+  obtain ⟨c, ext0, s, ⟨F0, F_cur⟩, R, rfl, _hcfg0, _hext0, _hlen0, hinv0, hm0, hQ0⟩ :=
+    M6HdrContract.elim hs
+  let hQ : PurgePost c F0 F_cur s R Q :=
+    fun r ext' s' m' hinv' hr hcl hfu hcv htmp htl hprb hmcl hws1 hws2 hu hoom hpos hm' =>
+      hQ0 (r, ()) ext' s' m' hinv'.toInv.2.1 trivial hinv'.toInv.2.2.1.lengths
+        ⟨hr, hfu, hu, ⟨hinv', hcl, hcv, htmp, htl, hprb, hmcl, hws1, hws2, hoom, hpos⟩⟩ hm'
   unfold Func.wp full_reduce_purge_c0_body
   dsimp only
   refine wp_join_group (fun _ m1 => ∃ ext1 s1,

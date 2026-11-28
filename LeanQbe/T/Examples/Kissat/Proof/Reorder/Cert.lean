@@ -58,13 +58,31 @@ private theorem has_f64u_mul {Γ : Env} (h : Γ.Sat deps) :
     Γ.Has "f64u_mul" Float64.Spec.f64uPure2Spec :=
   SpecTable.has_at h.left.left.left 4 rfl Float64.Spec.f64uPure2Spec_xfree
 
+private theorem has_full_rescale {Γ : Env} (h : Γ.Sat Bump.Spec.specs) :
+    Γ.Has "full_rescale" fullRescaleSpec := by
+  have hNew : Γ.Has "full_rescale" Bump.Spec.rescaleSpec :=
+    SpecTable.has_at h 1 rfl (by unfold Bump.Spec.rescaleSpec; exact FullContract.toSpec_xfree _)
+  rintro ⟨h0, ⟨⟩⟩ m Q X ⟨c, s, R, rfl, hlen, hm, hQ⟩
+  refine hNew (c.hdr, ()) m Q X (FullContract.intro (w := ()) hlen trivial hm ?_)
+  rintro ⟨⟩ s' m' hlen' ⟨hcore, hmod⟩ hm'
+  exact hQ () s' m' hcore hlen'
+    ⟨⟨ScratchModifies.get_of_not_mem hmod (f := .last_learned) (by decide),
+      ScratchModifies.get_of_not_mem hmod (f := .extend_len) (by decide)⟩,
+     ScratchModifies.get_of_not_mem hmod (f := .work_stk1) (by decide),
+     ScratchModifies.get_of_not_mem hmod (f := .work_stk2) (by decide),
+     ScratchModifies.get_of_not_mem hmod (f := .tarjan_mark) (by decide),
+     ScratchModifies.get_of_not_mem hmod (f := .scratch_buf) (by decide),
+     ScratchModifies.get_of_not_mem hmod (f := .ant_sz) (by decide),
+     ScratchModifies.get_of_not_mem hmod (f := .res_sz) (by decide),
+     ScratchModifies.get_of_not_mem hmod (f := .sim_sig) (by decide)⟩ hm'
+
 /-- Canonical segment certificate for `LeanQbe.T.Examples.Kissat.Src.Reorder.fns`. -/
 theorem cert : SegCert deps Src.Reorder.fns Spec.specs := by
   intro Γ hdeps hrows
   have hAdd := has_f64u_add hdeps
   have hMul := has_f64u_mul hdeps
   have hArenaNext := Arena.Spec.has_full_arena_next hdeps.left.left.right
-  have hRescale := Bump.Spec.has_full_rescale hdeps.left.right
+  have hRescale := has_full_rescale hdeps.left.right
   have hHeapUp := Heap.Spec.has_full_heap_up hdeps.right
   have hSift := SpecTable.has_at hrows 0 rfl siftSpec_xfree
   have hQueue := SpecTable.has_at hrows 1 rfl queueSpec_xfree

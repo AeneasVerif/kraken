@@ -8,6 +8,7 @@ public import LeanQbe.T.Examples.Kissat.Proof.Compact.Spec
 public import LeanQbe.T.Examples.Kissat.Src.Compact
 public import LeanQbe.T.Logic.CanonicalEnv
 import LeanQbe.T.Examples.Kissat.Proof.Compact.Inv
+import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
 import LeanQbe.T.Examples.Kissat.Proof.Spec.Arena1
 import LeanQbe.T.Examples.Kissat.Proof.Spec.MemBridges
 import LeanQbe.T.Examples.Kissat.Proof.Spec.Tactics
@@ -914,8 +915,18 @@ public section
 
 /-- Canonical WP proof for `full_compact_bins`. -/
 theorem full_compact_bins_wp (Γ : Env) :
-    ∀ a m Q X, fullCompactBinsSpec a m Q X → Func.wp Γ full_compact_bins_body a m Q X := by
-  rintro ⟨h, old_cv, ncv, ⟨⟩⟩ m Q X ⟨c, F0, F_cur, s, R, rfl, hsp, hold, hncv_le, hbij, hm, hQ⟩
+    ∀ a m Q X, compactBinsSpec a m Q X → Func.wp Γ full_compact_bins_body a m Q X := by
+  rintro ⟨h, old_cv, ncv, ⟨⟩⟩ m Q X hs
+  obtain ⟨c, s, ⟨F0, F_cur⟩, R, rfl, _, ⟨hsp, hold, hncv_le, hbij⟩, hm, hQ0⟩ :=
+    FullContract.elim hs
+  let hQ : ∀ wvec' wstk' wu' nb' m',
+      let s' : FullState :=
+        { s with core := { s.core with wvec := wvec', wstk := wstk',
+                                         wusable := wu', num_binary := nb' } }
+      s'.LengthsOk c → CompactUnmapBinsOk ncv.toNat s.scratch.work_stk2 F_cur s'.core →
+      (FullMem c s' ⋆ R) m' → Q () m' :=
+    fun wvec' wstk' wu' nb' m' hlen' hbin' hm' =>
+      hQ0 () _ m' hlen' ⟨rfl, hbin'⟩ hm'
   have hlen := hsp.1
   have hw := hsp.2.1
   have hdm := hsp.2.2.2.2.2

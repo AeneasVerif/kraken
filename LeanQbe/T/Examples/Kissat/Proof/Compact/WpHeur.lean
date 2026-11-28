@@ -8,6 +8,7 @@ public import LeanQbe.T.Examples.Kissat.Proof.Compact.Spec
 public import LeanQbe.T.Examples.Kissat.Src.Compact
 public import LeanQbe.T.Logic.CanonicalEnv
 import LeanQbe.T.Examples.Kissat.Proof.Compact.Inv
+import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
 import LeanQbe.T.Examples.Kissat.Proof.Spec.Arena1
 import LeanQbe.T.Examples.Kissat.Proof.Spec.MemBridges
 import LeanQbe.T.Examples.Kissat.Proof.Spec.Tactics
@@ -134,10 +135,10 @@ public section
 
 /-- Canonical WP proof for `full_compact_sift_q`. -/
 theorem full_compact_sift_q_wp (Γ : Env) :
-    ∀ a m Q X, fullCompactSiftQSpec a m Q X →
+    ∀ a m Q X, compactSiftQSpec a m Q X →
       Func.wp Γ full_compact_sift_q_body a m Q X := by
-  rintro ⟨qs_ptr, ws_ptr, start, n, ⟨⟩⟩ m Q X
-    ⟨qs, ws, R, hst_lt, hn_le, hn_bd, hq_lt, hm, hQ⟩
+  rintro ⟨qs_ptr, ws_ptr, start, n, ⟨⟩⟩ m Q X hs
+  obtain ⟨⟨qs, ws⟩, R, ⟨hst_lt, hn_le, hn_bd, hq_lt⟩, hm, hQ⟩ := FnContract.elim hs
   have hst_ws : start.toNat < ws.length := by omega
   unfold Func.wp full_compact_sift_q_body
   c0_hsteps_nogrp
@@ -150,7 +151,7 @@ theorem full_compact_sift_q_wp (Γ : Env) :
         (array (t := i32) qs_ptr qs ⋆ array (t := i32) ws_ptr ws_e ⋆ R) m_end)
     (fun _ ⟨_root_end, ⟨⟩⟩ m_end ⟨_hr_lt_e, ws_e, hlen_e, hhi_e, hlo_e, hm_e⟩ => by
       c0_hsteps
-      exact hQ ws_e m_end hlen_e hhi_e hlo_e hm_e)
+      exact hQ () ws_e m_end ⟨hlen_e, hhi_e, hlo_e⟩ hm_e)
     (fun Jbrk hJbrk => by
       refine wp_loop_inv
         (fun (root, ()) mL =>
@@ -254,10 +255,17 @@ theorem full_compact_sift_q_wp (Γ : Env) :
 
 /-- Canonical WP proof for `full_compact_vmtf`. -/
 theorem full_compact_vmtf_wp (Γ : Env)
-    (hsift : Γ.Has "full_compact_sift_q" fullCompactSiftQSpec) :
-    ∀ a m Q X, fullCompactVmtfSpec a m Q X →
+    (hsift : Γ.Has "full_compact_sift_q" compactSiftQSpec) :
+    ∀ a m Q X, compactHeurSpec a m Q X →
       Func.wp Γ full_compact_vmtf_body a m Q X := by
-  rintro ⟨h, ncv, ⟨⟩⟩ m Q X ⟨c, s, R, rfl, hlen, hncv_le, hm, hQ⟩
+  rintro ⟨h, ncv, ⟨⟩⟩ m Q X hs
+  obtain ⟨c, s, ⟨⟩, R, rfl, hlen, hncv_le, hm, hQ0⟩ := FullContract.elim hs
+  let hQ : ∀ sc' m',
+      let s' : FullState := { s with scratch := sc' }
+      s'.LengthsOk c → FullExtScratchPres s s' → sc'.work_stk1 = s.scratch.work_stk1 →
+      sc'.work_stk2 = s.scratch.work_stk2 → (FullMem c s' ⋆ R) m' → Q () m' :=
+    fun sc' m' hlen' hpres' hws1' hws2' hm' =>
+      hQ0 () { s with scratch := sc' } m' hlen' ⟨rfl, hpres', hws1', hws2'⟩ hm'
   have hcv_le := hlen.core_ok.cur_vars_le
   have hmax_lt : c.max_vars < 2 * 2 ^ 28 := c.hmaxv
   have hncv_lt64 : ncv.toNat < 2 ^ 64 := by omega
@@ -442,11 +450,11 @@ theorem full_compact_vmtf_wp (Γ : Env)
                   have hst1_dec : (st - (1 : BitVec 64)).toNat < st.toNat := by bv_omega
                   c0_hsteps_nogrp; cmp_call hsift
                   have hncv_le_wsA : ncv.toNat ≤ wsA.length := hlenA.symm ▸ hncv_le_2m
-                  refine ⟨s.scratch.q_stamp, wsA, CompactVmtfRest c s ⋆ R,
-                    hst1_lt, hncv_le_wsA, hncv_lt62, ?_,
-                    focus_vmtf_arrays
-                      (s := { s with scratch := { s.scratch with wsort := wsA } }) hmA,
-                    fun wsA' mA' hlenA' hhiA' hloA' hmA' => ?_⟩
+                  refine FnContract.intro (s.scratch.q_stamp, wsA) (CompactVmtfRest c s ⋆ R)
+                    ⟨hst1_lt, hncv_le_wsA, hncv_lt62, ?_⟩
+                    (focus_vmtf_arrays
+                      (s := { s with scratch := { s.scratch with wsort := wsA } }) hmA)
+                    (fun _ wsA' mA' ⟨hlenA', hhiA', hloA'⟩ hmA' => ?_)
                   · intro k hk
                     obtain ⟨j, hj, hj_eq⟩ := hpermA k hk
                     rw [hj_eq, Option.getD_some, bv32_ofNat_toNat (by omega)]
@@ -504,12 +512,12 @@ theorem full_compact_vmtf_wp (Γ : Env)
                       have hed_le_wsB1 : ed.toNat ≤ wsB1.length :=
                         Nat.le_of_lt (hwsB1_len.symm ▸ Nat.lt_of_lt_of_le hed_lt hncv_le_2m)
                       have hed_lt62 : ed.toNat < 2 ^ 62 := Nat.lt_trans hed_lt hncv_lt62
-                      refine ⟨s.scratch.q_stamp, wsB1, CompactVmtfRest c s ⋆ R,
-                        hed_pos, hed_le_wsB1, hed_lt62, ?_,
-                        focus_vmtf_arrays
+                      refine FnContract.intro (s.scratch.q_stamp, wsB1) (CompactVmtfRest c s ⋆ R)
+                        ⟨hed_pos, hed_le_wsB1, hed_lt62, ?_⟩
+                        (focus_vmtf_arrays
                           (s := { s with scratch := { s.scratch with wsort := wsB1 } })
-                          (by assumption),
-                        fun wsB' mB' hlenB' hhiB' hloB' hmB' => ?_⟩
+                          (by assumption))
+                        (fun _ wsB' mB' ⟨hlenB', hhiB', hloB'⟩ hmB' => ?_)
                       · intro k hk
                         obtain ⟨j, hj, hj_eq⟩ := hwsB1_perm k (Nat.lt_trans hk hed_lt)
                         rw [hj_eq, Option.getD_some, bv32_ofNat_toNat (by omega)]
@@ -534,16 +542,18 @@ theorem full_compact_vmtf_wp (Γ : Env)
 
 /-- Canonical WP proof for `full_compact_sift_h`. -/
 theorem full_compact_sift_h_wp (Γ : Env) :
-    ∀ a m Q X, fullCompactSiftHSpec a m Q X →
+    ∀ a m Q X, compactSiftHSpec a m Q X →
       Func.wp Γ full_compact_sift_h_body a m Q X := by
-  rintro ⟨sc_ptr, hp_ptr, ps_ptr, start, n, ⟨⟩⟩ m Q X
-    ⟨sc, hp, ps, R, hst_lt, hn_hp, hn_ps, hn_bd, hsc_lt, hm, hQ⟩
+  rintro ⟨sc_ptr, hp_ptr, ps_ptr, start, n, ⟨⟩⟩ m Q X hs
+  obtain ⟨⟨sc, hp, ps⟩, R, ⟨hst_lt, hn_hp, hn_ps, hn_bd, hsc_lt⟩, hm, hQ⟩ := FnContract.elim hs
+  dsimp only at hst_lt hn_hp hn_ps hn_bd hsc_lt hm
   have hst_hp : start.toNat < hp.length := by omega
   have hrvs_sc : (hp[start.toNat]'hst_hp).toNat < sc.length := by
     simpa [List.getElem?_eq_getElem hst_hp] using (hsc_lt start.toNat hst_lt).1
   have hrvs_ps : (hp[start.toNat]'hst_hp).toNat < ps.length := by
     simpa [List.getElem?_eq_getElem hst_hp] using (hsc_lt start.toNat hst_lt).2
   unfold Func.wp full_compact_sift_h_body
+  dsimp only
   c0_hsteps_nogrp
   refine wp_join_group (ts := [i64])
     (fun (root_end, ()) m_end =>
@@ -552,22 +562,29 @@ theorem full_compact_sift_h_wp (Γ : Env) :
         (∀ k, n.toNat ≤ k → hp_e[k]? = hp[k]?) ∧
         (∀ k, k < n.toNat → ∃ j, j < n.toNat ∧ hp_e[k]? = hp[j]?) ∧
         (array64 sc_ptr sc ⋆ array (t := i32) hp_ptr hp_e ⋆ array (t := i32) ps_ptr ps_e ⋆ R) m_end)
-    (fun _ ⟨root_end, ⟨⟩⟩ m_end
-        ⟨hr_lt_e, hp_e, ps_e, hlen_hp_e, hlen_ps_e, hhi_e, hlo_e, hm_e⟩ => by
-      have hr_hp : root_end.toNat < hp_e.length := by omega
-      have hrv_ps_e : (hp[start.toNat]'hst_hp).toNat < ps_e.length := by
-        rw [hlen_ps_e]; exact hrvs_ps
-      c0_hsteps
-      have hrv_mem : ∃ j, j < n.toNat ∧ some (hp[start.toNat]'hst_hp) = hp[j]? :=
-        ⟨start.toNat, hst_lt, (List.getElem?_eq_getElem hst_hp).symm⟩
-      obtain ⟨hlen', hhi', hlo'⟩ :=
-        bv32_set_lo_pres hr_lt_e (by omega) hrv_mem hlen_hp_e hhi_e hlo_e
-      exact hQ (hp_e.set root_end.toNat (hp[start.toNat]'hst_hp))
-        (ps_e.set (hp[start.toNat]'hst_hp).toNat (root_end.setWidth 32)) _
-        hlen' (by rw [List.length_set, hlen_ps_e]) hhi' hlo'
-        (by rw [zext_toNat _ (by decide), Std.ExtHashMap.sep_emp] at *; exact sep_ac ‹_›))
-    (fun Jbrk hJbrk => by
-      refine wp_loop_inv
+    ?_ ?_
+  · rintro _ ⟨root_end, ⟨⟩⟩ m_end
+        ⟨hr_lt_e, hp_e, ps_e, hlen_hp_e, hlen_ps_e, hhi_e, hlo_e, hm_e⟩
+    have hr_hp : root_end.toNat < hp_e.length := by omega
+    have hrv_ps_e : (hp[start.toNat]'hst_hp).toNat < ps_e.length := by
+      rw [hlen_ps_e]; exact hrvs_ps
+    c0_hsteps
+    try clear hm_e
+    have hrv_mem : ∃ j, j < n.toNat ∧ some (hp[start.toNat]'hst_hp) = hp[j]? :=
+      ⟨start.toNat, hst_lt, (List.getElem?_eq_getElem hst_hp).symm⟩
+    obtain ⟨hlen', hhi', hlo'⟩ :=
+      bv32_set_lo_pres hr_lt_e (by omega) hrv_mem hlen_hp_e hhi_e hlo_e
+    refine hQ () (hp_e.set root_end.toNat (hp[start.toNat]'hst_hp),
+      ps_e.set (hp[start.toNat]'hst_hp).toNat (root_end.setWidth 32)) _
+      ⟨hlen', by rw [List.length_set, hlen_ps_e], hhi', hlo'⟩ ?_
+    dsimp only [compactSiftHSpec]
+    have hsw (x : BitVec 32) : (BitVec.setWidth 64 x).toNat = x.toNat := by
+      simp [BitVec.toNat_setWidth, Nat.mod_eq_of_lt (Nat.lt_trans x.isLt
+        (by decide : 2 ^ 32 < 2 ^ 64))]
+    try simp only [hsw] at *
+    exact sep_ac (by assumption)
+  · intro Jbrk hJbrk
+    refine wp_loop_inv (ts := [i64])
         (fun (root, ()) mL =>
           root.toNat < n.toNat ∧
           ∃ hpL psL : List (BitVec 32), hpL.length = hp.length ∧ psL.length = ps.length ∧
@@ -576,9 +593,10 @@ theorem full_compact_sift_h_wp (Γ : Env) :
             (array64 sc_ptr sc ⋆ array (t := i32) hp_ptr hpL ⋆ array (t := i32) ps_ptr psL ⋆ R) mL)
         (fun (root, ()) _ => n.toNat - root.toNat)
         (fun J hLoop => ?_) ?_
-      · c0_hsteps; exact hLoop (start, ()) m ⟨hst_lt, hp, ps, rfl, rfl,
-          fun _ _ => rfl, fun k hk => ⟨k, hk, rfl⟩, hm⟩
-      · rintro J ⟨root, ⟨⟩⟩ mL ⟨hr_lt, hpL, psL, hlen_hpL, hlen_psL, hhiL, hloL, hmL⟩ hLoop
+    · c0_hsteps; exact hLoop (start, ()) m ⟨hst_lt, hp, ps, rfl, rfl,
+        fun _ _ => rfl, fun k hk => ⟨k, hk, rfl⟩, hm⟩
+    ·
+        rintro J ⟨root, ⟨⟩⟩ mL ⟨hr_lt, hpL, psL, hlen_hpL, hlen_psL, hhiL, hloL, hmL⟩ hLoop
         have hch_eq : ((root <<< (1 : Nat)) + (1 : BitVec 64)).toNat = 2 * root.toNat + 1 := by
           bv_omega
         c0_hsteps_nogrp <;> try exact absurd (by assumption : true = false) (by decide)
@@ -667,14 +685,21 @@ theorem full_compact_sift_h_wp (Γ : Env) :
               · c0_hsteps; exact hJc _ mL ⟨by rw [hch_eq]; exact hch_lt,
                   by rw [hch_eq]; omega,
                   by simp only [hch_eq, List.getElem?_eq_getElem hch_ws],
-                  by simpa only [hch_eq] using hcv_bd.2, rfl⟩))
+                  by simpa only [hch_eq] using hcv_bd.2, rfl⟩)
 
 /-- Canonical WP proof for `full_compact_heap`. -/
 theorem full_compact_heap_wp (Γ : Env)
-    (hsift : Γ.Has "full_compact_sift_h" fullCompactSiftHSpec) :
-    ∀ a m Q X, fullCompactHeapSpec a m Q X →
+    (hsift : Γ.Has "full_compact_sift_h" compactSiftHSpec) :
+    ∀ a m Q X, compactHeurSpec a m Q X →
       Func.wp Γ full_compact_heap_body a m Q X := by
-  rintro ⟨h, ncv, ⟨⟩⟩ m Q X ⟨c, s, R, rfl, hlen, hncv_le, hm, hQ⟩
+  rintro ⟨h, ncv, ⟨⟩⟩ m Q X hs
+  obtain ⟨c, s, ⟨⟩, R, rfl, hlen, hncv_le, hm, hQ0⟩ := FullContract.elim hs
+  let hQ : ∀ sc' m',
+      let s' : FullState := { s with scratch := sc' }
+      s'.LengthsOk c → FullExtScratchPres s s' → sc'.work_stk1 = s.scratch.work_stk1 →
+      sc'.work_stk2 = s.scratch.work_stk2 → (FullMem c s' ⋆ R) m' → Q () m' :=
+    fun sc' m' hlen' hpres' hws1' hws2' hm' =>
+      hQ0 () { s with scratch := sc' } m' hlen' ⟨rfl, hpres', hws1', hws2'⟩ hm'
   have hcv_le := hlen.core_ok.cur_vars_le
   have hmax_lt : c.max_vars < 2 * 2 ^ 28 := c.hmaxv
   have hncv_lt64 : ncv.toNat < 2 ^ 64 := by omega
@@ -760,10 +785,10 @@ theorem full_compact_heap_wp (Γ : Env)
                   { s with scratch := { s.scratch with
                       heap_len := ncv.toNat, heap := hp2, pos := ps2 } }
                 c0_hsteps_nogrp; cmp_call hsift
-                refine ⟨s.scratch.score, hp2, ps2, CompactHeapRest c s2 ⋆ R,
-                  hst1_lt, hncv_hp2, hncv_ps2, hncv_lt62, ?_,
-                  focus_heap_arrays (s := s2) hm2,
-                  fun hp2' ps2' m2' hhp2' hps2' hhi2' hlo2' hm2' => ?_⟩
+                refine FnContract.intro (s.scratch.score, hp2, ps2) (CompactHeapRest c s2 ⋆ R)
+                  ⟨hst1_lt, hncv_hp2, hncv_ps2, hncv_lt62, ?_⟩
+                  (focus_heap_arrays (s := s2) hm2)
+                  (fun _ (hp2', ps2') m2' ⟨hhp2', hps2', hhi2', hlo2'⟩ hm2' => ?_)
                 · intro k hk
                   obtain ⟨j, hj, hj_eq⟩ := hperm2 k hk
                   have hj_lt_max : j < c.max_vars := Nat.lt_of_lt_of_le hj hcv_max2

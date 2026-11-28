@@ -894,7 +894,7 @@ theorem compactArenaPrefix_to_ok {c : FullCfg} {ncv : Nat} {inv : List (BitVec 3
     {F_cur : List (List Nat)} {k : FullCoreState}
     (h : CompactArenaPrefix c ncv inv F_cur k.arena k.arena_len)
     (_hlen : k.arena.length = c.arena_cap) :
-    CompactArenaOk c ncv inv F_cur k := by
+    CompactArenaOk ncv inv F_cur k := by
   have hle := h.dst_le
   refine ⟨h.dst_ok, fun r hr => ?_, fun r hr => h.no_shrk r hr, fun r hr => h.no_garb r hr,
     fun r hr l hl => ?_, fun r hr => h.nodup r hr, fun r hr => h.entails r hr⟩
@@ -911,10 +911,10 @@ theorem compactArenaPrefix_to_ok {c : FullCfg} {ncv : Nat} {inv : List (BitVec 3
     rw [List.getElem?_eq_getElem hj_lt, Option.getD_some] at hlt
     exact hlt
 
-theorem Spec.CompactArenaOk.with_core {c c' : FullCfg} {ncv : Nat} {inv : List (BitVec 32)}
+theorem Spec.CompactArenaOk.with_core {ncv : Nat} {inv : List (BitVec 32)}
     {F_cur : List (List Nat)} {k k' : FullCoreState}
-    (h : CompactArenaOk c ncv inv F_cur k) (har : k'.arena = k.arena)
-    (hal : k'.arena_len = k.arena_len) : CompactArenaOk c' ncv inv F_cur k' := by
+    (h : CompactArenaOk ncv inv F_cur k) (har : k'.arena = k.arena)
+    (hal : k'.arena_len = k.arena_len) : CompactArenaOk ncv inv F_cur k' := by
   have href : fullArenaClauseRefsCore k' = fullArenaClauseRefsCore k := by
     simp only [fullArenaClauseRefsCore, har, hal]
   refine ⟨hal ▸ h.len_ok, ?_, ?_, ?_, ?_, ?_, ?_⟩
@@ -1007,7 +1007,7 @@ private theorem compactUnmapBinSliceOk_to_watch {ncv : Nat} {inv : List (BitVec 
 
 private theorem compactArena_to_fullArena {c : FullCfg} {ncv : Nat} {inv : List (BitVec 32)}
     {F_cur F' : List (List Nat)} {k : FullCoreState}
-    (har : CompactArenaOk c ncv inv F_cur k) (hcv : k.cur_vars = ncv)
+    (har : CompactArenaOk ncv inv F_cur k) (hcv : k.cur_vars = ncv)
     (hent : ∀ r ∈ fullArenaClauseRefsCore k,
       (cnfOfClauses F').EntailsClause (cnfClause (fullArenaClauseLitsCore k r))) :
     FullArenaClausesInv c F' k := by
@@ -1022,7 +1022,7 @@ all `vals = 0#8`). -/
 theorem fullWitnessInv_compact_build {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
     {old_cv ncv : Nat} {inv : List (BitVec 32)} {k : FullCoreState}
     (hext : ExtUnsatSound F0 old_cv F_cur)
-    (hbin : CompactUnmapBinsOk ncv inv F_cur k) (har : CompactArenaOk c ncv inv F_cur k)
+    (hbin : CompactUnmapBinsOk ncv inv F_cur k) (har : CompactArenaOk ncv inv F_cur k)
     (hcv : k.cur_vars = ncv) (hinc : k.inconsistent = 0#64) (hdm : k.dense_mode = 0#64)
     (hte : k.trail_end = 0) (hcl : k.cur_level = 0)
     (hft0 : (k.frame_trail[0]?.getD 0#32).toNat = 0)
@@ -1113,7 +1113,7 @@ discovered during arena compaction). -/
 theorem fullWitnessInv_compact_unsat {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
     {ncv : Nat} {inv : List (BitVec 32)} {k : FullCoreState}
     (hu : F0.Unsat) (hbin : CompactUnmapBinsOk ncv inv F_cur k)
-    (har : CompactArenaOk c ncv inv F_cur k) (hcv : k.cur_vars = ncv)
+    (har : CompactArenaOk ncv inv F_cur k) (hcv : k.cur_vars = ncv)
     (hdm : k.dense_mode = 0#64) (hte : k.trail_end = 0) (hcl : k.cur_level = 0)
     (hft0 : (k.frame_trail[0]?.getD 0#32).toNat = 0)
     (hvals : ∀ l < 2 * ncv, k.vals[l]?.getD 0#8 = 0#8) :

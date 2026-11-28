@@ -5,6 +5,8 @@ Released under Apache 2.0 license as described in the file LICENSE.
 module
 
 public import LeanQbe.T.Examples.Kissat.Proof.Bump.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Bump.Helpers
+import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Header
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Contracts1
 public import LeanQbe.T.Examples.Kissat.Proof.Tiers.Spec
@@ -533,41 +535,69 @@ theorem bump_call_dr_allow {Γ : Env} {Q : Post []} {X : XPost}
     fun r ext' m' hi' heq' hm' =>
       hK r ext' m' hi' heq' (fullM6HdrMem_focus_full hm')
 
-theorem bump_call_safety_var {Γ : Env} {Q : Post []} {X : XPost} {f : Sym}
+private theorem fullProbeScratchPres_of_scratchModifies {mod : List ScratchField}
+    {s s' : FullState} (h : ScratchModifies mod s s')
+    (h0 : .last_learned ∉ mod) (h1 : .extend_len ∉ mod) (h2 : .work_stk1 ∉ mod)
+    (h3 : .work_stk2 ∉ mod) (h4 : .tarjan_mark ∉ mod) (h5 : .scratch_buf ∉ mod)
+    (h6 : .ant_sz ∉ mod) (h7 : .res_sz ∉ mod) (h8 : .sim_sig ∉ mod) :
+    FullProbeScratchPres s s' :=
+  ⟨⟨ScratchModifies.get_of_not_mem h h0, ScratchModifies.get_of_not_mem h h1⟩,
+   ScratchModifies.get_of_not_mem h h2, ScratchModifies.get_of_not_mem h h3,
+   ScratchModifies.get_of_not_mem h h4, ScratchModifies.get_of_not_mem h h5,
+   ScratchModifies.get_of_not_mem h h6, ScratchModifies.get_of_not_mem h h7,
+   ScratchModifies.get_of_not_mem h h8⟩
+
+theorem bump_call_full_var {Γ : Env} {Q : Post []} {X : XPost} {f : Sym}
+    {sp : Spec [i64, i32] []} {mod : List ScratchField}
     {harg_v : Arg Val i64} {bvarg : Arg Val i32} {k : Tup Val [] → Expr Val Cont []}
     {c : FullCfg} {s : FullState} {R : Mem 64 → Prop} {m : Mem 64}
-    (hFn : Γ.Has f fullSafetyVarVoidSpec)
+    (hsp : sp = FullContract.toSpec (W := Unit)
+      { pre := fun _ _ _ () => True
+        post := fun _ s _ () _ s' => CorePres s s' ∧ ScratchModifies mod s s' })
+    (hFn : Γ.Has f sp)
+    (h0 : .last_learned ∉ mod) (h1 : .extend_len ∉ mod) (h2 : .work_stk1 ∉ mod)
+    (h3 : .work_stk2 ∉ mod) (h4 : .tarjan_mark ∉ mod) (h5 : .scratch_buf ∉ mod)
+    (h6 : .ant_sz ∉ mod) (h7 : .res_sz ∉ mod) (h8 : .sim_sig ∉ mod)
     (harg : harg_v.val = c.hdr)
     (hlen : s.LengthsOk c) (hm : (FullMem c s ⋆ R) m)
     (hK : ∀ s' m', s'.core = s.core → s'.LengthsOk c → FullProbeScratchPres s s' →
       (FullMem c s' ⋆ R) m' → wp Γ Q X (k PUnit.unit) m') :
     wp Γ Q X
       (Expr.call f (as := [i64, i32]) (harg_v, bvarg, PUnit.unit) k) m := by
-  refine wp_safety_slice_call hFn (c := c) (s := s) (R := R)
-    (fun cs => cs = s.core) rfl ?_ hlen hm ?_
-  · exact harg
-  · intro _ s' m' _ hlen' hcore' hpres' hm'
-    exact hK s' m' hcore' hlen' hpres' hm'
+  c0_call hFn
+  rw [harg, hsp]
+  refine FullContract.intro (w := ()) hlen trivial hm ?_
+  intro _ s' m' hlen' ⟨hcore', hmod'⟩ hm'
+  exact hK s' m' hcore' hlen'
+    (fullProbeScratchPres_of_scratchModifies hmod' h0 h1 h2 h3 h4 h5 h6 h7 h8) hm'
 
-theorem bump_call_safety_void {Γ : Env} {Q : Post []} {X : XPost} {f : Sym}
+theorem bump_call_full_void {Γ : Env} {Q : Post []} {X : XPost} {f : Sym}
+    {sp : Spec [i64] []} {mod : List ScratchField}
     {harg_v : Arg Val i64} {k : Tup Val [] → Expr Val Cont []}
     {c : FullCfg} {s : FullState} {R : Mem 64 → Prop} {m : Mem 64}
-    (hFn : Γ.Has f fullSafetyVoidSpec)
+    (hsp : sp = FullContract.toSpec (W := Unit)
+      { pre := fun _ _ _ () => True
+        post := fun _ s _ () _ s' => CorePres s s' ∧ ScratchModifies mod s s' })
+    (hFn : Γ.Has f sp)
+    (h0 : .last_learned ∉ mod) (h1 : .extend_len ∉ mod) (h2 : .work_stk1 ∉ mod)
+    (h3 : .work_stk2 ∉ mod) (h4 : .tarjan_mark ∉ mod) (h5 : .scratch_buf ∉ mod)
+    (h6 : .ant_sz ∉ mod) (h7 : .res_sz ∉ mod) (h8 : .sim_sig ∉ mod)
     (harg : harg_v.val = c.hdr)
     (hlen : s.LengthsOk c) (hm : (FullMem c s ⋆ R) m)
     (hK : ∀ s' m', s'.core = s.core → s'.LengthsOk c → FullProbeScratchPres s s' →
       (FullMem c s' ⋆ R) m' → wp Γ Q X (k PUnit.unit) m') :
     wp Γ Q X (Expr.call f (as := [i64]) (harg_v, PUnit.unit) k) m := by
-  refine wp_safety_slice_call hFn (c := c) (s := s) (R := R)
-    (fun cs => cs = s.core) rfl ?_ hlen hm ?_
-  · exact harg
-  · intro _ s' m' _ hlen' hcore' hpres' hm'
-    exact hK s' m' hcore' hlen' hpres' hm'
+  c0_call hFn
+  rw [harg, hsp]
+  refine FullContract.intro (w := ()) hlen trivial hm ?_
+  intro _ s' m' hlen' ⟨hcore', hmod'⟩ hm'
+  exact hK s' m' hcore' hlen'
+    (fullProbeScratchPres_of_scratchModifies hmod' h0 h1 h2 h3 h4 h5 h6 h7 h8) hm'
 
 theorem bump_call_sort_ana {Γ : Env} {Q : Post []} {X : XPost}
     {harg_v narg : Arg Val i64} {k : Tup Val [] → Expr Val Cont []}
     {c : FullCfg} {s : FullState} {n : Val i64} {R : Mem 64 → Prop} {m : Mem 64}
-    (hFn : Γ.Has "full_sort_ana_qs_m6" fullSortAnaQsSpec)
+    (hFn : Γ.Has "full_sort_ana_qs_m6" sortAnaQsSpec)
     (harg : harg_v.val = c.hdr) (hnarg : narg.val = n)
     (hlen : s.LengthsOk c) (hn_cv : n.toNat ≤ s.core.cur_vars)
     (hcov0 : ∀ k < n.toNat, (s.scratch.work_stk1[k]?.getD 0#32).toNat < s.core.cur_vars)
@@ -587,7 +617,32 @@ theorem bump_call_sort_ana {Γ : Env} {Q : Post []} {X : XPost}
       (Expr.call "full_sort_ana_qs_m6" (as := [i64, i64]) (harg_v, narg, PUnit.unit) k) m := by
   c0_call hFn
   rw [harg, hnarg]
-  exact ⟨c, s, R, rfl, hlen, hn_cv, hcov0, hm, hK⟩
+  dsimp only [sortAnaQsSpec]
+  refine FullContract.intro (w := ()) hlen ⟨hn_cv, hcov0⟩ hm ?_
+  intro _ s' m' hlen' ⟨hagr, hpm, htl, hcv'⟩ hm'
+  have hcore_eq : s'.core = { s.core with repr := s'.core.repr } := by
+    have h := congrArg (fun st => st.core) hagr
+    cases hco : s.core; cases hco' : s'.core
+    dsimp only [AgreesExcept, sortAnaQsMask] at h
+    rw [hco, hco'] at h; cases h; rfl
+  have hscr_eq : s'.scratch = { s.scratch with
+      work_stk1 := s'.scratch.work_stk1, wsort := s'.scratch.wsort,
+      scratch_buf := s'.scratch.scratch_buf } := by
+    have h := congrArg (fun st => st.scratch) hagr
+    cases hsc : s.scratch; cases hsc' : s'.scratch
+    dsimp only [AgreesExcept, sortAnaQsMask] at h
+    rw [hsc, hsc'] at h; cases h; rfl
+  have hs'_eq : s' = { s with
+      core := { s.core with repr := s'.core.repr }
+      scratch := { s.scratch with
+        work_stk1 := s'.scratch.work_stk1, wsort := s'.scratch.wsort,
+        scratch_buf := s'.scratch.scratch_buf } } := by
+    rcases s with ⟨cs, scs⟩; rcases s' with ⟨cs', scs'⟩
+    dsimp only at hcore_eq hscr_eq ⊢; rw [hcore_eq, hscr_eq]
+  rw [hs'_eq] at hm'
+  exact hK s'.scratch.work_stk1 s'.core.repr s'.scratch.wsort s'.scratch.scratch_buf m'
+    hlen'.scratch_ok.work_stk1_len hlen'.core_ok.repr_len hlen'.scratch_ok.wsort_len
+    hlen'.scratch_ok.scratch_buf_len hpm htl hcv' hm'
 
 end
 

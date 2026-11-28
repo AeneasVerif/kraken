@@ -318,7 +318,7 @@ private theorem s13_learn_pre_gc_wp {Γ X} {Q : Post [i64]} {c : FullCfg} {F0 : 
     {lvl_bt trl_bt : List (BitVec 32)} {te_bt : Nat} {R : Mem 64 → Prop} {m_bt : Mem 64}
     (hDefrag : ∀ a m Q X, fullWstackDefragSpec a m Q X →
       Γ "full_wstack_defrag" [i64] [] a m Q X)
-    (hRedM6 : ∀ a m Q X, fullReduceM6Spec a m Q X →
+    (hRedM6 : ∀ a m Q X, Reduce.Spec.reduceSpec a m Q X →
       Γ "full_reduce_m6" [i64, .bool] [i64] a m Q X)
     (hcfg : FullM6HdrCfgOk c) (hext : M6HdrExtOk ext)
     (hbt_pre : S13AddClPre c F0 F_cur s nlvl tmp_sw vals_bt lvl_bt trl_bt te_bt s_bt)
@@ -514,12 +514,13 @@ private theorem s13_learn_pre_gc_wp {Γ X} {Q : Post [i64]} {c : FullCfg} {F0 : 
           c0_steps; exact hJgc () m_3 ⟨ext_3, s_3, hext_3, h3_pre, hm_3⟩
         · intro J3 hJ3; c0_split
           · c0_to_group; c0_call hRedM6
-            refine ⟨c, F0, F_cur, ext, s_d, R, rfl, FullM6HdrInvW.mk_inv hcfg hext hd_sp,
-              fullM6HdrMem_unfocus_full hm_d, ?_⟩
-            intro rr c'_r ext_r s_r m_r _ _ hr_dom _ hr_fu hr_20 _ hr_force hm_r
-            obtain ⟨hc'_eq, hr_inv, hr_cl, hr_cv, hr_tmp, hr_tl, hr_prb, hr_mcl, hr_ws1, hr_ws2,
-              _, hr_pos⟩ := hr_force rfl
-            have hr_inv' : FullM6HdrInvW c F0 F_cur ext_r s_r := hc'_eq ▸ hr_inv
+            refine M6HdrCfgContract.intro (w := (F0, F_cur)) hcfg hext hd_sp.1
+              (FullM6HdrInvW.mk_inv hcfg hext hd_sp) (fullM6HdrMem_unfocus_full hm_d) ?_
+            rintro ⟨rr, ⟨⟩⟩ c'_r ext_r s_r m_r _ _ _ _ _
+              ⟨_, hr_dom, _, hr_fu, hr_20, _, hr_force⟩ hm_r
+            obtain ⟨hc'_eq, ⟨hr_invW, hr_cl, hr_cv, hr_tmp, hr_tl, hr_prb, hr_mcl, hr_ws1,
+              hr_ws2, _, hr_pos⟩⟩ := hr_force rfl
+            have hr_inv' : FullM6HdrInvW c F0 F_cur ext_r s_r := hc'_eq ▸ hr_invW
             have hm_r' : (FullM6HdrMem c ext_r s_r ⋆ R) m_r := hc'_eq ▸ hm_r
             have hr_sp : FullSparseInvW c F0 F_cur s_r := hr_inv'.sparseW
             have hext_r : M6HdrExtOk ext_r := hr_inv'.extOk
@@ -625,9 +626,9 @@ private theorem s13_learn_retry_step_wp {Γ X} {Q : Post [i64]} {c : FullCfg} {F
     {R : Mem 64 → Prop} {mL : Mem 64}
     (hDefrag : ∀ a m Q X, fullWstackDefragSpec a m Q X →
       Γ "full_wstack_defrag" [i64] [] a m Q X)
-    (hRedM6 : ∀ a m Q X, fullReduceM6Spec a m Q X →
+    (hRedM6 : ∀ a m Q X, Reduce.Spec.reduceSpec a m Q X →
       Γ "full_reduce_m6" [i64, .bool] [i64] a m Q X)
-    (hRedPurge : ∀ a m Q X, fullReducePurgeC0Spec a m Q X →
+    (hRedPurge : ∀ a m Q X, Reduce.Spec.reducePurgeSpec a m Q X →
       Γ "full_reduce_purge_c0" [i64] [i64] a m Q X)
     (hcfg : FullM6HdrCfgOk c) (hext_lp : M6HdrExtOk ext_lp)
     (hlp_pre : S13AddClPre c F0 F_cur s nlvl tmp_sw vals_bt lvl_bt trl_bt te_bt s_lp)
@@ -828,23 +829,24 @@ private theorem s13_learn_retry_step_wp {Γ X} {Q : Post [i64]} {c : FullCfg} {F
     · intro Jr hJr
       c0_split
       · c0_call hRedM6
-        refine ⟨c, F0, F_cur, ext_lp, s_lp, R, rfl, FullM6HdrInvW.mk_inv hcfg hext_lp hlp_pre.1,
-          hmL, ?_⟩
-        intro rr c'_r ext_r s_r m_r _ _ hr_dom _ hr_fu hr_20 _ hr_force hm_r
-        obtain ⟨hc'_eq, hr_inv, hr_cl, hr_cv, hr_tmp, hr_tl, hr_prb, hr_mcl, hr_ws1, hr_ws2, _,
-          hr_pos⟩ := hr_force rfl
-        have hr_inv' : FullM6HdrInvW c F0 F_cur ext_r s_r := hc'_eq ▸ hr_inv
+        refine M6HdrCfgContract.intro (w := (F0, F_cur)) hcfg hext_lp hlp_pre.1.1
+          (FullM6HdrInvW.mk_inv hcfg hext_lp hlp_pre.1) hmL ?_
+        rintro ⟨rr, ⟨⟩⟩ c'_r ext_r s_r m_r _ _ _ _ _ ⟨_, hr_dom, _, hr_fu, hr_20, _, hr_force⟩ hm_r
+        obtain ⟨hc'_eq, ⟨hr_invW, hr_cl, hr_cv, hr_tmp, hr_tl, hr_prb, hr_mcl, hr_ws1, hr_ws2, _,
+          hr_pos⟩⟩ := hr_force rfl
+        have hr_inv' : FullM6HdrInvW c F0 F_cur ext_r s_r := hc'_eq ▸ hr_invW
         have hm_r' : (FullM6HdrMem c ext_r s_r ⋆ R) m_r := hc'_eq ▸ hm_r
         c0_steps
         exact hJr (rr, ()) m_r ⟨ext_r, s_r, hr_inv'.extOk, hr_inv'.sparseW, hr_dom, hr_cl, hr_fu,
           hr_cv, hr_tmp, hr_tl, hr_prb, hr_mcl, hr_ws1, hr_ws2, hr_20, hr_pos, hm_r'⟩
       · c0_call hRedPurge
-        refine ⟨c, F0, F_cur, ext_lp, s_lp, R, rfl, FullM6HdrInvW.mk_inv hcfg hext_lp hlp_pre.1,
-          hmL, ?_⟩
-        intro rr ext_r s_r m_r hr_inv hr_dom hr_cl hr_fu hr_cv hr_tmp hr_tl hr_prb hr_mcl hr_ws1
-          hr_ws2 hr_20 _ hr_pos hm_r
+        refine M6HdrContract.intro (w := (F0, F_cur)) hcfg hext_lp hlp_pre.1.1
+          (FullM6HdrInvW.mk_inv hcfg hext_lp hlp_pre.1) hmL ?_
+        rintro ⟨rr, ⟨⟩⟩ ext_r s_r m_r _ _ _ ⟨hr_dom, hr_fu, hr_20,
+          ⟨hr_invW, hr_cl, hr_cv, hr_tmp, hr_tl, hr_prb, hr_mcl, hr_ws1, hr_ws2, _, hr_pos⟩⟩
+          hm_r
         c0_steps
-        exact hJr (rr, ()) m_r ⟨ext_r, s_r, hr_inv.extOk, hr_inv.sparseW, hr_dom, hr_cl, hr_fu,
+        exact hJr (rr, ()) m_r ⟨ext_r, s_r, hr_invW.extOk, hr_invW.sparseW, hr_dom, hr_cl, hr_fu,
           hr_cv, hr_tmp, hr_tl, hr_prb, hr_mcl, hr_ws1, hr_ws2, hr_20, hr_pos, hm_r⟩
 
 private theorem s13_learn_post_ac_m6_wp {Γ X} {Q : Post [i64]} {c : FullCfg} {F0 : CNF Nat}
@@ -917,9 +919,9 @@ theorem full_learn_clause_m6_wp (Γ : Env)
       Γ "full_det_new_level" [i64, i64] [i64] a m Q X)
     (hDefrag : ∀ a m Q X, fullWstackDefragSpec a m Q X →
       Γ "full_wstack_defrag" [i64] [] a m Q X)
-    (hRedM6 : ∀ a m Q X, fullReduceM6Spec a m Q X →
+    (hRedM6 : ∀ a m Q X, Reduce.Spec.reduceSpec a m Q X →
       Γ "full_reduce_m6" [i64, .bool] [i64] a m Q X)
-    (hRedPurge : ∀ a m Q X, fullReducePurgeC0Spec a m Q X →
+    (hRedPurge : ∀ a m Q X, Reduce.Spec.reducePurgeSpec a m Q X →
       Γ "full_reduce_purge_c0" [i64] [i64] a m Q X)
     (hAddCl : ∀ a m Q X, Proof.Clause.Spec.fullAddClauseSpec a m Q X →
       Γ "full_add_clause" [i64, i32, i32, .bool] [i64] a m Q X)

@@ -177,6 +177,7 @@ public import LeanQbe.T.Examples.Kissat.Proof.Backtrack.Wp0
 public import LeanQbe.T.Examples.Kissat.Proof.Backtrack.Wp1
 public import LeanQbe.T.Examples.Kissat.Proof.Backtrack.Wp2
 public import LeanQbe.T.Examples.Kissat.Proof.Bump.Cert
+public import LeanQbe.T.Examples.Kissat.Proof.Bump.Helpers
 public import LeanQbe.T.Examples.Kissat.Proof.Bump.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Bump.Wp0
 public import LeanQbe.T.Examples.Kissat.Proof.Bump.WpBump
@@ -615,6 +616,7 @@ public import LeanQbe.T.Examples.Kissat.Ref.Base
 public import LeanQbe.T.Examples.Kissat.Ref.Cdcl
 public import LeanQbe.T.Examples.Kissat.Ref.Chrono
 public import LeanQbe.T.Examples.Kissat.Ref.Collect
+public import LeanQbe.T.Examples.Kissat.Ref.Compact
 public import LeanQbe.T.Examples.Kissat.Ref.Dimacs
 public import LeanQbe.T.Examples.Kissat.Ref.Eliminate
 public import LeanQbe.T.Examples.Kissat.Ref.Factor

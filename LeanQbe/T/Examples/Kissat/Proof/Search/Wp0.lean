@@ -223,10 +223,10 @@ private theorem simplify_compact_tail_wp {Γ : Env} (hΓ : Γ.Sat searchDeps)
           (.inr (.inl rfl)) hfl4 (fun h => absurd h (by decide)) (fun _ => ⟨hinv4, hl4⟩) hm4
   · intro J4 hJ4
     refine search_call_compact_needed (by simp [vals, hc0.hdr]) (deps_has_compact_needed hΓ)
-      hinv hm fun b => ?_
+      hinv hm fun b m_cn hm_cn => ?_
     c0_hstraight
     refine wp_jnz_decide (b = true) (by cases b <;> rfl) (fun _ => ?_) (fun _ => ?_)
-    · refine search_call_compact (by simp [vals, hc0.hdr]) (deps_has_compact hΓ) hinv hm
+    · refine search_call_compact (by simp [vals, hc0.hdr]) (deps_has_compact hΓ) hinv hm_cn
         fun r c' ext' s' m' hc' hinv' _ _ hfl' h20 h1 hm' => ?_
       c0_hstraight
       refine jnz_bv_eq rfl (fun eq20 => ?_) (fun _ => ?_)
@@ -242,7 +242,7 @@ private theorem simplify_compact_tail_wp {Γ : Env} (hΓ : Γ.Sat searchDeps)
         · exact hJ4 m' ⟨c', ext', s', fullCfgCompat_trans hc0 hc', hinv', h1 eq1,
             Nat.le_trans hfl' hfl, hm'⟩
     · c0_hstraight
-      exact hJ4 m ⟨c, ext, s, hc0, hinv, hl0, hfl, hm⟩
+      exact hJ4 m_cn ⟨c, ext, s, hc0, hinv, hl0, hfl, hm_cn⟩
 
 private theorem simplify_elim_tail_wp {Γ : Env} (hΓ : Γ.Sat searchDeps)
     {c : FullCfg} {F0 : CNF Nat} {ext : List (BitVec 64)} {s0 s : FullState}
@@ -550,10 +550,10 @@ private theorem preprocess_l50_wp {Γ : Env} (hΓ : Γ.Sat searchDeps)
             (fun _ => ⟨hinv3, hl1⟩) (fun h => absurd h (by decide)) hm3
   · intro J50 hJ50
     refine search_call_compact_needed (by simp [vals, hc0.hdr]) (deps_has_compact_needed hΓ)
-      hinv hm fun b => ?_
+      hinv hm fun b m_cn hm_cn => ?_
     c0_hstraight
     refine wp_jnz_decide (b = true) (by cases b <;> rfl) (fun _ => ?_) (fun _ => ?_)
-    · refine search_call_compact (by simp [vals, hc0.hdr]) (deps_has_compact hΓ) hinv hm
+    · refine search_call_compact (by simp [vals, hc0.hdr]) (deps_has_compact hΓ) hinv hm_cn
         fun r c' ext' s' m' hc' hinv' _ _ hfl' h20 h1 hm' => ?_
       c0_hstraight
       refine jnz_bv_eq rfl (fun eq20 => ?_) (fun _ => ?_)
@@ -570,7 +570,7 @@ private theorem preprocess_l50_wp {Γ : Env} (hΓ : Γ.Sat searchDeps)
         · exact hJ50 m' ⟨c', ext', s', fullCfgCompat_trans hc0 hc', hinv', h1 eq1,
             Nat.le_trans hfl' hfl, hm'⟩
     · c0_hstraight
-      exact hJ50 m ⟨c, ext, s, hc0, hinv, hl0, hfl, hm⟩
+      exact hJ50 m_cn ⟨c, ext, s, hc0, hinv, hl0, hfl, hm_cn⟩
 
 private theorem preprocess_l25_wp {Γ : Env} (hΓ : Γ.Sat searchDeps)
     {c0 : FullCfg} {F0 : CNF Nat} {ext : List (BitVec 64)} {s0 s : FullState}

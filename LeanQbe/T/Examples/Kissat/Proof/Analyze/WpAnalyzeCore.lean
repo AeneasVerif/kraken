@@ -9,6 +9,7 @@ public import LeanQbe.T.Examples.Kissat.Proof.Analyze.WpRestore
 public import LeanQbe.T.Examples.Kissat.Proof.Analyze.WpReasons
 public import LeanQbe.T.Examples.Kissat.Proof.Analyze.WpFailedLit1
 public import LeanQbe.T.Examples.Kissat.Proof.Bump.Spec
+import LeanQbe.T.Examples.Kissat.Proof.Bump.Helpers
 public import LeanQbe.T.Examples.Kissat.Proof.Deduce.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Learn.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Limits.Spec
@@ -463,7 +464,7 @@ theorem full_analyze_core_m6_wp (Γ : Env)
       Γ "full_ema_update" [i64, i64] [] a m Q X)
     (hLearnM6 : ∀ a m Q X, Learn.Spec.learnClauseSpec a m Q X →
       Γ "full_learn_clause_m6" [i64, i64] [i64] a m Q X)
-    (hBumpMode : ∀ a m Q X, fullBumpAnalyzedModeSpec a m Q X →
+    (hBumpMode : ∀ a m Q X, bumpAnalyzedModeSpec a m Q X →
       Γ "full_bump_analyzed_mode_fid" [i64, .bool] [] a m Q X)
     (hClear : ∀ a m Q X, fullClearAnaSpec a m Q X →
       Γ "full_clear_ana" [i64] [] a m Q X) :
@@ -490,8 +491,7 @@ theorem full_analyze_core_m6_wp (Γ : Env)
   have hcv_le := hinv.sparseW.1.core_ok.cur_vars_le
   let iter_lim : BitVec 64 := BitVec.ofNat 64 s.core.cur_vars + 64#64
   have hil_val : iter_lim.toNat = s.core.cur_vars + 64 := by
-    dsimp only [iter_lim]
-    rw [ana_bv64_add_small_eq (k := 64) (by simp; omega)]; simp; omega
+    dsimp only [iter_lim]; rw [ana_bv64_add_small_eq (k := 64) (by simp; omega)]; simp; omega
   unfold Func.wp Src.Analyze.full_analyze_core_m6_body; dsimp only
   refine wp_m6Hdr_focus_frame hm fun hm' => ?_; c0_hsteps_nogrp
   refine wp_while_state1 (α := BitVec 64 × FullState × List (BitVec 64)) (fun st => st.1)
@@ -506,8 +506,7 @@ theorem full_analyze_core_m6_wp (Γ : Env)
         simpa [iter_lim, BitVec.toNat_add, BitVec.toNat_ofNat] using hc
       have hcv_fit : (BitVec.ofNat 64 s1.core.cur_vars + 64#64).toNat = s1.core.cur_vars + 64 := by
         rw [hcv1]; exact hil_val
-      c0_hsteps_nogrp; c0_call hOneLit
-      dsimp only [Learn.Spec.oneLitConflSpec]
+      c0_hsteps_nogrp; c0_call hOneLit; dsimp only [Learn.Spec.oneLitConflSpec]
       refine FullContract.intro (w := (F0, F_cur, cut1)) hcut1.1 ⟨hcut1, hcf1⟩ hm1 ?_
       rintro ⟨ol, ⟨⟩⟩ s2 m2 hlen2 ⟨hol, hcv2, hfu2, hws2, h20, h1, h2, h0⟩ hm2
       have hm2' := fullM6HdrMem_unfocus hm2
@@ -654,23 +653,32 @@ theorem full_analyze_core_m6_wp (Γ : Env)
                             hws28, fullM6HdrMem_unfocus hm9⟩) ?_
                       rintro Jclr hJclr; c0_hsteps_nogrp
                       · c0_call hBumpMode
-                        refine fullBumpAnalyzedModeSpec_of hinv.cfgOk hext7 hlen7
-                          (fullBumpPre_false_of hcov7.1 hcov7.2) hm7 ?_
-                        intro mrk8 mcl8 repr8 sc8 ext8 m8
-                        dsimp only
-                        intro hlen8 _ hfa _ hpres8 hws28 hext8 _ hm8
+                        refine M6HdrContract.intro (w := ()) hinv.cfgOk hext7 hlen7
+                          (fullBumpPre_false_of (c := c) hcov7.1 hcov7.2) hm7 ?_
+                        rintro ⟨⟩ ext8 s8 m8 hext8 _ hlen8
+                          ⟨hcore_agr8, _, hfa, _, hpres8, hws28⟩ hm8
                         obtain ⟨hmrk8, _, _⟩ := hfa rfl
-                        let s8 : FullState :=
-                          { s7 with
-                            core := { s7.core with mrk := mrk8, min_clr_len := mcl8,
-                                                   repr := repr8 },
-                            scratch := sc8 }
+                        have hcore8 : s8.core =
+                            { s7.core with mrk := s8.core.mrk, min_clr_len := s8.core.min_clr_len,
+                                           repr := s8.core.repr } := by
+                          cases hc7 : s7.core; cases hc8 : s8.core
+                          dsimp only [AgreesExcept, bumpAnalyzedCoreMask] at hcore_agr8
+                          rw [hc7, hc8] at hcore_agr8; cases hcore_agr8; rfl
+                        let sc8 := s8.scratch; let mrk8 := s8.core.mrk
+                        let mcl8 := s8.core.min_clr_len; let repr8 := s8.core.repr
+                        have hs8_eq : s8 = FullState.mk
+                            { s7.core with mrk := mrk8, min_clr_len := mcl8, repr := repr8 }
+                            sc8 := by
+                          rcases s8 with ⟨c8, sc8'⟩
+                          exact congrArg (fun k => FullState.mk k sc8') hcore8
+                        rw [hs8_eq] at hlen8 hpres8 hm8
                         have hmz8 : ∀ v < c.max_vars, mrk8[v]?.getD 0#8 = 0#8 := by
-                          rw [hmrk8]; exact hsp7.2.2.1.1
+                          dsimp only [mrk8]; rw [hmrk8]; exact hsp7.2.2.1.1
                         have hsp8 := ana_fullSparseInvW_of_bump_clear hsp7 hlen8 hmz8 hpres8
                         c0_hsteps
-                        exact hJclr () m8
-                          ⟨ext8, s8, hext8, hsp8, rfl, rfl, rfl, rfl, hws28, hmz8, hm8⟩
+                        exact hJclr () m8 ⟨ext8, FullState.mk
+                            { s7.core with mrk := mrk8, min_clr_len := mcl8, repr := repr8 } sc8,
+                          hext8, hsp8, rfl, rfl, rfl, rfl, hws28, hmz8, hm8⟩
                       · exact hJclr () m7 ⟨ext7, s7, hext7, hsp7, rfl, rfl, rfl, rfl, rfl,
                           hsp7.2.2.1.1, hm7⟩
                     · exact hJend () m7 ⟨ext7, s7, hext7, hsp7, rfl, rfl, rfl, rfl, rfl, hm7⟩
@@ -848,8 +856,7 @@ theorem full_analyze_core_m6_wp (Γ : Env)
                   ho3.2.2.2.2.2.trans hinv.sparseW.2.2.2.2.2.symm⟩⟩
               (fun _ => hu3) (fun h => by cases h) (fun h => by cases h) hm3
       · c0_hsteps_nogrp; c0_hfast
-        · c0_hfast
-          have h1s := h1 rfl
+        · c0_hfast; have h1s := h1 rfl
           let s2k : FullState :=
             { s2 with scratch := { s2.scratch with conflicts := s2.scratch.conflicts + 1 } }
           have h2k := ana_fullSparseInvW_with_conflicts h1s.1 (s2.scratch.conflicts + 1)
@@ -857,10 +864,9 @@ theorem full_analyze_core_m6_wp (Γ : Env)
           exact hQ 1#64 ext1 s2k _ hext1 h2k.1 (Or.inr (Or.inl rfl)) (hcv2.trans hcv1)
             (by rw [hfu2, hfu1]; exact Nat.le_refl _) ⟨hws2.trans hws1, fun h => by cases h⟩
             (fun h => by cases h) (fun h => by cases h)
-            (fun _ => ⟨FullM6HdrInvW.mk_inv hinv.cfgOk hext1 h2k.2,
-              Nat.lt_of_lt_of_le h1s.2 hcl1⟩) (fullM6HdrMem_unfocus (by assumption))
-        · c0_hfast
-          rw [show (1 : BitVec 64) = 1#64 from rfl]
+            (fun _ => ⟨FullM6HdrInvW.mk_inv hinv.cfgOk hext1 h2k.2, Nat.lt_of_lt_of_le h1s.2 hcl1⟩)
+            (fullM6HdrMem_unfocus (by assumption))
+        · c0_hfast; rw [show (1 : BitVec 64) = 1#64 from rfl]
           exact hQ 1#64 ext1 s2 m2 hext1 hlen2 (Or.inr (Or.inl rfl)) (hcv2.trans hcv1)
             (by rw [hfu2, hfu1]; exact Nat.le_refl _) ⟨hws2.trans hws1, fun h => by cases h⟩
             (fun h => by cases h) (fun h => by cases h)
@@ -870,20 +876,16 @@ theorem full_analyze_core_m6_wp (Γ : Env)
         exact hQ 0#64 ext1 s2 m2 hext1 hlen2 (Or.inl rfl) (hcv2.trans hcv1)
           (by rw [hfu2, hfu1]; exact Nat.le_refl _) ⟨hws2.trans hws1, fun h => by cases h⟩
           (fun h => by cases h) (fun _ => h2 rfl) (fun h => by cases h) hm2'
-      · c0_hsteps_nogrp
-        rw [show (20 : BitVec 64) = 20#64 from rfl]
+      · c0_hsteps_nogrp; rw [show (20 : BitVec 64) = 20#64 from rfl]
         have ⟨hu2, ho2, hcl2, _⟩ := h20 rfl
         exact hQ 20#64 ext1 s2 m2 hext1 hlen2 (Or.inr (Or.inr rfl)) (hcv2.trans hcv1)
-          (by rw [hfu2, hfu1]; exact Nat.le_refl _) ⟨hws2.trans hws1,
-            fun _ => ⟨ho2, Nat.le_trans hcl2 hcl1,
-              ho2.2.2.2.2.2.trans hinv.sparseW.2.2.2.2.2.symm⟩⟩
+          (by rw [hfu2, hfu1]; exact Nat.le_refl _) ⟨hws2.trans hws1, fun _ =>
+            ⟨ho2, Nat.le_trans hcl2 hcl1, ho2.2.2.2.2.2.trans hinv.sparseW.2.2.2.2.2.symm⟩⟩
           (fun _ => hu2) (fun h => by cases h) (fun h => by cases h) hm2'
-    · c0_hsteps_nogrp
-      rw [show (0 : BitVec 64) = 0#64 from rfl]
-      exact hQ 0#64 ext1 s1 m1 hext1 hcut1.1 (Or.inl rfl) hcv1
-        (by rw [hfu1]; exact Nat.le_refl _)
-        ⟨hws1, fun h => by cases h⟩ (fun h => by cases h)
-        (fun _ => hcut1.toOtfs) (fun h => by cases h) (fullM6HdrMem_unfocus hm1)
+    · c0_hsteps_nogrp; rw [show (0 : BitVec 64) = 0#64 from rfl]
+      exact hQ 0#64 ext1 s1 m1 hext1 hcut1.1 (Or.inl rfl) hcv1 (by rw [hfu1]; exact Nat.le_refl _)
+        ⟨hws1, fun h => by cases h⟩ (fun h => by cases h) (fun _ => hcut1.toOtfs)
+        (fun h => by cases h) (fullM6HdrMem_unfocus hm1)
 
 end AnalyzeCoreHelpers
 

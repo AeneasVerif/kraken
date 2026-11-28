@@ -7,6 +7,7 @@ module
 public import LeanQbe.T.Examples.Kissat.Src.Bump
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Arena
 public import LeanQbe.T.Examples.Kissat.Proof.Bump.Spec
+import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
 public import LeanQbe.T.Examples.Kissat.Proof.Bump.WpSortHelpers
 public import LeanQbe.T.Examples.Kissat.Proof.Bump.WpSortRadix
 import LeanQbe.T.Examples.Kissat.Proof.Spec.Arena1
@@ -47,10 +48,10 @@ public section
 /-! ## 1. WP Proof of `full_ana_sift_m6` -/
 
 theorem full_ana_sift_m6_wp (Γ : Env) :
-    ∀ a m Q X, fullAnaSiftSpec a m Q X →
+    ∀ a m Q X, anaSiftSpec a m Q X →
       Func.wp Γ full_ana_sift_m6_body a m Q X := by
-  rintro ⟨qs_ptr, ana_ptr, cv, start, n, ⟨⟩⟩ m Q X
-    ⟨qs, ana, R, hcv_qs, hst_n, hn_ana, hn62, hcov, hm, hQ⟩
+  rintro ⟨qs_ptr, ana_ptr, cv, start, n, ⟨⟩⟩ m Q X hs
+  obtain ⟨⟨qs, ana⟩, R, ⟨hcv_qs, hst_n, hn_ana, hn62, hcov⟩, hm, hQ⟩ := FnContract.elim hs
   unfold Func.wp full_ana_sift_m6_body
   c0_hsteps_nogrp
   refine wp_join_group (fun (_, ()) m_b => Q () m_b)
@@ -76,7 +77,7 @@ theorem full_ana_sift_m6_wp (Γ : Env) :
     rw [BitVec.toNat_add, hsh_lt]
     simp [Nat.mod_eq_of_lt (by omega : 2 * root.toNat + 1 < 2 ^ 64)]
   c0_hsteps_nogrp
-  · exact hJ_brk _ m1 (hQ ana1 m1 hlen1 hpm1 htail1 hcov1 hm1)
+  · exact hJ_brk _ m1 (hQ () ana1 m1 ⟨hlen1, hpm1, htail1, hcov1⟩ hm1)
   · have hch_n : 2 * root.toNat + 1 < n.toNat := by
       have h1 : ((root <<< (1 : Nat)) + 1#64).toNat < n.toNat := by c0_bound
       rwa [hch_lt] at h1
@@ -102,7 +103,7 @@ theorem full_ana_sift_m6_wp (Γ : Env) :
           rw [Blocks.get_here]
           rcases hm4 with rfl
           c0_hsteps_nogrp
-          · exact hJ_brk _ m1 (hQ ana1 m1 hlen1 hpm1 htail1 hcov1 hm1)
+          · exact hJ_brk _ m1 (hQ () ana1 m1 ⟨hlen1, hpm1, htail1, hcov1⟩ hm1)
           · have hch'_ana1 : ch'.toNat < ana1.length := by omega
             c0_hsteps_nogrp
             let ar := ana1[root.toNat]'hrt_ana1
@@ -188,7 +189,7 @@ theorem full_ana_sift_m6_wp (Γ : Env) :
 
 private theorem sort_ana_heap_wp {Γ : Env} {Q : Post []} {X : XPost} {c : FullCfg}
     {s : FullState} {n : BitVec 64} {R : Mem 64 → Prop} {m : Mem 64}
-    (hSift : Γ.Has "full_ana_sift_m6" fullAnaSiftSpec)
+    (hSift : Γ.Has "full_ana_sift_m6" anaSiftSpec)
     (hlen : s.LengthsOk c) (hn_cv : n.toNat ≤ s.core.cur_vars)
     (hn_gt1 : ¬ n.toNat ≤ 1)
     (hcov0 : ∀ k < n.toNat, (s.scratch.work_stk1[k]?.getD 0#32).toNat < s.core.cur_vars)
@@ -289,13 +290,10 @@ private theorem sort_ana_heap_wp {Γ : Env} {Q : Post []} {X : XPost} {c : FullC
     have hm1' := hm1
     rw [fullMem_focus_qs_ws1_upd] at hm1'
     c0_call hSift
-    refine ⟨s.scratch.q_stamp, ana1, SiftTail c s R,
-      by rw [hcv_eq, hqs_len]; exact hcv_le,
-      by omega,
-      by rw [hana1]; omega,
-      by omega,
-      by rwa [hcv_eq], hm1', ?_⟩
-    intro ana2 m2 hlen2 hpm2 htl2 hcov2 hm2'
+    refine FnContract.intro (s.scratch.q_stamp, ana1) (SiftTail c s R)
+      ⟨by rw [hcv_eq, hqs_len]; exact hcv_le, by omega, by rw [hana1]; omega,
+       by omega, by rwa [hcv_eq]⟩ hm1' ?_
+    rintro ⟨⟩ ana2 m2 ⟨hlen2, hpm2, htl2, hcov2⟩ hm2'
     rw [hcv_eq] at hcov2
     have hm2 : (FullMem c { s with scratch := { s.scratch with work_stk1 := ana2 } } ⋆ R) m2 := by
       rw [fullMem_focus_qs_ws1_upd]; exact hm2'
@@ -335,13 +333,9 @@ private theorem sort_ana_heap_wp {Γ : Env} {Q : Post []} {X : XPost} {c : FullC
         exact htl2 k hk
       have hcov2' := listSwap_cov (by omega : 0 < n.toNat) he_lt (by omega) hcov2
       c0_call hSift
-      refine ⟨s.scratch.q_stamp, ana2', SiftTail c s R,
-        by rw [hcv_eq, hqs_len]; exact hcv_le,
-        by simp,
-        by rw [hana2'_len]; omega,
-        by omega,
-        fun k hk => by rw [hcv_eq]; exact hcov2' k (by omega),
-        ?_, ?_⟩
+      refine FnContract.intro (s.scratch.q_stamp, ana2') (SiftTail c s R)
+        ⟨by rw [hcv_eq, hqs_len]; exact hcv_le, by simp, by rw [hana2'_len]; omega,
+         by omega, fun k hk => by rw [hcv_eq]; exact hcov2' k (by omega)⟩ ?_ ?_
       · simp only [sep_emp] at hm ⊢
         have hmem_eq :
             (array (t := i32) c.pWorkStk1 ana2' ⋆
@@ -349,7 +343,7 @@ private theorem sort_ana_heap_wp {Γ : Env} {Q : Post []} {X : XPost} {c : FullC
             (array (t := i32) c.pQStamp s.scratch.q_stamp ⋆
               array (t := i32) c.pWorkStk1 ana2' ⋆ SiftTail c s R) := by ac_rfl
         exact hmem_eq ▸ hm
-      · intro ana3 m3 hlen3 hpm3 htl3 hcov3 hm3'
+      · rintro ⟨⟩ ana3 m3 ⟨hlen3, hpm3, htl3, hcov3⟩ hm3'
         rw [hcv_eq] at hcov3
         have hm3 :
             (FullMem c { s with scratch := { s.scratch with work_stk1 := ana3 } } ⋆ R) m3 := by
@@ -519,10 +513,31 @@ private theorem sort_ana_ins_wp {Γ : Env} {Q : Post []} {X : XPost} {c : FullCf
 /-! ## 3. Main `full_sort_ana_qs_m6_wp` Proof -/
 
 theorem full_sort_ana_qs_m6_wp (Γ : Env)
-    (hSift : Γ.Has "full_ana_sift_m6" fullAnaSiftSpec) :
-    ∀ a m Q X, fullSortAnaQsSpec a m Q X →
+    (hSift : Γ.Has "full_ana_sift_m6" anaSiftSpec) :
+    ∀ a m Q X, sortAnaQsSpec a m Q X →
       Func.wp Γ full_sort_ana_qs_m6_body a m Q X := by
-  rintro ⟨h, n, ⟨⟩⟩ m Q X ⟨c, s, R, rfl, hlen, hn_cv, hcov0, hm, hQ⟩
+  rintro ⟨h, n, ⟨⟩⟩ m Q X hs
+  obtain ⟨c, s, ⟨⟩, R, rfl, hlen, ⟨hn_cv, hcov0⟩, hm, hQ0⟩ := FullContract.elim hs
+  let hQ : ∀ ws1' repr' wsort' sbuf' m',
+      ws1'.length = 2 * c.max_vars → repr'.length = 2 * c.max_vars →
+      wsort'.length = 2 * c.max_vars → sbuf'.length = c.scratch_cap →
+      (ws1'.take n.toNat).Perm (s.scratch.work_stk1.take n.toNat) →
+      (∀ k, n.toNat ≤ k → ws1'[k]? = s.scratch.work_stk1[k]?) →
+      (∀ k < n.toNat, (ws1'[k]?.getD 0#32).toNat < s.core.cur_vars) →
+      (FullMem c { s with core := { s.core with repr := repr' }
+                          scratch := { s.scratch with
+                            work_stk1 := ws1', wsort := wsort', scratch_buf := sbuf' } } ⋆ R)
+        m' → Q () m' :=
+    fun ws1' repr' wsort' sbuf' m' hws1 hrep hwso hsbu hpm htl hcv hm' =>
+      hQ0 ()
+        { core := { s.core with repr := repr' }
+          scratch := { s.scratch with
+            work_stk1 := ws1', wsort := wsort', scratch_buf := sbuf' } }
+        m'
+        ⟨{ hlen.core_ok with repr_len := hrep },
+         { hlen.scratch_ok with
+           work_stk1_len := hws1, wsort_len := hwso, scratch_buf_len := hsbu }⟩
+        ⟨rfl, hpm, htl, hcv⟩ hm'
   by_cases hn1 : n.toNat ≤ 1
   · obtain hok := hlen.core_ok
     obtain hsok := hlen.scratch_ok

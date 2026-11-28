@@ -62,8 +62,12 @@ theorem cert : SegCert deps Src.Learn.fns Spec.specs := fun Γ hDeps hSat => by
   have hBt := Backtrack.Spec.has_full_backtrack_ac_fid hBtSpecs
   have hAsgn := Backtrack.Spec.has_full_assign_lvl hBtSpecs
   have hAddCl := Clause.Spec.has_full_add_clause hClauseSpecs
-  have hRedM6 := Reduce.Spec.has_full_reduce_m6 hReduceSpecs
-  have hRedPurge := Reduce.Spec.has_full_reduce_purge_c0 hReduceSpecs
+  have hRedM6 : Γ.Has "full_reduce_m6" Reduce.Spec.reduceSpec :=
+    SpecTable.has_at hReduceSpecs 3 rfl
+      (by unfold Reduce.Spec.reduceSpec; exact M6HdrCfgContract.toSpec_xfree _)
+  have hRedPurge : Γ.Has "full_reduce_purge_c0" Reduce.Spec.reducePurgeSpec :=
+    SpecTable.has_at hReduceSpecs 4 rfl
+      (by unfold Reduce.Spec.reducePurgeSpec; exact M6HdrContract.toSpec_xfree _)
   have hDefrag := Watch.Spec.has_full_wstack_defrag hWatchSpecs
   have hUnw := Watch.Spec.has_full_unwatch_large hWatchSpecs
   have hPush := Watch.Spec.has_full_watch_push hWatchSpecs

@@ -5,7 +5,9 @@ Released under Apache 2.0 license as described in the file LICENSE.
 module
 
 public import LeanQbe.T.Examples.Kissat.Proof.Bump.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Bump.Helpers
 public import LeanQbe.T.Examples.Kissat.Proof.Bump.WpBumpHelpers
+import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Header
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Contracts1
 public import LeanQbe.T.Examples.Kissat.Proof.Tiers.Spec
@@ -256,14 +258,30 @@ theorem full_bump_analyzed_mode_fid_wp (Γ : Env)
     (hDrAllow : Γ.Has "m6_hdr_dr_allow" m6HdrDrAllowSpec)
     (hBumpDelay : Γ.Has "m6_hdr_bump_delay" (m6HdrW2aSpec [i64] []))
     (hReduceDelay : Γ.Has "m6_hdr_reduce_delay" (m6HdrW2aSpec [i64] []))
-    (hSortAna : Γ.Has "full_sort_ana_qs_m6" fullSortAnaQsSpec)
-    (hMtf : Γ.Has "full_queue_mtf" fullQueueMtfSpec)
-    (hBumpVar : Γ.Has "full_bump_var" fullBumpVarSpec)
-    (hBumpDecay : Γ.Has "full_bump_decay" fullBumpDecaySpec) :
-    ∀ a m Q X, fullBumpAnalyzedModeSpec a m Q X →
+    (hSortAna : Γ.Has "full_sort_ana_qs_m6" sortAnaQsSpec)
+    (hMtf : Γ.Has "full_queue_mtf" queueMtfSpec)
+    (hBumpVar : Γ.Has "full_bump_var" bumpVarSpec)
+    (hBumpDecay : Γ.Has "full_bump_decay" rescaleSpec) :
+    ∀ a m Q X, bumpAnalyzedModeSpec a m Q X →
       Func.wp Γ full_bump_analyzed_mode_fid_body a m Q X := by
-  rintro ⟨h, allow_reasons, ⟨⟩⟩ m Q X
-    ⟨c, ext0, s0, R, rfl, hcfg, hext0, hlen0, hpre0, hm0, hQ⟩
+  rintro ⟨h, allow_reasons, ⟨⟩⟩ m Q X hs
+  obtain ⟨c, ext0, s0, ⟨⟩, R, rfl, hcfg, hext0, hlen0, hpre0, hm0, hQ0⟩ := M6HdrContract.elim hs
+  let hQ : ∀ mrk' mcl' repr' sc' ext' m',
+      let s' : FullState :=
+        { s0 with
+          core := { s0.core with mrk := mrk', min_clr_len := mcl', repr := repr' }
+          scratch := sc' }
+      s'.LengthsOk c →
+      (FullAnaMarksCov c s0 → FullAnaMarksCov c s') →
+      (allow_reasons = false → mrk' = s0.core.mrk ∧ mcl' = s0.core.min_clr_len ∧ ext' = ext0) →
+      (allow_reasons = false →
+        ∀ k < mcl', (sc'.work_stk1[k]?.getD 0#32).toNat < s0.core.cur_vars) →
+      FullExtScratchPres s0 s' → sc'.work_stk2 = s0.scratch.work_stk2 →
+      M6HdrExtOk ext' → (M6HdrExtInitOk ext0 → M6HdrExtInitOk ext' ∧ M6ExtW2bPres ext0 ext') →
+      (FullM6HdrMem c ext' s' ⋆ R) m' → Q () m' :=
+    fun mrk' mcl' repr' sc' ext' m' hlen' hcov' hfp' hk' hpres' hws2' hext' hinit' hm' =>
+      hQ0 () ext' _ m' hext' hinit' hlen'
+        ⟨rfl, hcov', hfp', hk', hpres', hws2'⟩ hm'
   have hmaxv : c.max_vars < 2 * Ref.dimacsBound := c.hmaxv
   have harena : c.arena_cap < 2 * Ref.dimacsBound := c.harena
   unfold Ref.dimacsBound at hmaxv harena
@@ -328,7 +346,9 @@ theorem full_bump_analyzed_mode_fid_wp (Γ : Env)
               · intro Jk1 hJk1
                 have hfl_len := inv_k.len.core_ok.flags_len
                 c0_hsteps_nogrp
-                · refine bump_call_safety_var hMtf rfl inv_k.len hm_k
+                · refine bump_call_full_var rfl hMtf (by decide) (by decide) (by decide)
+                    (by decide) (by decide) (by decide) (by decide) (by decide) (by decide)
+                    rfl inv_k.len hm_k
                     fun s_k' m_k' hc' hl' hp' hm_k' => ?_
                   c0_hsteps_nogrp
                   exact hJk1 () m_k' ⟨ext_k, s_k',
@@ -375,7 +395,9 @@ theorem full_bump_analyzed_mode_fid_wp (Γ : Env)
             · intro Jk1 hJk1
               have hfl_len := inv_k.len.core_ok.flags_len
               c0_hsteps_nogrp
-              · refine bump_call_safety_var hBumpVar rfl inv_k.len hm_k
+              · refine bump_call_full_var rfl hBumpVar (by decide) (by decide) (by decide)
+                  (by decide) (by decide) (by decide) (by decide) (by decide) (by decide)
+                  rfl inv_k.len hm_k
                   fun s_k' m_k' hc' hl' hp' hm_k' => ?_
                 c0_hsteps_nogrp
                 exact hJk1 () m_k' ⟨ext_k, s_k',
@@ -383,7 +405,9 @@ theorem full_bump_analyzed_mode_fid_wp (Γ : Env)
               · exact hJk1 () m_k ⟨ext_k, s_k, ⟨hm_k, inv_k⟩, hk_mcl⟩
               · exact hJk1 () m_k ⟨ext_k, s_k, ⟨hm_k, inv_k⟩, hk_mcl⟩
           · c0_hsteps_nogrp
-            refine bump_call_safety_void hBumpDecay rfl inv_k.len hm_k
+            refine bump_call_full_void rfl hBumpDecay (by decide) (by decide) (by decide)
+              (by decide) (by decide) (by decide) (by decide) (by decide) (by decide)
+              rfl inv_k.len hm_k
               fun s_k' m_k' hc' hl' hp' hm_k' => ?_
             c0_hsteps_nogrp
             exact hJret () m_k' ⟨ext_k, s_k', hm_k', fullBumpInv_of_safety inv_k hc' hl' hp'⟩

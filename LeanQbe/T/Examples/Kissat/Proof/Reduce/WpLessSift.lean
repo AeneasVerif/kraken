@@ -9,6 +9,7 @@ public import LeanQbe.T.Examples.Kissat.Proof.Reduce.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Arena
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Contracts1
 public import LeanQbe.T.Logic.CanonicalEnv
+import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
 import LeanQbe.T.Examples.Kissat.Proof.Spec.Arena1
 import LeanQbe.T.Examples.Kissat.Proof.Spec.MemBridges
 import LeanQbe.T.Examples.Kissat.Proof.Spec.Tactics
@@ -120,9 +121,12 @@ private theorem list_swap_mem {α : Type} {xs : List α} {n a b : Nat}
         exact hmem k hk
 
 theorem full_red_less_wp (Γ : Env) :
-    ∀ a m Q X, fullRedLessSpec a m Q X → Func.wp Γ full_red_less_body a m Q X := by
-  rintro ⟨ar_ptr, a, b, ⟨⟩⟩ m Q X ⟨ar, R, ha, hb, hm, hQ⟩
+    ∀ a m Q X, Spec.redLessSpec a m Q X → Func.wp Γ full_red_less_body a m Q X := by
+  rintro ⟨ar_ptr, a, b, ⟨⟩⟩ m Q X hs
+  dsimp only [Spec.redLessSpec] at hs
+  obtain ⟨ar, R, ⟨ha, hb⟩, hm, hQ⟩ := FnContract.elim hs
   unfold Func.wp full_red_less_body
+  dsimp only at ha hb hm ⊢
   have ha0 : a.toNat < ar.length := by omega
   have hb0 : b.toNat < ar.length := by omega
   have ha1 : a.toNat + 1 < ar.length := by omega
@@ -133,12 +137,15 @@ theorem full_red_less_wp (Γ : Env) :
   have hb1_64 : b.toNat + 1 < 2 ^ 64 := by have := b.isLt; omega
   have ha2_64 : a.toNat + 2 < 2 ^ 64 := by have := a.isLt; omega
   have hb2_64 : b.toNat + 2 < 2 ^ 64 := by have := b.isLt; omega
-  c0_hsteps <;> exact hQ _
+  c0_hsteps <;> exact hQ _ () _ trivial (by assumption)
 
 theorem full_red_sift_wp (Γ : Env)
-    (hLess : Γ.Has "full_red_less" fullRedLessSpec) :
-    ∀ a m Q X, fullRedSiftSpec a m Q X → Func.wp Γ full_red_sift_body a m Q X := by
-  rintro ⟨ar_ptr, rr_ptr, start, n, ⟨⟩⟩ m Q X ⟨ar, rr, R, hst, hn_rr, hn62, hrefs, hm, hQ⟩
+    (hLess : Γ.Has "full_red_less" Spec.redLessSpec) :
+    ∀ a m Q X, Spec.redSiftSpec a m Q X → Func.wp Γ full_red_sift_body a m Q X := by
+  rintro ⟨ar_ptr, rr_ptr, start, n, ⟨⟩⟩ m Q X hs
+  dsimp only [Spec.redSiftSpec] at hs
+  obtain ⟨⟨ar, rr⟩, R, ⟨hst, hn_rr, hn62, hrefs⟩, hm, hQ⟩ := FnContract.elim hs
+  dsimp only at hst hn_rr hn62 hrefs hm
   unfold Func.wp full_red_sift_body
   c0_hsteps_nogrp
   let Inv : BitVec 64 → Mem 64 → Prop := fun idx m1 =>
@@ -151,7 +158,7 @@ theorem full_red_sift_wp (Γ : Env)
     (fun idx : BitVec 64 => (idx, ())) (fun idx => n.toNat - idx.toNat) Inv
     (fun _ idx m' ⟨_, rr1, hlen1, hout1, hmem1, hm1⟩ => by
       c0_hsteps
-      exact hQ rr1 m' hlen1 hout1 hmem1 hm1)
+      exact hQ () rr1 m' ⟨hlen1, hout1, hmem1⟩ hm1)
     (fun B L idx m1 hB hL ⟨hidx_le, rr1, hlen1, hout1, hmem1, hm1⟩ => by
       c0_hsplit
       · clear hc
@@ -169,9 +176,10 @@ theorem full_red_sift_wp (Γ : Env)
           let ch1 : BitVec 64 := (idx <<< (1 : Nat)) + 1#64
           have hch1_toNat : ch1.toNat = 2 * idx.toNat + 1 := hch1_eq
           refine wp_join_group (ts := [i64])
-            (fun (best, ()) mb => mb = m1 ∧ idx.toNat < best.toNat ∧ best.toNat < n.toNat)
-            (fun _ (best, ()) mb ⟨hmb, hbi, hbn⟩ => by
-              rcases hmb with rfl
+            (fun (best, ()) mb =>
+              (array (t := i32) ar_ptr ar ⋆ array (t := i32) rr_ptr rr1 ⋆ R) mb ∧
+              idx.toNat < best.toNat ∧ best.toNat < n.toNat)
+            (fun _ (best, ()) mb ⟨hm1b, hbi, hbn⟩ => by
               have hbest_rr : best.toNat < rr1.length := by omega
               have hidx_rr : idx.toNat < rr1.length := by omega
               have href_best : (rr1[best.toNat]'hbest_rr).toNat + 2 < ar.length := by
@@ -183,12 +191,11 @@ theorem full_red_sift_wp (Γ : Env)
                 rw [List.getElem?_eq_getElem hidx_rr] at heq
                 have := hrefs j hj; rw [← heq, Option.getD_some] at this; exact this
               c0_hstraight
-              refine wp_call_of_spec _ _ (hLess _ _ _ _
-                ⟨ar, array (t := i32) rr_ptr rr1 ⋆ R,
-                  by dsimp only [Arg.val]; exact href_idx,
-                  by dsimp only [Arg.val]; exact href_best,
-                  by dsimp only [Arg.val]; exact sep_ac hm1,
-                  fun res => ?_⟩)
+              c0_call hLess
+              refine FnContract.intro ar (array (t := i32) rr_ptr rr1 ⋆ R)
+                ⟨href_idx, href_best⟩ (by dsimp only; exact sep_ac hm1b)
+                (fun _ () m_l _ hm_l => ?_)
+              dsimp only at hm_l
               c0_hstraight; rw [wp_jnz]; constructor <;> intro hres
               · have hrr_idx : idx.toNat < rr1.length := hidx_rr
                 have hrr_best : best.toNat < rr1.length := hbest_rr
@@ -209,7 +216,7 @@ theorem full_red_sift_wp (Γ : Env)
                      exact ⟨j0, hj0, heq.trans heq0⟩,
                    sep_ac (by assumption)⟩
               · c0_hsteps
-                exact hB idx mb ⟨hidx_le, rr1, hlen1, hout1, hmem1, hm1⟩)
+                exact hB idx m_l ⟨hidx_le, rr1, hlen1, hout1, hmem1, sep_ac hm_l⟩)
             (fun _ hJ => by
               have hch2_eq : (ch1 + 1#64).toNat = 2 * idx.toNat + 2 := by
                 rw [BitVec.toNat_add, hch1_toNat, show (1#64).toNat = 1 from rfl,
@@ -230,17 +237,16 @@ theorem full_red_sift_wp (Γ : Env)
                   rw [List.getElem?_eq_getElem hch1_rr] at heq
                   have := hrefs j hj; rw [← heq, Option.getD_some] at this; exact this
                 c0_hstraight
-                refine wp_call_of_spec _ _ (hLess _ _ _ _
-                  ⟨ar, array (t := i32) rr_ptr rr1 ⋆ R,
-                    by dsimp only [Arg.val]; exact href_ch2,
-                    by dsimp only [Arg.val]; exact href_ch1,
-                    by dsimp only [Arg.val]; exact sep_ac hm1,
-                    fun res => ?_⟩)
+                c0_call hLess
+                refine FnContract.intro ar (array (t := i32) rr_ptr rr1 ⋆ R)
+                  ⟨href_ch2, href_ch1⟩ (by dsimp only; exact sep_ac hm1)
+                  (fun _ () m_l _ hm_l => ?_)
+                dsimp only at hm_l
                 c0_hsteps
-                · exact hJ (ch1, ()) m1 ⟨rfl, by omega, by omega⟩
-                · exact hJ (ch1 + 1#64, ()) m1 ⟨rfl, by omega, by omega⟩
+                · exact hJ (ch1, ()) m_l ⟨sep_ac hm_l, by omega, by omega⟩
+                · exact hJ (ch1 + 1#64, ()) m_l ⟨sep_ac hm_l, by omega, by omega⟩
               · c0_hsteps
-                exact hJ (ch1, ()) m1 ⟨rfl, by omega, by omega⟩)
+                exact hJ (ch1, ()) m1 ⟨hm1, by omega, by omega⟩)
       · exact hB idx m1 ⟨hidx_le, rr1, hlen1, hout1, hmem1, hm1⟩)
     (fun _ L _ hL => by
       c0_hsteps

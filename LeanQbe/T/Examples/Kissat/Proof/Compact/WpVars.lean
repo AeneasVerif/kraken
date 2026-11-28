@@ -8,6 +8,7 @@ public import LeanQbe.T.Examples.Kissat.Proof.Compact.Spec
 public import LeanQbe.T.Examples.Kissat.Src.Compact
 public import LeanQbe.T.Logic.CanonicalEnv
 import LeanQbe.T.Examples.Kissat.Proof.Compact.Inv
+import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
 import LeanQbe.T.Examples.Kissat.Proof.Spec.Arena1
 import LeanQbe.T.Examples.Kissat.Proof.Spec.Contracts2
 import LeanQbe.T.Examples.Kissat.Proof.Spec.MemBridges
@@ -168,9 +169,30 @@ public section
 
 /-- Canonical WP proof for `full_compact_vars`. -/
 theorem full_compact_vars_wp (Γ : Env) :
-    ∀ a m Q X, fullCompactVarsSpec a m Q X →
+    ∀ a m Q X, compactVarsSpec a m Q X →
       Func.wp Γ full_compact_vars_body a m Q X := by
-  rintro ⟨h, old_cv, ncv, ⟨⟩⟩ m Q X ⟨c, s, R, rfl, hlen, hold, hncv_le, hinv_ok, hm, hQ⟩
+  rintro ⟨h, old_cv, ncv, ⟨⟩⟩ m Q X hs
+  obtain ⟨c, s, ⟨⟩, R, rfl, hlen, ⟨hold, hncv_le, hinv_ok⟩, hm, hQ0⟩ :=
+    FullCfgContract.elim hs
+  let hQ : ∀ c' vals' fl' lvl' rsns' ft0 fd0 sc' m',
+      let s' : FullState :=
+        { core := { s.core with vals := vals', flags := fl', lvl := lvl', rsns := rsns',
+                                frame_trail := s.core.frame_trail.set 0 ft0,
+                                frame_dec := s.core.frame_dec.set 0 fd0,
+                                trail_end := 0, propagated := 0, cur_level := 0,
+                                unflushed := 0#64, confl_ref := 0xFFFFFFFF#64,
+                                confl_type := 0#64, cur_vars := ncv.toNat, unassigned := ncv }
+          scratch := sc' }
+      FullCfgCompat c c' → s'.LengthsOk c' → ft0.toNat = 0 →
+      (∀ l < 2 * c'.max_vars, l < 2 * old_cv.toNat → vals'[l]?.getD 0#8 = 0#8) →
+      FullExtScratchPres s s' → sc'.work_stk1 = s.scratch.work_stk1 →
+      sc'.work_stk2 = s.scratch.work_stk2 → (FullMem c' s' ⋆ R) m' → Q () m' :=
+    fun c' vals' fl' lvl' rsns' ft0 fd0 sc' m' hcmp hlen' hft0 hvals' hpres' hws1' hws2' hm' => by
+      have hft_eq : ft0 = 0#32 := BitVec.eq_of_toNat_eq (by simpa using hft0)
+      subst hft_eq
+      exact hQ0 () c' _ m' hcmp hlen'
+        ⟨rfl, rfl, ⟨fd0, rfl⟩, ⟨rfl, rfl, rfl, rfl⟩, ⟨rfl, rfl⟩, ⟨rfl, rfl⟩,
+         hvals', hpres', hws1', hws2'⟩ hm'
   have hmax_lt : c.max_vars < 2 * 2 ^ 28 := c.hmaxv
   have hcv_le := hlen.core_ok.cur_vars_le
   have hcv2_lt64 : 2 * old_cv.toNat < 2 ^ 64 := by unfold dimacsBound at hmax_lt; omega

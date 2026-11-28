@@ -9,6 +9,7 @@ public import LeanQbe.T.Examples.Kissat.Proof.Reduce.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Arena
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Contracts1
 public import LeanQbe.T.Logic.CanonicalEnv
+import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
 import LeanQbe.T.Examples.Kissat.Proof.Reduce.WpSortHelpers
 import LeanQbe.T.Examples.Kissat.Proof.Spec.Arena1
 import LeanQbe.T.Examples.Kissat.Proof.Spec.MemBridges
@@ -272,7 +273,7 @@ private theorem sort_reds_radix_copy_tail {Γ : Env} {c : FullCfg} {s : FullStat
 
 private theorem sort_reds_heap_branch {Γ : Env} {c : FullCfg} {s : FullState}
     {R : Mem 64 → Prop} {Q : Post []} {X : XPost} {n : BitVec 64} {m : Mem 64}
-    (hSift : Γ.Has "full_red_sift" fullRedSiftSpec)
+    (hSift : Γ.Has "full_red_sift" redSiftSpec)
     (hrr_len : s.scratch.red_refs.length = c.red_cap)
     (hsb_len : s.scratch.scratch_buf.length = c.scratch_cap)
     (har_len : s.core.arena.length = c.arena_cap)
@@ -337,10 +338,11 @@ private theorem sort_reds_heap_branch {Γ : Env} {c : FullCfg} {s : FullState}
           have hst1_eq : (st - 1).toNat = st.toNat - 1 := bv64_pred_toNat st hst_pos
           c0_call hSift
           let s1 := { s with scratch := { s.scratch with red_refs := rr1 } }
-          refine ⟨s.core.arena, rr1, FullArenaRedRest c s1 ⋆ R,
-            by dsimp only [Arg.val]; rw [hst1_eq]; omega,
-            by dsimp only [Arg.val]; omega, hn62, fun k hk => ?_,
-            focus_full_arena_red_refs hm1, fun rr2 m2 hlen2 _ hmem2 hm2 => ?_⟩
+          refine FnContract.intro (s.core.arena, rr1) (FullArenaRedRest c s1 ⋆ R)
+            ⟨by dsimp only [Arg.val]; rw [hst1_eq]; omega,
+             by dsimp only [Arg.val]; omega, hn62, fun k hk => ?_⟩
+            (focus_full_arena_red_refs hm1)
+            (fun _ rr2 m2 ⟨hlen2, _, hmem2⟩ hm2 => ?_)
           · obtain ⟨j, hj, heq⟩ := hmem1 k hk; rw [heq, har_len]; exact hrefs j hj
           · c0_hfast
             refine hLoop1 (st - 1, ()) m2 (by dsimp only; rw [hst1_eq]; omega)
@@ -363,15 +365,16 @@ private theorem sort_reds_heap_branch {Γ : Env} {c : FullCfg} {s : FullState}
                 have h0_rr : 0 < rr2.length := by omega
                 have hed_rr : ed.toNat < rr2.length := by omega
                 c0_hfast; c0_call hSift
-                dsimp only [Proof.Spec.fullRedSiftSpec, vals, Arg.val]
+                dsimp only [vals, Arg.val]
                 let rr_sw := (rr2.set 0 (rr2[ed.toNat]'hed_rr)).set ed.toNat (rr2[0]'h0_rr)
                 let s_sw := { s with scratch := { s.scratch with red_refs := rr_sw } }
                 have hmem_sw := heap_swap_mem h0_rr hed_rr hed_lt hmem2
-                refine ⟨s.core.arena, rr_sw, FullArenaRedRest c s_sw ⋆ R, Nat.zero_le _,
-                  by simp [rr_sw, hlen2]; omega, by omega, fun k hk => ?_,
-                  focus_full_arena_red_refs
-                    (by first | assumption | (dsimp only [s_sw, rr_sw]; assumption)),
-                  fun rr3 m3 hlen3 hout3 hmem3 hm3 => ?_⟩
+                have hm_foc := focus_full_arena_red_refs (s := s_sw)
+                  (by try dsimp only [s_sw, rr_sw]; assumption)
+                refine FnContract.intro (s.core.arena, rr_sw) (FullArenaRedRest c s_sw ⋆ R)
+                  ⟨by simp, by simp [rr_sw, hlen2]; omega, by omega, fun k hk => ?_⟩
+                  (by dsimp only; exact hm_foc)
+                  (fun _ rr3 m3 ⟨hlen3, hout3, hmem3⟩ hm3 => ?_)
                 · obtain ⟨j, hj, heq⟩ := hmem_sw k (by omega)
                   rw [heq, har_len]; exact hrefs j hj
                 · have hed1_eq : (ed - 1).toNat = ed.toNat - 1 := bv64_pred_toNat ed hed_pos
@@ -389,9 +392,24 @@ private theorem sort_reds_heap_branch {Γ : Env} {c : FullCfg} {s : FullState}
               · exact hQ rr2 s.scratch.scratch_buf m2 hlen2 hsb_len hmem2 hm2))
 
 theorem full_sort_reds_wp (Γ : Env)
-    (hSift : Γ.Has "full_red_sift" fullRedSiftSpec) :
-    ∀ a m Q X, Spec.fullSortRedsSpec a m Q X → Func.wp Γ full_sort_reds_body a m Q X := by
-  rintro ⟨h, n, ⟨⟩⟩ m Q X ⟨c, s, R, rfl, hlen, hn_cap, hrefs, hm, hQ⟩
+    (hSift : Γ.Has "full_red_sift" redSiftSpec) :
+    ∀ a m Q X, Spec.sortRedsSpec a m Q X → Func.wp Γ full_sort_reds_body a m Q X := by
+  rintro ⟨h, n, ⟨⟩⟩ m Q X hs
+  obtain ⟨c, s, _, R, rfl, hlen, ⟨hn_cap, hrefs⟩, hm, hQ0⟩ := FullContract.elim hs
+  let hQ : ∀ (rr' sb' : List (BitVec 32)) (m' : Mem 64),
+      rr'.length = c.red_cap → sb'.length = c.scratch_cap →
+      (∀ k < n.toNat, ∃ j < n.toNat, rr'[k]? = s.scratch.red_refs[j]?) →
+      (FullMem c { s with scratch := { s.scratch with red_refs := rr', scratch_buf := sb' } } ⋆ R)
+        m' → Q () m' := by
+    intro rr' sb' m' hrr' hsb' hperm' hm'
+    let s' : FullState :=
+      { s with scratch := { s.scratch with red_refs := rr', scratch_buf := sb' } }
+    have hlen' : s'.LengthsOk c :=
+      ⟨hlen.core_ok, { hlen.scratch_ok with red_refs_len := hrr', scratch_buf_len := hsb' }⟩
+    have hmod' : ScratchModifies [.red_refs, .scratch_buf] s s' := by
+      intro f hf
+      cases f <;> first | (exfalso; apply hf; decide) | rfl
+    exact hQ0 () s' m' hlen' ⟨rfl, hmod', hperm'⟩ hm'
   have hrr_len := hlen.scratch_ok.red_refs_len
   have hsb_len := hlen.scratch_ok.scratch_buf_len
   have har_len := hlen.core_ok.arena_len_arr

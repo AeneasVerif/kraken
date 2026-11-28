@@ -10,6 +10,7 @@ public import LeanQbe.T.Examples.Kissat.Proof.Heap.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Arena
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Contracts1
 public import LeanQbe.T.Examples.Kissat.Proof.Bump.Spec
+import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
 import LeanQbe.T.Examples.Kissat.Proof.Spec.Arena1
 import LeanQbe.T.Examples.Kissat.Proof.Spec.MemBridges
 import LeanQbe.T.Examples.Kissat.Proof.Spec.Tactics
@@ -91,35 +92,52 @@ private theorem hlen_upd_queue {c : FullCfg} {s : FullState} (hlen : s.LengthsOk
   ⟨hlen.core_ok,
     { hlen.scratch_ok with q_prev_len := hqp, q_next_len := hqn, q_stamp_len := hqs }⟩
 
-private theorem probePres_upd_score (s : FullState) (sc' : List (BitVec 64)) :
-    FullProbeScratchPres s { s with scratch := { s.scratch with score := sc' } } := by
-  simp [FullProbeScratchPres, FullExtScratchPres]
+private theorem scratchModifies_score (s : FullState) (sc' : List (BitVec 64)) :
+    ScratchModifies [.score, .scinc, .heap, .pos] s
+      { s with scratch := { s.scratch with score := sc' } } := by
+  intro f hf; cases f <;> first | exact rfl | (exfalso; exact hf (by simp))
 
-private theorem probePres_upd_scinc (s : FullState) (v : BitVec 64) :
-    FullProbeScratchPres s { s with scratch := { s.scratch with scinc := v } } := by
-  simp [FullProbeScratchPres, FullExtScratchPres]
+private theorem scratchModifies_scinc (s : FullState) (v : BitVec 64) :
+    ScratchModifies [.score, .scinc] s { s with scratch := { s.scratch with scinc := v } } := by
+  intro f hf; cases f <;> first | exact rfl | (exfalso; exact hf (by simp))
 
-private theorem probePres_upd_score_scinc (s : FullState) (sc' : List (BitVec 64))
+private theorem scratchModifies_score_scinc (s : FullState) (sc' : List (BitVec 64))
     (v : BitVec 64) :
-    FullProbeScratchPres s
+    ScratchModifies [.score, .scinc] s
       { s with scratch := { s.scratch with score := sc', scinc := v } } := by
-  simp [FullProbeScratchPres, FullExtScratchPres]
+  intro f hf; cases f <;> first | exact rfl | (exfalso; exact hf (by simp))
 
-private theorem probePres_upd_queue (s : FullState)
-    (qp qn qs : List (BitVec 32)) (qf ql qsi qss qcs : BitVec 64) :
-    FullProbeScratchPres s
-      { s with scratch := { s.scratch with
-        q_prev := qp, q_next := qn, q_stamp := qs, q_first := qf, q_last := ql,
-        q_search_idx := qsi, q_search_stamp := qss, q_cur_stamp := qcs } } := by
-  simp [FullProbeScratchPres, FullExtScratchPres]
+private theorem scratchModifies_renumber (s s' : FullState)
+    (h : ∃ qs qcs qss, s' = { s with scratch := { s.scratch with
+      q_stamp := qs, q_cur_stamp := qcs, q_search_stamp := qss } }) :
+    ScratchModifies [.q_stamp, .q_cur_stamp, .q_search_stamp] s s' := by
+  rcases h with ⟨qs, qcs, qss, rfl⟩
+  intro f hf; cases f <;> first | exact rfl | (exfalso; exact hf (by simp))
+
+private theorem scratchModifies_queue (s s' : FullState)
+    (h : ∃ qp qn qs qf ql qsi qss qcs, s' = { s with scratch := { s.scratch with
+      q_prev := qp, q_next := qn, q_stamp := qs, q_first := qf, q_last := ql,
+      q_search_idx := qsi, q_search_stamp := qss, q_cur_stamp := qcs } }) :
+    ScratchModifies queueFields s s' := by
+  rcases h with ⟨qp, qn, qs, qf, ql, qsi, qss, qcs, rfl⟩
+  intro f hf; cases f <;> first | exact rfl | (exfalso; exact hf (by simp [queueFields]))
+
+private theorem scratchModifies_heap_of_pres {s s' : FullState}
+    (h : ∃ hp' ps', s'.scratch = { s.scratch with heap := hp', pos := ps' }) :
+    ScratchModifies [.heap, .pos] s s' := by
+  rcases h with ⟨hp', ps', hsc⟩
+  intro f hf
+  have heq : s'.scratch.getField f =
+      ({ s.scratch with heap := hp', pos := ps' } : FullScratch).getField f := by rw [hsc]
+  rw [heq]; cases f <;> first | exact rfl | (exfalso; exact hf (by simp))
 
 theorem full_rescale_m6_wp (Γ : Env)
     (hMul : Γ.Has "f64u_mul" f64uPure2Spec)
     (hDiv : Γ.Has "f64u_div" f64uPure2Spec) :
-    ∀ a m Q X, fullRescaleSpec a m Q X →
+    ∀ a m Q X, rescaleSpec a m Q X →
       Func.wp Γ full_rescale_m6_body a m Q X := by
-  rintro ⟨h, ⟨⟩⟩ m Q X ⟨c, s, R, rfl, hlen, hm, hQ⟩
-  dsimp only [fullSafetySlice] at hm hlen
+  rintro ⟨h, ⟨⟩⟩ m Q X hs
+  obtain ⟨c, s, ⟨⟩, R, rfl, hlen, _, hm, hQ⟩ := FullContract.elim hs
   obtain hok := hlen.core_ok
   obtain hsok := hlen.scratch_ok
   obtain hcv_le := hok.cur_vars_le
@@ -185,34 +203,35 @@ theorem full_rescale_m6_wp (Γ : Env)
             · refine wp_call_of_spec _ _ (hMul _ _ _ _ fun ninc => ?_)
               c0_hsteps_nogrp
               exact hQ () { s with scratch := { s.scratch with score := sc3, scinc := ninc } } _
-                rfl (hlen_upd_scinc (hlen_upd_score hlen hsc3) ninc)
-                (probePres_upd_score_scinc s sc3 ninc) (by assumption))
+                (hlen_upd_scinc (hlen_upd_score hlen hsc3) ninc)
+                ⟨rfl, scratchModifies_score_scinc s sc3 ninc⟩ (by assumption))
         (fun J2 hJ2 => by
           c0_hsteps_nogrp
           · exact hJ2 (_, ()) m rfl
           · exact hJ2 (_, ()) m rfl)
 
 theorem full_rescale_wp (Γ : Env)
-    (hRescaleM6 : Γ.Has "full_rescale_m6" fullRescaleSpec) :
-    ∀ a m Q X, fullRescaleSpec a m Q X →
+    (hRescaleM6 : Γ.Has "full_rescale_m6" rescaleSpec) :
+    ∀ a m Q X, rescaleSpec a m Q X →
       Func.wp Γ full_rescale_body a m Q X := by
-  rintro ⟨h, ⟨⟩⟩ m Q X ⟨c, s, R, rfl, hlen, hm, hQ⟩
+  rintro ⟨h, ⟨⟩⟩ m Q X hs
+  obtain ⟨c, s, ⟨⟩, R, rfl, hlen, _, hm, hQ⟩ := FullContract.elim hs
   unfold Func.wp full_rescale_body
   c0_hsteps_nogrp
   c0_call hRescaleM6
-  refine ⟨c, s, R, rfl, hlen, hm, ?_⟩
-  intro _ s' m' hcore' hlen' hpres' hm'
+  refine FullContract.intro (w := ()) hlen trivial hm ?_
+  intro _ s' m' hlen' hpost' hm'
   c0_hsteps_nogrp
-  exact hQ () s' m' hcore' hlen' hpres' hm'
+  exact hQ () s' m' hlen' hpost' hm'
 
 theorem full_bump_var_wp (Γ : Env)
     (hAdd : Γ.Has "f64u_add" f64uPure2Spec)
     (hHeapUp : Γ.Has "full_heap_up" fullHeapUpSpec)
-    (hRescale : Γ.Has "full_rescale" fullRescaleSpec) :
-    ∀ a m Q X, fullBumpVarSpec a m Q X →
+    (hRescale : Γ.Has "full_rescale" rescaleSpec) :
+    ∀ a m Q X, bumpVarSpec a m Q X →
       Func.wp Γ full_bump_var_body a m Q X := by
-  rintro ⟨h, v, ⟨⟩⟩ m Q X ⟨c, s, R, rfl, hlen, hm, hQ⟩
-  dsimp only [fullSafetySlice] at hm hlen
+  rintro ⟨h, v, ⟨⟩⟩ m Q X hs
+  obtain ⟨c, s, ⟨⟩, R, rfl, hlen, _, hm, hQ⟩ := FullContract.elim hs
   obtain hok := hlen.core_ok
   obtain hsok := hlen.scratch_ok
   obtain hcv_le := hok.cur_vars_le
@@ -223,7 +242,7 @@ theorem full_bump_var_wp (Γ : Env)
   have hv_z : (BitVec.setWidth 64 v).toNat = v.toNat := zext_toNat v (by decide)
   unfold Func.wp full_bump_var_body
   c0_hsteps_nogrp
-  · exact hQ () s m rfl hlen (fullProbeScratchPres_refl s) hm
+  · exact hQ () s m hlen ⟨rfl, ScratchModifies.refl _ s⟩ hm
   · have hv_lt : v.toNat < s.core.cur_vars := by
       have h1 : (BitVec.setWidth 64 v).toNat < (BitVec.ofNat 64 s.core.cur_vars).toNat := by
         c0_bound
@@ -236,74 +255,78 @@ theorem full_bump_var_wp (Γ : Env)
     let s1 : FullState := { s with scratch := { s.scratch with
       score := s.scratch.score.set v.toNat nsc } }
     have hlen1 : s1.LengthsOk c := hlen_upd_score hlen (by simp [hsc_len])
-    have hpres1 : FullProbeScratchPres s s1 := probePres_upd_score s _
+    have hmod1 : ScratchModifies [.score, .scinc, .heap, .pos] s s1 :=
+      scratchModifies_score s _
     have hm1 : (FullMem c s1 ⋆ R) m := by
       dsimp only [s1]
       rw [← hv_z]
       assumption
     refine wp_join_group
-      (fun _ m2 => ∃ s2 : FullState, PreservesCoreSlice FullState.core s s2 ∧
-        s2.LengthsOk c ∧ FullProbeScratchPres s s2 ∧ (FullMem c s2 ⋆ R) m2)
-      (fun _ _ m2 ⟨s2, hcore2, hlen2, hpres2, hm2⟩ => by
+      (fun _ m2 => ∃ s2 : FullState, CorePres s s2 ∧
+        s2.LengthsOk c ∧ ScratchModifies [.score, .scinc, .heap, .pos] s s2 ∧
+        (FullMem c s2 ⋆ R) m2)
+      (fun _ _ m2 ⟨s2, hcore2, hlen2, hmod2, hm2⟩ => by
         c0_hsteps_nogrp
         refine wp_join_group
-          (fun _ m3 => ∃ s3 : FullState, PreservesCoreSlice FullState.core s s3 ∧
-            s3.LengthsOk c ∧ FullProbeScratchPres s s3 ∧ (FullMem c s3 ⋆ R) m3)
-          (fun _ _ m3 ⟨s3, hcore3, hlen3, hpres3, hm3⟩ => by
+          (fun _ m3 => ∃ s3 : FullState, CorePres s s3 ∧
+            s3.LengthsOk c ∧ ScratchModifies [.score, .scinc, .heap, .pos] s s3 ∧
+            (FullMem c s3 ⋆ R) m3)
+          (fun _ _ m3 ⟨s3, hcore3, hlen3, hmod3, hm3⟩ => by
             c0_hsteps_nogrp
-            exact hQ () s3 m3 hcore3 hlen3 hpres3 hm3)
+            exact hQ () s3 m3 hlen3 ⟨hcore3, hmod3⟩ hm3)
           (fun J2 hJ2 => by
             c0_hsteps_nogrp
             · c0_call hRescale
-              refine ⟨c, s2, R, rfl, hlen2, hm2, ?_⟩
-              intro _ s3 m3 hcore3 hlen3 hpres3 hm3
+              refine FullContract.intro (w := ()) hlen2 trivial hm2 ?_
+              intro _ s3 m3 hlen3 ⟨hcore3, hmod3⟩ hm3
               c0_hsteps_nogrp
-              exact hJ2 () m3 ⟨s3, hcore2.trans hcore3, hlen3,
-                fullProbeScratchPres_trans hpres2 hpres3, hm3⟩
-            · exact hJ2 () m2 ⟨s2, hcore2, hlen2, hpres2, hm2⟩))
+              exact hJ2 () m3 ⟨s3, CorePres.trans hcore2 hcore3, hlen3,
+                ScratchModifies.trans hmod2 (ScratchModifies.mono hmod3 (by decide)), hm3⟩
+            · exact hJ2 () m2 ⟨s2, hcore2, hlen2, hmod2, hm2⟩))
       (fun J1 hJ1 => by
         c0_hsteps_nogrp
         · c0_call hHeapUp
           exact ⟨c, s1, R, rfl, hlen1, hm1, fun _ s2 m2 hcore2 hlen2 hpres2 hm2 => by
             c0_hsteps_nogrp
-            exact hJ1 () m2 ⟨s2, hcore2, hlen2,
-              fullProbeScratchPres_trans hpres1 hpres2.1, hm2⟩⟩
-        · exact hJ1 () m ⟨s1, rfl, hlen1, hpres1, hm1⟩)
+            have hmod2 : ScratchModifies [.score, .scinc, .heap, .pos] s1 s2 :=
+              ScratchModifies.mono (scratchModifies_heap_of_pres hpres2.2) (by decide)
+            exact hJ1 () m2 ⟨s2, hcore2, hlen2, ScratchModifies.trans hmod1 hmod2, hm2⟩⟩
+        · exact hJ1 () m ⟨s1, rfl, hlen1, hmod1, hm1⟩)
 
 theorem full_bump_decay_wp (Γ : Env)
     (hMul : Γ.Has "f64u_mul" f64uPure2Spec)
-    (hRescale : Γ.Has "full_rescale" fullRescaleSpec) :
-    ∀ a m Q X, fullBumpDecaySpec a m Q X →
+    (hRescale : Γ.Has "full_rescale" rescaleSpec) :
+    ∀ a m Q X, rescaleSpec a m Q X →
       Func.wp Γ full_bump_decay_body a m Q X := by
-  rintro ⟨h, ⟨⟩⟩ m Q X ⟨c, s, R, rfl, hlen, hm, hQ⟩
-  dsimp only [fullSafetySlice] at hm hlen
+  rintro ⟨h, ⟨⟩⟩ m Q X hs
+  obtain ⟨c, s, ⟨⟩, R, rfl, hlen, _, hm, hQ⟩ := FullContract.elim hs
   unfold Func.wp full_bump_decay_body
   c0_hsteps_nogrp
   refine wp_call_of_spec _ _ (hMul _ _ _ _ fun ninc => ?_)
   c0_hsteps_nogrp
   let s1 : FullState := { s with scratch := { s.scratch with scinc := ninc } }
   have hlen1 : s1.LengthsOk c := hlen_upd_scinc hlen ninc
-  have hpres1 : FullProbeScratchPres s s1 := probePres_upd_scinc s ninc
+  have hmod1 : ScratchModifies [.score, .scinc] s s1 := scratchModifies_scinc s ninc
   refine wp_join_group
-    (fun _ m2 => ∃ s2 : FullState, PreservesCoreSlice FullState.core s s2 ∧
-      s2.LengthsOk c ∧ FullProbeScratchPres s s2 ∧ (FullMem c s2 ⋆ R) m2)
-    (fun _ _ m2 ⟨s2, hcore2, hlen2, hpres2, hm2⟩ => by
+    (fun _ m2 => ∃ s2 : FullState, CorePres s s2 ∧
+      s2.LengthsOk c ∧ ScratchModifies [.score, .scinc] s s2 ∧ (FullMem c s2 ⋆ R) m2)
+    (fun _ _ m2 ⟨s2, hcore2, hlen2, hmod2, hm2⟩ => by
       c0_hsteps_nogrp
-      exact hQ () s2 m2 hcore2 hlen2 hpres2 hm2)
+      exact hQ () s2 m2 hlen2 ⟨hcore2, hmod2⟩ hm2)
     (fun J1 hJ1 => by
       c0_hsteps_nogrp
       · c0_call hRescale
-        refine ⟨c, s1, R, rfl, hlen1, by assumption, ?_⟩
-        intro _ s2 m2 hcore2 hlen2 hpres2 hm2
+        refine FullContract.intro (w := ()) hlen1 trivial (by assumption) ?_
+        intro _ s2 m2 hlen2 ⟨hcore2, hmod2⟩ hm2
         c0_hsteps_nogrp
-        exact hJ1 () m2 ⟨s2, hcore2, hlen2, fullProbeScratchPres_trans hpres1 hpres2, hm2⟩
-      · exact hJ1 () _ ⟨s1, rfl, hlen1, hpres1, by assumption⟩)
+        exact hJ1 () m2 ⟨s2, hcore2, hlen2, ScratchModifies.trans hmod1 hmod2, hm2⟩
+      · exact hJ1 () _ ⟨s1, rfl, hlen1, hmod1, by assumption⟩)
 
 theorem full_queue_renumber_wp (Γ : Env) :
-    ∀ a m Q X, fullQueueRenumberSpec a m Q X →
+    ∀ a m Q X, queueRenumberSpec a m Q X →
       Func.wp Γ full_queue_renumber_body a m Q X := by
-  rintro ⟨h, ⟨⟩⟩ m Q X ⟨c, s, R, rfl, hlen, hm, hQ⟩
-  dsimp only [fullSafetySlice] at hm hlen
+  rintro ⟨h, ⟨⟩⟩ m Q X hs
+  obtain ⟨c, s, ⟨⟩, R, rfl, hlen, _, hm, hQ⟩ := FullContract.elim hs
   obtain hok := hlen.core_ok
   obtain hsok := hlen.scratch_ok
   obtain hcv_le := hok.cur_vars_le
@@ -331,18 +354,19 @@ theorem full_queue_renumber_wp (Γ : Env) :
     (fun _ _ m2 ⟨qs2, hqs2, hm2⟩ => by
       c0_hsteps_nogrp
       refine wp_join_group
-        (fun _ m3 => ∃ s3 : FullState, s3.core = s.core ∧ s3.LengthsOk c ∧
-          FullProbeScratchPres s s3 ∧ (FullMem c s3 ⋆ R) m3)
-        (fun _ _ m3 ⟨s3, hcore3, hlen3, hpres3, hm3⟩ => by
+        (fun _ m3 => ∃ s3 : FullState, CorePres s s3 ∧ s3.LengthsOk c ∧
+          ScratchModifies [.q_stamp, .q_cur_stamp, .q_search_stamp] s s3 ∧
+          (FullMem c s3 ⋆ R) m3)
+        (fun _ _ m3 ⟨s3, hcore3, hlen3, hmod3, hm3⟩ => by
           c0_hsteps_nogrp
-          exact hQ () s3 m3 hcore3 hlen3 hpres3 hm3)
+          exact hQ () s3 m3 hlen3 ⟨hcore3, hmod3⟩ hm3)
         (fun J2 hJ2 => by
           let s2 : FullState := { s with scratch := { s.scratch with
             q_stamp := qs2, q_cur_stamp := BitVec.setWidth 64 st } }
           have hlen2 : s2.LengthsOk c :=
             hlen_upd_queue hlen hsok.q_prev_len hqn_len hqs2
-          have hpres2 : FullProbeScratchPres s s2 :=
-            probePres_upd_queue s _ _ qs2 _ _ _ _ _
+          have hmod2 : ScratchModifies [.q_stamp, .q_cur_stamp, .q_search_stamp] s s2 :=
+            scratchModifies_renumber s s2 ⟨qs2, _, s.scratch.q_search_stamp, rfl⟩
           c0_hsteps_nogrp
           · have hqsi_lt : s.scratch.q_search_idx.toNat < s.core.cur_vars := by
               have h1 : s.scratch.q_search_idx.toNat <
@@ -356,10 +380,10 @@ theorem full_queue_renumber_wp (Γ : Env) :
                 (qs2[s.scratch.q_search_idx.toNat]'hqsi_qs) } }
             have hlen3 : s3.LengthsOk c :=
               hlen_upd_queue hlen hsok.q_prev_len hqn_len hqs2
-            have hpres3 : FullProbeScratchPres s s3 :=
-              probePres_upd_queue s _ _ qs2 _ _ _ _ _
-            exact hJ2 () _ ⟨s3, rfl, hlen3, hpres3, by assumption⟩
-          · exact hJ2 () _ ⟨s2, rfl, hlen2, hpres2, by assumption⟩))
+            have hmod3 : ScratchModifies [.q_stamp, .q_cur_stamp, .q_search_stamp] s s3 :=
+              scratchModifies_renumber s s3 ⟨qs2, _, _, rfl⟩
+            exact hJ2 () _ ⟨s3, rfl, hlen3, hmod3, by assumption⟩
+          · exact hJ2 () _ ⟨s2, rfl, hlen2, hmod2, by assumption⟩))
     (fun Jb hJb => by
       c0_hsteps_nogrp
       · have hcur_lt : cur.toNat < s.core.cur_vars := by
@@ -379,7 +403,7 @@ theorem full_queue_renumber_wp (Γ : Env) :
 
 private def QueueMtfState (c : FullCfg) (s s1 : FullState) (R : Mem 64 → Prop)
     (m1 : Mem 64) : Prop :=
-  s1.core = s.core ∧ s1.LengthsOk c ∧ FullProbeScratchPres s s1 ∧ (FullMem c s1 ⋆ R) m1
+  s1.core = s.core ∧ s1.LengthsOk c ∧ ScratchModifies queueFields s s1 ∧ (FullMem c s1 ⋆ R) m1
 
 private theorem queue_mtf_search_wp {Γ : Env} {Q : Post []} {X : XPost} {c : FullCfg}
     {s : FullState} {R : Mem 64 → Prop} {v pv0 : BitVec 32} {m : Mem 64} {J1 : Cont []}
@@ -472,7 +496,8 @@ private theorem queue_mtf_search_wp {Γ : Env} {Q : Post []} {X : XPost} {c : Fu
           rw [hqs_len]; dsimp [qsi1]; rw [zext_toNat _ (by decide)]; omega))
         exact hJs () _ ⟨qsi1, qss1, rfl,
           hlen_upd_queue hlen hqp_len hqn_len hqs_len,
-          probePres_upd_queue s _ _ _ _ _ _ _ _, by dsimp [qsi1, qss1]; assumption⟩
+          fun f hf => by cases f <;> first | exact rfl | exact absurd (by decide) hf,
+          by dsimp [qsi1, qss1]; assumption⟩
       · have hv_qn : (BitVec.setWidth 64 v).toNat < s.scratch.q_next.length := by
           rw [hv_z, hqn_len]; omega
         c0_hsteps_nogrp
@@ -503,16 +528,17 @@ private theorem queue_mtf_search_wp {Γ : Env} {Q : Post []} {X : XPost} {c : Fu
                 rw [hqs_len]; dsimp [qsi1]; rw [zext_toNat _ (by decide)]; omega))
               exact hJs1 () _ ⟨qsi1, qss1, rfl,
                 hlen_upd_queue hlen hqp_len hqn_len hqs_len,
-                probePres_upd_queue s _ _ _ _ _ _ _ _, by dsimp [qsi1, qss1]; assumption⟩
+                scratchModifies_queue s _ ⟨_, _, _, _, _, qsi1, qss1, _, rfl⟩,
+                by dsimp [qsi1, qss1]; assumption⟩
             · exact hJs1 () m ⟨s.scratch.q_search_idx, s.scratch.q_search_stamp,
-                rfl, hlen, fullProbeScratchPres_refl s, hm⟩))
+                rfl, hlen, ScratchModifies.refl _ s, hm⟩))
 
 theorem full_queue_mtf_wp (Γ : Env)
-    (hRenumber : Γ.Has "full_queue_renumber" fullQueueRenumberSpec) :
-    ∀ a m Q X, fullQueueMtfSpec a m Q X →
+    (hRenumber : Γ.Has "full_queue_renumber" queueRenumberSpec) :
+    ∀ a m Q X, queueMtfSpec a m Q X →
       Func.wp Γ full_queue_mtf_body a m Q X := by
-  rintro ⟨h, v, ⟨⟩⟩ m Q X ⟨c, s, R, rfl, hlen, hm, hQ⟩
-  dsimp only [fullSafetySlice] at hm hlen
+  rintro ⟨h, v, ⟨⟩⟩ m Q X hs
+  obtain ⟨c, s, ⟨⟩, R, rfl, hlen, _, hm, hQ⟩ := FullContract.elim hs
   obtain hok := hlen.core_ok
   obtain hsok := hlen.scratch_ok
   obtain hcv_le := hok.cur_vars_le
@@ -526,8 +552,8 @@ theorem full_queue_mtf_wp (Γ : Env)
   have hv_z : (BitVec.setWidth 64 v).toNat = v.toNat := zext_toNat v (by decide)
   unfold Func.wp full_queue_mtf_body
   c0_hsteps_nogrp
-  · exact hQ () s m rfl hlen (fullProbeScratchPres_refl s) hm
-  · exact hQ () s m rfl hlen (fullProbeScratchPres_refl s) hm
+  · exact hQ () s m hlen ⟨rfl, ScratchModifies.refl _ s⟩ hm
+  · exact hQ () s m hlen ⟨rfl, ScratchModifies.refl _ s⟩ hm
   · have hv_lt : v.toNat < s.core.cur_vars := by
       have h1 : (BitVec.setWidth 64 v).toNat < (BitVec.ofNat 64 s.core.cur_vars).toNat := by
         c0_bound
@@ -569,7 +595,7 @@ theorem full_queue_mtf_wp (Γ : Env)
                           (fun _ m6 => ∃ s6 : FullState, QueueMtfState c s s6 R m6)
                           (fun _ _ m6 ⟨s6, hcore6, hlen6, hpres6, hm6⟩ => by
                             c0_hsteps_nogrp
-                            exact hQ () s6 m6 hcore6 hlen6 hpres6 hm6)
+                            exact hQ () s6 m6 hlen6 ⟨hcore6, hpres6⟩ hm6)
                           (fun _ hJ6 => by
                             have hv2_lt5 : ((BitVec.setWidth 64 v) <<< (1 : Nat)).toNat <
                                 s5.core.vals.length := by
@@ -588,20 +614,20 @@ theorem full_queue_mtf_wp (Γ : Env)
                               exact hJ6 () _ ⟨s6, hcore5,
                                 hlen_upd_queue hlen5 hlen5.scratch_ok.q_prev_len
                                   hlen5.scratch_ok.q_next_len hqs5,
-                                fullProbeScratchPres_trans hpres5
-                                  (probePres_upd_queue s5 _ _ _ _ _ _ _ _),
+                                ScratchModifies.trans hpres5
+                                  (scratchModifies_queue s5 s6
+                                    ⟨_, _, _, _, _, _, _, _, rfl⟩),
                                 by assumption⟩
                             · exact hJ6 () m5 ⟨s5, hcore5, hlen5, hpres5, hm5⟩))
                       (fun _ hJst => by
                         c0_hsteps_nogrp
                         · c0_call hRenumber
-                          refine ⟨c, s4, R, rfl, hlen4, hm4,
-                            fun _ s5 m5 hcore5 hlen5 hpres5 hm5 => ?_⟩
+                          refine FullContract.intro (w := ()) hlen4 trivial hm4 ?_
+                          intro _ s5 m5 hlen5 ⟨hcore5, hmod5⟩ hm5
                           c0_hsteps_nogrp
-                          exact hJst () m5 ⟨s5, by
-                            dsimp only [PreservesCoreSlice, fullSafetySlice] at hcore5
-                            exact hcore5.trans hcore4,
-                            hlen5, fullProbeScratchPres_trans hpres4 hpres5, hm5⟩
+                          exact hJst () m5 ⟨s5, CorePres.trans hcore4 hcore5, hlen5,
+                            ScratchModifies.trans hpres4
+                              (ScratchModifies.mono hmod5 (by decide)), hm5⟩
                         · have hqs4 : s4.scratch.q_stamp.length = c.max_vars :=
                             hlen4.scratch_ok.q_stamp_len
                           have hv_qs4 : (BitVec.setWidth 64 v).toNat <
@@ -615,8 +641,8 @@ theorem full_queue_mtf_wp (Γ : Env)
                           exact hJst () _ ⟨s5, hcore4,
                             hlen_upd_queue hlen4 hlen4.scratch_ok.q_prev_len
                               hlen4.scratch_ok.q_next_len (by simp [hqs4]),
-                            fullProbeScratchPres_trans hpres4
-                              (probePres_upd_queue s4 _ _ _ _ _ _ _ _),
+                            ScratchModifies.trans hpres4
+                              (scratchModifies_queue s4 s5 ⟨_, _, _, _, _, _, _, _, rfl⟩),
                             by assumption⟩))
                   (fun _ hJold => by
                     let ql3 := s3.scratch.q_last.setWidth 32
@@ -631,8 +657,8 @@ theorem full_queue_mtf_wp (Γ : Env)
                         q_first := BitVec.setWidth 64 v } }
                       exact hJold () _ ⟨s4, hcore3,
                         hlen_upd_queue hlen3 hqp4 hqn3 hlen3.scratch_ok.q_stamp_len,
-                        fullProbeScratchPres_trans hpres3
-                          (probePres_upd_queue s3 qp4 _ _ _ _ _ _ _),
+                        ScratchModifies.trans hpres3
+                          (scratchModifies_queue s3 s4 ⟨qp4, _, _, _, _, _, _, _, rfl⟩),
                         by assumption⟩
                     · have hol_lt : ql3.toNat < s.core.cur_vars := by
                         have h1 : (BitVec.setWidth 64 ql3).toNat <
@@ -648,16 +674,16 @@ theorem full_queue_mtf_wp (Γ : Env)
                         q_next := s3.scratch.q_next.set (BitVec.setWidth 64 ql3).toNat v } }
                       exact hJold () _ ⟨s4, hcore3,
                         hlen_upd_queue hlen3 hqp4 (by simp [hqn3]) hlen3.scratch_ok.q_stamp_len,
-                        fullProbeScratchPres_trans hpres3
-                          (probePres_upd_queue s3 qp4 _ _ _ _ _ _ _),
+                        ScratchModifies.trans hpres3
+                          (scratchModifies_queue s3 s4 ⟨qp4, _, _, _, _, _, _, _, rfl⟩),
                         by assumption⟩))
               (fun _ hJnv => by
                 c0_hsteps_nogrp
                 · let s3 : FullState := { s2 with scratch := { s2.scratch with
                     q_last := BitVec.setWidth 64 pv } }
                   exact hJnv () _ ⟨s3, hcore2, hlen_upd_qlast hlen2 _,
-                    fullProbeScratchPres_trans hpres2
-                      (probePres_upd_queue s2 _ _ _ _ _ _ _ _),
+                    ScratchModifies.trans hpres2
+                      (scratchModifies_queue s2 s3 ⟨_, _, _, _, _, _, _, _, rfl⟩),
                     by assumption⟩
                 · have hnv_lt : nv.toNat < s.core.cur_vars := by
                     have h1 : (BitVec.setWidth 64 nv).toNat <
@@ -672,8 +698,8 @@ theorem full_queue_mtf_wp (Γ : Env)
                     q_prev := s2.scratch.q_prev.set (BitVec.setWidth 64 nv).toNat pv } }
                   exact hJnv () _ ⟨s3, hcore2,
                     hlen_upd_qprev hlen2 (by simp [hlen2.scratch_ok.q_prev_len]),
-                    fullProbeScratchPres_trans hpres2
-                      (probePres_upd_queue s2 _ _ _ _ _ _ _ _),
+                    ScratchModifies.trans hpres2
+                      (scratchModifies_queue s2 s3 ⟨_, _, _, _, _, _, _, _, rfl⟩),
                     by assumption⟩))
           (fun _ hJpv => by
             let s1a : FullState := { s1 with scratch := { s1.scratch with
@@ -683,14 +709,15 @@ theorem full_queue_mtf_wp (Γ : Env)
             have hqn1a : s1a.scratch.q_next.length = c.max_vars := by simp [s1a, hqn1_s]
             have hlen1a : s1a.LengthsOk c :=
               hlen_upd_queue hlen1 hqp1a hqn1a hqs1_s
-            have hpres1a : FullProbeScratchPres s s1a :=
-              fullProbeScratchPres_trans hpres1 (probePres_upd_queue s1 _ _ _ _ _ _ _ _)
+            have hpres1a : ScratchModifies queueFields s s1a :=
+              ScratchModifies.trans hpres1
+                (scratchModifies_queue s1 s1a ⟨_, _, _, _, _, _, _, _, rfl⟩)
             c0_hsteps_nogrp
             · let s2 : FullState := { s1a with scratch := { s1a.scratch with
                 q_first := BitVec.setWidth 64 nv } }
               exact hJpv () _ ⟨s2, hcore1, hlen_upd_qfirst hlen1a _,
-                fullProbeScratchPres_trans hpres1a
-                  (probePres_upd_queue s1a _ _ _ _ _ _ _ _),
+                ScratchModifies.trans hpres1a
+                  (scratchModifies_queue s1a s2 ⟨_, _, _, _, _, _, _, _, rfl⟩),
                 by assumption⟩
             · have hpv_lt : pv.toNat < s.core.cur_vars := by
                 have h1 : (BitVec.setWidth 64 pv).toNat <
@@ -705,8 +732,8 @@ theorem full_queue_mtf_wp (Γ : Env)
                 q_next := s1a.scratch.q_next.set (BitVec.setWidth 64 pv).toNat nv } }
               exact hJpv () _ ⟨s2, hcore1,
                 hlen_upd_qnext hlen1a (by simp [s1a, hqn1_s]),
-                fullProbeScratchPres_trans hpres1a
-                  (probePres_upd_queue s1a _ _ _ _ _ _ _ _),
+                ScratchModifies.trans hpres1a
+                  (scratchModifies_queue s1a s2 ⟨_, _, _, _, _, _, _, _, rfl⟩),
                 by assumption⟩))
       (fun J0 hJ0 => by
         c0_hsteps_nogrp
@@ -714,8 +741,8 @@ theorem full_queue_mtf_wp (Γ : Env)
             rw [hv_z, hqp_len]; omega
           exact queue_mtf_search_wp hv_lt hv_z hlen rfl hm
             (fun qsi1 qss1 m1 hm1 => hJ0 () m1 ⟨_, hm1⟩)
-        · exact hJ0 () m ⟨s, rfl, hlen, fullProbeScratchPres_refl s, hm⟩
-        · exact hJ0 () m ⟨s, rfl, hlen, fullProbeScratchPres_refl s, hm⟩)
+        · exact hJ0 () m ⟨s, rfl, hlen, ScratchModifies.refl _ s, hm⟩
+        · exact hJ0 () m ⟨s, rfl, hlen, ScratchModifies.refl _ s, hm⟩)
 
 end
 

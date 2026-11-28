@@ -782,7 +782,7 @@ end FlMainHelpers
 `Analyze.Spec.anaFailedLitSpec`. -/
 theorem full_ana_failed_lit_m6_hdr_wp (Γ : Env)
     (hClear : ∀ a m Q X, fullClearAnaSpec a m Q X → Γ "full_clear_ana" [i64] [] a m Q X)
-    (hBumpMode : ∀ a m Q X, fullBumpAnalyzedModeSpec a m Q X →
+    (hBumpMode : ∀ a m Q X, bumpAnalyzedModeSpec a m Q X →
       Γ "full_bump_analyzed_mode_fid" [i64, .bool] [] a m Q X)
     (hBacktrackAc : ∀ a m Q X, fullBacktrackSpec a m Q X →
       Γ "full_backtrack_ac_fid" [i64, i64] [] a m Q X)

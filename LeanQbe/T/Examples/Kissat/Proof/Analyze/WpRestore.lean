@@ -8,6 +8,7 @@ public import LeanQbe.T.Examples.Kissat.Proof.Analyze.Helpers
 public import LeanQbe.T.Examples.Kissat.Proof.Bump.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Deduce.Spec
 public import LeanQbe.T.Examples.Kissat.Src.Analyze
+import LeanQbe.T.Examples.Kissat.Proof.Bump.Helpers
 import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
 
 /-!
@@ -71,7 +72,7 @@ private theorem restore_core_lengthsOk {c : FullCfg} {s0 s1 : FullState}
   exact ⟨{ h1c with mrk_len := hmrk, min_clr_len_le := hmcl, repr_len := hrepr }, hscr⟩
 
 private theorem restore_bump_clear_wp (Γ : Env)
-    (hBump : Γ.Has "full_bump_analyzed_mode_fid" fullBumpAnalyzedModeSpec)
+    (hBump : Γ.Has "full_bump_analyzed_mode_fid" bumpAnalyzedModeSpec)
     (hClr : Γ.Has "full_clear_ana" Deduce.Spec.fullClearAnaSpec)
     {c : FullCfg} {ext : List (BitVec 64)} {s0 s : FullState} {R : Mem 64 → Prop}
     {m : Mem 64} {Q : Post []} {X : XPost} {ar : Bool} {J_ret : Cont []}
@@ -97,8 +98,8 @@ private theorem restore_bump_clear_wp (Γ : Env)
           Expr.jump J_ret ()) m := by
   have hmHdr : (FullM6HdrMem c ext s ⋆ R) m := fullM6HdrMem_unfocus hm
   c0_call hBump
-  refine fullBumpAnalyzedModeSpec_of hcfg hext hlen (fullBumpPre_of_cov ar hcov) hmHdr ?_
-  intro mrk1 mcl1 repr1 sc1 ext1 m1 s1 hlen1 hcov1 _ _ hpres1 hws21 hext1 hw2b1 hm1
+  refine M6HdrContract.intro (w := ()) hcfg hext hlen (fullBumpPre_of_cov ar hcov) hmHdr ?_
+  rintro ⟨⟩ ext1 s1 m1 hext1 hw2b1 hlen1 ⟨hcore_agr, hcov1, _, _, hpres1, hws21⟩ hm1
   have hcov1' : FullAnaMarksCov c s1 := hcov1 hcov
   c0_hsteps
   c0_call hClr
@@ -108,9 +109,16 @@ private theorem restore_bump_clear_wp (Γ : Env)
   intro mrk2 m2 hmrk2 _ _ hall0 hm2
   c0_hsteps
   have hmrk_all : ∀ v < c.max_vars, mrk2[v]?.getD 0#8 = 0#8 := hall0 hcov1'
+  let mrk1 := s1.core.mrk
+  let mcl1 := s1.core.min_clr_len
+  let repr1 := s1.core.repr
+  let sc1 := s1.scratch
   have hs1c : s1.core = { s0.core with mrk := mrk1, min_clr_len := mcl1, repr := repr1 } := by
-    change { s.core with mrk := mrk1, min_clr_len := mcl1, repr := repr1 } = _
-    rw [hcore]
+    have hc1 : s1.core = { s.core with mrk := mrk1, min_clr_len := mcl1, repr := repr1 } := by
+      cases hs_c : s.core; cases hs1_c : s1.core
+      dsimp only [AgreesExcept, bumpAnalyzedCoreMask] at hcore_agr
+      rw [hs_c, hs1_c] at hcore_agr; cases hcore_agr; simp only [mrk1, mcl1, repr1, hs1_c]
+    rw [hc1, hcore]
   have hlen2 : ({ core := { s0.core with mrk := mrk2, min_clr_len := 0, repr := repr1 }
                   scratch := sc1 } : FullState).LengthsOk c := by
     have h1c := hlen1.core_ok
@@ -168,7 +176,7 @@ private theorem restore_push_step {c : FullCfg} {s0 s1 : FullState} {mcl : Nat}
   exact ⟨hlen2, hcov2', hcore2, fullExtScratchPres_trans hpres1 ⟨rfl, rfl⟩, hws21⟩
 
 theorem full_restore_bump_ana_mode_fid_wp (Γ : Env)
-    (hBump : Γ.Has "full_bump_analyzed_mode_fid" fullBumpAnalyzedModeSpec)
+    (hBump : Γ.Has "full_bump_analyzed_mode_fid" bumpAnalyzedModeSpec)
     (hClr : Γ.Has "full_clear_ana" Deduce.Spec.fullClearAnaSpec) :
     ∀ args m Q X,
       restoreBumpAnaModeSpec args m Q X →

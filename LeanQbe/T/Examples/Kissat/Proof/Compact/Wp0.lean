@@ -5,9 +5,11 @@ Released under Apache 2.0 license as described in the file LICENSE.
 module
 
 public import LeanQbe.T.Examples.Kissat.Proof.Compact.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.PropSearch.Spec
 public import LeanQbe.T.Examples.Kissat.Src.Compact
 public import LeanQbe.T.Logic.CanonicalEnv
 import LeanQbe.T.Examples.Kissat.Proof.Compact.Inv
+import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
 import LeanQbe.T.Examples.Kissat.Proof.Spec.Arena1
 import LeanQbe.T.Examples.Kissat.Proof.Spec.MemBridges
 import LeanQbe.T.Examples.Kissat.Proof.Spec.Tactics
@@ -75,16 +77,17 @@ public section
 
 /-- Canonical WP proof for `full_compact_needed` (`10%` dead-variable compaction trigger). -/
 theorem full_compact_needed_wp (Γ : Env) :
-    ∀ a m Q X, fullCompactNeededSpec a m Q X →
+    ∀ a m Q X, compactNeededSpec a m Q X →
       Func.wp Γ full_compact_needed_body a m Q X := by
-  rintro ⟨h, ⟨⟩⟩ m Q X ⟨c, s, R, rfl, hlen, hcl_lt, hm, hQ⟩
+  rintro ⟨h, ⟨⟩⟩ m Q X hs
+  obtain ⟨c, s, ⟨⟩, R, rfl, hlen, hcl_lt, hm, hQ⟩ := FullContract.elim hs
   have hcv := hlen.core_ok.cur_vars_le
   have hmx := c.hmaxv; unfold dimacsBound at hmx
   unfold Func.wp full_compact_needed_body
   c0_hsteps <;>
     first
-    | exact hQ false fun hf => Bool.noConfusion hf
-    | (refine hQ _ fun hres => ?_
+    | exact hQ (false, ()) s m hlen ⟨rfl, fun hf => Bool.noConfusion hf⟩ hm
+    | (refine hQ (_, ()) s m hlen ⟨rfl, fun hres => ?_⟩ hm
        have hcl0 : s.core.cur_level = 0 := by c0_bound
        have hdm0 : s.core.dense_mode = 0#64 := by c0_bound
        have hcv_pos : 0 < s.core.cur_vars := by c0_bound
@@ -105,13 +108,18 @@ theorem full_compact_needed_wp (Γ : Env) :
 
 /-- Canonical WP proof for `full_compact_flush` (`full_flush_trail` delegate). -/
 theorem full_compact_flush_wp (Γ : Env)
-    (hFlush : Γ.Has "full_flush_trail" flushTrailM6Spec) :
-    ∀ a m Q X, fullCompactFlushSpec a m Q X →
+    (hFlush : Γ.Has "full_flush_trail" PropSearch.Spec.flushTrailM6Spec) :
+    ∀ a m Q X, compactFlushSpec a m Q X →
       Func.wp Γ full_compact_flush_body a m Q X := by
-  rintro ⟨h, ⟨⟩⟩ m Q X ⟨c, F0, ext, s, R, rfl, hinv, hm, hQ⟩
+  rintro ⟨h, ⟨⟩⟩ m Q X hs
+  obtain ⟨c, ext, s, F0, R, rfl, _, _, _, hinv, hm, hQ⟩ := M6HdrContract.elim hs
   unfold Func.wp full_compact_flush_body
   c0_hsteps; cmp_call hFlush
-  exact ⟨c, F0, ext, s, R, rfl, hinv, hm, hQ⟩
+  refine ⟨c, F0, ext, s, R, rfl, hinv, hm,
+    fun r ext' s' m' hext' hrel' hinv' _ _ _ _ _ hr hcv' _ hfu' _ h20 h1 _ hm' => ?_⟩
+  exact hQ (r, ()) ext' s' m' hext' hrel' hinv'.sparse.lengths
+    ⟨hinv', hr, hcv', hfu', h20, fun eq1 =>
+      let ⟨hcl, _, _, _, hinc, _⟩ := h1 eq1; ⟨hcl, hinc⟩⟩ hm'
 
 /-! ## 2. `full_compact_mark_live` -/
 
@@ -125,24 +133,20 @@ private theorem fullSparseInvW_with_ws1 {c : FullCfg} {F0 : CNF Nat}
 /-- Canonical WP proof for `full_compact_mark_live`. -/
 theorem full_compact_mark_live_wp (Γ : Env)
     (hnext : Γ.Has "full_arena_next" fullArenaNextSpec) :
-    ∀ a m Q X, fullCompactMarkLiveSpec a m Q X →
+    ∀ a m Q X, compactMarkLiveSpec a m Q X →
       Func.wp Γ full_compact_mark_live_body a m Q X := by
-  rintro ⟨h, ⟨⟩⟩ m Q X ⟨c, F0, F_cur, s, R, rfl, hsp, hm, hQ⟩
+  rintro ⟨h, ⟨⟩⟩ m Q X hs
+  obtain ⟨c, s, ⟨F0, F_cur⟩, R, rfl, _, hsp, hm, hQ⟩ := FullContract.elim hs
   have hlen := hsp.1
   have hw := hsp.2.1
   have hdm := hsp.2.2.2.2.2
   have hwat : WatchesInv F_cur s.core := by
     have hm' := hw.watches; unfold ModeWatchesInv at hm'; rwa [ite_eq_left hdm] at hm'
-  have hcv_le := hlen.core_ok.cur_vars_le
-  have hal_le := hlen.core_ok.arena_len_le
-  have har_len := hlen.core_ok.arena_len_arr
-  have hv_len := hlen.core_ok.vals_len
-  have hfl_len := hlen.core_ok.flags_len
-  have hwv_len := hlen.core_ok.wvec_len
-  have hws_len := hlen.core_ok.wstk_len_arr
-  have hws1_len := hlen.scratch_ok.work_stk1_len
-  have hmx := c.hmaxv; have hac := c.harena; have hwc := c.hwcap
-  unfold dimacsBound at hmx hac hwc
+  have hcv_le := hlen.core_ok.cur_vars_le; have hal_le := hlen.core_ok.arena_len_le
+  have har_len := hlen.core_ok.arena_len_arr; have hv_len := hlen.core_ok.vals_len
+  have hfl_len := hlen.core_ok.flags_len; have hwv_len := hlen.core_ok.wvec_len
+  have hws_len := hlen.core_ok.wstk_len_arr; have hws1_len := hlen.scratch_ok.work_stk1_len
+  have hmx := c.hmaxv; have hac := c.harena; have hwc := c.hwcap; unfold dimacsBound at hmx hac hwc
   unfold Func.wp full_compact_mark_live_body
   c0_hsteps_nogrp
   refine wp_loop_inv
@@ -165,7 +169,7 @@ theorem full_compact_mark_live_wp (Γ : Env)
           ⟨by rw [hv1_eq]; omega, ws1.set v.toNat 0#32, by simp [hlen1], by assumption⟩
       · refine hLoop1 (v + 1#64, ()) _ (by dsimp only; rw [hv1_eq]; omega)
           ⟨by rw [hv1_eq]; omega, ws1.set v.toNat 0#32, by simp [hlen1], by assumption⟩
-    · clear hLoop1 J1 hc hv_le v hm m
+    · clear hLoop1 J1 hc hv_le v hm hs m
       c0_hsteps_nogrp
       refine wp_loop_inv
         (fun (l, ()) m2 =>
@@ -309,7 +313,11 @@ theorem full_compact_mark_live_wp (Γ : Env)
                 (FullMem c { s with scratch := { s.scratch with work_stk1 := ws_end } } ⋆ R) m_end)
             (fun _ ⟨_, ⟨⟩⟩ m_end ⟨ws_end, hlen_end, hm_end⟩ => by
               c0_hsteps
-              exact hQ ws_end m_end (fullSparseInvW_with_ws1 hsp hlen_end) hm_end)
+              have hsp_end := fullSparseInvW_with_ws1 hsp hlen_end
+              have hmod_end : ScratchModifies [.work_stk1] s
+                  { s with scratch := { s.scratch with work_stk1 := ws_end } } := by
+                intro f hf; cases f <;> first | exact rfl | (exfalso; exact hf (by simp))
+              exact hQ () _ m_end hsp_end.1 ⟨rfl, hmod_end, hsp_end⟩ hm_end)
             (fun Jbrk hJbrk => by
               refine wp_loop_inv
                 (fun (p, ()) m3 =>
@@ -574,9 +582,10 @@ theorem full_compact_mark_live_wp (Γ : Env)
 
 /-- Canonical WP proof for `full_compact_assign_map`. -/
 theorem full_compact_assign_map_wp (Γ : Env) :
-    ∀ a m Q X, fullCompactAssignMapSpec a m Q X →
+    ∀ a m Q X, compactAssignMapSpec a m Q X →
       Func.wp Γ full_compact_assign_map_body a m Q X := by
-  rintro ⟨h, ⟨⟩⟩ m Q X ⟨c, s, R, rfl, hlen, hm, hQ⟩
+  rintro ⟨h, ⟨⟩⟩ m Q X hs
+  obtain ⟨c, s, ⟨⟩, R, rfl, hlen, _, hm, hQ⟩ := FullContract.elim hs
   have hcv_le := hlen.core_ok.cur_vars_le
   have hmax_lt : c.max_vars < 2 * 2 ^ 28 := c.hmaxv
   have hcv_lt : s.core.cur_vars < 0x7FFFFFFF := by unfold dimacsBound at hmax_lt; omega
@@ -696,15 +705,32 @@ theorem full_compact_assign_map_wp (Γ : Env) :
     · have hv_eq : v.toNat = s.core.cur_vars := by c0_bound
       rw [hv_eq] at hmapL hinvL hnv_le
       c0_hsteps
-      exact hQ ncv ws1 ws2 mL ⟨hlen.core_ok, { hlen.scratch_ok with
+      let s' : FullState :=
+        { s with scratch := { s.scratch with work_stk1 := ws1, work_stk2 := ws2 } }
+      have hlen' : s'.LengthsOk c := ⟨hlen.core_ok, { hlen.scratch_ok with
         work_stk1_len := hlen1, work_stk2_len := hlen2 }⟩
-        ⟨hnv_le, hcv_lt, hmapL, hinvL⟩ hmL
+      have hmod' : ScratchModifies [.work_stk1, .work_stk2] s s' := by
+        intro f hf; cases f <;> first | exact rfl | (exfalso; exact hf (by simp))
+      exact hQ (ncv, ()) s' mL hlen' ⟨rfl, hmod', ⟨hnv_le, hcv_lt, hmapL, hinvL⟩⟩ hmL
 
 /-- Canonical WP proof for `full_compact_record_ext`. -/
 theorem full_compact_record_ext_wp (Γ : Env) :
-    ∀ a m Q X, fullCompactRecordExtSpec a m Q X →
+    ∀ a m Q X, compactRecordExtSpec a m Q X →
       Func.wp Γ full_compact_record_ext_body a m Q X := by
-  rintro ⟨h, old_cv, ncv, ⟨⟩⟩ m Q X ⟨c, s, R, rfl, hlen, hold, hncv_le, helen, hm, hQ⟩
+  rintro ⟨h, old_cv, ncv, ⟨⟩⟩ m Q X hs
+  obtain ⟨c, s, ⟨⟩, R, rfl, hlen, ⟨hold, hncv_le, helen⟩, hm, hQ0⟩ := FullContract.elim hs
+  let hQ : ∀ (ok : Bool) (ext' : List (BitVec 32)) (elen' : Nat) m',
+      let s' : FullState :=
+        { s with scratch := { s.scratch with extend_stk := ext', extend_len := elen' } }
+      s'.LengthsOk c → elen' ≤ c.extend_cap →
+      (ok = false → ext' = s.scratch.extend_stk ∧ elen' = s.scratch.extend_len) →
+      (FullMem c s' ⋆ R) m' → Q (ok, ()) m' :=
+    fun ok ext' elen' m' hlen' hel' hfalse hm' => by
+      have hmod' : ScratchModifies [.extend_stk, .extend_len] s
+          { s with scratch := { s.scratch with extend_stk := ext', extend_len := elen' } } := by
+        intro f hf; cases f <;> first | exact rfl | (exfalso; exact hf (by simp))
+      exact hQ0 (ok, ()) _ m' hlen' ⟨rfl, hmod', hel', fun hok => by
+        obtain ⟨rfl, rfl⟩ := hfalse hok; rfl⟩ hm'
   have hcv_le := hlen.core_ok.cur_vars_le
   have hv_len := hlen.core_ok.vals_len
   have hws2_len := hlen.scratch_ok.work_stk2_len

@@ -190,8 +190,8 @@ private def fullCerts : List SubsystemCert :=
       Clause.Spec.specs_noExit, Clause.cert⟩
   , ⟨Src.Tiers.fns, Tiers.Spec.specs, Float64.Spec.specs, Tiers.Spec.specs_sigs,
       rfl, Tiers.cert⟩
-  , ⟨Src.Bump.fns, Bump.Spec.specs, Bump.Spec.deps, Bump.Spec.specs_sigs,
-      List.all_eq_true.mpr Bump.Spec.specs_noExit, Bump.cert⟩
+  , ⟨Src.Bump.fns, Bump.Spec.specs, Bump.deps, Bump.specs_sigs,
+      Bump.specs_noExit, Bump.cert⟩
   , ⟨Src.Internal.fns, Internal.Spec.specs, Internal.Spec.deps, Internal.Spec.specs_sigs,
       Internal.Spec.specs_noExit, Internal.cert⟩
   , ⟨Src.PropSearch.fns, PropSearch.Spec.specs, PropSearch.Spec.deps,
@@ -200,10 +200,10 @@ private def fullCerts : List SubsystemCert :=
       List.all_eq_true.mpr Parse.Spec.specs_noExit, Parse.cert⟩
   , ⟨Src.Collect.fns, Collect.Spec.specs, Collect.Spec.deps, Collect.Spec.specs_sigs,
       Collect.Spec.specs_noExit, Collect.cert⟩
-  , ⟨Src.Compact.fns, Compact.Spec.specs, Compact.Spec.deps, Compact.Spec.specs_sigs,
-      Compact.Spec.specs_noExit, Compact.cert⟩
-  , ⟨Src.Reduce.fns, Reduce.Spec.specs, Reduce.Spec.deps, Reduce.Spec.specs_sigs,
-      List.all_eq_true.mpr Reduce.Spec.specs_noExit, Reduce.cert⟩
+  , ⟨Src.Compact.fns, Compact.Spec.specs, Compact.deps, Compact.specs_sigs,
+      Compact.specs_noExit, Compact.cert⟩
+  , ⟨Src.Reduce.fns, Reduce.Spec.specs, Reduce.deps, Reduce.specs_sigs,
+      Reduce.specs_noExit, Reduce.cert⟩
   , ⟨Deduce.fns, Deduce.Spec.specs, Deduce.Spec.deps, Deduce.Spec.specs_sigs,
       Deduce.Spec.specs_noExit, Deduce.cert⟩
   , ⟨Src.Minimize.fns, Minimize.Spec.specs, [], Minimize.specs_sigs, rfl, Minimize.cert⟩
