@@ -712,7 +712,7 @@ theorem walk_m6_frame_walk_m7 {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost
 
 theorem walk_call_next_dec_var_m6 {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     {m : Mem 64} {args : Tup (Arg Val) [i64]} {k : Tup Val [i64] → Expr Val Cont rs}
-    (hNdv : Γ.Has "full_next_dec_var" fullNextDecVarSpec)
+    (hNdv : Γ.Has "full_next_dec_var" nextDecVarSpec)
     {c : FullCfg} {F0 : CNF Nat} {ext : List (BitVec 64)} {s : FullState} {R : Mem 64 → Prop}
     (hargs : vals args = (c.hdr, ())) (hinv : FullM6HdrInv c F0 ext s)
     (hm : (FullM6HdrMem c ext s ⋆ R) m)
@@ -723,13 +723,14 @@ theorem walk_call_next_dec_var_m6 {Γ : Env} {rs : List Ty} {Q : Post rs} {X : X
       (FullM6HdrMem c ext s' ⋆ R) m' → wp Γ Q X (k (r, ())) m') :
     wp Γ Q X (.call "full_next_dec_var" args k) m := by
   refine wp_call_of_spec args k ?_; rw [hargs]
-  exact hNdv _ _ _ _ (fullM6Hdr_frame_safetySlice hinv.cfgOk hinv.extOk hinv.sparse.lengths
-    (rfl : c.hdr = c.hdr) hm fun (r, ()) s' m' hs' hc ⟨hext', hr⟩ hcfg hext hm' =>
-      let hc' : s'.core = s.core := by dsimp only [fullSafetySlice] at hc; exact hc
-      let hextOk := FullExtScratchOk.of_pres hinv.sparse.2.2.2.1 hext'
-        (fun _ ha => by unfold fullArenaClauseRefs fullArenaClauseRefsCore at ha ⊢; rwa [hc'])
-      let hinv' := FullM6HdrInv.mk_inv hcfg hext (hinv.sparse.with_scratch hs' hc' hextOk)
-      hk r s' m' hinv' hc' hext' hr hm')
+  refine hNdv _ _ _ _ ?_
+  dsimp only [nextDecVarSpec]
+  refine FullContract.intro (w := ()) hinv.sparse.lengths trivial (fullM6HdrMem_focus_full hm) ?_
+  rintro ⟨r, ⟨⟩⟩ s' m' hs' ⟨hc', hext', hr⟩ hm'
+  have hextOk := FullExtScratchOk.of_pres hinv.sparse.2.2.2.1 hext'
+    (fun _ ha => by unfold fullArenaClauseRefs fullArenaClauseRefsCore at ha ⊢; rwa [hc'])
+  have hinv' := FullM6HdrInv.mk_inv hinv.cfgOk hinv.extOk (hinv.sparse.with_scratch hs' hc' hextOk)
+  exact hk r s' m' hinv' hc' hext' hr (fullM6HdrMem_unfocus_full hm')
 
 theorem fullArenaPermEq_refl (k : FullCoreState) : FullArenaPermEq k k :=
   ⟨rfl, rfl, fun _ _ => ⟨rfl, rfl, List.Perm.refl _⟩⟩

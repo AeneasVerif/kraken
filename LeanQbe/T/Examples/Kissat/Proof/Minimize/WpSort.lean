@@ -5,7 +5,9 @@ Released under Apache 2.0 license as described in the file LICENSE.
 module
 
 public import LeanQbe.T.Examples.Kissat.Proof.Minimize.WpSortMerge
+public import LeanQbe.T.Examples.Kissat.Src.Minimize
 import LeanQbe.T.Examples.Kissat.Proof.Minimize.MinTactics
+import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
 import LeanQbe.T.Logic.C0Grind
 import LeanQbe.T.Logic.C0HeadStep
 import LeanQbe.T.Logic.ControlComb
@@ -279,7 +281,7 @@ private abbrev s7SortScatExpr {Val : Ty → Type} {Cont : List Ty → Type}
 
 /-! ## 3. Finishing Helper -/
 
-/-- Finishing lemma deriving every `Spec.fullSortTmpSpec` postcondition from a slice
+/-- Finishing lemma deriving every `Spec.sortTmpSpec` postcondition from a slice
 permutation, `tmp[0]` preservation and level-sortedness. -/
 private theorem s7_finish_spec {c : FullCfg} {s st' : FullState}
     {tmp' ws' : List (BitVec 32)} {R : Mem 64 → Prop} {m' : Mem 64} {Q : Post []}
@@ -295,21 +297,8 @@ private theorem s7_finish_spec {c : FullCfg} {s st' : FullState}
       (s.core.lvl[(tmp'[i]?.getD 0#32).toNat / 2]?.getD 0#32).toNat ≤
       (s.core.lvl[(tmp'[j]?.getD 0#32).toNat / 2]?.getD 0#32).toNat)
     (hm' : (FullMem c st' ⋆ R) m')
-    (hQ : ∀ tmp' wsort' m',
-      let s' : FullState := FullState.mk { s.core with tmp := tmp' }
-        { s.scratch with wsort := wsort' };
-      FullState.LengthsOk c s' → tmp'.length = c.max_vars →
-      (s.core.tmp_len ≤ 32 → wsort' = s.scratch.wsort) →
-      (tmp'.take s.core.tmp_len).Perm (s.core.tmp.take s.core.tmp_len) →
-      (0 < s.core.tmp_len → tmp'[0]? = s.core.tmp[0]?) →
-      (∀ j, 1 ≤ j → j < s.core.tmp_len →
-        ∃ i, 1 ≤ i ∧ i < s.core.tmp_len ∧ tmp'[j]? = s.core.tmp[i]?) →
-      (∀ i, 1 ≤ i → i < s.core.tmp_len →
-        ∃ j, 1 ≤ j ∧ j < s.core.tmp_len ∧ s.core.tmp[i]? = tmp'[j]?) →
-      (∀ i j, 1 ≤ i → i ≤ j → j < s.core.tmp_len →
-        (s.core.lvl[(tmp'[i]?.getD 0#32).toNat / 2]?.getD 0#32).toNat ≤
-        (s.core.lvl[(tmp'[j]?.getD 0#32).toNat / 2]?.getD 0#32).toNat) →
-      FullExtScratchPres s s' → (FullMem c s' ⋆ R) m' → Q () m') :
+    (hQ : ∀ (res : Tup Val []) (s' : FullState) m', s'.LengthsOk c →
+      Spec.SortTmpPost s s' → (FullMem c s' ⋆ R) m' → Q res m') :
     Q () m' := by
   have hst_ok := m7SortTmp_stateOk c s tmp' ws' hlenOk hlen_t hlen_w
   have htake : (tmp'.take s.core.tmp_len).Perm (s.core.tmp.take s.core.tmp_len) := by
@@ -323,8 +312,11 @@ private theorem s7_finish_spec {c : FullCfg} {s st' : FullState}
   have hst_eq : st' = FullState.mk { s.core with tmp := tmp' }
       { s.scratch with wsort := ws' } :=
     s7_state_eq hc' hs'
-  exact hQ tmp' ws' m' hst_ok.1 hlen_t hle32_w htake h0 hbij.1 hbij.2 hsort
-    hst_ok.2 (hst_eq ▸ hm')
+  exact hQ () st' m' (hst_eq ▸ hst_ok.1)
+    ⟨by subst hst_eq; rfl, by rw [hs']; exact hle32_w, by rw [hc']; exact htake,
+     by rw [hc']; exact h0, by rw [hc']; exact hbij.1, by rw [hc']; exact hbij.2,
+     by rw [hc']; exact hsort⟩
+    hm'
 
 /-! ## 4. `tlen ≤ 32` Level-Only Insertion Sort -/
 
@@ -1152,21 +1144,8 @@ private theorem s7_sort_tail_wp {Γ : Env} {c : FullCfg} {s st_c : FullState}
     (hlenOk : FullState.LengthsOk c s) (htl : s.core.tmp_len ≤ c.max_vars)
     (hbd : ∀ k, 1 ≤ k → k < s.core.tmp_len →
       (s.core.tmp[k]?.getD 0#32).toNat < 2 * c.max_vars)
-    (hQ : ∀ tmp' wsort' m',
-      let s' : FullState := FullState.mk { s.core with tmp := tmp' }
-        { s.scratch with wsort := wsort' };
-      FullState.LengthsOk c s' → tmp'.length = c.max_vars →
-      (s.core.tmp_len ≤ 32 → wsort' = s.scratch.wsort) →
-      (tmp'.take s.core.tmp_len).Perm (s.core.tmp.take s.core.tmp_len) →
-      (0 < s.core.tmp_len → tmp'[0]? = s.core.tmp[0]?) →
-      (∀ j, 1 ≤ j → j < s.core.tmp_len →
-        ∃ i, 1 ≤ i ∧ i < s.core.tmp_len ∧ tmp'[j]? = s.core.tmp[i]?) →
-      (∀ i, 1 ≤ i → i < s.core.tmp_len →
-        ∃ j, 1 ≤ j ∧ j < s.core.tmp_len ∧ s.core.tmp[i]? = tmp'[j]?) →
-      (∀ i j, 1 ≤ i → i ≤ j → j < s.core.tmp_len →
-        (s.core.lvl[(tmp'[i]?.getD 0#32).toNat / 2]?.getD 0#32).toNat ≤
-        (s.core.lvl[(tmp'[j]?.getD 0#32).toNat / 2]?.getD 0#32).toNat) →
-      FullExtScratchPres s s' → (FullMem c s' ⋆ R) m' → Q () m')
+    (hQ : ∀ (res : Tup Val []) (s' : FullState) m', s'.LengthsOk c →
+      Spec.SortTmpPost s s' → (FullMem c s' ⋆ R) m' → Q res m')
     (hNgt32 : 32 < s.core.tmp_len) (hmn_mx : minL.toNat ≤ maxL.toNat)
     (hst_c : st_c.core = { s.core with tmp := s.core.tmp })
     (hst_s : st_c.scratch = { s.scratch with wsort := ws_k })
@@ -1307,15 +1286,14 @@ private theorem s7_sort_tail_wp {Γ : Env} {c : FullCfg} {s st_c : FullState}
       · c0_hsteps!; exact hExit () m_c rfl
 
 /-- `Func.wp` soundness of `full_sort_tmp` (`≤ 32` insertion sort, `> 32` counting sort in
-`wsort`, bottom-up merge-sort fallback) against `Spec.fullSortTmpSpec`. -/
+`wsort`, bottom-up merge-sort fallback) against `Spec.sortTmpSpec`. -/
 theorem full_sort_tmp_wp (Γ : Env) :
     ∀ (args : Tup Val [i64]) (m : Mem 64) (Q : Post []) (X : XPost),
-      Spec.fullSortTmpSpec args m Q X →
+      Spec.sortTmpSpec args m Q X →
       Func.wp Γ full_sort_tmp_body args m Q X := by
   intro args m Q X hspec
   rcases args with ⟨p_hd, ⟨⟩⟩
-  obtain ⟨c, s, R, heq, hlenOk, htl, hbd, hm, hQ⟩ := hspec
-  subst heq
+  obtain ⟨c, s, _, R, rfl, hlenOk, ⟨htl, hbd⟩, hm, hQ⟩ := FullContract.elim hspec
   dsimp only [Func.wp, full_sort_tmp_body]
   have htmp_len : s.core.tmp.length = c.max_vars := hlenOk.core_ok.tmp_len_arr
   have hlvl_len : s.core.lvl.length = c.max_vars := hlenOk.core_ok.lvl_len

@@ -49,7 +49,7 @@ structure ShrinkScratch where
   resSz : BitVec 64
 
 abbrev ShrinkScratch.st (b : ShrinkScratch) (s : FullState) : FullState :=
-  Spec.s13BlkState s b.tmp b.mrk b.mclr b.sstk b.wsort b.ws1 b.mcl b.mcf b.ticks b.resSz
+  s13BlkState s b.tmp b.mrk b.mclr b.sstk b.wsort b.ws1 b.mcl b.mcf b.ticks b.resSz
 
 abbrev ShrinkScratch.ofState (s : FullState) : ShrinkScratch :=
   ⟨s.core.tmp, s.core.mrk, s.core.min_clr, s.scratch.shrink_stk, s.scratch.wsort,
@@ -106,7 +106,7 @@ theorem m6Witness_fin {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)} {s 
     {mcf1 conf1 llits1 mrem1 ticks1 resSz1 : BitVec 64}
     (hw : FullOtfsWitnessInv c F0 F_cur s.core) :
     FullOtfsWitnessInv c F0 F_cur
-      (Spec.fullMinShrinkState s tmp1 tl1 mrk1 mclr1 sstk1 wsort1 ws1 mcl1 mcf1 conf1 llits1
+      (fullMinShrinkState s tmp1 tl1 mrk1 mclr1 sstk1 wsort1 ws1 mcl1 mcf1 conf1 llits1
         mrem1 ticks1 resSz1).core :=
   { hw with
     arena := { hw.arena with len_ok := hw.arena.len_ok }
@@ -119,7 +119,7 @@ theorem m6Blk_mark_step (s : FullState) (b : ShrinkScratch) (v : Nat) (tag : Bit
       mcl := st'.core.min_clr_len, mcf := st'.core.min_clr_full }).st s := by
   intro st'
   dsimp only [st', fullMinMarkStepState, fullMinMarkStepCore, fullMinMarkCore, ShrinkScratch.st,
-    Spec.s13BlkState]
+    s13BlkState]
   split <;> rfl
 
 theorem m6LitMarksClear_of {c : FullCfg} {s s' : FullState}
@@ -958,7 +958,7 @@ theorem m6_finish_spec {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)} {s
     (hsstk_len' : sstk'.length = c.max_vars) (hw_len' : wsort'.length = 2 * c.max_vars)
     (hws1_len' : ws1'.length = 2 * c.max_vars)
     (hmrk0' : ∀ w < c.max_vars, mrk'[w]?.getD 0#8 = 0#8) :
-    let s' := Spec.fullMinShrinkState s tmp' keep mrk' mclr' sstk' wsort' ws1' 0 0#64 conf'
+    let s' := fullMinShrinkState s tmp' keep mrk' mclr' sstk' wsort' ws1' 0 0#64 conf'
       llits' mrem' ticks' resSz'
     s'.LengthsOk c ∧ FullOtfsWitnessInv c F0 F_cur s'.core ∧ FullLitMarksClear c s' ∧
     1 ≤ keep ∧ keep ≤ s.core.tmp_len ∧ tmp'[0]? = s.core.tmp[0]? ∧
@@ -973,7 +973,7 @@ theorem m6_finish_spec {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)} {s
   have hcv := hlen.core_ok.cur_vars_le
   refine ⟨?_, m6Witness_fin hw, m6LitMarksClear_of hclear (fun v hv => hmrk0' v hv) rfl,
     hout.keep_ge1, hot_eq ▸ hout.keep_le, hout.tmp0_eq, hout.nodup, hout.elem_ok, hout.ent⟩
-  dsimp only [s', Spec.fullMinShrinkState]
+  dsimp only [s', fullMinShrinkState]
   exact ⟨{ hlen.core_ok with
     tmp_len_arr := hout.tmp_len
     tmp_len_le := by

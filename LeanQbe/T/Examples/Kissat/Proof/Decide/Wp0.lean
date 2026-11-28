@@ -6,6 +6,7 @@ module
 
 public import LeanQbe.T.Examples.Kissat.Proof.Decide.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Heap.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Arena1
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Tactics
 public import LeanQbe.T.Examples.Kissat.Src.Decide
@@ -16,7 +17,7 @@ public import LeanQbe.T.Logic.ControlComb
 /-!
 # Soundness Proofs for `Kissat.Src.Decide` — Part 0 (`Proof.Decide.Wp0`)
 
-Proves `full_next_dec_var_wp` against `Proof.Spec.fullNextDecVarSpec` (`0` legacy imports,
+Proves `full_next_dec_var_wp` against `Spec.nextDecVarSpec` (`0` legacy imports,
 `0` `@[expose]` on theorems/lemmas/sections).
 -/
 
@@ -106,11 +107,20 @@ private theorem next_dec_not_found_ret {c : FullCfg} {s s' : FullState}
     Q (0xFFFFFFFFFFFFFFFF#64, ()) m' :=
   hQ (0xFFFFFFFFFFFFFFFF#64, ()) s' m' hcore hlen' ⟨hext', Or.inl rfl⟩ hm'
 
-/-- Soundness proof for `full_next_dec_var` against canonical `fullNextDecVarSpec`. -/
+/-- Soundness proof for `full_next_dec_var` against canonical `Spec.nextDecVarSpec`. -/
 theorem full_next_dec_var_wp (Γ : Env)
     (hPop : ∀ a m Q X, fullHeapPopSpec a m Q X → Γ "full_heap_pop" [i64] [i64] a m Q X) :
-    ∀ a m Q X, fullNextDecVarSpec a m Q X → Func.wp Γ full_next_dec_var_body a m Q X := by
-  rintro ⟨h, ⟨⟩⟩ m Q X ⟨c, s, R, rfl, hlen, hm, hQ⟩
+    ∀ a m Q X, Spec.nextDecVarSpec a m Q X → Func.wp Γ full_next_dec_var_body a m Q X := by
+  rintro ⟨h, ⟨⟩⟩ m Q X hs
+  obtain ⟨c, s, _, R, rfl, hlen, _, hm, hQ0⟩ := FullContract.elim hs
+  let hQ : ∀ (r : Tup Val [i64]) (s1 : FullState) (m1 : Mem 64),
+      PreservesCoreSlice (fullSafetySlice c).coreProj s s1 →
+      (fullSafetySlice c).safe s1 →
+      (FullExtScratchPres s s1 ∧
+        (r.1 = 0xFFFFFFFFFFFFFFFF#64 ∨
+          r.1.toNat < s.core.cur_vars ∧ s.core.vals[2 * r.1.toNat]?.getD 0#8 = 0#8)) →
+      ((fullSafetySlice c).mem s1 ⋆ R) m1 → Q r m1 :=
+    fun r s1 m1 hc1 hs1 ⟨he1, hr1⟩ hm1 => hQ0 r s1 m1 hs1 ⟨hc1, he1, hr1⟩ hm1
   dsimp only [fullSafetySlice] at hlen hm hQ
   obtain hmax : c.max_vars < 2 * dimacsBound := c.hmaxv
   unfold dimacsBound at hmax

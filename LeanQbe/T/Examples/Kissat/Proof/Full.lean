@@ -206,13 +206,13 @@ private def fullCerts : List SubsystemCert :=
       List.all_eq_true.mpr Reduce.Spec.specs_noExit, Reduce.cert⟩
   , ⟨Deduce.fns, Deduce.Spec.specs, Deduce.Spec.deps, Deduce.Spec.specs_sigs,
       Deduce.Spec.specs_noExit, Deduce.cert⟩
-  , ⟨Src.Minimize.fns, Minimize.Spec.specs, [], Minimize.Spec.specs_sigs, rfl, Minimize.cert⟩
-  , ⟨Src.Learn.fns, Learn.Spec.specs, Learn.Spec.deps, Learn.Spec.specs_sigs,
-      Learn.Spec.specs_noExit, Learn.cert⟩
-  , ⟨Src.Analyze.fns, Analyze.Spec.specs, Analyze.Spec.deps, Analyze.Spec.specs_sigs,
-      Analyze.Spec.specs_noExit, Analyze.cert⟩
-  , ⟨Src.Decide.fns, Decide.Spec.specs, Decide.Spec.deps, Decide.Spec.specs_sigs,
-      Decide.Spec.specs_noExit, Decide.cert⟩
+  , ⟨Src.Minimize.fns, Minimize.Spec.specs, [], Minimize.specs_sigs, rfl, Minimize.cert⟩
+  , ⟨Src.Learn.fns, Learn.Spec.specs, Learn.deps, Learn.specs_sigs,
+      List.all_eq_true.mpr Learn.specs_noExit, Learn.cert⟩
+  , ⟨Src.Analyze.fns, Analyze.Spec.specs, Analyze.deps, Analyze.specs_sigs,
+      Analyze.specs_noExit, Analyze.cert⟩
+  , ⟨Src.Decide.fns, Decide.Spec.specs, Decide.deps, Decide.specs_sigs,
+      Decide.specs_noExit, Decide.cert⟩
   , ⟨Src.Restart.fns, Restart.Spec.specs, Restart.deps, Restart.specs_sigs,
       Restart.specs_noExit, Restart.cert⟩
   , ⟨Src.Extend.fns, Extend.Spec.specs, [], Extend.Spec.specs_sigs, rfl, Extend.cert⟩

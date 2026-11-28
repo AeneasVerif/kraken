@@ -9,6 +9,7 @@ public import LeanQbe.T.Examples.Kissat.Src.Minimize
 public import LeanQbe.T.Logic.CanonicalEnv
 import LeanQbe.T.Examples.Kissat.Proof.Minimize.MinTactics
 import LeanQbe.T.Examples.Kissat.Proof.Minimize.WpMinDfsHelpers
+import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
 import LeanQbe.T.Examples.Kissat.Proof.Spec.Arena1
 import LeanQbe.T.Logic.C0Grind
 import LeanQbe.T.Logic.C0HeadStep
@@ -19,7 +20,7 @@ import LeanQbe.T.Logic.ControlComb
 # `full_min_lit_dfs_m8` WP Proof for `Kissat.Src.Minimize`
 
 Proves `Func.wp Γ full_min_lit_dfs_m8_body ...` against canonical `Spec.fullMinLitDfsSpec`,
-consuming callee contract `Γ.Has "full_min_mark" Spec.fullMinMarkSpec`.
+consuming callee contract `Γ.Has "full_min_mark" Spec.minMarkSpec`.
 -/
 
 set_option autoImplicit false
@@ -110,7 +111,7 @@ private theorem m8MinLitDfs_brk_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
     {F_cur0 : List (List Nat)} {s : FullState} {keepSet : List Nat}
     {root_lit : BitVec 32} {idx0 : Nat} {R : Mem 64 → Prop} {Q : Post [.bool]} {X : XPost}
     {sp_b cd_b steps_b : Val i64} {ok_b : Val .bool} {m_b : Mem 64}
-    (hMm : Γ.Has "full_min_mark" Spec.fullMinMarkSpec)
+    (hMm : Γ.Has "full_min_mark" Spec.minMarkSpec)
     (hcore : FullOtfsCoreInv c F0 s) (hw0 : FullOtfsWitnessInv c F0 F_cur0 s.core)
     (hi0 : idx0 < s.core.trail_end)
     (hi0_eq : (s.core.trl[idx0]?.getD 0#32).toNat = root_lit.toNat ^^^ 1)
@@ -119,19 +120,14 @@ private theorem m8MinLitDfs_brk_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
     (hno8 : ∀ v < s.core.cur_vars,
       (s.core.lvl[v]?.getD 0#32).toNat ≤ (s.core.lvl[root_lit.toNat / 2]?.getD 0#32).toNat →
       (s.core.mrk[v]?.getD 0#8 &&& 8#8) = 0#8)
-    (hQ : ∀ ok mrk' wsort' mclr' mcl' mcf' ticks' m',
-      let s' := Spec.m8MinLitDfsState s mrk' wsort' mclr' mcl' mcf' ticks'
-      FullState.LengthsOk c s' →
-      (∀ v, s.core.cur_vars ≤ v → mrk'[v]? = s.core.mrk[v]?) →
-      (∀ v < s.core.cur_vars, (s.core.mrk[v]?.getD 0#8 &&& 2#8) ≠ 0#8 →
-        (mrk'[v]?.getD 0#8 &&& 2#8) ≠ 0#8) →
-      (∀ v < s.core.cur_vars, (mrk'[v]?.getD 0#8 &&& 8#8) = (s.core.mrk[v]?.getD 0#8 &&& 8#8)) →
-      FullMinMarkInv s'.core keepSet →
-      (ok = true →
-        (∀ keep', (∀ l ∈ keepSet, l = root_lit.toNat ∨ l ∈ keep') →
-          FullMinMarkInv s'.core keep') ∧
-        FullMinMarkInv (fullMinMarkCore s'.core (root_lit.toNat / 2) 2#8) keepSet) →
-      (FullMem c s' ⋆ R) m' → Q (ok, ()) m')
+    (hQ : ∀ (res : Tup Val [.bool]) (s' : FullState) m',
+      s'.LengthsOk c →
+      Spec.MinMarkPost s s' keepSet ∧
+        (res.1 = true →
+          (∀ keep', (∀ l ∈ keepSet, l = root_lit.toNat ∨ l ∈ keep') →
+            FullMinMarkInv s'.core keep') ∧
+          FullMinMarkInv (fullMinMarkCore s'.core (root_lit.toNat / 2) 2#8) keepSet) →
+      (FullMem c s' ⋆ R) m' → Q res m')
     (hm_post_false : ∀ (d_f : M8DfsScratch) m_f,
       d_f.Inv c s keepSet → (FullMem c (d_f.st s) ⋆ R) m_f → Q (false, ()) m_f)
     (hB : M8MinBrkPost c s keepSet root_lit idx0 R (sp_b, cd_b, ok_b, steps_b, ()) m_b) :
@@ -152,9 +148,9 @@ private theorem m8MinLitDfs_brk_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
     subst hid0
     obtain ⟨hdrop, hmk⟩ := m8MinLitDfs_ok_final hcore hsi_b hi0 hi0_eq hrl_lvl hno8 hlim_le hcov_b
     c0_hsteps!
-    exact hQ true db.mrk db.wsort db.min_clr db.mcl db.mcf db.ticks m_b
-      (hsi_b.core hcore).1 hsi_b.mrk_above hsi_b.mono2 hsi_b.bit8
-      hsi_b.min_inv (fun _ => ⟨hdrop, hmk⟩) hm_b
+    exact hQ (true, ()) (db.st s) m_b (hsi_b.core hcore).1
+      ⟨⟨rfl, hsi_b.mrk_above, hsi_b.mono2, hsi_b.bit8, hsi_b.min_inv⟩, fun _ => ⟨hdrop, hmk⟩⟩
+      hm_b
   · have hok_f : ok_b = false := by c0_grind
     simp only [hok_f] at hok_b
     rcases hok_b with ⟨hsp_b_lt, idxs_b, hstk_b⟩
@@ -178,7 +174,7 @@ private theorem m8MinLitDfs_brk_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
     · have hj_le_sp : j_bv.toNat ≤ sp_b.toNat := by c0_grind
       have hj_idxs : j_bv.toNat < idxs_b.length := by rw [hstk_b.len]; omega
       have hj2_len : (j_bv <<< (1 : Nat)).toNat < (dj.st s).scratch.wsort.length := by
-        dsimp only [M8DfsScratch.st, Spec.m8MinLitDfsState]
+        dsimp only [M8DfsScratch.st, m8MinLitDfsState]
         change (j_bv <<< ((BitVec.signExtend 64 (1 : BitVec 32)).toNat % 64)).toNat <
           dj.wsort.length
         rw [m8_bv64_shl1_toNat (by omega), hsi_j.wsort_len]; omega
@@ -214,7 +210,7 @@ private theorem m8MinLitDfs_brk_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
         hsv_nat hsv_lt hno8_sv hz_sv hj1_nat hclr_j
       c0_hsteps!
       let k' := fullMinMarkCore
-        (Spec.m8MinLitDfsState s dj.mrk dj.wsort dj.min_clr dj.mcl dj.mcf dj.ticks).core
+        (m8MinLitDfsState s dj.mrk dj.wsort dj.min_clr dj.mcl dj.mcf dj.ticks).core
         sv.toNat 4#8
       let dj1 : M8DfsScratch := { dj with
         mrk := k'.mrk, min_clr := k'.min_clr, mcl := k'.min_clr_len, mcf := k'.min_clr_full }
@@ -262,7 +258,7 @@ private theorem m8MinLitDfs_cu_wp {Γ : Env} {c : FullCfg} {s : FullState} {d : 
   c0_hsplit
   · c0_hsplit
     · have hul_ss : (ul.setWidth 64).toNat < (d.st s).scratch.shrink_stk.length := by
-        dsimp only [M8DfsScratch.st, Spec.m8MinLitDfsState]
+        dsimp only [M8DfsScratch.st, m8MinLitDfsState]
         rw [hst_ok.scratch_ok.shrink_stk_len, bv_c0_zext32_64]
         have hul_cv : ul.toNat < s.core.cur_vars := by c0_grind
         omega
@@ -410,7 +406,7 @@ private theorem m8MinLitDfs_body_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
     {L : Cont [i64, i64, i64]} {sp cd steps : Val i64} {idxs : List Nat}
     {v _pword pos rsn lit newPw u_c0 : Val i32} {check_used : Val .bool} {m : Mem 64}
     {kPush : Expr Val Cont [.bool]}
-    (hMm : Γ.Has "full_min_mark" Spec.fullMinMarkSpec)
+    (hMm : Γ.Has "full_min_mark" Spec.minMarkSpec)
     (hcore : FullOtfsCoreInv c F0 s) (_hw0 : FullOtfsWitnessInv c F0 F_cur0 s.core)
     (hrv_root : (s.core.trl[idx0]?.getD 0#32).toNat / 2 = root_lit.toNat / 2)
     (hi0_lvl : (s.core.lvl[(s.core.trl[idx0]?.getD 0#32).toNat / 2]?.getD 0#32).toNat <
@@ -466,7 +462,7 @@ private theorem m8MinLitDfs_body_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
   have hcv := hlen0.cur_vars_le
   let maxSteps := m8MinLitMaxSteps s
   have hu_lvl_len : ((lit >>> 1).setWidth 64).toNat < (d2.st s).core.lvl.length := by
-    dsimp only [M8DfsScratch.st, Spec.m8MinLitDfsState]; rw [hlen0.lvl_len, bv_c0_zext32_64]; omega
+    dsimp only [M8DfsScratch.st, m8MinLitDfsState]; rw [hlen0.lvl_len, bv_c0_zext32_64]; omega
   dsimp only [m8MinLitDfsBodyExpr]
   c0_hsplit
   · have heq_var : lit.toNat / 2 = (s.core.trl[idxs[sp.toNat]'hsp_idxs]?.getD 0#32).toNat / 2 := by
@@ -503,7 +499,7 @@ private theorem m8MinLitDfs_body_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
           rw [List.getElem?_eq_getElem (hvw ▸ hu_lvl_len), Option.getD_some]
           exact congrArg BitVec.toNat hc⟩
     · have hu_mrk_len : ((lit >>> 1).setWidth 64).toNat < (d2.st s).core.mrk.length := by
-        dsimp only [M8DfsScratch.st, Spec.m8MinLitDfsState]
+        dsimp only [M8DfsScratch.st, m8MinLitDfsState]
         rw [hsi_p.mrk_len, bv_c0_zext32_64]; exact Nat.lt_of_lt_of_le hu_bd_lt hcv
       let mu := d.mrk[((lit >>> 1).setWidth 64).toNat]'(hmrk_d2 ▸ hu_mrk_len)
       have hmu_eq : mu = d.mrk[(lit >>> 1).toNat]?.getD 0#8 := by
@@ -532,7 +528,7 @@ private theorem m8MinLitDfs_body_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
         · obtain ⟨hu_nat_idx, hu_lvl_root, hno8_u⟩ := m8MinLit_leaf_pre hsi hstk hsp_idxs
             hu_idx_eq hu_lvl_le hu_bd_lt hno8 hrv_root
           have hu_rsns_len : ((lit >>> 1).setWidth 64).toNat < (d2.st s).core.rsns.length := by
-            dsimp only [M8DfsScratch.st, Spec.m8MinLitDfsState]
+            dsimp only [M8DfsScratch.st, m8MinLitDfsState]
             rw [hlen0.rsns_len, bv_c0_zext32_64, bv32_lshr_1]; omega
           have hmu_n4 : (mu &&& 4#8) = 0#8 := by
             rw [← hmu_mrk]; simp only [bv_c0_zext32_64] at *; c0_bv_bit_grind
@@ -565,7 +561,7 @@ private theorem m8MinLitDfs_bin_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
     {Q : Post [.bool]} {X : XPost} {B : Cont [i64, i64, .bool, i64]}
     {L : Cont [i64, i64, i64]} {sp cd steps : Val i64} {idxs : List Nat}
     {v pword pos rsn : Val i32} {check_used : Val .bool} {m' : Mem 64}
-    (hMm : Γ.Has "full_min_mark" Spec.fullMinMarkSpec)
+    (hMm : Γ.Has "full_min_mark" Spec.minMarkSpec)
     (hcore : FullOtfsCoreInv c F0 s) (hw0 : FullOtfsWitnessInv c F0 F_cur0 s.core)
     (hrv_root : (s.core.trl[idx0]?.getD 0#32).toNat / 2 = root_lit.toNat / 2)
     (hi0_lvl : (s.core.lvl[(s.core.trl[idx0]?.getD 0#32).toNat / 2]?.getD 0#32).toNat <
@@ -657,7 +653,7 @@ private theorem m8MinLitDfs_bin_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
               omega
             have hstk_ev1 : ((sp + 1) <<< (1 : Nat)).toNat <
                 (d2.st s).scratch.wsort.length := by
-              dsimp only [M8DfsScratch.st, Spec.m8MinLitDfsState]
+              dsimp only [M8DfsScratch.st, m8MinLitDfsState]
               change ((sp + 1) <<< ((BitVec.signExtend 64
                 (1 : BitVec 32)).toNat % 64)).toNat < d2.wsort.length
               rw [m8_bv64_shl1_toNat (x := sp + 1) (by omega), hw2_len]; omega
@@ -665,14 +661,14 @@ private theorem m8MinLitDfs_bin_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
               { d2 with wsort := d2.wsort.set (2 * (sp.toNat + 1)) (lit >>> 1) }
             have hstk_od1 : ((sp + 1) <<< (1 : Nat) + 1).toNat <
                 (d2a.st s).scratch.wsort.length := by
-              dsimp only [M8DfsScratch.st, Spec.m8MinLitDfsState, d2a]
+              dsimp only [M8DfsScratch.st, m8MinLitDfsState, d2a]
               rw [List.length_set]
               change ((sp + 1) <<< ((BitVec.signExtend 64
                 (1 : BitVec 32)).toNat % 64) + 1).toNat < d2.wsort.length
               rw [m8_bv64_shl1_add1_toNat (x := sp + 1) (by omega), hw2_len]; omega
             c0_hstep; c0_hstep; c0_hstep; c0_hstep; c0_hstep; c0_hstep
             replace hm : (FullMem c (d2a.st s) ⋆ R) m := m8Dfs_mem_wsort_cast (by
-              dsimp only [M8DfsScratch.st, Spec.m8MinLitDfsState, d2a]
+              dsimp only [M8DfsScratch.st, m8MinLitDfsState, d2a]
               congr 1; congr 1
               exact congrArg (fun idx => d2.wsort.set idx (lit >>> 1)) (by
                 change ((sp + 1) <<< ((BitVec.signExtend 64
@@ -682,7 +678,7 @@ private theorem m8MinLitDfs_bin_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
             let d3 : M8DfsScratch := { d2a with
               wsort := d2a.wsort.set (2 * (sp.toNat + 1) + 1) 0#32 }
             replace hm : (FullMem c (d3.st s) ⋆ R) m := m8Dfs_mem_wsort_cast (by
-              dsimp only [M8DfsScratch.st, Spec.m8MinLitDfsState, d3, d2a]
+              dsimp only [M8DfsScratch.st, m8MinLitDfsState, d3, d2a]
               congr 1; congr 1
               exact congrArg (fun idx =>
                   (d2.wsort.set (2 * (sp.toNat + 1)) (lit >>> 1)).set idx 0#32) (by
@@ -736,24 +732,19 @@ private theorem m8MinLitDfs_bin_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
 private theorem m8MinLitDfs_false_post {c : FullCfg} {F0 : CNF Nat} {s : FullState}
     {keepSet : List Nat} {root_lit : BitVec 32} {R : Mem 64 → Prop} {Q : Post [.bool]}
     {d_f : M8DfsScratch} {m_f : Mem 64} (hcore : FullOtfsCoreInv c F0 s)
-    (hQ : ∀ ok mrk' wsort' mclr' mcl' mcf' ticks' m',
-      let s' := Spec.m8MinLitDfsState s mrk' wsort' mclr' mcl' mcf' ticks'
-      FullState.LengthsOk c s' →
-      (∀ v, s.core.cur_vars ≤ v → mrk'[v]? = s.core.mrk[v]?) →
-      (∀ v < s.core.cur_vars, (s.core.mrk[v]?.getD 0#8 &&& 2#8) ≠ 0#8 →
-        (mrk'[v]?.getD 0#8 &&& 2#8) ≠ 0#8) →
-      (∀ v < s.core.cur_vars, (mrk'[v]?.getD 0#8 &&& 8#8) = (s.core.mrk[v]?.getD 0#8 &&& 8#8)) →
-      FullMinMarkInv s'.core keepSet →
-      (ok = true →
-        (∀ keep', (∀ l ∈ keepSet, l = root_lit.toNat ∨ l ∈ keep') →
-          FullMinMarkInv s'.core keep') ∧
-        FullMinMarkInv (fullMinMarkCore s'.core (root_lit.toNat / 2) 2#8) keepSet) →
-      (FullMem c s' ⋆ R) m' → Q (ok, ()) m')
+    (hQ : ∀ (res : Tup Val [.bool]) (s' : FullState) m',
+      s'.LengthsOk c →
+      Spec.MinMarkPost s s' keepSet ∧
+        (res.1 = true →
+          (∀ keep', (∀ l ∈ keepSet, l = root_lit.toNat ∨ l ∈ keep') →
+            FullMinMarkInv s'.core keep') ∧
+          FullMinMarkInv (fullMinMarkCore s'.core (root_lit.toNat / 2) 2#8) keepSet) →
+      (FullMem c s' ⋆ R) m' → Q res m')
     (hsi_f : d_f.Inv c s keepSet) (hm_f : (FullMem c (d_f.st s) ⋆ R) m_f) :
     Q (false, ()) m_f := by
   have hcore_f := hsi_f.core hcore
-  exact hQ false d_f.mrk d_f.wsort d_f.min_clr d_f.mcl d_f.mcf d_f.ticks m_f
-    hcore_f.1 hsi_f.mrk_above hsi_f.mono2 hsi_f.bit8 hsi_f.min_inv (fun hc => by cases hc) hm_f
+  exact hQ (false, ()) (d_f.st s) m_f hcore_f.1
+    ⟨⟨rfl, hsi_f.mrk_above, hsi_f.mono2, hsi_f.bit8, hsi_f.min_inv⟩, fun hc => by cases hc⟩ hm_f
 
 private theorem m8MinLitDfs_init_entry {c : FullCfg} {F0 : CNF Nat} {F_cur0 : List (List Nat)}
     {s : FullState} {root_lit : BitVec 32}
@@ -1053,7 +1044,7 @@ private theorem m8MinLitDfs_big_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
     {Q : Post [.bool]} {X : XPost} {B : Cont [i64, i64, .bool, i64]}
     {L : Cont [i64, i64, i64]} {sp cd steps : Val i64} {idxs : List Nat}
     {v pword pos rsn : Val i32} {check_used : Val .bool} {m' : Mem 64}
-    (hMm : Γ.Has "full_min_mark" Spec.fullMinMarkSpec)
+    (hMm : Γ.Has "full_min_mark" Spec.minMarkSpec)
     (hcore : FullOtfsCoreInv c F0 s) (hw0 : FullOtfsWitnessInv c F0 F_cur0 s.core)
     (hrv_root : (s.core.trl[idx0]?.getD 0#32).toNat / 2 = root_lit.toNat / 2)
     (hi0_lvl : (s.core.lvl[(s.core.trl[idx0]?.getD 0#32).toNat / 2]?.getD 0#32).toNat <
@@ -1101,13 +1092,13 @@ private theorem m8MinLitDfs_big_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
   c0_hsplit
   · exfalso; have := hwf.1; c0_grind
   · have har2 : (rsn.setWidth 64 + 2).toNat < (d.st s).core.arena.length := by
-      rw [bv64_zext32_add2]; dsimp only [M8DfsScratch.st, Spec.m8MinLitDfsState]
+      rw [bv64_zext32_add2]; dsimp only [M8DfsScratch.st, m8MinLitDfsState]
       have := hwf.1; have := hlen0.arena_len_arr; omega
     let sz := s.core.arena[(rsn.setWidth 64 + 2).toNat]'har2
     have hsz_e : sz.toNat = fullArenaClauseSizeCore s.core rsn.toNat := by
       have hopt : (d.st s).core.arena[(rsn.setWidth 64 + 2).toNat]? =
           s.core.arena[rsn.toNat + 2]? := by
-        dsimp only [M8DfsScratch.st, Spec.m8MinLitDfsState]; rw [bv64_zext32_add2]
+        dsimp only [M8DfsScratch.st, m8MinLitDfsState]; rw [bv64_zext32_add2]
       rw [List.getElem?_eq_getElem har2] at hopt
       exact congrArg (fun o => (o.getD 0#32).toNat) hopt
     c0_hsplit
@@ -1141,7 +1132,7 @@ private theorem m8MinLitDfs_big_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
             m8MinLitDfs_big_wsort2_inv (newPw := newPw) hsi2 hstk
           have har_lit_bd : (rsn.setWidth 64 + 3 + pos.setWidth 64).toNat <
               (dt.st s).core.arena.length := by
-            dsimp only [M8DfsScratch.st, Spec.m8MinLitDfsState]
+            dsimp only [M8DfsScratch.st, m8MinLitDfsState]
             rw [bv64_zext32_add3_add, hlen0.arena_len_arr]
             have := hwf.2.2.1; have := hwf.2.2.2.1; have := hlen0.arena_len_le
             rw [hsz_e] at hpos_lt'; omega
@@ -1150,7 +1141,7 @@ private theorem m8MinLitDfs_big_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
             dsimp only [m8RsnLit, lit]; simp only [eq_false hbin_f, ↓reduceIte]
             have ha_opt : (dt.st s).core.arena[(rsn.setWidth 64 + 3 + pos.setWidth 64).toNat]? =
                 s.core.arena[rsn.toNat + 3 + pos.toNat]? := by
-              dsimp only [M8DfsScratch.st, Spec.m8MinLitDfsState]; rw [bv64_zext32_add3_add]
+              dsimp only [M8DfsScratch.st, m8MinLitDfsState]; rw [bv64_zext32_add3_add]
             rw [List.getElem?_eq_getElem har_lit_bd] at ha_opt
             exact congrArg (fun o => (o.getD 0#32).toNat) ha_opt
           have hidx_hc : (rsn.toNat + (3 : BitVec 64).toNat + pos.toNat) % 2 ^ 64 =
@@ -1173,7 +1164,7 @@ private theorem m8MinLitDfs_big_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
                 change (sp <<< ((BitVec.signExtend 64 (1 : BitVec 32)).toNat % 64) + 1).toNat = _
                 exact m8_bv64_shl1_add1_toNat (by omega))] at hm
             replace hm : (FullMem c (d2.st s) ⋆ R) m := m8Dfs_mem_wsort_cast' hm (by
-              dsimp only [M8DfsScratch.st, Spec.m8MinLitDfsState, d2, newPw]; rfl)
+              dsimp only [M8DfsScratch.st, m8MinLitDfsState, d2, newPw]; rfl)
             have hu_cv : (lit >>> 1).toNat < s.core.cur_vars := by
               simp only [hidx_hc] at hc
               have h_cv_mod : s.core.cur_vars % 2 ^ 64 = s.core.cur_vars :=
@@ -1208,7 +1199,7 @@ private theorem m8MinLitDfs_big_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
                       wsort := d2.wsort.set (2 * (sp.toNat + 1)) (lit >>> 1) }
                     have hstk_od1' : ((sp + 1) <<< (1 : Nat) + 1).toNat <
                         (d2a.st s).scratch.wsort.length := by
-                      dsimp only [M8DfsScratch.st, Spec.m8MinLitDfsState, d2a]
+                      dsimp only [M8DfsScratch.st, m8MinLitDfsState, d2a]
                       rw [List.length_set]; exact hstk_od1
                     c0_hstep; c0_hstep; c0_hstep; c0_hstep; c0_hstep; c0_hstep; c0_hstep
                     rw [m8Dfs_st_wsort_eq d2 s (by
@@ -1264,12 +1255,12 @@ private theorem m8MinLitDfs_big_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
 public section
 
 theorem full_min_lit_dfs_m8_wp (Γ : Env)
-    (hMm : Γ.Has "full_min_mark" Spec.fullMinMarkSpec) :
-    ∀ args m Q X, Spec.fullMinLitDfsSpec args m Q X →
+    (hMm : Γ.Has "full_min_mark" Spec.minMarkSpec) :
+    ∀ args m Q X, Spec.minLitDfsSpec args m Q X →
       Func.wp Γ full_min_lit_dfs_m8_body args m Q X := by
   rintro ⟨h, root_lit, minimizing, check_used, ⟨⟩⟩ m Q X hsp
-  obtain ⟨c, F0, s, keepSet, R, rfl, hcore, hmin, hrl, hval, hrl_lvl, hno8, hm, hQ⟩ :=
-    Spec.fullMinLitDfsSpec_elim hsp
+  obtain ⟨c, s, ⟨F0, keepSet⟩, R, rfl, _, ⟨hcore, hmin, hrl, hval, hrl_lvl, hno8⟩, hm, hQ⟩ :=
+    FullContract.elim hsp
   unfold Func.wp full_min_lit_dfs_m8_body; dsimp only [full_min_lit_dfs_m8_body]
   have hlen0 := hcore.1.core_ok
   have hmx := c.hmaxv; have har := c.harena; unfold Ref.dimacsBound at hmx har
@@ -1335,13 +1326,13 @@ theorem full_min_lit_dfs_m8_wp (Γ : Env)
               have hmd_le : c.minDepth ≤ 1000 := fullMinDepthOf_le c.max_vars
               have hstk_ev :
                   (sp <<< (1 : Nat)).toNat < (d.st s).scratch.wsort.length := by
-                dsimp only [M8DfsScratch.st, Spec.m8MinLitDfsState]
+                dsimp only [M8DfsScratch.st, m8MinLitDfsState]
                 change (sp <<< ((BitVec.signExtend 64 (1 : BitVec 32)).toNat % 64)).toNat <
                   d.wsort.length
                 rw [m8_bv64_shl1_toNat (by omega), hsi.wsort_len]; omega
               have hstk_od :
                   (sp <<< (1 : Nat) + 1).toNat < (d.st s).scratch.wsort.length := by
-                dsimp only [M8DfsScratch.st, Spec.m8MinLitDfsState]
+                dsimp only [M8DfsScratch.st, m8MinLitDfsState]
                 change (sp <<< ((BitVec.signExtend 64 (1 : BitVec 32)).toNat % 64) + 1).toNat <
                   d.wsort.length
                 rw [m8_bv64_shl1_add1_toNat (by omega), hsi.wsort_len]; omega
@@ -1370,7 +1361,7 @@ theorem full_min_lit_dfs_m8_wp (Γ : Env)
               c0_hsplit
               · exfalso; c0_grind
               · have hv_rsns : (v.setWidth 64).toNat < (d.st s).core.rsns.length := by
-                  dsimp only [M8DfsScratch.st, Spec.m8MinLitDfsState]
+                  dsimp only [M8DfsScratch.st, m8MinLitDfsState]
                   rw [hlen0.rsns_len, bv_c0_zext32_64]; omega
                 let rsn := s.core.rsns[(v.setWidth 64).toNat]'hv_rsns
                 have hrsn_eq : rsn = s.core.rsns[(s.core.trl[idxs[sp.toNat]'hsp_idxs]?.getD

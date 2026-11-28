@@ -5,6 +5,10 @@ Released under Apache 2.0 license as described in the file LICENSE.
 module
 
 public import LeanQbe.T.Examples.Kissat.Proof.Analyze.Helpers
+public import LeanQbe.T.Examples.Kissat.Proof.Bump.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Deduce.Spec
+public import LeanQbe.T.Examples.Kissat.Src.Analyze
+import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
 
 /-!
 # WP Proof for `full_restore_bump_ana_mode_fid` (`Proof.Analyze.WpRestore`)
@@ -167,11 +171,23 @@ theorem full_restore_bump_ana_mode_fid_wp (Γ : Env)
     (hBump : Γ.Has "full_bump_analyzed_mode_fid" fullBumpAnalyzedModeSpec)
     (hClr : Γ.Has "full_clear_ana" Deduce.Spec.fullClearAnaSpec) :
     ∀ args m Q X,
-      fullRestoreBumpAnaModeSpec args m Q X →
+      restoreBumpAnaModeSpec args m Q X →
       Func.wp Γ Src.Analyze.full_restore_bump_ana_mode_fid_body args m Q X := by
   rintro ⟨h, ar, ⟨⟩⟩ m Q X hs
-  rcases fullRestoreBumpAnaModeSpec_elim hs with
-    ⟨c, ext, s, R, rfl, hcfg, hext, hlen, hmrk0, hm, hQ⟩
+  obtain ⟨c, ext, s, ⟨⟩, R, rfl, hcfg, hext, hlen, hmrk0, hm, hQ0⟩ := M6HdrContract.elim hs
+  let hQ : ∀ mrk' mcl' repr' sc' ext' m',
+      let s' : FullState :=
+        { core := { s.core with mrk := mrk', min_clr_len := mcl', repr := repr' }
+          scratch := sc' }
+      s'.LengthsOk c → (∀ v < c.max_vars, mrk'[v]?.getD 0#8 = 0#8) →
+      (s.core.probing = 0#64 → mcl' = 0) →
+      (s.core.probing ≠ 0#64 → mcl' = s.core.min_clr_len) →
+      FullExtScratchPres s s' → sc'.work_stk2 = s.scratch.work_stk2 →
+      M6HdrExtOk ext' →
+      (M6HdrExtInitOk ext → M6HdrExtInitOk ext' ∧ M6ExtW2bPres ext ext') →
+      (FullM6HdrMem c ext' s' ⋆ R) m' → Q () m' :=
+    fun mrk' mcl' repr' sc' ext' m' hlen' hmrk' hp0 hpne hpres hws2 hext' hw2b hm' =>
+      hQ0 () ext' _ m' hext' hw2b hlen' ⟨rfl, hmrk', hp0, hpne, hpres, hws2⟩ hm'
   have hm0 := fullM6HdrMem_focus hm
   clear hm
   unfold Func.wp Src.Analyze.full_restore_bump_ana_mode_fid_body

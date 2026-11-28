@@ -4,13 +4,14 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 module
 
+public import LeanQbe.T.Examples.Kissat.Proof.Backtrack.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Clause.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Learn.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Reduce.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Watch.Spec
 public import LeanQbe.T.Examples.Kissat.Src.Learn
 public import LeanQbe.T.Logic.CanonicalEnv
-import LeanQbe.T.Examples.Kissat.Proof.Backtrack.Spec
-import LeanQbe.T.Examples.Kissat.Proof.Clause.Spec
-import LeanQbe.T.Examples.Kissat.Proof.Reduce.Spec
-import LeanQbe.T.Examples.Kissat.Proof.Watch.Spec
+import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
 import LeanQbe.T.Examples.Kissat.Proof.Learn.WpDetNewLevel
 import LeanQbe.T.Examples.Kissat.Proof.Learn.WpOneLit
 import LeanQbe.T.Examples.Kissat.Proof.Learn.WpEagerSub
@@ -19,7 +20,7 @@ import LeanQbe.T.Examples.Kissat.Proof.Learn.WpLearnClause
 /-!
 # Segment Certificate for `Kissat.Src.Learn` (`Proof.Learn.Cert`)
 
-Establishes `SegCert Learn.Spec.deps Src.Learn.fns Learn.Spec.specs` using `CanonicalEnv`.
+Establishes `SegCert deps Src.Learn.fns Learn.Spec.specs` using `CanonicalEnv`.
 -/
 
 set_option autoImplicit false
@@ -31,15 +32,33 @@ namespace LeanQbe.T.Examples.Kissat.Proof.Learn
 open LeanQbe.T
 open LeanQbe.T.Examples.Kissat
 open LeanQbe.T.Examples.Kissat.Proof
+open LeanQbe.T.Examples.Kissat.Proof.Spec
+open LeanQbe.T.Examples.Kissat.Proof.Lib
+
+/-- Canonical upstream specification dependencies for `Src.Learn.fns` (`8` externs across
+`Backtrack`, `Clause`, `Reduce`, `Watch`). -/
+@[expose] def deps : List SpecEntry :=
+  Backtrack.Spec.specs ++ Clause.Spec.specs ++ Reduce.Spec.specs ++ Watch.Spec.specs
+
+theorem specs_sigs : Spec.specs.map SpecEntry.sig = Src.Learn.fns.map Fn.sig := rfl
+
+theorem specs_nodup : (Spec.specs.map SpecEntry.name).Nodup := by decide
+
+theorem specs_noExit : ∀ e ∈ Spec.specs, e.noExit = true := by
+  intro e he
+  simp only [Spec.specs, List.mem_cons, List.not_mem_nil, or_false] at he
+  rcases he with rfl | rfl | rfl | rfl <;> rfl
 
 /-- Canonical segment certificate for `Kissat.Src.Learn` (`4` functions). -/
-theorem cert : SegCert Spec.deps Src.Learn.fns Spec.specs := fun Γ hDeps hSat => by
+theorem cert : SegCert deps Src.Learn.fns Spec.specs := fun Γ hDeps hSat => by
   have hBtSpecs := hDeps.left.left.left
   have hClauseSpecs := hDeps.left.left.right
   have hReduceSpecs := hDeps.left.right
   have hWatchSpecs := hDeps.right
-  have hDnl := Spec.has_full_det_new_level hSat
-  have hEsub := Spec.has_full_eager_subsume hSat
+  have hDnl : Γ.Has "full_det_new_level" Spec.detNewLevelSpec :=
+    SpecTable.has_at hSat 0 rfl (by unfold Spec.detNewLevelSpec; exact FullContract.toSpec_xfree _)
+  have hEsub : Γ.Has "full_eager_subsume" Spec.eagerSubsumeSpec :=
+    SpecTable.has_at hSat 2 rfl (by unfold Spec.eagerSubsumeSpec; exact FullContract.toSpec_xfree _)
   have hBt := Backtrack.Spec.has_full_backtrack_ac_fid hBtSpecs
   have hAsgn := Backtrack.Spec.has_full_assign_lvl hBtSpecs
   have hAddCl := Clause.Spec.has_full_add_clause hClauseSpecs

@@ -708,7 +708,7 @@ theorem search_call_decide {Γ : Env} {ret : List Ty}
     {c : FullCfg} {F0 : CNF Nat} {ext : List (BitVec 64)} {s : FullState}
     {R : Mem 64 → Prop} {m : Mem 64} {Q : Post ret} {X : XPost}
     (hargs : vals args = (c.hdr, ()))
-    (hfn : ∀ a m Q X, m6HdrDecideSpec a m Q X →
+    (hfn : ∀ a m Q X, Decide.Spec.decideSpec a m Q X →
       Γ "m6_hdr_decide_fid" [i64] [i64] a m Q X)
     (hinv : FullM6HdrInv c F0 ext s) (hm : (FullM6HdrMem c ext s ⋆ R) m)
     (hk : ∀ r ext' s' m',
@@ -721,19 +721,27 @@ theorem search_call_decide {Γ : Env} {ret : List Ty}
   refine wp_call_of_spec args k ?_
   rw [hargs]
   refine hfn (c.hdr, ()) m (fun rs m' => wp Γ Q X (k rs) m') X ?_
-  refine m6HdrDecideSpec_of (fullM6HdrInv_to_coreInv hinv) hm ?_
-  intro r vals' flags' lvl' rsns' trl' tp' ftrl' fdec' te' cl' unass' unfl' sc' ext' m' s'
-    hcoreInv' hexpr hr _ h1 hm'
+  dsimp only [Decide.Spec.decideSpec]
+  refine M6HdrContract.intro hinv.cfgOk hinv.extOk hinv.sparse.lengths
+    (fullM6HdrInv_to_coreInv hinv).coreInv hm ?_
+  rintro ⟨r, ⟨⟩⟩ ext' s' m' hext' _ hlen' ⟨⟨hmod, hcoreInv', hextPres, hr, _, h1⟩, _⟩ hm'
+  have hlm' : FullLitMarksClear c s' := by
+    unfold FullLitMarksClear FullMrkZero; rw [hmod]; exact hinv.sparse.2.1
+  have hnd' : FullArenaVarsNodup s' := by
+    unfold FullArenaVarsNodup fullArenaClauseRefs fullArenaClauseGarb fullArenaClauseLits
+      fullArenaClauseRefsCore fullArenaClauseGarbCore fullArenaHdrCore fullArenaClauseLitsCore
+      fullArenaClauseSizeCore
+    rw [hmod]; exact hinv.sparse.2.2.1
   have hll' : FullLastLearnedWf s' := by
     intro i hi
     have := hinv.sparse.2.2.2.1.1 i hi
-    dsimp only [fullArenaClauseRefs] at this ⊢
-    rw [hexpr.1]; exact this
+    dsimp only [fullArenaClauseRefs, fullArenaClauseRefsCore] at this ⊢
+    rw [hmod, hextPres.1]; exact this
+  have hdm' : s'.core.dense_mode = 0#64 := by rw [hmod]; exact hinv.sparse.2.2.2.2
   have hinv' : FullM6HdrInv c F0 ext' s' :=
-    ⟨hcoreInv'.cfgOk, hcoreInv'.extOk,
-      ⟨hcoreInv'.coreInv, hinv.sparse.2.1, hinv.sparse.2.2.1,
-       ⟨hll', hexpr.2 ▸ hinv.sparse.2.2.2.1.2⟩, hinv.sparse.2.2.2.2⟩⟩
-  exact hk r ext' s' m' hinv' rfl hr (fun eq1 => let ⟨hc, ht, _⟩ := h1 eq1; ⟨hc, ht⟩) hm'
+    ⟨hinv.cfgOk, hext',
+      ⟨hcoreInv', hlm', hnd', ⟨hll', hextPres.2 ▸ hinv.sparse.2.2.2.1.2⟩, hdm'⟩⟩
+  exact hk r ext' s' m' hinv' (by rw [hmod]) hr (fun eq1 => h1 eq1) hm'
 
 theorem search_call_extend {Γ : Env} {ret : List Ty}
     {args : Tup (Arg Val) [i64]} {k : Tup Val [] → Expr Val Cont ret}
@@ -1236,8 +1244,9 @@ theorem deps_has_set_watermark {Γ : Env} (h : Γ.Sat searchDeps) :
   Tiers.Spec.has_m6_hdr_set_watermark (sat_deps_tiers h)
 
 theorem deps_has_decide {Γ : Env} (h : Γ.Sat searchDeps) :
-    Γ.Has "m6_hdr_decide_fid" m6HdrDecideSpec :=
-  Decide.Spec.has_m6_hdr_decide_fid (sat_deps_decide h)
+    Γ.Has "m6_hdr_decide_fid" Decide.Spec.decideSpec :=
+  Lib.SpecTable.has_at (sat_deps_decide h) 4 rfl
+    (by unfold Decide.Spec.decideSpec; exact M6HdrContract.toSpec_xfree _)
 
 theorem deps_has_switch_mode {Γ : Env} (h : Γ.Sat searchDeps) :
     Γ.Has "full_switch_mode_m7" Restart.Spec.switchModeSpec :=
@@ -1281,8 +1290,22 @@ theorem deps_has_reduce {Γ : Env} (h : Γ.Sat searchDeps) :
   Reduce.Spec.has_full_reduce_m6 (sat_deps_reduce h)
 
 theorem deps_has_analyze {Γ : Env} (h : Γ.Sat searchDeps) :
-    Γ.Has "full_analyze_m6_hdr" m6HdrAnalyzeSpec :=
-  Analyze.Spec.has_full_analyze_m6_hdr (sat_deps_analyze h)
+    Γ.Has "full_analyze_m6_hdr" m6HdrAnalyzeSpec := by
+  have hRaw := Lib.SpecTable.has_at (sat_deps_analyze h) 4 rfl
+    (by unfold Analyze.Spec.analyzeSpec; exact M6HdrContract.toSpec_xfree _)
+  intro ⟨a0, ⟨⟩⟩ m Q X hs
+  obtain ⟨c, F0, F_cur, ext, s, R, rfl, hinv, hcf, hm, hQ⟩ := m6HdrAnalyzeSpec_elim hs
+  refine hRaw (c.hdr, ()) m Q X ?_
+  dsimp only [Analyze.Spec.analyzeSpec]
+  exact M6HdrContract.intro (w := (F0, F_cur))
+    hinv.cfgOk hinv.extOk hinv.sparseW.1 ⟨hinv.sparseW, hcf⟩ hm
+    fun ⟨r, ⟨⟩⟩ ext' s' m' hext' _ hlen' ⟨hr, hcv', hfu', hws2', h20', h0', h1'⟩ hm' =>
+      hQ r ext' s' m' hext' hlen' hr hcv' hfu'
+        ⟨hws2', fun eq20 => let ⟨_, ho, hcl, hdm⟩ := h20' eq20; ⟨ho, hcl, hdm⟩⟩
+        (fun eq20 => (h20' eq20).1) h0'
+        (fun eq1 => let ⟨hsp', hcl'⟩ := h1' eq1
+                    ⟨FullM6HdrInvW.mk_inv hinv.cfgOk hext' hsp', hcl'⟩)
+        hm'
 
 theorem deps_has_parse_body {Γ : Env} (h : Γ.Sat searchDeps) :
     Γ.Has "full_parse_body" Parse.Spec.fullParseBodyM6Spec :=

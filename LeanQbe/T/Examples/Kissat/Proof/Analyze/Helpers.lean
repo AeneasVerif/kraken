@@ -5,6 +5,9 @@ Released under Apache 2.0 license as described in the file LICENSE.
 module
 
 public import LeanQbe.T.Examples.Kissat.Proof.Analyze.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
+public import LeanQbe.T.Examples.Kissat.Proof.Limits.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Minimize.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Arena
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Arena1
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Contracts
@@ -411,9 +414,9 @@ theorem has_full_ema_update {Γ : Env} (h : Γ.Sat Limits.Spec.specs) :
     Limits.Spec.fullEmaUpdateSpec_xfree
 
 theorem has_full_min_shrink {Γ : Env} (h : Γ.Sat Minimize.Spec.specs) :
-    Γ.Has "full_min_shrink_m6" Minimize.Spec.fullMinShrinkSpec :=
-  Env.Sat.has h (List.getElem_mem (l := Minimize.Spec.specs) (n := 5) (by decide))
-    Minimize.Spec.fullMinShrinkSpec_xfree
+    Γ.Has "full_min_shrink_m6" Minimize.Spec.minShrinkSpec :=
+  Lib.SpecTable.has_at h 5 rfl
+    (by unfold Minimize.Spec.minShrinkSpec; exact FullContract.toSpec_xfree _)
 
 /-! ## 4. Failed-Literal Analysis Pure & State-Invariance Lemmas -/
 

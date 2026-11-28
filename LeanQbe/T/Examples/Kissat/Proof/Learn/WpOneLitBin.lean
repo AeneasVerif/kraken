@@ -6,6 +6,7 @@ module
 
 public import LeanQbe.T.Examples.Kissat.Proof.Learn.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Learn.WpOneLitHelpers
+public import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
 public import LeanQbe.T.Examples.Kissat.Src.Learn
 import LeanQbe.T.Examples.Kissat.Proof.Learn.Helpers
 import LeanQbe.T.Logic.C0Step
@@ -436,7 +437,7 @@ public section
 
 /-- Binary-conflict branch of `full_one_lit_confl` when `s.core.confl_type = 1#64`. -/
 theorem oneLit_bin_branch_wp (Γ : Env)
-    (hDet : ∀ args m Q X, fullDetNewLevelSpec args m Q X →
+    (hDet : ∀ args m Q X, Proof.Learn.Spec.detNewLevelSpec args m Q X →
       Γ "full_det_new_level" [i64, i64] [i64] args m Q X)
     (hBt : ∀ args m Q X, fullBacktrackSpec args m Q X →
       Γ "full_backtrack_ac_fid" [i64, i64] [] args m Q X)
@@ -557,15 +558,17 @@ theorem oneLit_bin_branch_wp (Γ : Env)
                       (if la > lb then lb.toNat else la.toNat)) ?_ ?_
                 · rintro _ ⟨jc, ⟨⟩⟩ mj ⟨rfl, rfl⟩
                   c0_hsteps_nogrp; c0_call hDet
-                  refine ⟨c, s1, R, rfl, hobt.len1, by
+                  dsimp only [Proof.Learn.Spec.detNewLevelSpec]
+                  refine FullContract.intro (w := ()) hobt.len1 (by
                     have := hobt.hw1.cur_level_le; have := hobt.len1.core_ok.trail_end_le
-                    have := hobt.len1.core_ok.cur_vars_le; omega,
-                    hm1, fun nlvl _ hnlvl => ?_⟩
+                    have := hobt.len1.core_ok.cur_vars_le; omega) hm1 ?_
+                  rintro ⟨nlvl, ⟨⟩⟩ s1' m1' _ ⟨hs1', _, hnlvl⟩ hm1'
+                  rw [hs1'] at hm1'
                   have hjl_lt64 : (if la > lb then lb.toNat else la.toNat) < 2 ^ 64 := by
                     split <;> omega
                   exact oneLit_bin_swap_if hBt hAss hobt (ha_eq ▸ h0lt) (hb_eq ▸ h1lt)
                     hla_val hlb_val rfl hne (ha_eq ▸ hfa) (hb_eq ▸ hfb)
-                    (ha_eq ▸ hb_eq ▸ hent) hm1 hQ nlvl
+                    (ha_eq ▸ hb_eq ▸ hent) hm1' hQ nlvl
                     (by simpa only [Proof.Spec.bv64_ofNat_toNat hjl_lt64] using hnlvl)
                 · intro Jj hJj; c0_hsteps
                   · have hgt : la > lb := BitVec.lt_def.mpr (by dsimp only [la, lb]; assumption)

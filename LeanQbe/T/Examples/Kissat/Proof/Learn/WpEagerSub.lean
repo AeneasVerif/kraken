@@ -7,6 +7,7 @@ module
 public import LeanQbe.T.Examples.Kissat.Proof.Learn.Spec
 public import LeanQbe.T.Examples.Kissat.Src.Learn
 import LeanQbe.T.Examples.Kissat.Proof.Learn.Helpers
+import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
 import LeanQbe.T.Logic.C0Step
 import LeanQbe.T.Logic.ControlComb
 import Kraken.Mem
@@ -803,14 +804,12 @@ private theorem esub_loop4_wp {Γ X} {Q : Post []} {c : FullCfg} {F0 : CNF Nat}
     (hrefs2 : fullArenaClauseRefs (EsubState s lm3 ar2 ag2 nr2 ll_c es2) =
       fullArenaClauseRefs s)
     (hm_c : (FullMem c (EsubState s lm3 ar2 ag2 nr2 ll_c es2) ⋆ R) m_c)
-    (hQ : ∀ arena' ag' nr' sc' m',
-      let s' : FullState :=
-        { s with
-          core := { s.core with arena := arena', arena_garbage := ag', num_redundant := nr' }
-          scratch := sc' }
-      FullSparseInvW c F0 F_cur s' → sc'.work_stk1 = s.scratch.work_stk1 →
-      sc'.work_stk2 = s.scratch.work_stk2 →
-      (FullMem c s' ⋆ R) m' → Q () m') :
+    (hQ : ∀ (res : Tup Val []) (s' : FullState) m', s'.LengthsOk c →
+      AgreesExcept eagerSubsumeCoreMask s.core s'.core ∧
+        FullSparseInvW c F0 F_cur s' ∧
+        s'.scratch.work_stk1 = s.scratch.work_stk1 ∧
+        s'.scratch.work_stk2 = s.scratch.work_stk2 →
+      (FullMem c s' ⋆ R) m' → Q res m') :
     wp Γ Q X
       (Expr.group (sig := [[]])
         (fun _Js => Blocks.cons (fun _ => Expr.ret ()) Blocks.nil)
@@ -914,24 +913,26 @@ private theorem esub_loop4_wp {Γ X} {Q : Post []} {c : FullCfg} {F0 : CNF Nat}
         have hm_fin : (FullMem c s_fin ⋆ R) m :=
           (congrArg (fun lm' => (FullMem c { s_fin with core :=
               { s_fin.core with lit_mark := lm' } } ⋆ R) m) hlm3_eq).mp hm
-        exact hQ ar2 ag2 nr2 s_fin.scratch m
-          ⟨hs_fin, hwc, hclrc, hndc, ⟨hll_fin_in, hext2⟩, hdm⟩ hwork1 hwork2 hm_fin
+        exact hQ () s_fin m hs_fin
+          ⟨rfl, ⟨hs_fin, hwc, hclrc, hndc, ⟨hll_fin_in, hext2⟩, hdm⟩, hwork1, hwork2⟩ hm_fin
     · intro J4 hJ4; c0_steps
       exact hJ4 3 (3#64, ()) m_c ⟨ll_c, Nat.le_refl _, rfl, hllc_len, hllc_in, hm_c⟩
   · c0_steps
     have hmc_fin : (FullMem c sc_fin ⋆ R) m_c :=
       (congrArg (fun lm' => (FullMem c { sc_fin with core :=
           { sc_fin.core with lit_mark := lm' } } ⋆ R) m_c) hlm3_eq).mp hm_c
-    exact hQ ar2 ag2 nr2 sc_fin.scratch m_c
-      ⟨hsc_len, hwc, hclrc, hndc, ⟨hllc_in, hext2⟩, hdm⟩ hwork1 hwork2 hmc_fin
+    exact hQ () sc_fin m_c hsc_len
+      ⟨rfl, ⟨hsc_len, hwc, hclrc, hndc, ⟨hllc_in, hext2⟩, hdm⟩, hwork1, hwork2⟩ hmc_fin
 
 public section
 
-/-- Canonical WP proof for `full_eager_subsume` against `fullEagerSubsumeSpec`. -/
+/-- Canonical WP proof for `full_eager_subsume` against `Spec.eagerSubsumeSpec`. -/
 theorem full_eager_subsume_wp (Γ : Env) :
-    ∀ args m Q X, Spec.fullEagerSubsumeSpec args m Q X →
+    ∀ args m Q X, Spec.eagerSubsumeSpec args m Q X →
       Func.wp Γ full_eager_subsume_body args m Q X := by
-  rintro ⟨h, new_ref, ⟨⟩⟩ m Q X ⟨c, F0, F_cur, s, R, rfl, hs, htmp_lt, href_in, hm, hQ⟩
+  rintro ⟨h, new_ref, ⟨⟩⟩ m Q X hspec
+  obtain ⟨c, s, ⟨F0, F_cur⟩, R, rfl, _, ⟨hs, htmp_lt, href_in⟩, hm, hQ⟩ :=
+    FullContract.elim hspec
   have hcl := hs.1.core_ok
   have hsl := hs.1.scratch_ok
   have hlm_clr := hs.2.2.1

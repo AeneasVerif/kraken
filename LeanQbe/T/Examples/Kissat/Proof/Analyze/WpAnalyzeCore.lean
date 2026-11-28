@@ -8,7 +8,15 @@ public import LeanQbe.T.Examples.Kissat.Proof.Analyze.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Analyze.WpRestore
 public import LeanQbe.T.Examples.Kissat.Proof.Analyze.WpReasons
 public import LeanQbe.T.Examples.Kissat.Proof.Analyze.WpFailedLit1
+public import LeanQbe.T.Examples.Kissat.Proof.Bump.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Deduce.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Learn.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Limits.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Minimize.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Tiers.Spec
+public import LeanQbe.T.Examples.Kissat.Src.Analyze
 import LeanQbe.T.Examples.Kissat.Proof.Analyze.Helpers
+import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
 import LeanQbe.T.Logic.C0Step
 import LeanQbe.T.Logic.C0HeadStep
 import LeanQbe.T.Logic.ControlComb
@@ -323,41 +331,39 @@ private theorem ana_core_learn_ret {c : FullCfg} {F0 : CNF Nat} {F_cur : List (L
       Nat.lt_of_lt_of_le (by rw [hcl9]; exact (h1_7 h).2) hcl6⟩) hm9
 
 private theorem ana_core_min_shrink_ok {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
-    {s3 : FullState} {tmp4 : List (BitVec 32)} {tl4 : Nat} {mrk4 : List (BitVec 8)}
-    {mclr4 sstk4 wsort4 ws14 : List (BitVec 32)} {mcl4 : Nat}
-    {mcf4 conf4 llits4 mrem4 ticks4 resSz4 : BitVec 64}
+    {s3 s4 : FullState}
     (ho3 : FullOtfsInvW c F0 F_cur s3)
     (htl_ge : 1 ≤ s3.core.tmp_len)
     (hvals3 : ∀ k < s3.core.tmp_len, let l := (s3.core.tmp[k]?.getD 0#32).toNat
       l < 2 * s3.core.cur_vars ∧ s3.core.vals[l]?.getD 0#8 = 255#8)
-    (hlen4 : (fullMinShrinkState s3 tmp4 tl4 mrk4 mclr4 sstk4 wsort4 ws14
-      mcl4 mcf4 conf4 llits4 mrem4 ticks4 resSz4).LengthsOk c)
-    (ho4 : FullOtfsWitnessInv c F0 F_cur
-      (fullMinShrinkState s3 tmp4 tl4 mrk4 mclr4 sstk4 wsort4 ws14
-        mcl4 mcf4 conf4 llits4 mrem4 ticks4 resSz4).core)
-    (hmc4 : FullLitMarksClear c
-      (fullMinShrinkState s3 tmp4 tl4 mrk4 mclr4 sstk4 wsort4 ws14
-        mcl4 mcf4 conf4 llits4 mrem4 ticks4 resSz4))
-    (htmp04 : tmp4[0]? = s3.core.tmp[0]?)
-    (h4lits : ∀ j, 1 ≤ j → j < tl4 →
-      let l := (tmp4[j]?.getD 0#32).toNat
+    (hcv4 : s4.core.cur_vars = s3.core.cur_vars)
+    (hval4 : s4.core.vals = s3.core.vals)
+    (har4 : s4.core.arena = s3.core.arena)
+    (hal4 : s4.core.arena_len = s3.core.arena_len)
+    (hdm4 : s4.core.dense_mode = s3.core.dense_mode)
+    (hpres4 : FullExtScratchPres s3 s4)
+    (hlen4 : s4.LengthsOk c)
+    (ho4 : FullOtfsWitnessInv c F0 F_cur s4.core)
+    (hmc4 : FullLitMarksClear c s4)
+    (htmp04 : s4.core.tmp[0]? = s3.core.tmp[0]?)
+    (h4lits : ∀ j, 1 ≤ j → j < s4.core.tmp_len →
+      let l := (s4.core.tmp[j]?.getD 0#32).toNat
       let lv := (s3.core.lvl[l / 2]?.getD 0#32).toNat
       l < 2 * s3.core.cur_vars ∧ s3.core.vals[l]?.getD 0#8 = 255#8 ∧
       0 < lv ∧ lv < s3.core.cur_level) :
-    let s4 := fullMinShrinkState s3 tmp4 tl4 mrk4 mclr4 sstk4 wsort4 ws14
-      mcl4 mcf4 conf4 llits4 mrem4 ticks4 resSz4
     FullOtfsInvW c F0 F_cur s4 ∧
-    ∀ k < tl4, let l := (tmp4[k]?.getD 0#32).toNat
+    ∀ k < s4.core.tmp_len, let l := (s4.core.tmp[k]?.getD 0#32).toNat
       l < 2 * s4.core.cur_vars ∧ s4.core.vals[l]?.getD 0#8 = 255#8 := by
-  let s4 := fullMinShrinkState s3 tmp4 tl4 mrk4 mclr4 sstk4 wsort4 ws14
-    mcl4 mcf4 conf4 llits4 mrem4 ticks4 resSz4
-  refine ⟨⟨hlen4, ho4, hmc4, ho3.2.2.2.1,
-    FullExtScratchOk.of_pres ho3.2.2.2.2.1 ⟨rfl, rfl⟩ (fun _ hr => hr), ho3.2.2.2.2.2⟩, ?_⟩
+  refine ⟨⟨hlen4, ho4, hmc4, ana_arenaVarsNodup_congr ho3.2.2.2.1 har4 hal4,
+    FullExtScratchOk.of_pres ho3.2.2.2.2.1 hpres4 (fun _ hr => by
+      unfold fullArenaClauseRefs fullArenaClauseRefsCore at hr ⊢; rwa [har4, hal4]),
+    hdm4.trans ho3.2.2.2.2.2⟩, ?_⟩
   intro k hk
   by_cases hk0 : k = 0
   · subst hk0
-    simpa [s4, htmp04] using hvals3 0 (Nat.lt_of_lt_of_le Nat.zero_lt_one htl_ge)
-  · exact ⟨(h4lits k (Nat.pos_of_ne_zero hk0) hk).1,
+    simpa [hcv4, hval4, htmp04] using hvals3 0 (Nat.lt_of_lt_of_le Nat.zero_lt_one htl_ge)
+  · rw [hcv4, hval4]
+    exact ⟨(h4lits k (Nat.pos_of_ne_zero hk0) hk).1,
       (h4lits k (Nat.pos_of_ne_zero hk0) hk).2.1⟩
 
 private theorem ana_core_post_tick_ok {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
@@ -414,36 +420,72 @@ private theorem ana_core_post_tick_ok {c : FullCfg} {F0 : CNF Nat} {F_cur : List
 
 /-! ## 3. Main WP Proof (`full_analyze_core_m6_wp`) -/
 
+private theorem ana_minShrinkMask_fields {s3 s4 : FullState}
+    (hframe : AgreesExcept Minimize.Spec.minShrinkMask s3 s4) :
+    s4.core.cur_vars = s3.core.cur_vars ∧ s4.core.fuel = s3.core.fuel ∧
+    s4.core.cur_level = s3.core.cur_level ∧ s4.core.vals = s3.core.vals ∧
+    s4.core.lvl = s3.core.lvl ∧ s4.core.dense_mode = s3.core.dense_mode ∧
+    s4.core.arena = s3.core.arena ∧ s4.core.arena_len = s3.core.arena_len ∧
+    s4.scratch.work_stk2 = s3.scratch.work_stk2 ∧ FullExtScratchPres s3 s4 := by
+  dsimp only [AgreesExcept, Minimize.Spec.minShrinkMask] at hframe
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ⟨?_, ?_⟩⟩
+  · have h := congrArg (fun st => st.core.cur_vars) hframe; exact h
+  · have h := congrArg (fun st => st.core.fuel) hframe; exact h
+  · have h := congrArg (fun st => st.core.cur_level) hframe; exact h
+  · have h := congrArg (fun st => st.core.vals) hframe; exact h
+  · have h := congrArg (fun st => st.core.lvl) hframe; exact h
+  · have h := congrArg (fun st => st.core.dense_mode) hframe; exact h
+  · have h := congrArg (fun st => st.core.arena) hframe; exact h
+  · have h := congrArg (fun st => st.core.arena_len) hframe; exact h
+  · have h := congrArg (fun st => st.scratch.work_stk2) hframe; exact h
+  · have h := congrArg (fun st => st.scratch.last_learned) hframe; exact h
+  · have h := congrArg (fun st => st.scratch.extend_len) hframe; exact h
+
 /-- Parametric `Func.wp` proof for `Src.Analyze.full_analyze_core_m6_body` against
-`Analyze.Spec.fullAnalyzeCoreM6Spec`. -/
+`Analyze.Spec.analyzeSpec`. -/
 theorem full_analyze_core_m6_wp (Γ : Env)
-    (hOneLit : ∀ a m Q X, fullOneLitConflSpec a m Q X →
+    (hOneLit : ∀ a m Q X, Learn.Spec.oneLitConflSpec a m Q X →
       Γ "full_one_lit_confl" [i64] [i64] a m Q X)
-    (hFailed : ∀ a m Q X, fullAnaFailedLitM6HdrSpec a m Q X →
+    (hFailed : ∀ a m Q X, anaFailedLitSpec a m Q X →
       Γ "full_ana_failed_lit_m6_hdr" [i64] [i64] a m Q X)
     (hDeduce : ∀ a m Q X, Deduce.Spec.fullDeduce1uipM6HdrSpec a m Q X →
       Γ "full_deduce_1uip_m6_hdr" [i64] [i64] a m Q X)
     (hUpdTier : ∀ a m Q X, m6HdrW2aSpec [] [] a m Q X →
       Γ "m6_hdr_update_tier_limits" [i64] [] a m Q X)
-    (hRestore : ∀ a m Q X, fullRestoreBumpAnaModeSpec a m Q X →
+    (hRestore : ∀ a m Q X, restoreBumpAnaModeSpec a m Q X →
       Γ "full_restore_bump_ana_mode_fid" [i64, .bool] [] a m Q X)
-    (hMinShrink : ∀ a m Q X, Minimize.Spec.fullMinShrinkSpec a m Q X →
+    (hMinShrink : ∀ a m Q X, Minimize.Spec.minShrinkSpec a m Q X →
       Γ "full_min_shrink_m6" [i64] [] a m Q X)
-    (hReasons : ∀ a m Q X, fullAnalyzeReasonsSpec a m Q X →
+    (hReasons : ∀ a m Q X, analyzeReasonsSpec a m Q X →
       Γ "full_analyze_reasons_fid" [i64] [] a m Q X)
     (hTick : ∀ a m Q X, fullTickRelSpec a m Q X → Γ "full_tick_rel" [i64] [] a m Q X)
     (hEma : ∀ a m Q X, fullEmaUpdateSpec a m Q X →
       Γ "full_ema_update" [i64, i64] [] a m Q X)
-    (hLearnM6 : ∀ a m Q X, Learn.Spec.fullLearnClauseM6Spec a m Q X →
+    (hLearnM6 : ∀ a m Q X, Learn.Spec.learnClauseSpec a m Q X →
       Γ "full_learn_clause_m6" [i64, i64] [i64] a m Q X)
     (hBumpMode : ∀ a m Q X, fullBumpAnalyzedModeSpec a m Q X →
       Γ "full_bump_analyzed_mode_fid" [i64, .bool] [] a m Q X)
     (hClear : ∀ a m Q X, fullClearAnaSpec a m Q X →
       Γ "full_clear_ana" [i64] [] a m Q X) :
-    ∀ a m Q X, m6HdrAnalyzeSpec a m Q X →
+    ∀ a m Q X, analyzeSpec a m Q X →
       Func.wp Γ Src.Analyze.full_analyze_core_m6_body a m Q X := by
   rintro ⟨h, ⟨⟩⟩ m Q X hs
-  rcases m6HdrAnalyzeSpec_elim hs with ⟨c, F0, F_cur, ext, s, R, rfl, hinv, hcf, hm, hQ⟩
+  obtain ⟨c, ext, s, ⟨F0, F_cur⟩, R, rfl, hcfg, hext, _, ⟨hsp, hcf⟩, hm, hQ0⟩ :=
+    M6HdrContract.elim hs
+  have hinv : FullM6HdrInvW c F0 F_cur ext s := FullM6HdrInvW.mk_inv hcfg hext hsp
+  let hQ : ∀ (r : BitVec 64) ext' s' m',
+      M6HdrExtOk ext' → s'.LengthsOk c → (r = 0#64 ∨ r = 1#64 ∨ r = 20#64) →
+      s'.core.cur_vars = s.core.cur_vars → s'.core.fuel.toNat ≤ s.core.fuel.toNat →
+      (s'.scratch.work_stk2 = s.scratch.work_stk2 ∧
+        (r = 20#64 → FullOtfsInvW c F0 F_cur s' ∧
+          s'.core.cur_level ≤ s.core.cur_level ∧ s'.core.dense_mode = s.core.dense_mode)) →
+      (r = 20#64 → F0.Unsat) → (r = 0#64 → FullOtfsInvW c F0 F_cur s') →
+      (r = 1#64 → FullM6HdrInvW c F0 F_cur ext' s' ∧ s'.core.cur_level < s.core.cur_level) →
+      (FullM6HdrMem c ext' s' ⋆ R) m' → Q (r, ()) m' :=
+    fun r ext' s' m' hext' hlen' hr hcv' hfu' ⟨hws2', h20'⟩ h20u h0' h1' hm' =>
+      hQ0 (r, ()) ext' s' m' hext' trivial hlen' ⟨hr, hcv', hfu', hws2',
+        fun eq20 => let ⟨ho, hcl, hdm⟩ := h20' eq20; ⟨h20u eq20, ho, hcl, hdm⟩,
+        h0', fun eq1 => let ⟨hinv', hcl'⟩ := h1' eq1; ⟨hinv'.sparseW, hcl'⟩⟩ hm'
   have hmaxv := c.hmaxv; have har_cap := c.harena; unfold dimacsBound at hmaxv har_cap
   have hcv_le := hinv.sparseW.1.core_ok.cur_vars_le
   let iter_lim : BitVec 64 := BitVec.ofNat 64 s.core.cur_vars + 64#64
@@ -465,17 +507,18 @@ theorem full_analyze_core_m6_wp (Γ : Env)
       have hcv_fit : (BitVec.ofNat 64 s1.core.cur_vars + 64#64).toNat = s1.core.cur_vars + 64 := by
         rw [hcv1]; exact hil_val
       c0_hsteps_nogrp; c0_call hOneLit
-      refine ⟨c, F0, F_cur, cut1, s1, m6ExtMem (m6ExtAddr c.hdr) ext1 ⋆ R,
-        rfl, hcut1, hcf1, hm1, ?_⟩
-      intro ol s2 m2 hlen2 hol hcv2 hfu2 hws2 h20 h1 h2 h0 hm2
+      dsimp only [Learn.Spec.oneLitConflSpec]
+      refine FullContract.intro (w := (F0, F_cur, cut1)) hcut1.1 ⟨hcut1, hcf1⟩ hm1 ?_
+      rintro ⟨ol, ⟨⟩⟩ s2 m2 hlen2 ⟨hol, hcv2, hfu2, hws2, h20, h1, h2, h0⟩ hm2
       have hm2' := fullM6HdrMem_unfocus hm2
       rcases hol with rfl | rfl | rfl | rfl
       · rcases h0 rfl with ⟨cut2, hcut2_le, hcut2, hlvl2, hlle2, hcf2⟩
         c0_hsteps_nogrp
         · c0_call hFailed
-          refine ⟨c, F0, F_cur, cut2, ext1, s2, R, rfl, hinv.cfgOk, hext1, hcut2, hlvl2, hcf2,
-            hm2', ?_⟩
-          intro r ext3 s3 m3 hext3 _ hlen3 hr hcv3 hfu3 hws3 hr20 hr0 hr1 hm3
+          dsimp only [anaFailedLitSpec]
+          refine M6HdrContract.intro (w := (F0, F_cur, cut2)) hinv.cfgOk hext1 hcut2.1
+            ⟨hcut2, hlvl2, hcf2⟩ hm2' ?_
+          rintro ⟨r, ⟨⟩⟩ ext3 s3 m3 hext3 _ hlen3 ⟨hr, hcv3, hfu3, hws3, hr20, hr0, hr1⟩ hm3
           exact hQ r ext3 s3 m3 hext3 hlen3 hr (hcv3.trans (hcv2.trans hcv1))
             (by rw [hfu3, hfu2, hfu1]; exact Nat.le_refl _) ⟨hws3.trans (hws2.trans hws1),
               fun heq => by
@@ -497,14 +540,15 @@ theorem full_analyze_core_m6_wp (Γ : Env)
               (fun h => by cases h) hr0 (fun h => by cases h) hm3
           · rcases hr1 rfl with ⟨ho3, hcl3, htl_ge, htl_le, hnd3, hvals3, hlvl3, _hlvl0, hent3⟩
             refine wp_m6Hdr_focus_frame hm3 fun hm3f => ?_; c0_hsteps_nogrp; c0_call hMinShrink
-            refine ⟨c, F0, F_cur, s3, m6ExtMem (m6ExtAddr c.hdr) ext3 ⋆ R, rfl, hlen3, ho3.2.1,
-              ho3.2.2.1, htl_ge, htl_le, hnd3, hent3, hvals3, hlvl3, _hlvl0, hm3f,
-              fun tmp4 tl4 mrk4 mclr4 sstk4 wsort4 ws14 mcl4 mcf4 conf4 llits4 mrem4 ticks4
-                resSz4 m4 hlen4 ho4 hmc4 htl4_ge htl4_le htmp04 hnd4 h4lits hent4 hm4 => ?_⟩
-            let s4 := fullMinShrinkState s3 tmp4 tl4 mrk4 mclr4 sstk4 wsort4 ws14
-              mcl4 mcf4 conf4 llits4 mrem4 ticks4 resSz4
-            obtain ⟨hotfs4, h4v⟩ := ana_core_min_shrink_ok ho3 htl_ge hvals3 hlen4 ho4 hmc4
-              htmp04 h4lits
+            dsimp only [Minimize.Spec.minShrinkSpec]
+            refine FullContract.intro (w := (F0, F_cur)) hlen3
+              ⟨ho3.2.1, ho3.2.2.1, htl_ge, htl_le, hnd3, hent3, hvals3, hlvl3, _hlvl0⟩ hm3f ?_
+            rintro ⟨⟩ s4 m4 hlen4
+              ⟨hframe4, ho4, hmc4, htl4_ge, htl4_le, htmp04, hnd4, h4lits, hent4⟩ hm4
+            obtain ⟨hcv4, hfu4, hcl4, hval4, hlvl4, hdm4, har4, hal4, hws24, hpres4⟩ :=
+              ana_minShrinkMask_fields hframe4
+            obtain ⟨hotfs4, h4v⟩ := ana_core_min_shrink_ok ho3 htl_ge hvals3 hcv4 hval4 har4 hal4
+              hdm4 hpres4 hlen4 ho4 hmc4 htmp04 h4lits
             have hm4' := fullM6HdrMem_unfocus hm4
             c0_hsteps_nogrp
             refine wp_join_state0 (α := FullState × List (BitVec 64))
@@ -551,10 +595,12 @@ theorem full_analyze_core_m6_wp (Γ : Env)
                   · rintro J6 s6 m6 ⟨⟨ho6, hpos6, htl6_ge, htl6_le, hnd6, hvals6, hlvl6,
                       hent6, hcv6, hfu6, hcl6, hws6, hcov6⟩, hm6⟩
                     c0_hsteps_nogrp; c0_call hLearnM6
-                    refine ⟨c, F0, F_cur, ext5, s6, R, rfl, hinv.cfgOk, hext5, ho6, hpos6,
-                      htl6_ge, htl6_le, hnd6, hvals6, hlvl6, hent6, fullM6HdrMem_unfocus hm6, ?_⟩
-                    intro r ext7 s7 m7 hext7 hlen7 hr hcv7 hfu7 hpr7 hmcl7 hws17 hws27
-                      h20_7 h0_7 h1_7 hm7
+                    dsimp only [Learn.Spec.learnClauseSpec]
+                    refine M6HdrContract.intro (w := (F0, F_cur)) hinv.cfgOk hext5 ho6.1
+                      ⟨ho6, hpos6, ⟨htl6_ge, htl6_le⟩, hnd6, hvals6, hlvl6, hent6⟩
+                      (fullM6HdrMem_unfocus hm6) ?_
+                    rintro ⟨r, ⟨⟩⟩ ext7 s7 m7 hext7 _ hlen7
+                      ⟨hr, hcv7, hfu7, hpr7, hmcl7, hws17, hws27, h20_7, h0_7, h1_7⟩ hm7
                     have hsp7 : FullSparseInvW c F0 F_cur s7 := by
                       rcases hr with rfl | rfl | rfl
                       · exact h0_7 rfl
@@ -640,13 +686,16 @@ theorem full_analyze_core_m6_wp (Γ : Env)
             · intro J4 hJ4; c0_hsteps_nogrp
               · have hp0 : s4.core.probing = 0#64 := by assumption
                 c0_call hReasons
-                refine ⟨c, ext3, s4, R, rfl, hinv.cfgOk, hext3, hlen4, hmc4.1, hm4', ?_⟩
-                intro mrk5 mcl5 sc5 ext5 m5
-                dsimp only
-                intro hlen5 hmz5 hcv5 _ hpres5 hws5 hext5 _ hm5
-                let s5 : FullState :=
-                  { core := { s4.core with mrk := mrk5, min_clr_len := mcl5 }, scratch := sc5 }
-                have ho5 := ana_fullOtfsInvW_of_reasons hotfs4 hlen5 hmz5 hpres5
+                dsimp only [analyzeReasonsSpec]
+                refine M6HdrContract.intro (w := ()) hinv.cfgOk hext3 hlen4 hmc4.1 hm4' ?_
+                rintro ⟨⟩ ext5 s5 m5 hext5 _ hlen5 ⟨hcore5, hmz5, hcv5, _, hpres5, hws5⟩ hm5
+                have hs5_eq : s5 = {
+                    core := { s4.core with mrk := s5.core.mrk, min_clr_len := s5.core.min_clr_len }
+                    scratch := s5.scratch } := by
+                  obtain ⟨c5, sc5⟩ := s5; exact congrArg (fun k => FullState.mk k sc5) hcore5
+                have ho5 : FullOtfsInvW c F0 F_cur s5 :=
+                  hs5_eq.symm ▸ ana_fullOtfsInvW_of_reasons hotfs4
+                    (hs5_eq ▸ hlen5) (hs5_eq ▸ hmz5) (hs5_eq ▸ hpres5)
                 refine wp_m6Hdr_focus_frame hm5 fun hm5f => ?_; c0_hsteps_nogrp; c0_call hTick
                 refine ⟨c, s5, m6ExtMem (m6ExtAddr c.hdr) ext5 ⋆ R, rfl, hlen5, hm5f, ?_⟩
                 rintro ⟨⟩ s6 m6 hcore6 hlen6 hpres6 hm6
@@ -658,19 +707,25 @@ theorem full_analyze_core_m6_wp (Γ : Env)
                     (hlle2 := by rw [hcl3]; exact Nat.le_trans hlle2 hcl1)
                     (hcv3 := hcv3.trans (hcv2.trans hcv1))
                     (hfu3 := by rw [hfu3, hfu2, hfu1])
-                    (hws3 := hws3.trans (hws2.trans hws1)) (ho5 := ho5) (hcore6 := hcore6)
-                    (hlen6 := hlen6) (hpres6 := hpres6) (htmp5 := rfl) (htl5 := rfl)
-                    (hcv5s := rfl) (hfu5s := rfl) (hcl5s := rfl) (hval5 := rfl) (hlvl5s := rfl)
-                    (hmcl5 := hcov5) (hws5 := hws5) (htl4s := rfl) (hcv4s := rfl)
-                    (hfu4s := rfl) (hcl4s := rfl) (hlvl4s := rfl) (hws4s := rfl)
+                    (hws3 := hws3.trans (hws2.trans hws1))
+                    (ho5 := ho5) (hcore6 := hcore6)
+                    (hlen6 := hlen6) (hpres6 := hpres6) (htmp5 := by rw [hcore5])
+                    (htl5 := by rw [hcore5]) (hcv5s := by rw [hcore5])
+                    (hfu5s := by rw [hcore5]) (hcl5s := by rw [hcore5])
+                    (hval5 := by rw [hcore5]) (hlvl5s := by rw [hcore5])
+                    (hmcl5 := by rw [hcore5]; exact hcov5)
+                    (hws5 := hws5) (htl4s := rfl) (hcv4s := hcv4)
+                    (hfu4s := hfu4) (hcl4s := hcl4) (hlvl4s := hlvl4) (hws4s := hws24)
                     (htmp4s := rfl) hnd4 h4v (fun k hk1 hk2 => (h4lits k hk1 hk2).2.2) hent4,
                   hext5, fullM6HdrMem_unfocus hm6⟩
               · have hpne : s4.core.probing ≠ 0#64 := by assumption
-                exact hJ4 (s4, ext3) m4 ⟨⟨hotfs4, by change 0 < s3.core.cur_level; omega,
-                  htl4_ge, Nat.le_trans htl4_le htl_le, hnd4, h4v,
-                  fun k hk1 hk2 => (h4lits k hk1 hk2).2.2, hent4, hcv3.trans (hcv2.trans hcv1),
-                  by rw [hfu3, hfu2, hfu1], by rw [hcl3]; exact Nat.le_trans hlle2 hcl1,
-                  hws3.trans (hws2.trans hws1), fun hp => absurd hp hpne⟩, hext3, hm4'⟩
+                exact hJ4 (s4, ext3) m4 ⟨⟨hotfs4, by change 0 < s4.core.cur_level; rw [hcl4]; omega,
+                  htl4_ge, by rw [hcv4]; exact Nat.le_trans htl4_le htl_le, hnd4, h4v,
+                  fun k hk1 hk2 => by rw [hlvl4, hcl4]; exact (h4lits k hk1 hk2).2.2,
+                  hent4, hcv4.trans (hcv3.trans (hcv2.trans hcv1)),
+                  by rw [hfu4, hfu3, hfu2, hfu1], by rw [hcl4, hcl3]; exact Nat.le_trans hlle2 hcl1,
+                  hws24.trans (hws3.trans (hws2.trans hws1)),
+                  fun hp => absurd hp hpne⟩, hext3, hm4'⟩
           · rcases hr2 rfl with ⟨cut3, hcut3_le, hcut3, hcl3, hcf3⟩
             refine wp_m6Hdr_focus_frame hm3 fun hm3f => ?_; c0_hsteps_nogrp
             refine wp_join_state0 (α := FullState × List (BitVec 64))
@@ -702,17 +757,29 @@ theorem full_analyze_core_m6_wp (Γ : Env)
                     (FullMem c st ⋆ (m6ExtMem (m6ExtAddr c.hdr) ext3t ⋆ R)) m') ?_ ?_
                 · rintro J5 s4 m4 ⟨⟨hcut4_le, hcut4, hcf4, hcv4, hfu4, hcl4, hws4⟩, hm4⟩
                   c0_hsteps_nogrp; c0_call hRestore
-                  refine ⟨c, ext3t, s4, R, rfl, hinv.cfgOk, hext3t, hcut4.1, hcut4.2.2.1.1,
-                    fullM6HdrMem_unfocus hm4, ?_⟩
-                  intro mrk5 mcl5 repr5 sc5 ext5 m5
-                  dsimp only
-                  intro hlen5 hmz5 _ _ hpres5 hws5 hext5 _ hm5
-                  let s5 : FullState :=
-                    { core := { s4.core with mrk := mrk5, min_clr_len := mcl5, repr := repr5 },
-                      scratch := sc5 }
-                  have hcut5 := ana_fullCutInvW_of_restoreBump hcut4 hlen5 hmz5 hpres5
+                  dsimp only [restoreBumpAnaModeSpec]
+                  refine M6HdrContract.intro (w := ()) hinv.cfgOk hext3t hcut4.1 hcut4.2.2.1.1
+                    (fullM6HdrMem_unfocus hm4) ?_
+                  rintro ⟨⟩ ext5 s5 m5 hext5 _ hlen5 ⟨hcore5, hmz5, _, _, hpres5, hws5⟩ hm5
+                  have hs5_eq : s5 = {
+                      core := { s4.core with
+                        mrk := s5.core.mrk, min_clr_len := s5.core.min_clr_len,
+                        repr := s5.core.repr }
+                      scratch := s5.scratch } := by
+                    obtain ⟨c5, sc5⟩ := s5; exact congrArg (fun k => FullState.mk k sc5) hcore5
+                  have hcut5 : FullCutInvW c F0 F_cur cut3 s5 :=
+                    hs5_eq.symm ▸ ana_fullCutInvW_of_restoreBump hcut4
+                      (hs5_eq ▸ hlen5) (hs5_eq ▸ hmz5) (hs5_eq ▸ hpres5)
                   exact hJ4 (s5, ext5) m5
-                    ⟨⟨hcut4_le, hcut5, hcf4, hcv4, hfu4, hcl4, hws5.trans hws4⟩, hext5, hm5⟩
+                    ⟨⟨by rw [hcore5]; exact hcut4_le, hcut5,
+                      by unfold FullConflictOkCut FullConflictOkW fullArenaClauseRefs
+                           fullArenaClauseGarb fullArenaClauseLits fullArenaClauseRefsCore
+                           fullArenaClauseGarbCore fullArenaHdrCore fullArenaClauseLitsCore
+                           fullArenaClauseSizeCore at hcf4 ⊢
+                         rw [hcore5]; exact hcf4,
+                      by rw [hcore5]; exact hcv4, by rw [hcore5]; exact hfu4,
+                      by change s5.core.cur_level ≤ _; rw [hcore5]; exact hcl4,
+                      hws5.trans hws4⟩, hext5, hm5⟩
                 · intro J5 hJ5
                   have hJ_s3t : ∀ m',
                       (FullMem c s3t ⋆ (m6ExtMem (m6ExtAddr c.hdr) ext3t ⋆ R)) m' →

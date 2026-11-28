@@ -14,6 +14,7 @@ import LeanQbe.T.Examples.Kissat.Proof.Minimize.WpMinDfs
 import LeanQbe.T.Examples.Kissat.Proof.Minimize.WpShrinkBlk
 import LeanQbe.T.Examples.Kissat.Proof.Minimize.WpMinShrinkHelpers
 import LeanQbe.T.Examples.Kissat.Proof.Minimize.WpMinShrinkLoops
+import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
 import LeanQbe.T.Examples.Kissat.Proof.Spec.Arena1
 import LeanQbe.T.Logic.C0Grind
 import LeanQbe.T.Logic.C0HeadStep
@@ -45,7 +46,7 @@ open Kraken.Bedrock2.Test
 
 private abbrev m6KSt (s : FullState) (b : ShrinkScratch) (keep : Nat) (conf' : BitVec 64) :
     FullState :=
-  Spec.fullMinShrinkState s b.tmp keep b.mrk b.mclr b.sstk b.wsort b.ws1 0 0#64
+  fullMinShrinkState s b.tmp keep b.mrk b.mclr b.sstk b.wsort b.ws1 0 0#64
     conf' s.scratch.learned_lits s.scratch.min_removed b.ticks b.resSz
 
 /-! ## 1. Compaction & Mark-Clearing Loops -/
@@ -509,15 +510,16 @@ private theorem m6_rev_outer_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat} {F_cur :
 public section
 
 theorem full_min_shrink_m6_wp (Γ : Env)
-    (hST : Γ.Has "full_sort_tmp" Spec.fullSortTmpSpec)
-    (hMm : Γ.Has "full_min_mark" Spec.fullMinMarkSpec)
-    (hSB : Γ.Has "full_shrink_blk_bool_m8" Spec.fullShrinkBlkBoolSpec)
-    (hDfs : Γ.Has "full_min_lit_dfs_m8" Spec.fullMinLitDfsSpec) :
-    ∀ args m Q X, Spec.fullMinShrinkSpec args m Q X →
+    (hST : Γ.Has "full_sort_tmp" Spec.sortTmpSpec)
+    (hMm : Γ.Has "full_min_mark" Spec.minMarkSpec)
+    (hSB : Γ.Has "full_shrink_blk_bool_m8" Spec.shrinkBlkSpec)
+    (hDfs : Γ.Has "full_min_lit_dfs_m8" Spec.minLitDfsSpec) :
+    ∀ args m Q X, Spec.minShrinkSpec args m Q X →
       Func.wp Γ full_min_shrink_m6_body args m Q X := by
   rintro ⟨h, ⟨⟩⟩ m Q X hs
-  obtain ⟨c, F0, F_cur, s, R, rfl, hlen, hw, hclear, ht_pos, ht_cv, hnd, hEnt, hlits, hlvls,
-      h0lvl, hm, hQ⟩ := Spec.fullMinShrinkSpec_elim hs
+  obtain ⟨c, s, ⟨F0, F_cur⟩, R, rfl, hlen,
+      ⟨hw, hclear, ht_pos, ht_cv, hnd, hEnt, hlits, hlvls, h0lvl⟩, hm, hQ⟩ :=
+    FullContract.elim hs
   have hlen0 := hlen.core_ok; have hcv := hlen0.cur_vars_le
   have hmx := c.hmaxv; unfold Ref.dimacsBound at hmx
   have hot_bv : (BitVec.ofNat 64 s.core.tmp_len).toNat = s.core.tmp_len := by
@@ -537,43 +539,49 @@ theorem full_min_shrink_m6_wp (Γ : Env)
     c0_hsteps_nogrp
     refine wp_join_group (ts := []) (fun () m_e =>
         m_e = m_c ∧ s.core.tmp_len = 1) ?_ ?_
-    · rintro _ ⟨⟩ m_e ⟨rfl, _⟩
+    · rintro _ ⟨⟩ m_e ⟨rfl, htl1⟩
       c0_hsteps!
-      have hm1' : (FullMem c (Spec.fullMinShrinkState s s.core.tmp s.core.tmp_len s.core.mrk
-          s.core.min_clr s.scratch.shrink_stk s.scratch.wsort s.scratch.work_stk1
-          s.core.min_clr_len s.core.min_clr_full conf'
-          (s.scratch.learned_lits + BitVec.ofNat 64 s.core.tmp_len)
-          s.scratch.min_removed s.scratch.search_ticks s.scratch.res_sz) ⋆ R) m := hm
-      have hlen_m1 : (Spec.fullMinShrinkState s s.core.tmp s.core.tmp_len s.core.mrk s.core.min_clr
-          s.scratch.shrink_stk s.scratch.wsort s.scratch.work_stk1 s.core.min_clr_len
-          s.core.min_clr_full conf' (s.scratch.learned_lits + BitVec.ofNat 64 s.core.tmp_len)
-          s.scratch.min_removed s.scratch.search_ticks s.scratch.res_sz).LengthsOk c :=
+      let st_m1 := fullMinShrinkState s s.core.tmp s.core.tmp_len s.core.mrk
+        s.core.min_clr s.scratch.shrink_stk s.scratch.wsort s.scratch.work_stk1
+        s.core.min_clr_len s.core.min_clr_full conf'
+        (s.scratch.learned_lits + BitVec.ofNat 64 s.core.tmp_len)
+        s.scratch.min_removed s.scratch.search_ticks s.scratch.res_sz
+      have hm1' : (FullMem c st_m1 ⋆ R) m := hm
+      have hlen_m1 : st_m1.LengthsOk c :=
         ⟨hlen.core_ok, by cases hlen.scratch_ok; constructor <;> assumption⟩
-      exact hQ s.core.tmp s.core.tmp_len s.core.mrk s.core.min_clr s.scratch.shrink_stk
-        s.scratch.wsort s.scratch.work_stk1 s.core.min_clr_len s.core.min_clr_full conf'
-        (s.scratch.learned_lits + BitVec.ofNat 64 s.core.tmp_len) s.scratch.min_removed
-        s.scratch.search_ticks s.scratch.res_sz m hlen_m1 (m6Witness_fin hw)
-        (m6LitMarksClear_of hclear hclear.1 rfl) ht_pos (le_refl _) rfl hnd
-        (fun j hj1 _ => absurd hj1 (by omega)) hEnt hm1'
+      exact hQ () st_m1 m hlen_m1
+        ⟨rfl, m6Witness_fin hw, m6LitMarksClear_of hclear hclear.1 rfl, ht_pos, le_refl _, rfl,
+         hnd, (fun j hj1 hj2 => by change j < s.core.tmp_len at hj2; omega), hEnt⟩ hm1'
     · intro _Jearly hJearly; c0_hsplit
       · exact hJearly () m_c ⟨rfl, by c0_grind⟩
       · c0_hsplit
         · exfalso; c0_grind
         · c0_hsteps_nogrp; apply wp_call_of_spec; apply hST
-          refine Spec.fullSortTmpSpec_of hlen_c (by change s.core.tmp_len ≤ c.max_vars; omega)
-            (fun k _ hk => by
+          dsimp only [Spec.sortTmpSpec]
+          refine FullContract.intro (w := ()) hlen_c
+            ⟨by change s.core.tmp_len ≤ c.max_vars; omega, fun k _ hk => by
               change (s.core.tmp[k]?.getD 0#32).toNat < 2 * c.max_vars
-              have := (hlits k hk).1; omega)
+              have := (hlits k hk).1; omega⟩
             hm_c ?_
-          intro tmp_s wsort_s m_s st_s hlen_s htmp_s _hw_s hperm_s h0_s hmap_s _hmap2_s
-            hsorted_s _hex_s hm_s
-          dsimp only [st_s, s_c] at hlen_s hm_s hsorted_s
+          rintro ⟨⟩ st_s m_s hlen_s
+            ⟨hframe_s, _hw_s, hperm_s, h0_s, hmap_s, _hmap2_s, hsorted_s⟩ hm_s
+          have hst_s_eq := sortTmpMask_eq hframe_s
+          let tmp_s := st_s.core.tmp
+          let wsort_s := st_s.scratch.wsort
+          have htmp_s : tmp_s.length = c.max_vars := hlen_s.core_ok.tmp_len_arr
+          have hm_s' : (FullMem c (FullState.mk { s_c.core with tmp := tmp_s }
+              { s_c.scratch with wsort := wsort_s }) ⋆ R) m_s :=
+            hst_s_eq ▸ hm_s
+          have hlen_s' : (FullState.mk { s_c.core with tmp := tmp_s }
+              { s_c.scratch with wsort := wsort_s }).LengthsOk c := hst_s_eq ▸ hlen_s
+          rw [hst_s_eq] at hperm_s h0_s hmap_s hsorted_s
+          dsimp only at hlen_s' hm_s' hsorted_s
           obtain ⟨hnd_s, hEnt_s, h0_eq_s, h0_lvl_s, hlits_s, hlvls_s⟩ := m6_sort_post hlen hw
             ht_pos ht_cv hnd hEnt hlits hlvls h0lvl htmp_s hperm_s h0_s hmap_s
           c0_hsteps_nogrp
           let s_w : FullState := { s_c with scratch := { s_c.scratch with wsort := wsort_s } }
           have hcore_w : FullOtfsCoreInv c F0 s_w :=
-            ⟨⟨hlen_c.core_ok, { hlen_c.scratch_ok with wsort_len := hlen_s.scratch_ok.wsort_len }⟩,
+            ⟨⟨hlen_c.core_ok, { hlen_c.scratch_ok with wsort_len := hlen_s'.scratch_ok.wsort_len }⟩,
               F_cur, hw⟩
           let b_pre : ShrinkScratch :=
             { ShrinkScratch.ofState s_w with tmp := tmp_s, mcl := 0, mcf := 0#64 }
@@ -581,7 +589,7 @@ theorem full_min_shrink_m6_wp (Γ : Env)
             have hinit := fullMinMarkInv_init hcore_c
               (fun v hv => by dsimp only [s_c] at hv; exact hclear.1 v (by omega)) []
             exact ⟨hinit.mrk_dom, fun _ v hv hnz => by
-              dsimp only [b_pre, ShrinkScratch.st, Spec.s13BlkState, s_w, s_c] at hv hnz
+              dsimp only [b_pre, ShrinkScratch.st, s13BlkState, s_w, s_c] at hv hnz
               rw [hclear.1 v (by omega)] at hnz; exact absurd rfl hnz, hinit.rem_sound⟩
           have hno8_0 : ∀ w < s_w.core.cur_vars, (s.core.mrk[w]?.getD 0#8 &&& 8#8) = 0#8 :=
             fun w hw' => by
@@ -589,7 +597,7 @@ theorem full_min_shrink_m6_wp (Γ : Env)
           refine m6_mark_loop_wp hMm hcore_w htmp_s hot_bv ht_cv
             (fun k hk => ⟨(hlits_s k hk).1, (hlits_s k hk).2.1⟩)
             hlen0.mrk_len hlen0.min_clr_len_arr hlen.scratch_ok.shrink_stk_len
-            hlen_s.scratch_ok.wsort_len hlen.scratch_ok.work_stk1_len hno8_0 hmin0 hm
+            hlen_s'.scratch_ok.wsort_len hlen.scratch_ok.work_stk1_len hno8_0 hmin0 hm
             fun b1 m_mk hbt hbs hbw hbw1 hbtk hbr hb1_len hmin1 hno8_1 hab1 hdone1 hm_mk => ?_
           have hnof := m6_take_map_filter_no_sent (by rw [htmp_s]; omega)
             (fun k hk => (hlits_s k hk).2.2)
@@ -655,10 +663,7 @@ theorem full_min_shrink_m6_wp (Γ : Env)
                 (llits' := s.scratch.learned_lits + keep_bv)
                 (mrem' := s.scratch.min_removed + (BitVec.ofNat 64 s.core.tmp_len - keep_bv))
                 (ticks' := bf.ticks) (resSz' := bf.resSz)
-              exact hQ tmp_o keep_bv.toNat mrk' bf.mclr bf.sstk bf.wsort bf.ws1 0 0#64 conf'
-                (s.scratch.learned_lits + keep_bv)
-                (s.scratch.min_removed + (BitVec.ofNat 64 s.core.tmp_len - keep_bv))
-                bf.ticks bf.resSz m h1 h2 h3 h4 h5 h6 h7 h8 h9 hm
+              exact hQ () _ m h1 ⟨rfl, h2, h3, h4, h5, h6, h7, h8, h9⟩ hm
             · intro Jfin hJfin
               exact m6_rev_outer_wp (s := s_w)
                 (bf := { bf with mrk := mrk', mcl := 0, mcf := 0#64 }) (conf' := conf')

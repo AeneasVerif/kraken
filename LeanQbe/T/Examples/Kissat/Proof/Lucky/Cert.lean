@@ -72,7 +72,21 @@ theorem cert : SegCert deps Src.Lucky.fns Spec.specs := by
   have hAssign := Backtrack.Spec.has_full_assign hBk
   have hBt := Backtrack.Spec.has_full_backtrack hBk
   have hProp := PropSearch.Spec.has_full_propagate hPr
-  have hAna := Analyze.Spec.has_full_analyze_m6_hdr hAn
+  have hAnaRaw := SpecTable.has_at hAn 4 rfl
+    (by unfold Analyze.Spec.analyzeSpec; exact M6HdrContract.toSpec_xfree _)
+  have hAna : Γ.Has "full_analyze_m6_hdr" m6HdrAnalyzeSpec := fun ⟨a0, ⟨⟩⟩ m Q X hs => by
+    obtain ⟨c, F0, F_cur, ext, s, R, rfl, hinv, hcf, hm, hQ⟩ := m6HdrAnalyzeSpec_elim hs
+    refine hAnaRaw (c.hdr, ()) m Q X ?_
+    dsimp only [Analyze.Spec.analyzeSpec]
+    exact M6HdrContract.intro (w := (F0, F_cur))
+      hinv.cfgOk hinv.extOk hinv.sparseW.1 ⟨hinv.sparseW, hcf⟩ hm
+      fun ⟨r, ⟨⟩⟩ ext' s' m' hext' _ hlen' ⟨hr, hcv', hfu', hws2', h20', h0', h1'⟩ hm' =>
+        hQ r ext' s' m' hext' hlen' hr hcv' hfu'
+          ⟨hws2', fun eq20 => let ⟨_, ho, hcl, hdm⟩ := h20' eq20; ⟨ho, hcl, hdm⟩⟩
+          (fun eq20 => (h20' eq20).1) h0'
+          (fun eq1 => let ⟨hsp', hcl'⟩ := h1' eq1
+                      ⟨FullM6HdrInvW.mk_inv hinv.cfgOk hext' hsp', hcl'⟩)
+          hm'
   have hNext := Arena.Spec.has_full_arena_next hAr
   exact
     ⟨ SpecEntry.Impl.of (full_lucky_ord_fid_wp Γ)

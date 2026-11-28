@@ -5,6 +5,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 module
 
 public import LeanQbe.T.Examples.Kissat.Proof.Minimize.MinTactics
+import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
 import LeanQbe.T.Examples.Kissat.Proof.Spec.Arena1
 
 /-!
@@ -679,16 +680,18 @@ theorem m8_fullMinMarkSpec_zero_inv {c : FullCfg} {F0 : CNF Nat} {s : FullState}
       let k2 := fullMinMarkCore k1 v.toNat tag
       (FullMem c (m8MinLitDfsState s k2.mrk wsort1 k2.min_clr k2.min_clr_len k2.min_clr_full
         ticks1) ⋆ R) m' → Q' () m') :
-    Proof.Spec.fullMinMarkSpec (c.hdr, v, tag, ()) m1 Q' X' := by
+    Proof.Minimize.Spec.minMarkSpec (c.hdr, v, tag, ()) m1 Q' X' := by
   let st1 := m8MinLitDfsState s mrk1 wsort1 mclr1 mcl1 mcf1 ticks1
   have hlen1 : st1.LengthsOk c := (m8FullOtfsCoreInv_with_state hcore hmrk hw hmclr hmcl).1
-  refine ⟨c, st1, R, rfl, hlen1, hm1, ?_⟩
-  dsimp only [fullMinMarkState]
+  dsimp only [Proof.Minimize.Spec.minMarkSpec]
+  refine FullContract.intro (w := ()) hlen1 trivial hm1 ?_
+  intro () s' m' _ hs' hm'
+  subst hs'
   have hc1 : ¬ (st1.core.cur_vars ≤ v.toNat ∨ (st1.core.mrk[v.toNat]?.getD 0#8 &&& tag) ≠ 0#8) :=
     fun h => h.elim (fun hle => by dsimp only [st1, m8MinLitDfsState] at hle; omega) fun hne => by
       change (mrk1[v.toNat]?.getD 0#8 &&& tag) ≠ 0#8 at hne; rw [hz] at hne; simp at hne
-  simp only [eq_false hc1, ↓reduceIte]
-  exact hpost
+  simp only [eq_false hc1, ↓reduceIte, fullMinMarkState] at hm'
+  exact hpost m' hm'
 
 theorem m8MinLit_state_step {s : FullState} {mrk1 : List (BitVec 8)}
     {wsort1 mclr1 : List (BitVec 32)} {mcl1 : Nat} {mcf1 ticks1 : BitVec 64}
@@ -769,7 +772,7 @@ theorem m8MinLitDfs_poison_leaf {c : FullCfg} {F0 : CNF Nat} {s : FullState}
       M8MinStInv c s keepSet mrk' wsort1 mclr' mcl' mcf' ticks1 →
       (FullMem c (m8MinLitDfsState s mrk' wsort1 mclr' mcl' mcf' ticks1) ⋆ R) m' →
       M8MinStkInv s.core wsort1 mrk' sp idx0 idxs false → Q' () m') :
-    Proof.Spec.fullMinMarkSpec (c.hdr, u_bv, (4 : BitVec 32).setWidth 8, ()) m1 Q' X' := by
+    Proof.Minimize.Spec.minMarkSpec (c.hdr, u_bv, (4 : BitVec 32).setWidth 8, ()) m1 Q' X' := by
   have hz : mrk1[u_bv.toNat]?.getD 0#8 = 0#8 :=
     bv8_zero_of_masks24 _ (hsi.min_inv.mrk_dom _ hu_lt) hno8_u hno2_u hno4_u
   refine m8_fullMinMarkSpec_zero_inv hcore hsi.mrk_len hsi.wsort_len hsi.mclr_len hsi.mcl_le hm1
@@ -827,7 +830,7 @@ theorem m8MinLitDfs_pop_state {c : FullCfg} {F0 : CNF Nat} {s : FullState}
       M8MinStkInv s.core wsort1 k'.mrk (sp - 1) idx0 (idxs.take sp) true →
       (FullMem c (m8MinLitDfsState s k'.mrk wsort1 k'.min_clr k'.min_clr_len k'.min_clr_full
         ticks1) ⋆ R) m' → Q' () m') :
-    Proof.Spec.fullMinMarkSpec (c.hdr, v, (2 : BitVec 32).setWidth 8, ()) m1 Q' X' := by
+    Proof.Minimize.Spec.minMarkSpec (c.hdr, v, (2 : BitVec 32).setWidth 8, ()) m1 Q' X' := by
   have hz : mrk1[v.toNat]?.getD 0#8 = 0#8 := by
     rw [hv_nat]; exact (hstk.slot sp hsp_idxs).2 (by omega)
   refine m8_fullMinMarkSpec_zero_inv hcore hsi.mrk_len hsi.wsort_len hsi.mclr_len hsi.mcl_le hm1

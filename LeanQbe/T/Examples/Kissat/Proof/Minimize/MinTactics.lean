@@ -8,6 +8,7 @@ public import LeanQbe.T.Examples.Kissat.Proof.Minimize.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Tactics
 public import LeanQbe.T.Examples.Kissat.Ref.Base
 public import LeanQbe.T.Examples.LratBytes
+import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
 import LeanQbe.T.Logic.C0Step
 
 /-!
@@ -431,6 +432,79 @@ theorem fullOtfsCoreInv_with_min_tmp {c : FullCfg} {F0 : CNF Nat} {s : FullState
 
 @[expose] def fullMinMarkStepState (s : FullState) (v : Nat) (tag : BitVec 8) : FullState :=
   { s with core := fullMinMarkStepCore s.core v tag }
+
+/-- Canonical state projection for `full_min_lit_dfs_m8` and `full_shrink_lower_m8`. -/
+abbrev m8MinLitDfsState (s : FullState) (mrk : List (BitVec 8))
+    (wsort mclr : List (BitVec 32)) (mcl : Nat) (mcf ticks : BitVec 64) : FullState :=
+  { core := { s.core with
+      mrk := mrk, min_clr := mclr, min_clr_len := mcl, min_clr_full := mcf },
+    scratch := { s.scratch with wsort := wsort, search_ticks := ticks } }
+
+/-- Canonical state projection for `full_shrink_blk_bool_m8`. -/
+abbrev m8ShrinkBlkBoolState (s : FullState) (tmp : List (BitVec 32))
+    (mrk : List (BitVec 8)) (mclr sstk wsort : List (BitVec 32))
+    (mcl : Nat) (mcf ticks : BitVec 64) : FullState :=
+  { core := { s.core with
+      tmp := tmp, mrk := mrk, min_clr := mclr, min_clr_len := mcl, min_clr_full := mcf },
+    scratch := { s.scratch with
+      shrink_stk := sstk, wsort := wsort, search_ticks := ticks } }
+
+/-- Block-shrink state projection with `work_stk1` and `res_sz` for `full_min_shrink_m6`. -/
+abbrev s13BlkState (s : FullState) (tmp : List (BitVec 32))
+    (mrk : List (BitVec 8)) (mclr sstk wsort ws1 : List (BitVec 32))
+    (mcl : Nat) (mcf ticks resSz : BitVec 64) : FullState :=
+  { core := { s.core with
+      tmp := tmp, mrk := mrk, min_clr := mclr, min_clr_len := mcl, min_clr_full := mcf },
+    scratch := { s.scratch with
+      shrink_stk := sstk, wsort := wsort, search_ticks := ticks,
+      work_stk1 := ws1, res_sz := resSz } }
+
+/-- Canonical post-state projection for `full_min_shrink_m6`. -/
+abbrev fullMinShrinkState (s : FullState) (tmp : List (BitVec 32)) (tl : Nat)
+    (mrk : List (BitVec 8)) (mclr sstk wsort ws1 : List (BitVec 32)) (mcl : Nat)
+    (mcf conf llits mrem ticks resSz : BitVec 64) : FullState :=
+  { core := { s.core with
+      tmp := tmp, tmp_len := tl, mrk := mrk, min_clr := mclr,
+      min_clr_len := mcl, min_clr_full := mcf },
+    scratch := { s.scratch with
+      conflicts := conf, learned_lits := llits, min_removed := mrem,
+      shrink_stk := sstk, wsort := wsort, search_ticks := ticks,
+      work_stk1 := ws1, res_sz := resSz } }
+
+theorem sortTmpMask_eq {s s' : FullState} (h : AgreesExcept Spec.sortTmpMask s s') :
+    s' = FullState.mk { s.core with tmp := s'.core.tmp }
+      { s.scratch with wsort := s'.scratch.wsort } := by
+  rcases s with ⟨c1, sc1⟩; rcases s' with ⟨c2, sc2⟩
+  cases c1; cases sc1; cases c2; cases sc2
+  dsimp only [AgreesExcept, Spec.sortTmpMask] at h
+  cases h; rfl
+
+theorem minLitDfsMask_eq {s s' : FullState} (h : AgreesExcept Spec.minLitDfsMask s s') :
+    s' = m8MinLitDfsState s s'.core.mrk s'.scratch.wsort s'.core.min_clr
+      s'.core.min_clr_len s'.core.min_clr_full s'.scratch.search_ticks := by
+  rcases s with ⟨c1, sc1⟩; rcases s' with ⟨c2, sc2⟩
+  cases c1; cases sc1; cases c2; cases sc2
+  dsimp only [AgreesExcept, Spec.minLitDfsMask, m8MinLitDfsState] at h ⊢
+  cases h; rfl
+
+theorem shrinkBlkMask_eq {s s' : FullState} (h : AgreesExcept Spec.shrinkBlkMask s s') :
+    s' = m8ShrinkBlkBoolState s s'.core.tmp s'.core.mrk s'.core.min_clr
+      s'.scratch.shrink_stk s'.scratch.wsort s'.core.min_clr_len s'.core.min_clr_full
+      s'.scratch.search_ticks := by
+  rcases s with ⟨c1, sc1⟩; rcases s' with ⟨c2, sc2⟩
+  cases c1; cases sc1; cases c2; cases sc2
+  dsimp only [AgreesExcept, Spec.shrinkBlkMask, m8ShrinkBlkBoolState] at h ⊢
+  cases h; rfl
+
+theorem minShrinkMask_eq {s s' : FullState} (h : AgreesExcept Spec.minShrinkMask s s') :
+    s' = fullMinShrinkState s s'.core.tmp s'.core.tmp_len s'.core.mrk s'.core.min_clr
+      s'.scratch.shrink_stk s'.scratch.wsort s'.scratch.work_stk1 s'.core.min_clr_len
+      s'.core.min_clr_full s'.scratch.conflicts s'.scratch.learned_lits
+      s'.scratch.min_removed s'.scratch.search_ticks s'.scratch.res_sz := by
+  rcases s with ⟨c1, sc1⟩; rcases s' with ⟨c2, sc2⟩
+  cases c1; cases sc1; cases c2; cases sc2
+  dsimp only [AgreesExcept, Spec.minShrinkMask, fullMinShrinkState] at h ⊢
+  cases h; rfl
 
 theorem fullMinMarkInv_init {c : FullCfg} {F0 : CNF Nat} {s : FullState}
     (hcore : FullOtfsCoreInv c F0 s) (hmc : FullMarksClear s) (keep : List Nat) :
@@ -996,18 +1070,21 @@ theorem fullMinMarkSpec_step {c : FullCfg} {s : FullState} {R : Mem 64 → Prop}
     {m : Mem 64} {Q' : Post []} {X' : XPost} (hlen : s.LengthsOk c)
     (hm : (FullMem c s ⋆ R) m) (v : BitVec 32) (hv : v.toNat < s.core.cur_vars) (tag : BitVec 8)
     (hpost : ∀ m', (FullMem c (fullMinMarkStepState s v.toNat tag) ⋆ R) m' → Q' () m') :
-    fullMinMarkSpec (c.hdr, v, tag, ()) m Q' X' := by
-  refine ⟨c, s, R, rfl, hlen, hm, ?_⟩
+    Spec.minMarkSpec (c.hdr, v, tag, ()) m Q' X' := by
+  dsimp only [Spec.minMarkSpec]
+  refine FullContract.intro (w := ()) hlen trivial hm ?_
+  intro () s' m' _ hs' hm'
+  subst hs'
   dsimp only [fullMinMarkStepState, fullMinMarkStepCore, fullMinMarkState] at hpost ⊢
   by_cases hset : (s.core.mrk[v.toNat]?.getD 0#8 &&& tag) ≠ 0#8
   · have hc : s.core.cur_vars ≤ v.toNat ∨ (s.core.mrk[v.toNat]?.getD 0#8 &&& tag) ≠ 0#8 :=
       Or.inr hset
-    simp only [eq_true hc, ↓reduceIte] at hpost ⊢
-    exact hpost m hm
+    simp only [eq_true hc, ↓reduceIte] at hpost hm' ⊢
+    exact hpost m' hm'
   · have hc : ¬ (s.core.cur_vars ≤ v.toNat ∨ (s.core.mrk[v.toNat]?.getD 0#8 &&& tag) ≠ 0#8) :=
       fun h => h.elim (fun hle => by omega) hset
-    simp only [eq_false hc, ↓reduceIte] at hpost ⊢
-    exact hpost
+    simp only [eq_false hc, ↓reduceIte] at hpost hm' ⊢
+    exact hpost m' hm'
 
 theorem fullMinMarkStepState_lengths {c : FullCfg} {s : FullState}
     (hlen : s.LengthsOk c) (v : Nat) (tag : BitVec 8) :

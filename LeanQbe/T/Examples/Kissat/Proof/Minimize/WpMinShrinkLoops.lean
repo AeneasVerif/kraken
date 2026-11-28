@@ -12,6 +12,7 @@ import LeanQbe.T.Examples.Kissat.Proof.Minimize.MinTactics
 import LeanQbe.T.Examples.Kissat.Proof.Minimize.WpMark
 import LeanQbe.T.Examples.Kissat.Proof.Minimize.WpMinDfs
 import LeanQbe.T.Examples.Kissat.Proof.Minimize.WpShrinkBlk
+import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
 import LeanQbe.T.Examples.Kissat.Proof.Spec.Arena1
 import LeanQbe.T.Logic.C0Grind
 import LeanQbe.T.Logic.C0HeadStep
@@ -186,7 +187,7 @@ public section
 theorem m6_mark_loop_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat} {s : FullState}
     {tmp_s : List (BitVec 32)} {orig_tlen : Nat} {ot_bv : BitVec 64}
     {R : Mem 64 → Prop} {m : Mem 64} {Q : Post []} {X : XPost} {k : Expr Val Cont []}
-    (hMm : Γ.Has "full_min_mark" Spec.fullMinMarkSpec)
+    (hMm : Γ.Has "full_min_mark" Spec.minMarkSpec)
     (hcore : FullOtfsCoreInv c F0 s) (htmp_len : tmp_s.length = c.max_vars)
     (hot_bv : ot_bv.toNat = orig_tlen) (hot_le : orig_tlen ≤ s.core.cur_vars)
     (hlits : ∀ k < orig_tlen,
@@ -304,7 +305,7 @@ theorem m6_mk2_loop_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat} {F_cur : List (Li
     {s : FullState} {orig_tlen : Nat} {beg_bv end_bv : BitVec 64} {blvl : BitVec 32}
     {tmp_s : List (BitVec 32)} {mrk0 : List (BitVec 8)} {b : ShrinkScratch}
     {R : Mem 64 → Prop} {m : Mem 64} {Q : Post []} {X : XPost} {Jout : Cont []}
-    (hDfs : Γ.Has "full_min_lit_dfs_m8" Spec.fullMinLitDfsSpec)
+    (hDfs : Γ.Has "full_min_lit_dfs_m8" Spec.minLitDfsSpec)
     (hcv : s.core.cur_vars ≤ c.max_vars) (hot_le : orig_tlen ≤ s.core.cur_vars)
     (hcore : FullOtfsCoreInv c F0 s) (hw : FullOtfsWitnessInv c F0 F_cur s.core)
     (hs_nosent : ∀ k < orig_tlen, tmp_s[k]?.getD 0xFFFFFFFF#32 ≠ 0xFFFFFFFF#32)
@@ -363,15 +364,27 @@ theorem m6_mk2_loop_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat} {F_cur : List (Li
           rw [List.getElem?_eq_getElem hmk_arr', Option.getD_some]
         rw [hget] at hl2v hval_eq hlvl_bd
         apply wp_call_of_spec; apply hDfs
-        refine Spec.fullMinLitDfsSpec_of hcore_i hinv_i.min_inv hl2v hval_eq hlvl_bd.2
-          (fun v hv _ => hinv_i.no8 v hv) hm_i ?_
-        intro ok_d mrk_d wsort_d mclr_d mcl_d mcf_d ticks_d m_d st_d hlen_d hab_d hmono_d
-          hbit8_d hmin_d hok_d hm_d
-        dsimp only [st_d, Spec.m8MinLitDfsState, ShrinkScratch.st, Spec.s13BlkState] at hlen_d hab_d
-        dsimp only [st_d, Spec.m8MinLitDfsState, ShrinkScratch.st, Spec.s13BlkState] at hmono_d
-        dsimp only [st_d, Spec.m8MinLitDfsState, ShrinkScratch.st, Spec.s13BlkState] at hbit8_d
-        dsimp only [st_d, Spec.m8MinLitDfsState, ShrinkScratch.st, Spec.s13BlkState] at hmin_d hok_d
-        dsimp only [st_d, Spec.m8MinLitDfsState, ShrinkScratch.st, Spec.s13BlkState] at hm_d
+        dsimp only [Spec.minLitDfsSpec]
+        refine FullContract.intro (w := (F0, _)) hcore_i.1
+          ⟨hcore_i, hinv_i.min_inv, hl2v, hval_eq, hlvl_bd.2, fun v hv _ => hinv_i.no8 v hv⟩
+          hm_i ?_
+        rintro ⟨ok_d, ⟨⟩⟩ st_d m_d hlen_d
+          ⟨⟨hframe_d, hab_d, hmono_d, hbit8_d, hmin_d⟩, hok_d⟩ hm_d
+        have hst_d_eq := minLitDfsMask_eq hframe_d
+        let mrk_d := st_d.core.mrk
+        let wsort_d := st_d.scratch.wsort
+        let mclr_d := st_d.core.min_clr
+        let mcl_d := st_d.core.min_clr_len
+        let mcf_d := st_d.core.min_clr_full
+        let ticks_d := st_d.scratch.search_ticks
+        have hm_d' : (FullMem c (m8MinLitDfsState (bi.st s) mrk_d wsort_d mclr_d mcl_d mcf_d
+            ticks_d) ⋆ R) m_d := hst_d_eq ▸ hm_d
+        have hlen_d' : (m8MinLitDfsState (bi.st s) mrk_d wsort_d mclr_d mcl_d mcf_d
+            ticks_d).LengthsOk c := hst_d_eq ▸ hlen_d
+        rw [hst_d_eq] at hab_d hmono_d hbit8_d hmin_d hok_d
+        dsimp only [m8MinLitDfsState, ShrinkScratch.st, s13BlkState] at hlen_d' hab_d
+        dsimp only [m8MinLitDfsState, ShrinkScratch.st, s13BlkState] at hmono_d hbit8_d
+        dsimp only [m8MinLitDfsState, ShrinkScratch.st, s13BlkState] at hmin_d hok_d
         c0_hsplit
         · have hok_true : ok_d = true := by cases ok_d with | true => rfl | false => cases hc
           let bd : ShrinkScratch :=
@@ -390,15 +403,15 @@ theorem m6_mk2_loop_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat} {F_cur : List (Li
             · left; rw [hget]; rfl
             · exact Or.inr hmem
           exact hJn () m ⟨{ bd with tmp := bi.tmp.set mk2_bv.toNat 0xFFFFFFFF#32 }, hbs, hbw1, hbr,
-            m6Dfs_step_true hcv hot_le hw hinv_i hmk_lt hlen_d.core_ok.mrk_len
-              hlen_d.core_ok.min_clr_len_arr hlen_d.core_ok.min_clr_len_le
-              hlen_d.scratch_ok.wsort_len hmono_d hbit8_d hab_d hroot_min, hm⟩
+            m6Dfs_step_true hcv hot_le hw hinv_i hmk_lt hlen_d'.core_ok.mrk_len
+              hlen_d'.core_ok.min_clr_len_arr hlen_d'.core_ok.min_clr_len_le
+              hlen_d'.scratch_ok.wsort_len hmono_d hbit8_d hab_d hroot_min, hm⟩
         · exact hJn () m_d ⟨{ bi with
               mrk := mrk_d, mclr := mclr_d, wsort := wsort_d,
               mcl := mcl_d, mcf := mcf_d, ticks := ticks_d }, hbs, hbw1, hbr,
-            m6Dfs_step_false hinv_i hmk_lt hblk_lvl hlen_d.core_ok.mrk_len
-              hlen_d.core_ok.min_clr_len_arr hlen_d.core_ok.min_clr_len_le
-              hlen_d.scratch_ok.wsort_len hmono_d hbit8_d hab_d hmin_d, hm_d⟩
+            m6Dfs_step_false hinv_i hmk_lt hblk_lvl hlen_d'.core_ok.mrk_len
+              hlen_d'.core_ok.min_clr_len_arr hlen_d'.core_ok.min_clr_len_le
+              hlen_d'.scratch_ok.wsort_len hmono_d hbit8_d hab_d hmin_d, hm_d'⟩
     · have hmeq : mk2_bv.toNat = end_bv.toNat := by c0_grind
       rw [hmeq] at hinv_i
       exact hJ bi m_i hbs hbw1 hbr hinv_i hm_i
@@ -412,8 +425,8 @@ theorem m6_shrink_loop_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat} {F_cur : List 
     {s : FullState} {orig_tlen : Nat} {cv_bv ot_bv : BitVec 64}
     {tmp_s : List (BitVec 32)} {b1 : ShrinkScratch} {R : Mem 64 → Prop} {m : Mem 64}
     {Q : Post []} {X : XPost} {k : Expr Val Cont []}
-    (hSB : Γ.Has "full_shrink_blk_bool_m8" Spec.fullShrinkBlkBoolSpec)
-    (hDfs : Γ.Has "full_min_lit_dfs_m8" Spec.fullMinLitDfsSpec)
+    (hSB : Γ.Has "full_shrink_blk_bool_m8" Spec.shrinkBlkSpec)
+    (hDfs : Γ.Has "full_min_lit_dfs_m8" Spec.minLitDfsSpec)
     (hcore : FullOtfsCoreInv c F0 s) (hw : FullOtfsWitnessInv c F0 F_cur s.core)
     (hcv_bv : cv_bv.toNat = s.core.cur_vars) (hot_bv : ot_bv.toNat = orig_tlen)
     (hot_pos : 1 ≤ orig_tlen) (hot_le : orig_tlen ≤ s.core.cur_vars)
@@ -523,22 +536,43 @@ theorem m6_shrink_loop_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat} {F_cur : List 
                 have hbeg_lvl_rng := hs_lvls beg_bv.toNat hb_ge1 hbeg_lt
                 rw [hblvl_eq] at hbeg_lvl_rng
                 c0_hsteps_nogrp; apply wp_call_of_spec; apply hSB
-                refine Spec.fullShrinkBlkBoolSpec_of hcore_b hinv_b.min_inv hinv_b.no8 hb_ge1 hbe_lt
-                  he_le hot_le hbeg_lvl_rng.1 hbeg_lvl_rng.2 (fun j hj1 hj2 => by
-                    dsimp only [Arg.val] at hj1 hj2
-                    have heq := hinv_b.tail_eq j (by omega) (by omega)
-                    have hls := hs_lits j (by omega)
-                    refine ⟨by rw [heq]; exact hls.1, by rw [heq]; exact hls.2.1,
-                      by rw [heq]; exact hblk_lvl j hj1 hj2,
-                      by rw [heq]; exact hblk_tr j hj1 hj2⟩)
-                  hinv_b.kept_lits hm_b ?_
-                intro ok_s tmp' mrk' mclr' sstk' wsort' mcl' mcf' ticks' m_s st_s
-                  hcore_s hmin_s hab_s hno8_s hm2_s hfalse_s hout_s hin_lvl_s hnodup_s hEnt_s
-                  hkept_s hm_s
-                dsimp only [st_s, Spec.m8ShrinkBlkBoolState, ShrinkScratch.st,
-                  Spec.s13BlkState] at hcore_s hmin_s hab_s hno8_s hm2_s hout_s hin_lvl_s
-                dsimp only [st_s, Spec.m8ShrinkBlkBoolState, ShrinkScratch.st,
-                  Spec.s13BlkState] at hnodup_s hEnt_s hkept_s hm_s
+                dsimp only [Spec.shrinkBlkSpec]
+                refine FullContract.intro (w := (F0, orig_tlen)) hcore_b.1
+                  ⟨hcore_b, hinv_b.min_inv, hinv_b.no8, hb_ge1, hbe_lt, he_le, hot_le,
+                   ⟨hbeg_lvl_rng.1, hbeg_lvl_rng.2⟩,
+                   (fun j hj1 hj2 => by
+                     dsimp only [vals, Arg.val] at hj1 hj2
+                     have heq := hinv_b.tail_eq j (by omega) (by omega)
+                     have hls := hs_lits j (by omega)
+                     refine ⟨by rw [heq]; exact hls.1, by rw [heq]; exact hls.2.1,
+                       by rw [heq]; exact hblk_lvl j hj1 hj2,
+                       by rw [heq]; exact hblk_tr j hj1 hj2⟩),
+                   hinv_b.kept_lits⟩ hm_b ?_
+                rintro ⟨ok_s, ⟨⟩⟩ st_s m_s _
+                  ⟨hframe_s, hcore_s, hmin_s, hab_s, hno8_s, hm2_s, hfalse_s, hout_s,
+                   hin_lvl_s, hnodup_s, hEnt_s, hkept_s⟩ hm_s
+                have hst_s_eq := shrinkBlkMask_eq hframe_s
+                let tmp' := st_s.core.tmp
+                let mrk' := st_s.core.mrk
+                let mclr' := st_s.core.min_clr
+                let sstk' := st_s.scratch.shrink_stk
+                let wsort' := st_s.scratch.wsort
+                let mcl' := st_s.core.min_clr_len
+                let mcf' := st_s.core.min_clr_full
+                let ticks' := st_s.scratch.search_ticks
+                have hm_s' : (FullMem c (m8ShrinkBlkBoolState (bb.st s) tmp' mrk' mclr' sstk'
+                    wsort' mcl' mcf' ticks') ⋆ R) m_s := hst_s_eq ▸ hm_s
+                rw [hst_s_eq] at hcore_s hmin_s hab_s hno8_s hm2_s hfalse_s hout_s hin_lvl_s
+                rw [hst_s_eq] at hnodup_s hEnt_s hkept_s
+                dsimp only [m8ShrinkBlkBoolState, ShrinkScratch.st, s13BlkState] at hcore_s hmin_s
+                dsimp only [m8ShrinkBlkBoolState, ShrinkScratch.st, s13BlkState] at hab_s hno8_s
+                dsimp only [m8ShrinkBlkBoolState, ShrinkScratch.st, s13BlkState] at hm2_s
+                dsimp only [m8ShrinkBlkBoolState, ShrinkScratch.st, s13BlkState] at hout_s hin_lvl_s
+                dsimp only [m8ShrinkBlkBoolState, ShrinkScratch.st, s13BlkState] at hnodup_s hEnt_s
+                simp only [Spec.activeTmpLits, List.map_map, Function.comp_def,
+                  vals, Arg.val] at hout_s hin_lvl_s hnodup_s
+                dsimp only [m8ShrinkBlkBoolState, ShrinkScratch.st, s13BlkState] at hkept_s hm_s'
+                dsimp only [m8ShrinkBlkBoolState, ShrinkScratch.st, s13BlkState] at hfalse_s
                 let bs : ShrinkScratch :=
                   { bb with
                     tmp := tmp', mrk := mrk', mclr := mclr', sstk := sstk',
@@ -550,7 +584,7 @@ theorem m6_shrink_loop_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat} {F_cur : List 
                    hinv_b.len.ws1_len⟩
                 c0_hsplit
                 · refine m6_ana_push_wp (b := bs) hcv_bv hcv hcore_s.1.core_ok.tmp_len_arr
-                    hinv_b.len.ws1_len hbeg_lt hot_le hm_s fun ws' resSz' m_j hwl' hm_j => ?_
+                    hinv_b.len.ws1_len hbeg_lt hot_le hm_s' fun ws' resSz' m_j hwl' hm_j => ?_
                   c0_hsteps!
                   exact hJb () m_j ⟨{ bs with ws1 := ws', resSz := resSz' },
                     m6Shrink_block_step hw hinv_b hbe_lt he_le hs0_lvl hs_nosent hs_lvls
@@ -584,7 +618,7 @@ theorem m6_shrink_loop_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat} {F_cur : List 
                       no8 := hno8_s
                       mrk_above := fun w hw => (hab_s w hw).trans (hinv_b.mrk_above w hw) }
                   have hdfs_init := m6Dfs_init hinv_b' hbe_lt he_le hblk_lvl
-                  refine m6_mk2_loop_wp hDfs hcv hot_le hcore hw hs_nosent hblk_lvl hdfs_init hm_s
+                  refine m6_mk2_loop_wp hDfs hcv hot_le hcore hw hs_nosent hblk_lvl hdfs_init hm_s'
                     fun b' m_d _ _ _ hdfs_d hm_d => ?_
                   c0_hsteps!
                   exact hJb () m_d ⟨b', m6Dfs_to_loop hdfs_d hend_strict, hm_d⟩

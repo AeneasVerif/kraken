@@ -10,6 +10,7 @@ public import LeanQbe.T.Logic.CanonicalEnv
 import LeanQbe.T.Examples.Kissat.Proof.Minimize.MinTactics
 import LeanQbe.T.Examples.Kissat.Proof.Minimize.WpShrinkBlkHelpers
 import LeanQbe.T.Examples.Kissat.Proof.Minimize.WpShrinkBlkLemmas
+import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
 import LeanQbe.T.Examples.Kissat.Proof.Spec.Arena1
 import LeanQbe.T.Logic.C0Grind
 import LeanQbe.T.Logic.C0HeadStep
@@ -152,7 +153,7 @@ private theorem m8_shrink_after_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat} {s : 
     {mrk1 : List (BitVec 8)} {mclr1 sstk1 wsort1 : List (BitVec 32)}
     {mcl1 : Nat} {mcf1 ticks1 slen_bv : BitVec 64} {failed : Bool}
     {t_uip : Nat} {R : Mem 64 → Prop} {m : Mem 64} {Q : Post [.bool]} {X : XPost}
-    (hMm : Γ.Has "full_min_mark" Spec.fullMinMarkSpec) (hcore : FullOtfsCoreInv c F0 s)
+    (hMm : Γ.Has "full_min_mark" Spec.minMarkSpec) (hcore : FullOtfsCoreInv c F0 s)
     (hbeg_end : beg.toNat < end_b.toNat)
     (hend_kl : end_b.toNat ≤ keepLen) (hkl_cv : keepLen ≤ s.core.cur_vars)
     (hblk_lvl : ∀ k, beg.toNat ≤ k → k < end_b.toNat →
@@ -163,7 +164,7 @@ private theorem m8_shrink_after_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat} {s : 
       (s.core.mrk[l / 2]?.getD 0#8 &&& 2#8) ≠ 0#8)
     (hsl_bv : slen_bv.toNat = slen)
     (hb : M8ShrinkBaseInv c s mrk1 mclr1 sstk1 wsort1 mcl1 mcf1 slen
-      (((s.core.tmp.take keepLen).filter (· ≠ 0xFFFFFFFF#32)).map BitVec.toNat))
+      (Spec.activeTmpLits s.core.tmp keepLen))
     (hok : failed = false → M8ShrinkStk8 mrk1 sstk1 slen ∧ uip ≠ 0xFFFFFFFF#32 ∧
       t_uip < s.core.trail_end ∧
       (s.core.trl[t_uip]?.getD 0#32).toNat = uip.toNat ∧
@@ -174,35 +175,9 @@ private theorem m8_shrink_after_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat} {s : 
         w = uip.toNat / 2 ∨ ∃ idx < s.core.trail_end, t_uip < idx ∧
           (s.core.trl[idx]?.getD 0#32).toNat / 2 = w ∧ ShrinkResolved s.core mrk1 idx))
     (hm : (FullMem c (m8SBlkSt s s.core.tmp mrk1 mclr1 sstk1 wsort1 mcl1 mcf1 ticks1) ⋆ R) m)
-    (hQ : ∀ (ok : Bool) tmp' mrk' mclr' sstk' wsort' mcl' mcf' ticks' m',
-      let s' := Spec.m8ShrinkBlkBoolState s tmp' mrk' mclr' sstk' wsort' mcl' mcf' ticks'
-      FullOtfsCoreInv c F0 s' →
-      FullMinMarkInv s'.core (((tmp'.take keepLen).filter (· ≠ 0xFFFFFFFF#32)).map BitVec.toNat) →
-      (∀ v, s.core.cur_vars ≤ v → mrk'[v]? = s.core.mrk[v]?) →
-      (∀ v < s.core.cur_vars, (mrk'[v]?.getD 0#8 &&& 8#8) = 0#8) →
-      (∀ v < s.core.cur_vars,
-        (s.core.mrk[v]?.getD 0#8 &&& 2#8) ≠ 0#8 → (mrk'[v]?.getD 0#8 &&& 2#8) ≠ 0#8) →
-      (ok = false → tmp' = s.core.tmp) →
-      (∀ k < keepLen, (k < beg.toNat ∨ end_b.toNat ≤ k) → tmp'[k]? = s.core.tmp[k]?) →
-      (∀ k, beg.toNat ≤ k → k < end_b.toNat → tmp'[k]?.getD 0xFFFFFFFF#32 ≠ 0xFFFFFFFF#32 →
-        (s.core.lvl[(tmp'[k]?.getD 0#32).toNat / 2]?.getD 0#32).toNat = blvl.toNat) →
-      ((((s.core.tmp.take keepLen).filter (· ≠ 0xFFFFFFFF#32)).map
-          fun x => x.toNat / 2).Nodup →
-        (∀ k < keepLen, (k < beg.toNat ∨ end_b.toNat ≤ k) →
-          s.core.tmp[k]?.getD 0xFFFFFFFF#32 ≠ 0xFFFFFFFF#32 →
-          (s.core.lvl[(s.core.tmp[k]?.getD 0#32).toNat / 2]?.getD 0#32).toNat ≠ blvl.toNat) →
-        (((tmp'.take keepLen).filter (· ≠ 0xFFFFFFFF#32)).map fun x => x.toNat / 2).Nodup) →
-      (∀ F_cur, FullOtfsWitnessInv c F0 F_cur s.core →
-        (cnfOfClauses F_cur).EntailsClause (cnfClause
-          (((s.core.tmp.take keepLen).filter (· ≠ 0xFFFFFFFF#32)).map BitVec.toNat)) →
-        FullOtfsWitnessInv c F0 F_cur s'.core ∧
-        (cnfOfClauses F_cur).EntailsClause (cnfClause
-          (((tmp'.take keepLen).filter (· ≠ 0xFFFFFFFF#32)).map BitVec.toNat))) →
-      (∀ k < keepLen, tmp'[k]?.getD 0xFFFFFFFF#32 ≠ 0xFFFFFFFF#32 →
-        let l := (tmp'[k]?.getD 0#32).toNat
-        l < 2 * s.core.cur_vars ∧ s'.core.vals[l]?.getD 0#8 = 0xFF#8 ∧
-        (mrk'[l / 2]?.getD 0#8 &&& 2#8) ≠ 0#8) →
-      (FullMem c s' ⋆ R) m' → Q (ok, ()) m') :
+    (hQ : ∀ (res : Tup Val [.bool]) (s' : FullState) m', s'.LengthsOk c →
+      Spec.ShrinkBlkPost c F0 s s' keepLen beg end_b blvl res.1 →
+      (FullMem c s' ⋆ R) m' → Q res m') :
     wp Γ Q X (m8ShrinkAfterExpr c.hdr c.pTmp c.pMark c.pShrinkStk beg end_b slen_bv
       failed uip) m := by
   have hlen0 := hcore.1.core_ok; have hcv := hlen0.cur_vars_le
@@ -248,13 +223,16 @@ private theorem m8_shrink_after_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat} {s : 
           · exact hnz
           · obtain ⟨j, hj1, hj2, _⟩ := hrem_i w hw hnz; omega
         c0_hsteps!
-        refine hQ false s.core.tmp mrk_i mclr1 sstk1 wsort1 mcl1 mcf1 ticks1 m_i
-          (m8CoreInv_blk hcore hlen0.tmp_len_arr hb_i.mrk_len hb_i.mclr_len hb_i.mcl_le
-            hb_i.sstk_len hb_i.wsort_len) hb_i.min_inv hb_i.mrk_above hno8_f hb_i.mono2
-          (fun _ => rfl) (fun _ _ _ => rfl) (fun k hk1 hk2 _ => hblk_lvl k hk1 hk2)
-          (fun hnd _ => hnd) (fun _ hw hEnt => ⟨m8Witness_shrinkBlk hw, hEnt⟩)
+        have hcore_f := m8CoreInv_blk (mcf1 := mcf1) (ticks1 := ticks1) hcore hlen0.tmp_len_arr
+          hb_i.mrk_len hb_i.mclr_len hb_i.mcl_le hb_i.sstk_len hb_i.wsort_len
+        refine hQ (false, ()) _ m_i hcore_f.1 ⟨rfl, hcore_f, hb_i.min_inv, hb_i.mrk_above, hno8_f,
+          hb_i.mono2, (fun _ => rfl), (fun _ _ _ => rfl), (fun k hk1 hk2 _ => hblk_lvl k hk1 hk2),
+          (fun hnd _ => hnd), (fun _ hw hEnt => ⟨m8Witness_shrinkBlk hw, hEnt⟩),
           (fun k hk hne => ⟨(hkeep k hk hne).1, (hkeep k hk hne).2.1,
-            hb_i.mono2 _ (by have := (hkeep k hk hne).1; omega) (hkeep k hk hne).2.2⟩) hm_i
+            hb_i.mono2 _ (by
+              have := (hkeep k hk hne).1
+              dsimp only [m8SBlkSt, m8BlkState, m8ShrinkBlkBoolState]; omega)
+              (hkeep k hk hne).2.2⟩)⟩ hm_i
     · intro L hL; c0_hsteps!; refine hL slen (0#64, ()) m ⟨by simp, Nat.zero_le _, mrk1, hb,
         fun w hw h8 => by
           obtain ⟨j, hj, hje⟩ := hb.bit8_sstk w hw h8; exact ⟨j, Nat.zero_le _, hj, hje⟩,
@@ -365,17 +343,21 @@ private theorem m8_shrink_after_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat} {s : 
                 obtain ⟨_, _, hst_mid_ok, hm_mid8, hdom_mid, hcov_mid, hmf_len, hcf_len, hml_le,
                     hdomf, hcovf, hfab, hm2f, hdone2f, hrem8f, hnew2f, h8of⟩ := hstep_all
                 apply wp_call_of_spec; apply hMm
-                change Proof.Spec.fullMinMarkSpec (c.hdr, sv, 2#8, ()) m _ X
-                refine ⟨c, st_mid, R, rfl, hst_mid_ok, hm_mid, ?_⟩
+                dsimp only [Spec.minMarkSpec]
+                refine FullContract.intro (w := ()) hst_mid_ok trivial hm_mid ?_
+                intro () s_fin m_fin _ hs_fin hm_fin
+                change s_fin = (if st_mid.core.cur_vars ≤ sv.toNat ∨
+                    (st_mid.core.mrk[sv.toNat]?.getD 0#8 &&& 2#8) ≠ 0#8 then st_mid
+                  else fullMinMarkState st_mid sv.toNat 2#8) at hs_fin
+                subst hs_fin
                 have hi1 : (i_bv + 1).toNat = i_bv.toNat + 1 := by c0_bound
                 by_cases h2z : (mrk_mid[sv.toNat]?.getD 0#8 &&& 2#8) = 0#8
                 · have hcond : ¬ (st_mid.core.cur_vars ≤ sv.toNat ∨
                       (st_mid.core.mrk[sv.toNat]?.getD 0#8 &&& 2#8) ≠ 0#8) :=
                     fun h => h.elim
-                      (by dsimp only [st_mid, m8BlkState, Spec.m8ShrinkBlkBoolState]; omega)
+                      (by dsimp only [st_mid, m8BlkState, m8ShrinkBlkBoolState]; omega)
                       (fun hn => hn h2z)
-                  rw [ite_eq_right hcond]
-                  intro m_fin hm_fin
+                  rw [ite_eq_right hcond] at hm_fin
                   have hstep_f : st_fin = fullMinMarkState st_mid sv.toNat 2#8 := by
                     dsimp only [st_fin, fullMinMarkStepState, fullMinMarkStepCore, fullMinMarkState]
                     rw [ite_eq_right hcond]
@@ -396,14 +378,14 @@ private theorem m8_shrink_after_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat} {s : 
                       by rw [hi1]; exact hdone2f, by rw [hi1]; exact hrem8f, hnew2f, h8of, hm_fin'⟩
                 · have hcond : st_mid.core.cur_vars ≤ sv.toNat ∨
                       (st_mid.core.mrk[sv.toNat]?.getD 0#8 &&& 2#8) ≠ 0#8 := Or.inr h2z
-                  rw [ite_eq_left hcond]
+                  rw [ite_eq_left hcond] at hm_fin
                   have hstep_id : st_fin = st_mid := by
                     dsimp only [st_fin, fullMinMarkStepState, fullMinMarkStepCore]
                     rw [ite_eq_left hcond]
                   have hm_fin' : (FullMem c (m8SBlkSt s tmp_f st_fin.core.mrk st_fin.core.min_clr
                       sstk1 wsort1 st_fin.core.min_clr_len st_fin.core.min_clr_full ticks1) ⋆ R)
-                      m := by rwa [hstep_id]
-                  c0_hsteps!; exact hLi (slen - (i_bv + 1).toNat) (i_bv + 1, ()) m
+                      m_fin := by rwa [hstep_id]
+                  c0_hsteps!; exact hLi (slen - (i_bv + 1).toNat) (i_bv + 1, ()) m_fin
                     (by rw [hi1]; omega) ⟨rfl, by rw [hi1]; omega, st_fin.core.mrk,
                       st_fin.core.min_clr, st_fin.core.min_clr_len, st_fin.core.min_clr_full,
                       hmf_len, hcf_len, hml_le, hdomf, hcovf, hfab, hm2f,
@@ -423,13 +405,20 @@ private theorem m8_shrink_after_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat} {s : 
                   hbeg_end hend_kl hkl_cv hkeep hb hmrki hmclri htf_len hdom_i hcov_i hm2_i h8_to_2
                   hnew2 huip_te huip_eq huip_8 huip_lvl hres1 hblk1 htf_out htf_beg htf_rest
                 c0_hsteps!
-                exact hQ true tmp_f mrk_i mclr_i sstk1 wsort1 mcl_i mcf_i ticks1 m_i
-                  (m8CoreInv_blk hcore htf_len hmrki hmclri hmcli hb.sstk_len hb.wsort_len) hmin_f
-                  (fun w hw => (hm_ab w hw).trans (hb.mrk_above w hw)) hno8_f
-                  (fun w hw h2 => hm2_i w hw (hb.mono2 w hw h2)) (fun hf' => by cases hf') htf_out
-                  hlvl_f (fun hnd hout => m8Shrink_tmp_nodup (by rw [hlen0.tmp_len_arr]; omega)
-                    (by rw [htf_len]; omega) huip_lvl htf_out htf_beg htf_rest hnd hout)
-                  hEnt_f hkeep_f hm_i
+                have hcore_f := m8CoreInv_blk (mcf1 := mcf_i) (ticks1 := ticks1) hcore htf_len hmrki
+                  hmclri hmcli hb.sstk_len hb.wsort_len
+                exact hQ (true, ()) _ m_i hcore_f.1 ⟨rfl, hcore_f, hmin_f,
+                  (fun w hw => (hm_ab w hw).trans (hb.mrk_above w hw)), hno8_f,
+                  (fun w hw h2 => hm2_i w hw (hb.mono2 w hw h2)), (fun hf' => by cases hf'),
+                  htf_out,
+                  hlvl_f, (fun hnd hout => by
+                    simpa only [Spec.activeTmpLits, List.map_map, Function.comp_def] using
+                      m8Shrink_tmp_nodup (by rw [hlen0.tmp_len_arr]; omega)
+                        (by rw [htf_len]; omega) huip_lvl htf_out htf_beg htf_rest
+                        (by simpa only [Spec.activeTmpLits, List.map_map, Function.comp_def] using
+                          hnd)
+                        hout),
+                  hEnt_f, hkeep_f⟩ hm_i
             · intro Li hLi; c0_hsteps!; refine hLi slen (0#64, ()) m ⟨by simp, Nat.zero_le _, mrk1,
                 mclr1, mcl1, mcf1, hb.mrk_len, hb.mclr_len, hb.mcl_le, hb.min_inv.mrk_dom,
                 hb.min_inv.clr_cov, fun _ _ => rfl, fun _ _ h => h, fun k hk => by simp at hk,
@@ -556,7 +545,7 @@ private theorem m8_shrink_cl_check_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat} {s
     {mclr_c sstk_c wsort_c : List (BitVec 32)} {mcl_c : Nat} {mcf_c : BitVec 64}
     {is_bin : Bool} {R : Mem 64 → Prop} {m_c : Mem 64} {Q : Post [.bool]} {X : XPost}
     {J1 : Cont [i64, i64, .bool]}
-    (hSL : Γ.Has "full_shrink_lower_m8" Spec.fullShrinkLowerSpec) (hcore : FullOtfsCoreInv c F0 s)
+    (hSL : Γ.Has "full_shrink_lower_m8" Spec.shrinkLowerSpec) (hcore : FullOtfsCoreInv c F0 s)
     (hblvl_lt : blvl.toNat < s.core.cur_level) (ht_te : t_uip < s.core.trail_end)
     (hend_mv : end_b.toNat ≤ c.max_vars)
     (hueq : (s.core.trl[t_uip]?.getD 0#32).toNat = uip.toNat)
@@ -593,11 +582,11 @@ private theorem m8_shrink_cl_check_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat} {s
     c0_hsplit
     · have hlv_bd : ((ot >>> 1).setWidth 64).toNat < (m8SBlkSt s s.core.tmp mrk_c mclr_c
           sstk_c wsort_c mcl_c mcf_c ticks_c).core.lvl.length := by
-        dsimp only [m8SBlkSt, Spec.m8ShrinkBlkBoolState]; rw [hlen0.lvl_len, bv_c0_zext32_64]; omega
+        dsimp only [m8SBlkSt, m8ShrinkBlkBoolState]; rw [hlen0.lvl_len, bv_c0_zext32_64]; omega
       c0_hsplit
       · have hmrk_bd : ((ot >>> 1).setWidth 64).toNat < (m8SBlkSt s s.core.tmp mrk_c mclr_c
             sstk_c wsort_c mcl_c mcf_c ticks_c).core.mrk.length := by
-          dsimp only [m8SBlkSt, Spec.m8ShrinkBlkBoolState]
+          dsimp only [m8SBlkSt, m8ShrinkBlkBoolState]
           rw [hinv_c.base.mrk_len, bv_c0_zext32_64]; omega
         c0_hsplit
         · have h8_ov : (mrk_c[(ot >>> 1).toNat]?.getD 0#8 &&& 8#8) = 0#8 := by
@@ -640,18 +629,33 @@ private theorem m8_shrink_cl_check_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat} {s
                 rw [Blocks.get_here]; c0_hsteps!; exact hJ2 (op_c, sl_c, fb, ()) m_fb h_fb
               · intro J2b hJ2b
                 c0_hsteps!; apply wp_call_of_spec; apply hSL
-                refine Spec.fullShrinkLowerSpec_of
-                  (m8ShrinkBaseInv_core (ticks := ticks_c) hcore hinv_c.base)
-                  hinv_c.base.min_inv (bv32_lshr_1 ot) (hot_eq ▸ hq_lt2v) hval_ot hov_lvl_lt
-                  hno8_ov hm_c fun ok_l mrk2 wsort2 mclr2 mcl2 mcf2 ticks2 m2 hlok hab hm2 hm8
-                    hmin2 hgot2 hm_2 => by
-                  c0_hsplit
-                  · have hot_t : ok_l = true := hc
-                    c0_hsteps!; exact hJ2b (false, ()) m2 ⟨mrk2, mclr2, sstk_c, wsort2, mcl2, mcf2,
-                      ticks2, m8Shrink_cl_step_lower_ok hcore ht_te hblk_lt hinv_c hot_eq
-                        ⟨m, hm, hot_eq ▸ hmeq⟩ hlok hab hm2 hm8 hmin2 (hgot2 hot_t), hm_2⟩
-                  · c0_hsteps!; exact hJ2b (true, ()) m2 ⟨mrk2, mclr2, sstk_c, wsort2, mcl2, mcf2,
-                      ticks2, m8Shrink_cl_step_fail hinv_c hlok hab hm2 hm8 hmin2, hm_2⟩
+                dsimp only [Spec.shrinkLowerSpec]
+                have hbase_c := m8ShrinkBaseInv_core (ticks := ticks_c) hcore hinv_c.base
+                refine FullContract.intro (w := (F0, _)) hbase_c.1
+                  ⟨bv32_lshr_1 ot, hbase_c, hinv_c.base.min_inv, hot_eq ▸ hq_lt2v,
+                   hval_ot, hov_lvl_lt, hno8_ov⟩ hm_c ?_
+                rintro ⟨ok_l, ⟨⟩⟩ st2 m2 hlok ⟨⟨hframe2, hab, hm2, hm8, hmin2⟩, hgot2⟩ hm_2
+                have hst2_eq := minLitDfsMask_eq hframe2
+                let mrk2 := st2.core.mrk
+                let wsort2 := st2.scratch.wsort
+                let mclr2 := st2.core.min_clr
+                let mcl2 := st2.core.min_clr_len
+                let mcf2 := st2.core.min_clr_full
+                let ticks2 := st2.scratch.search_ticks
+                have hm_2' : (FullMem c (m8MinLitDfsState
+                    (m8SBlkSt s s.core.tmp mrk_c mclr_c sstk_c wsort_c mcl_c mcf_c ticks_c)
+                    mrk2 wsort2 mclr2 mcl2 mcf2 ticks2) ⋆ R) m2 := hst2_eq ▸ hm_2
+                have hlok' : (m8MinLitDfsState
+                    (m8SBlkSt s s.core.tmp mrk_c mclr_c sstk_c wsort_c mcl_c mcf_c ticks_c)
+                    mrk2 wsort2 mclr2 mcl2 mcf2 ticks2).LengthsOk c := hst2_eq ▸ hlok
+                rw [hst2_eq] at hab hm2 hm8 hmin2 hgot2
+                c0_hsplit
+                · have hot_t : ok_l = true := hc
+                  c0_hsteps!; exact hJ2b (false, ()) m2 ⟨mrk2, mclr2, sstk_c, wsort2, mcl2, mcf2,
+                    ticks2, m8Shrink_cl_step_lower_ok hcore ht_te hblk_lt hinv_c hot_eq
+                      ⟨m, hm, hot_eq ▸ hmeq⟩ hlok' hab hm2 hm8 hmin2 (hgot2 hot_t), hm_2'⟩
+                · c0_hsteps!; exact hJ2b (true, ()) m2 ⟨mrk2, mclr2, sstk_c, wsort2, mcl2, mcf2,
+                    ticks2, m8Shrink_cl_step_fail hinv_c hlok' hab hm2 hm8 hmin2, hm_2'⟩
             · refine wp_join_group (ts := [i64, i64, .bool])
                 (fun (op_e, sl_e, f_e, ()) m_e =>
                   ∃ mrk_e mclr_e sstk_e wsort_e mcl_e mcf_e ticks_e,
@@ -739,7 +743,7 @@ private theorem m8_shrink_cl_loop_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat} {s 
     {is_bin f_hdr : Bool} {cv_v : BitVec 64}
     {R : Mem 64 → Prop} {m_hdr : Mem 64} {Q : Post [.bool]} {X : XPost}
     {kAfter : Val i64 → Val i64 → Val .bool → Expr Val Cont [.bool]}
-    (hSL : Γ.Has "full_shrink_lower_m8" Spec.fullShrinkLowerSpec) (hcore : FullOtfsCoreInv c F0 s)
+    (hSL : Γ.Has "full_shrink_lower_m8" Spec.shrinkLowerSpec) (hcore : FullOtfsCoreInv c F0 s)
     (hblvl_lt : blvl.toNat < s.core.cur_level) (hcv_eq : cv_v = BitVec.ofNat 64 s.core.cur_vars)
     (ht_te : t_uip < s.core.trail_end) (hend_mv : end_b.toNat ≤ c.max_vars)
     (hueq : (s.core.trl[t_uip]?.getD 0#32).toNat = uip.toNat)
@@ -858,7 +862,7 @@ private theorem m8_shrink_cl_loop_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat} {s 
             · have hibf : is_bin = false := hc
               have har_bd : (rsn.setWidth 64 + 3 + j_c.setWidth 64).toNat < (m8SBlkSt s s.core.tmp
                   mrk_c mclr_c sstk_c wsort_c mcl_c mcf_c ticks_c).core.arena.length := by
-                rw [bv64_zext32_add3_add]; dsimp only [m8SBlkSt, Spec.m8ShrinkBlkBoolState]
+                rw [bv64_zext32_add3_add]; dsimp only [m8SBlkSt, m8ShrinkBlkBoolState]
                 rw [hlen0.arena_len_arr]; have := (hbig_f hibf).2.2.2.2
                 have := hlen0.arena_len_le; simp [hibf] at hcsz_e; omega
               c0_hsteps!
@@ -867,7 +871,7 @@ private theorem m8_shrink_cl_loop_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat} {s 
                 ⟨rfl, ?_⟩
               dsimp only [m8ShrinkRsnLit]; simp only [hibf, Bool.false_eq_true, ↓reduceIte]
               rw [List.getElem?_eq_getElem (by
-                simpa only [m8SBlkSt, Spec.m8ShrinkBlkBoolState, bv64_zext32_add3_add]
+                simpa only [m8SBlkSt, m8ShrinkBlkBoolState, bv64_zext32_add3_add]
                   using har_bd), Option.getD_some]
               simp only [bv64_zext32_add3_add]
       · have hj_eq : j_c.toNat = csz_h.toNat := by c0_grind
@@ -886,7 +890,7 @@ private theorem m8_shrink_blk_cl_iter_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
     {mcl_i : Nat} {mcf_i : BitVec 64} {is_bin : Bool}
     {R : Mem 64 → Prop} {m_hdr : Mem 64} {Q : Post [.bool]} {X : XPost}
     {L : Cont [i64, i64, .bool, i32, i64]}
-    (hSL : Γ.Has "full_shrink_lower_m8" Spec.fullShrinkLowerSpec) (hcore : FullOtfsCoreInv c F0 s)
+    (hSL : Γ.Has "full_shrink_lower_m8" Spec.shrinkLowerSpec) (hcore : FullOtfsCoreInv c F0 s)
     (hblvl_lt : blvl.toNat < s.core.cur_level) (hte : t_a.toNat < s.core.trail_end)
     (ht_pos' : 0 < t_a.toNat) (htm1 : (t_a - 1).toNat = t_a.toNat - 1)
     (hend_mv : end_b.toNat ≤ c.max_vars)
@@ -981,13 +985,13 @@ private theorem m8_shrink_blk_cl_iter_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
 public section
 
 theorem full_shrink_blk_bool_m8_wp (Γ : Env)
-    (hMm : Γ.Has "full_min_mark" Spec.fullMinMarkSpec)
-    (hSL : Γ.Has "full_shrink_lower_m8" Spec.fullShrinkLowerSpec) :
-    ∀ args m Q X, Spec.fullShrinkBlkBoolSpec args m Q X →
+    (hMm : Γ.Has "full_min_mark" Spec.minMarkSpec)
+    (hSL : Γ.Has "full_shrink_lower_m8" Spec.shrinkLowerSpec) :
+    ∀ args m Q X, Spec.shrinkBlkSpec args m Q X →
       Func.wp Γ full_shrink_blk_bool_m8_body args m Q X := by
   rintro ⟨h, beg, end_b, blvl, max_tr, ⟨⟩⟩ m Q X hsp
-  obtain ⟨c, F0, s, keepLen, R, rfl, hcore, hmin, hno8, hbeg1, hbeg_end, hend_kl, hkl_cv,
-      hblvl_pos, hblvl_lt, hblk, hkeep, hm, hQ⟩ := Spec.fullShrinkBlkBoolSpec_elim hsp
+  obtain ⟨c, s, ⟨F0, keepLen⟩, R, rfl, _, ⟨hcore, hmin, hno8, hbeg1, hbeg_end, hend_kl, hkl_cv,
+      ⟨hblvl_pos, hblvl_lt⟩, hblk, hkeep⟩, hm, hQ⟩ := FullContract.elim hsp
   unfold Func.wp full_shrink_blk_bool_m8_body; dsimp only [full_shrink_blk_bool_m8_body]
   have hlen0 := hcore.1.core_ok; have hcv := hlen0.cur_vars_le
   have hmx := c.hmaxv; have har := c.harena; unfold Ref.dimacsBound at hmx har
@@ -1020,14 +1024,14 @@ theorem full_shrink_blk_bool_m8_wp (Γ : Env)
     · have hk_lt : k.toNat < end_b.toNat := by c0_grind
       have hk_arr : k.toNat < (m8SBlkSt s s.core.tmp mrk1 s.core.min_clr sstk1 s.scratch.wsort
           s.core.min_clr_len s.core.min_clr_full s.scratch.search_ticks).core.tmp.length := by
-        dsimp only [m8SBlkSt, Spec.m8ShrinkBlkBoolState]; rw [hlen0.tmp_len_arr]; omega
+        dsimp only [m8SBlkSt, m8ShrinkBlkBoolState]; rw [hlen0.tmp_len_arr]; omega
       obtain ⟨hv_lt, hsl_arr, hb2, hstk2, hbp2, hcnt2, hno8o2⟩ := m8Shrink_init_step hcore hbk
         hk_lt hend_kl hkl_cv hblk hb1 hstk8 hbp hcnt1 hno8o hsl_k hk_arr
       let v := s.core.tmp[k.toNat]'hk_arr >>> 1
       have hvm : (v.setWidth 64).toNat < (m8SBlkSt s s.core.tmp mrk1 s.core.min_clr sstk1
           s.scratch.wsort s.core.min_clr_len s.core.min_clr_full
           s.scratch.search_ticks).core.mrk.length := by
-        dsimp only [m8SBlkSt, Spec.m8ShrinkBlkBoolState] at *; rw [bv_c0_zext32_64, hb1.mrk_len]
+        dsimp only [m8SBlkSt, m8ShrinkBlkBoolState] at *; rw [bv_c0_zext32_64, hb1.mrk_len]
         exact Nat.lt_of_lt_of_le hv_lt hcv
       let mrk2 := mrk1.set v.toNat (mrk1[v.toNat]?.getD 0#8 ||| 8#8)
       have hsl_len : slen.toNat < (m8SBlkSt s s.core.tmp mrk2 s.core.min_clr sstk1
@@ -1176,7 +1180,7 @@ theorem full_shrink_blk_bool_m8_wp (Γ : Env)
                       obtain ⟨_, hw⟩ := hcore.2; rw [← hueq]; exact hw.trail_lits_lt t_a.toNat hte
                     have hur_len : ((uip_a >>> 1).setWidth 64).toNat < (m8SBlkSt s s.core.tmp mrk_i
                         mclr_i sstk_i wsort_i mcl_i mcf_i ticks_i).core.rsns.length := by
-                      dsimp only [m8SBlkSt, Spec.m8ShrinkBlkBoolState]
+                      dsimp only [m8SBlkSt, m8ShrinkBlkBoolState]
                       rw [hlen0.rsns_len, bv_c0_zext32_64, bv32_lshr_1]; omega
                     let rsn := s.core.rsns[((uip_a >>> 1).setWidth 64).toNat]'hur_len
                     have hrsn_eq : rsn = s.core.rsns[(s.core.trl[t_a.toNat]?.getD 0#32).toNat /
@@ -1236,7 +1240,7 @@ theorem full_shrink_blk_bool_m8_wp (Γ : Env)
                           · have har2 : (rsn.setWidth 64 + 2).toNat < (m8SBlkSt s s.core.tmp mrk_i
                                 mclr_i sstk_i wsort_i mcl_i mcf_i ticks_i).core.arena.length := by
                               have := hlen0.arena_len_le; rw [bv64_zext32_add2]
-                              dsimp only [m8SBlkSt, Spec.m8ShrinkBlkBoolState]
+                              dsimp only [m8SBlkSt, m8ShrinkBlkBoolState]
                               rw [hlen0.arena_len_arr]; omega
                             let csz := s.core.arena[(rsn.setWidth 64 + 2).toNat]'har2
                             have hcsz_eq :
@@ -1244,7 +1248,7 @@ theorem full_shrink_blk_bool_m8_wp (Γ : Env)
                               have hopt : (m8SBlkSt s s.core.tmp mrk_i mclr_i sstk_i wsort_i mcl_i
                                   mcf_i ticks_i).core.arena[(rsn.setWidth 64 + 2).toNat]? =
                                   s.core.arena[rsn.toNat + 2]? := by
-                                dsimp only [m8SBlkSt, Spec.m8ShrinkBlkBoolState]
+                                dsimp only [m8SBlkSt, m8ShrinkBlkBoolState]
                                 rw [bv64_zext32_add2]
                               rw [List.getElem?_eq_getElem har2] at hopt
                               exact congrArg (fun o => (o.getD 0#32).toNat) hopt
@@ -1268,7 +1272,7 @@ theorem full_shrink_blk_bool_m8_wp (Γ : Env)
                 have := hlen0.trail_end_le; c0_grind
               have htc_arr : t_c.toNat < (m8SBlkSt s s.core.tmp mrk_i mclr_i sstk_i wsort_i
                   mcl_i mcf_i ticks_i).core.trl.length := by
-                dsimp only [m8SBlkSt, Spec.m8ShrinkBlkBoolState]; rw [hlen0.trl_len]
+                dsimp only [m8SBlkSt, m8ShrinkBlkBoolState]; rw [hlen0.trl_len]
                 have := hlen0.trail_end_le; omega
               let lit := s.core.trl[t_c.toNat]'htc_arr
               have hlit_eq : lit = s.core.trl[t_c.toNat]?.getD 0#32 := by

@@ -99,7 +99,8 @@ theorem cert : SegCert deps Src.Walk.fns Spec.specs := by
   have hArenaNext := Arena.Spec.has_full_arena_next hAr
   have hAssign := Backtrack.Spec.has_full_assign hBk
   have hBacktrack := Backtrack.Spec.has_full_backtrack hBk
-  have hNextDec := Decide.Spec.has_full_next_dec_var hDec
+  have hNextDec := SpecTable.has_at hDec 0 rfl
+    (by unfold Decide.Spec.nextDecVarSpec; exact FullContract.toSpec_xfree _)
   have hWatchLarge := Dense.Spec.has_full_watch_large_clauses_fid hDen
   have hAdd := SpecTable.has_at hFl 2 rfl f64uPure2Spec_xfree
   have hSub := SpecTable.has_at hFl 3 rfl f64uPure2Spec_xfree

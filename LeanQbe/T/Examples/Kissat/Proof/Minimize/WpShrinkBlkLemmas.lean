@@ -31,7 +31,7 @@ open scoped FullArenaTactics FullMinTactics
 
 public section
 
-abbrev m8SBlkSt := Spec.m8ShrinkBlkBoolState
+abbrev m8SBlkSt := m8ShrinkBlkBoolState
 
 theorem m8Shrink_init_step {c : FullCfg} {F0 : CNF Nat} {s : FullState}
     (hcore : FullOtfsCoreInv c F0 s) {beg end_b keepLen slen k : Nat} {blvl : BitVec 32}
@@ -274,7 +274,7 @@ theorem m8SBlk_store_mrk {c : FullCfg} {s : FullState} {tmp1 : List (BitVec 32)}
     storeOk m i8 (c.pMark + i) ∧
       (FullMem c (m8SBlkSt s tmp1 (mrk1.set i.toNat v) mclr1 sstk1 wsort1 mcl1 mcf1 ticks1) ⋆
         R) (storeMem m i8 (c.pMark + i) v) := by
-  dsimp only [m8SBlkSt, Spec.m8ShrinkBlkBoolState] at hi hm ⊢
+  dsimp only [m8SBlkSt, m8ShrinkBlkBoolState] at hi hm ⊢
   exact c0_store_full_mrk v hi hm
 
 theorem m8SBlk_store_sstk {c : FullCfg} {s : FullState} {tmp1 : List (BitVec 32)}
@@ -287,7 +287,7 @@ theorem m8SBlk_store_sstk {c : FullCfg} {s : FullState} {tmp1 : List (BitVec 32)
     storeOk m i32 (c.pShrinkStk + i * 4) ∧
       (FullMem c (m8SBlkSt s tmp1 mrk1 mclr1 (sstk1.set i.toNat v) wsort1 mcl1 mcf1 ticks1) ⋆
         R) (storeMem m i32 (c.pShrinkStk + i * 4) v) := by
-  dsimp only [m8SBlkSt, Spec.m8ShrinkBlkBoolState] at hi hm ⊢
+  dsimp only [m8SBlkSt, m8ShrinkBlkBoolState] at hi hm ⊢
   exact c0_store_full_shrink_stk v hi hm
 
 theorem m8SBlk_store_tmp {c : FullCfg} {s : FullState} {tmp1 : List (BitVec 32)}
@@ -299,7 +299,7 @@ theorem m8SBlk_store_tmp {c : FullCfg} {s : FullState} {tmp1 : List (BitVec 32)}
     storeOk m i32 (c.pTmp + i * 4) ∧
       (FullMem c (m8SBlkSt s (tmp1.set i.toNat v) mrk1 mclr1 sstk1 wsort1 mcl1 mcf1 ticks1) ⋆
         R) (storeMem m i32 (c.pTmp + i * 4) v) := by
-  dsimp only [m8SBlkSt, Spec.m8ShrinkBlkBoolState] at hi hm ⊢
+  dsimp only [m8SBlkSt, m8ShrinkBlkBoolState] at hi hm ⊢
   exact c0_store_full_tmp v hi hm
 
 theorem m8SBlk_reason_facts {c : FullCfg} {F0 : CNF Nat} {s : FullState}
@@ -669,7 +669,7 @@ theorem m8Shrink_succ_mark_step {c : FullCfg} {F0 : CNF Nat} {s : FullState}
       exact hcov_fin (by rwa [hmcf_e]) w hw hnz,
     fun w hw => by
       rw [← hm_e, hab_fin w hw]
-      dsimp only [st_mid, m8BlkState, Spec.m8ShrinkBlkBoolState, mrk_mid]
+      dsimp only [st_mid, m8BlkState, m8ShrinkBlkBoolState, mrk_mid]
       rw [List.getElem?_set_ne (by omega)]; exact hm_above w hw,
     fun w hw h2 => by
       rw [← hm_e]; exact hm2_fin w hw (hm2_mid w hw (hm2_i w hw h2)),

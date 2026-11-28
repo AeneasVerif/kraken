@@ -6,6 +6,7 @@ module
 
 public import LeanQbe.T.Examples.Kissat.Proof.Backtrack.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Decide.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
 public import LeanQbe.T.Examples.Kissat.Proof.Tiers.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Arena1
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Tactics
@@ -18,7 +19,7 @@ public import LeanQbe.T.Logic.ControlComb
 /-!
 # Soundness Proofs for `Kissat.Src.Decide` — Part 2 (`Proof.Decide.Wp2`)
 
-Proves `full_decide_m7_wp` (`fullDecideSpec`) and `m6_hdr_decide_fid_wp` (`m6HdrDecideSpec`)
+Proves `full_decide_m7_wp` (`decideCoreSpec`) and `m6_hdr_decide_fid_wp` (`decideSpec`)
 (`0` legacy imports, `0` `@[expose]` on theorems/lemmas/sections).
 -/
 
@@ -154,22 +155,37 @@ private theorem decide_preserves_fullCore {c : FullCfg} {F0 : CNF Nat} {s : Full
   have hnlvl_ne0 : nlvl ≠ 0 := by dsimp [nlvl]; omega
   simpa only [s', hnlvl_ne0, ↓reduceIte] using ⟨hcore', hun, hte_lt, hnlvl_le⟩
 
-/-- Soundness proof for `full_decide_m7` against canonical `Proof.Spec.fullDecideSpec`. -/
+/-- Soundness proof for `full_decide_m7` against canonical `decideCoreSpec`. -/
 theorem full_decide_m7_wp (Γ : Env)
-    (hRandec : ∀ a m Q X, fullRandecVarSpec a m Q X →
+    (hRandec : ∀ a m Q X, randecVarSpec a m Q X →
       Γ "full_randec_var_m7" [i64] [i64] a m Q X)
-    (hNextDec : ∀ a m Q X, fullNextDecVarSpec a m Q X →
+    (hNextDec : ∀ a m Q X, nextDecVarSpec a m Q X →
       Γ "full_next_dec_var" [i64] [i64] a m Q X)
     (hAssign : ∀ a m Q X, fullAssignSpec a m Q X →
       Γ "full_assign" [i64, i32, i32] [] a m Q X) :
-    ∀ a m Q X, fullDecideSpec a m Q X → Func.wp Γ full_decide_m7_body a m Q X := by
-  rintro ⟨h, ⟨⟩⟩ m Q X ⟨c, F0, s, R, rfl, hinv, hm, hQ⟩
+    ∀ a m Q X, decideCoreSpec a m Q X → Func.wp Γ full_decide_m7_body a m Q X := by
+  rintro ⟨h, ⟨⟩⟩ m Q X hs
+  obtain ⟨c, s, F0, R, rfl, hlen, hinv, hm, hQ0⟩ := FullContract.elim hs
+  let hQ : ∀ r vals' flags' lvl' rsns' trl' tp' ftrl' fdec' te' cl' unass' unfl' sc' m',
+      let s' : FullState :=
+        { core := { s.core with vals := vals', flags := flags', lvl := lvl', rsns := rsns',
+                                trl := trl', trail_pos := tp', frame_trail := ftrl',
+                                frame_dec := fdec', trail_end := te', cur_level := cl',
+                                unassigned := unass', unflushed := unfl' }
+          scratch := sc' }
+      FullCoreInv c F0 s' → FullExtScratchPres s s' → (r = 0#64 ∨ r = 1#64) →
+      (r = 0#64 → cl' = s.core.cur_level ∧ te' = s.core.trail_end) →
+      (r = 1#64 → cl' = s.core.cur_level + 1 ∧ te' = s.core.trail_end + 1) →
+      (FullMem c s' ⋆ R) m' → Q (r, ()) m' :=
+    fun r _ _ _ _ _ _ _ _ _ _ _ _ _ m' hinv' hext' hr h0 h1 hm' =>
+      hQ0 (r, ()) _ m' hinv'.lengths ⟨rfl, hinv', hext', hr, h0, h1⟩ hm'
   have hmaxv := c.hmaxv; unfold dimacsBound at hmaxv
   unfold Func.wp full_decide_m7_body
   c0_hsteps_nogrp
   c0_call hRandec
-  refine ⟨c, s, R, rfl, hinv.lengths, hm, fun ⟨chosen, ⟨⟩⟩ s1 m1 hc1 hlen1 ⟨hp1, _, hch1⟩ hm1 => ?_⟩
-  dsimp only [fullSafetySlice] at hc1 hlen1 hm1
+  dsimp only [randecVarSpec]
+  refine FullContract.intro (w := ()) hinv.lengths trivial hm
+    fun ⟨chosen, ⟨⟩⟩ s1 m1 hlen1 ⟨hc1, hp1, _, hch1⟩ hm1 => ?_
   c0_hsteps_nogrp
   refine wp_join_group (ts := [i64])
     (fun (ch, ()) m2 => ∃ s2 : FullState,
@@ -316,8 +332,9 @@ theorem full_decide_m7_wp (Γ : Env)
   · intro Jc hJc
     c0_hsteps_nogrp
     · c0_call hNextDec
-      refine ⟨c, s1, R, rfl, hlen1, hm1, fun ⟨chosen', ⟨⟩⟩ s2 m2 hc2 hlen2 ⟨hext2, hch2⟩ hm2 => ?_⟩
-      dsimp only [fullSafetySlice] at hc2 hlen2 hm2
+      dsimp only [nextDecVarSpec]
+      refine FullContract.intro (w := ()) hlen1 trivial hm1
+        fun ⟨chosen', ⟨⟩⟩ s2 m2 hlen2 ⟨hc2, hext2, hch2⟩ hm2 => ?_
       have hc2' : s2.core = s.core := Eq.trans hc2 hc1
       have hext2' : FullExtScratchPres s s2 := fullExtScratchPres_trans hp1 hext2
       have hch2' : chosen' = 0xFFFFFFFFFFFFFFFF#64 ∨
@@ -328,34 +345,26 @@ theorem full_decide_m7_wp (Γ : Env)
     · obtain ⟨hv_lt, _, hv0⟩ := hch1.resolve_left (by assumption)
       exact hJc (chosen, ()) m1 ⟨s1, hc1, hlen1, hp1, Or.inr ⟨hv_lt, hv0⟩, hm1⟩
 
-/-- Soundness proof for `m6_hdr_decide_fid` against canonical `Proof.Spec.m6HdrDecideSpec`. -/
+/-- Soundness proof for `m6_hdr_decide_fid` against canonical `decideSpec`. -/
 theorem m6_hdr_decide_fid_wp (Γ : Env)
-    (hDecide : ∀ a m Q X, fullDecideSpec a m Q X →
+    (hDecide : ∀ a m Q X, decideCoreSpec a m Q X →
       Γ "full_decide_m7" [i64] [i64] a m Q X)
     (hDrInit : ∀ a m Q X, m6HdrDrMutSpec a m Q X →
       Γ "m6_hdr_dr_init" [i64] [] a m Q X) :
-    ∀ a m Q X, m6HdrDecideSpec a m Q X → Func.wp Γ m6_hdr_decide_fid_body a m Q X := by
+    ∀ a m Q X, decideSpec a m Q X → Func.wp Γ m6_hdr_decide_fid_body a m Q X := by
   rintro ⟨h, ⟨⟩⟩ m Q X hs
-  obtain ⟨c, F0, ext, s, R, rfl, hinv, hm, hQ⟩ := m6HdrDecideSpec_elim hs
-  have hcfg := hinv.cfgOk
-  have hext := hinv.extOk
-  have hcore0 := hinv.coreInv
+  obtain ⟨c, ext, s, F0, R, rfl, hcfg, hext, hlen, hcore0, hm, hQ⟩ := M6HdrContract.elim hs
   unfold Func.wp m6_hdr_decide_fid_body
   c0_hsteps_nogrp
   c0_call hDecide
-  refine ⟨c, F0, s, (array64 (c.hdr - 2304) ext ⋆ R), rfl, hcore0, (fullM6HdrMem_iff ..).mp hm,
-    fun r vals' flags' lvl' rsns' trl' tp' ftrl' fdec' te' cl' unass' unfl' sc' m1
-      hinv1 hpres1 hdom h0 h1 hm1 => ?_⟩
-  let s1 : FullState :=
-    { core := { s.core with vals := vals', flags := flags', lvl := lvl', rsns := rsns',
-                            trl := trl', trail_pos := tp', frame_trail := ftrl',
-                            frame_dec := fdec', trail_end := te', cur_level := cl',
-                            unassigned := unass', unflushed := unfl' }
-      scratch := sc' }
+  dsimp only [decideCoreSpec]
+  refine FullContract.intro hlen hcore0 ((fullM6HdrMem_iff ..).mp hm)
+    fun ⟨r, ⟨⟩⟩ s1 m1 hlen1 ⟨hcmod1, hinv1, hpres1, hdom, h0, h1⟩ hm1 => ?_
   c0_hsteps_nogrp
-  · exact hQ 0#64 vals' flags' lvl' rsns' trl' tp' ftrl' fdec' te' cl' unass' unfl' sc' ext m1
-      (FullM6HdrCoreInv.mk_inv hcfg hext hinv1) hpres1 (Or.inl rfl)
-      (fun _ => h0 hc) (fun h => by cases h) ((fullM6HdrMem_iff ..).mpr hm1)
+  · exact hQ (0#64, ()) ext s1 m1 hext trivial hlen1
+      ⟨⟨hcmod1, hinv1, hpres1, Or.inl rfl, fun _ => h0 hc, fun h => absurd h (by decide)⟩,
+       fun h => absurd h (by decide)⟩
+      ((fullM6HdrMem_iff ..).mpr hm1)
   · have hr1 : r = 1#64 := hdom.resolve_left hc
     have hl1 : ext.length = 288 := hext.len
     c0_hsteps_nogrp
@@ -370,16 +379,15 @@ theorem m6_hdr_decide_fid_wp (Γ : Env)
         let decs4 := st4 &&& mask56
         let ext4' := ext4.set 1 (hi4 ||| (decs4 + 1#64))
         c0_hsteps
-        · refine hQ 1#64 vals' flags' lvl' rsns' trl' tp' ftrl' fdec' te' cl' unass' unfl' sc'
-            ext4' _ (FullM6HdrCoreInv.mk_inv hcfg (hinit4.set_pos _ (by decide)).toOk hinv1)
-            hpres1 (Or.inr rfl) (fun h => by cases h)
-            (fun _ => ⟨(h1 hr1).1, (h1 hr1).2, hinit4.set_pos _ (by decide),
-              fun hi => (hw4 hi).trans (M6ExtW2aPres.set_w2b _ (by decide) (by decide))⟩)
+        · refine hQ (1#64, ()) ext4' s1 _ (hinit4.set_pos _ (by decide)).toOk trivial hlen1
+            ⟨⟨hcmod1, hinv1, hpres1, Or.inr rfl, fun h => absurd h (by decide), fun _ => h1 hr1⟩,
+             fun _ => ⟨hinit4.set_pos _ (by decide),
+               fun hi => (hw4 hi).trans (M6ExtW2aPres.set_w2b _ (by decide) (by decide))⟩⟩
             ((fullM6HdrMem_iff ..).mpr ?_)
           simpa [ext4', hi4, decs4, mask56] using (by assumption : _)
-        · exact hQ 1#64 vals' flags' lvl' rsns' trl' tp' ftrl' fdec' te' cl' unass' unfl' sc'
-            ext4 m4 (FullM6HdrCoreInv.mk_inv hcfg hinit4.toOk hinv1) hpres1 (Or.inr rfl)
-            (fun h => by cases h) (fun _ => ⟨(h1 hr1).1, (h1 hr1).2, hinit4, hw4⟩)
+        · exact hQ (1#64, ()) ext4 s1 m4 hinit4.toOk trivial hlen1
+            ⟨⟨hcmod1, hinv1, hpres1, Or.inr rfl, fun h => absurd h (by decide), fun _ => h1 hr1⟩,
+             fun _ => ⟨hinit4, hw4⟩⟩
             ((fullM6HdrMem_iff ..).mpr hm4)) ?_
     intro Jst hJst
     refine wp_join_group (ts := [])

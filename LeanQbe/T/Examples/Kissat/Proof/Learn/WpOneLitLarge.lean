@@ -351,7 +351,7 @@ public section
 theorem oneLit_large_branch_wp (Γ : Env)
     (hDefrag : ∀ a m Q X, fullWstackDefragSpec a m Q X →
       Γ "full_wstack_defrag" [i64] [] a m Q X)
-    (hDet : ∀ args m Q X, fullDetNewLevelSpec args m Q X →
+    (hDet : ∀ args m Q X, Proof.Learn.Spec.detNewLevelSpec args m Q X →
       Γ "full_det_new_level" [i64, i64] [i64] args m Q X)
     (hBt : ∀ args m Q X, fullBacktrackSpec args m Q X →
       Γ "full_backtrack_ac_fid" [i64, i64] [] args m Q X)

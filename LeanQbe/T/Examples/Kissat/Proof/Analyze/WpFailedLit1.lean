@@ -6,8 +6,10 @@ module
 
 public import LeanQbe.T.Examples.Kissat.Proof.Analyze.WpFailedLit0
 public import LeanQbe.T.Examples.Kissat.Proof.Analyze.Spec
+public import LeanQbe.T.Examples.Kissat.Src.Analyze
 import LeanQbe.T.Examples.Kissat.Proof.Analyze.WpFailedLitBase
 import LeanQbe.T.Examples.Kissat.Proof.Analyze.Helpers
+import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
 import LeanQbe.T.Logic.C0Step
 import LeanQbe.T.Logic.C0HeadStep
 import LeanQbe.T.Logic.ControlComb
@@ -777,7 +779,7 @@ end FlMainHelpers
 /-! ## 4. Top-Level `full_ana_failed_lit_m6_hdr_wp` -/
 
 /-- Parametric `Func.wp` proof for `Src.Analyze.full_ana_failed_lit_m6_hdr_body` against
-`Analyze.Spec.fullAnaFailedLitM6HdrSpec`. -/
+`Analyze.Spec.anaFailedLitSpec`. -/
 theorem full_ana_failed_lit_m6_hdr_wp (Γ : Env)
     (hClear : ∀ a m Q X, fullClearAnaSpec a m Q X → Γ "full_clear_ana" [i64] [] a m Q X)
     (hBumpMode : ∀ a m Q X, fullBumpAnalyzedModeSpec a m Q X →
@@ -788,10 +790,24 @@ theorem full_ana_failed_lit_m6_hdr_wp (Γ : Env)
       Γ "full_assign_lvl" [i64, i32, i32, i32] [] a m Q X)
     (hTickRel : ∀ a m Q X, fullTickRelSpec a m Q X → Γ "full_tick_rel" [i64] [] a m Q X)
     (hEma : ∀ a m Q X, fullEmaUpdateSpec a m Q X → Γ "full_ema_update" [i64, i64] [] a m Q X) :
-    ∀ a m Q X, fullAnaFailedLitM6HdrSpec a m Q X →
+    ∀ a m Q X, anaFailedLitSpec a m Q X →
       Func.wp Γ Src.Analyze.full_ana_failed_lit_m6_hdr_body a m Q X := by
   rintro ⟨h, ⟨⟩⟩ m0 Q X hspec
-  obtain ⟨c, F0, F_cur, cut, ext, s, R, rfl, hcfg, hext, hcut, _, hconfl, hm0, hQ⟩ := hspec
+  obtain ⟨c, ext, s, ⟨F0, F_cur, cut⟩, R, rfl, hcfg, hext, _, ⟨hcut, _, hconfl⟩, hm0, hQ0⟩ :=
+    M6HdrContract.elim hspec
+  let hQ : ∀ r ext' s' m',
+      M6HdrExtOk ext' →
+      (M6HdrExtInitOk ext → M6HdrExtInitOk ext' ∧ M6ExtW2bPres ext ext') →
+      s'.LengthsOk c → (r = 0#64 ∨ r = 1#64 ∨ r = 20#64) →
+      s'.core.cur_vars = s.core.cur_vars → s'.core.fuel = s.core.fuel →
+      s'.scratch.work_stk2 = s.scratch.work_stk2 →
+      (r = 20#64 → F0.Unsat ∧ FullOtfsInvW c F0 F_cur s' ∧
+        s'.core.cur_level ≤ s.core.cur_level ∧ s'.core.dense_mode = s.core.dense_mode) →
+      (r = 0#64 → FullOtfsInvW c F0 F_cur s') →
+      (r = 1#64 → FullSparseInvW c F0 F_cur s' ∧ s'.core.cur_level < s.core.cur_level) →
+      (FullM6HdrMem c ext' s' ⋆ R) m' → Q (r, ()) m' :=
+    fun r ext' s' m' hext' hrel hlen' hr hcv hfu hws2 h20 h0 h1 hm' =>
+      hQ0 (r, ()) ext' s' m' hext' hrel hlen' ⟨hr, hcv, hfu, hws2, h20, h0, h1⟩ hm'
   have hmaxv := c.hmaxv; unfold dimacsBound at hmaxv
   have ⟨hlen0, hw0, hlm0, _, _, _⟩ := hcut
   have hcl := hlen0.core_ok; have hcv_le := hcl.cur_vars_le

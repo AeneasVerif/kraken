@@ -13,6 +13,7 @@ public import LeanQbe.T.Examples.Kissat.Src.Learn
 import LeanQbe.T.Examples.Kissat.Proof.Learn.Helpers
 import LeanQbe.T.Examples.Kissat.Proof.Learn.WpDetNewLevel
 import LeanQbe.T.Examples.Kissat.Proof.Learn.WpLearnClausePost
+import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
 import LeanQbe.T.Logic.C0Step
 import LeanQbe.T.Logic.C0HeadStep
 import LeanQbe.T.Logic.ControlComb
@@ -30,7 +31,7 @@ Plain `public section` (`0` `@[expose]`, `0` legacy imports, `<= 100` cols, ever
 2. `s13_learn_pre_gc_wp` & `s13_learn_retry_step_wp`: pre-add headroom GC check and 3-step
    `defrag` / `full_reduce_m6(h, true)` / `full_reduce_purge_c0(h)` retry ladder.
 3. `full_learn_clause_m6_wp`: certifies `Src.Learn.full_learn_clause_m6_body` against
-   `Proof.Learn.Spec.fullLearnClauseM6Spec`.
+   `Proof.Learn.Spec.learnClauseSpec`.
 -/
 
 set_option autoImplicit false
@@ -72,7 +73,7 @@ private theorem s13_sparse_with_iterating {c : FullCfg} {F0 : CNF Nat} {F_cur : 
 private theorem s13_learn_unit_iter_wp {Γ X} {Q : Post [i64]} {c : FullCfg} {F0 : CNF Nat}
     {F_cur : List (List Nat)} {ext : List (BitVec 64)} {s s_fin : FullState} {uip : BitVec 32}
     {R : Mem 64 → Prop} {m_f : Mem 64}
-    (hEsub : ∀ a m Q X, Proof.Learn.Spec.fullEagerSubsumeSpec a m Q X →
+    (hEsub : ∀ a m Q X, Proof.Learn.Spec.eagerSubsumeSpec a m Q X →
       Γ "full_eager_subsume" [i64, i64] [] a m Q X)
     (hext : M6HdrExtOk ext) (hfin_sparse : FullSparseInvW c F0 F_cur s_fin)
     (hcur_lt : s_fin.core.cur_level < s.core.cur_level)
@@ -135,13 +136,30 @@ private theorem s13_learn_unit_iter_wp {Γ X} {Q : Post [i64]} {c : FullCfg} {F0
         change s_fin.core.tmp[0]?.getD 0#32 = uip; rw [htmp0, Option.getD_some]
       rw [hu0]; omega
     c0_clean; c0_call hEsub
-    refine ⟨c, F0, F_cur, s_it, Rext, rfl, hit_sp, htmp_it_lt, fun hlt => absurd hlt (by decide),
-      hm_it, ?_⟩
-    intro ar' ag' _nr' sc'' m_sub _ hsub_sp hws1' hws2' hm_sub
+    dsimp only [Proof.Learn.Spec.eagerSubsumeSpec]
+    refine FullContract.intro (w := (F0, F_cur)) hit_sp.1
+      ⟨hit_sp, htmp_it_lt, fun hlt => absurd hlt (by decide)⟩ hm_it ?_
+    rintro ⟨⟩ s_sub m_sub hlen_sub ⟨hframe, hsub_sp, hws1', hws2'⟩ hm_sub
+    dsimp only [AgreesExcept, Proof.Learn.Spec.eagerSubsumeCoreMask, s_it] at hframe
+    have hsub_cv : s_sub.core.cur_vars = s_fin.core.cur_vars := by
+      have h := congrArg FullCoreState.cur_vars hframe; exact h
+    have hsub_fu : s_sub.core.fuel = s_fin.core.fuel := by
+      have h := congrArg FullCoreState.fuel hframe; exact h
+    have hsub_pr : s_sub.core.probing = s_fin.core.probing := by
+      have h := congrArg FullCoreState.probing hframe; exact h
+    have hsub_mc : s_sub.core.min_clr_len = s_fin.core.min_clr_len := by
+      have h := congrArg FullCoreState.min_clr_len hframe; exact h
+    have hsub_cl : s_sub.core.cur_level = s_fin.core.cur_level := by
+      have h := congrArg FullCoreState.cur_level hframe; exact h
     c0_steps
-    exact hQ 1#64 ext _ m_sub hext hsub_sp.1 (Or.inr (Or.inl rfl)) hcv_eq hfu_le hprb_eq hmcl_eq
+    exact hQ 1#64 ext s_sub m_sub hext hlen_sub (Or.inr (Or.inl rfl))
+      (hsub_cv.trans hcv_eq)
+      (hsub_fu ▸ hfu_le)
+      (hsub_pr.trans hprb_eq)
+      (hsub_mc.trans hmcl_eq)
       (hws1'.trans hws1_eq) (hws2'.trans hws2_eq) (fun h => by cases h) (fun h => by cases h)
-      (fun _ => ⟨hsub_sp, hcur_lt⟩) (fullM6HdrMem_unfocus_full hm_sub)
+      (fun _ => ⟨hsub_sp, hsub_cl ▸ hcur_lt⟩)
+      (fullM6HdrMem_unfocus_full hm_sub)
   · intro Jit hJit
     c0_clean; c0_split
     · c0_steps
@@ -154,13 +172,13 @@ private theorem s13_learn_unit_iter_wp {Γ X} {Q : Post [i64]} {c : FullCfg} {F0
 private theorem s13_learn_unit_wp {Γ X} {Q : Post [i64]} {c : FullCfg} {F0 : CNF Nat}
     {F_cur : List (List Nat)} {ext : List (BitVec 64)} {s : FullState} {uip : BitVec 32}
     {R : Mem 64 → Prop} {m : Mem 64}
-    (hDnl : ∀ a m Q X, fullDetNewLevelSpec a m Q X →
+    (hDnl : ∀ a m Q X, Proof.Learn.Spec.detNewLevelSpec a m Q X →
       Γ "full_det_new_level" [i64, i64] [i64] a m Q X)
     (hBt : ∀ a m Q X, fullBacktrackSpec a m Q X →
       Γ "full_backtrack_ac_fid" [i64, i64] [] a m Q X)
     (hAsgn : ∀ a m Q X, fullAssignLvlSpec a m Q X →
       Γ "full_assign_lvl" [i64, i32, i32, i32] [] a m Q X)
-    (hEsub : ∀ a m Q X, Proof.Learn.Spec.fullEagerSubsumeSpec a m Q X →
+    (hEsub : ∀ a m Q X, Proof.Learn.Spec.eagerSubsumeSpec a m Q X →
       Γ "full_eager_subsume" [i64, i64] [] a m Q X)
     (hext : M6HdrExtOk ext) (hs : FullOtfsInvW c F0 F_cur s)
     (hcur_pos : 0 < s.core.cur_level) (htl_is1 : s.core.tmp_len = 1)
@@ -231,10 +249,13 @@ private theorem s13_learn_unit_wp {Γ X} {Q : Post [i64]} {c : FullCfg} {F0 : CN
   have hent_unit : (cnfOfClauses F_cur).EntailsClause (cnfClause [uip.toNat]) := by
     rwa [htl_is1, s13_tmp_take1_eq huip_in huip_0] at hent
   c0_to_group; c0_call hDnl
-  refine ⟨c, s, Rext, rfl, hs.1, by omega, hm, fun nlvl_u _ hnlvl_fn => ?_⟩
+  dsimp only [Proof.Learn.Spec.detNewLevelSpec]
+  refine FullContract.intro (w := ()) hs.1 (by omega) hm ?_
+  rintro ⟨nlvl_u, ⟨⟩⟩ sd' m_d _ ⟨hsd', _, hnlvl_fn⟩ hm_d
+  rw [hsd'] at hm_d
   obtain ⟨_, hnlvl_lt⟩ := hnlvl_fn hcur_pos (by simp; exact hcur_pos)
   c0_to_group; c0_call hBt
-  refine ⟨c, s, Rext, rfl, hs.1, by omega, fun _ => by omega, hw.trail_lits_lt, hm, ?_⟩
+  refine ⟨c, s, Rext, rfl, hs.1, by omega, fun _ => by omega, hw.trail_lits_lt, hm_d, ?_⟩
   intro vals' lvl' rsns' trl' tp' te' prop' cl' unass' sc' m_bt s_bt
     hbt_len _ _ hbt_cl hbt_pres _ _ _ _ hbt_otfs hm_bt
   have hcl_nl : cl' = nlvl_u.toNat := by rw [hbt_cl]; exact Nat.min_eq_right (Nat.le_of_lt hnlvl_lt)
@@ -833,7 +854,7 @@ private theorem s13_learn_post_ac_m6_wp {Γ X} {Q : Post [i64]} {c : FullCfg} {F
     {lvl_bt trl_bt : List (BitVec 32)} {te_bt : Nat}
     (hAsgn : ∀ a m Q X, fullAssignLvlSpec a m Q X →
       Γ "full_assign_lvl" [i64, i32, i32, i32] [] a m Q X)
-    (hEsub : ∀ a m Q X, Proof.Learn.Spec.fullEagerSubsumeSpec a m Q X →
+    (hEsub : ∀ a m Q X, Proof.Learn.Spec.eagerSubsumeSpec a m Q X →
       Γ "full_eager_subsume" [i64, i64] [] a m Q X)
     (hext_ex : M6HdrExtOk ext_ex)
     (hex_pre : S13AddClPre c F0 F_cur s nlvl tmp_sw vals_bt lvl_bt trl_bt te_bt s_ex)
@@ -886,13 +907,13 @@ private theorem s13_learn_post_ac_m6_wp {Γ X} {Q : Post [i64]} {c : FullCfg} {F
 /-! ## 3. Main Theorem: `full_learn_clause_m6_wp` -/
 
 /-- Canonical `Func.wp` proof for `Src.Learn.full_learn_clause_m6_body` against
-`Proof.Learn.Spec.fullLearnClauseM6Spec`. -/
+`Proof.Learn.Spec.learnClauseSpec`. -/
 theorem full_learn_clause_m6_wp (Γ : Env)
     (hBt : ∀ a m Q X, fullBacktrackSpec a m Q X →
       Γ "full_backtrack_ac_fid" [i64, i64] [] a m Q X)
     (hAsgn : ∀ a m Q X, fullAssignLvlSpec a m Q X →
       Γ "full_assign_lvl" [i64, i32, i32, i32] [] a m Q X)
-    (hDnl : ∀ a m Q X, fullDetNewLevelSpec a m Q X →
+    (hDnl : ∀ a m Q X, Proof.Learn.Spec.detNewLevelSpec a m Q X →
       Γ "full_det_new_level" [i64, i64] [i64] a m Q X)
     (hDefrag : ∀ a m Q X, fullWstackDefragSpec a m Q X →
       Γ "full_wstack_defrag" [i64] [] a m Q X)
@@ -902,12 +923,27 @@ theorem full_learn_clause_m6_wp (Γ : Env)
       Γ "full_reduce_purge_c0" [i64] [i64] a m Q X)
     (hAddCl : ∀ a m Q X, Proof.Clause.Spec.fullAddClauseSpec a m Q X →
       Γ "full_add_clause" [i64, i32, i32, .bool] [i64] a m Q X)
-    (hEsub : ∀ a m Q X, Proof.Learn.Spec.fullEagerSubsumeSpec a m Q X →
+    (hEsub : ∀ a m Q X, Proof.Learn.Spec.eagerSubsumeSpec a m Q X →
       Γ "full_eager_subsume" [i64, i64] [] a m Q X) :
-    ∀ args m Q X, Proof.Learn.Spec.fullLearnClauseM6Spec args m Q X →
+    ∀ args m Q X, Proof.Learn.Spec.learnClauseSpec args m Q X →
       Func.wp Γ full_learn_clause_m6_body args m Q X := by
-  rintro ⟨h, glue, ⟨⟩⟩ m Q X ⟨c, F0, F_cur, ext, s, R, rfl, hcfg, hext, hs, hcur_pos, htl1,
-    htl_cv, htmp_nd, htmp_vals, htmp_lvls, hent, hm0, hQ⟩
+  rintro ⟨h, glue, ⟨⟩⟩ m Q X hspec
+  obtain ⟨c, ext, s, ⟨F0, F_cur⟩, R, rfl, hcfg, hext, _hlen,
+    ⟨hs, hcur_pos, ⟨htl1, htl_cv⟩, htmp_nd, htmp_vals, htmp_lvls, hent⟩, hm0, hQ0⟩ :=
+    M6HdrContract.elim hspec
+  let hQ : ∀ r ext' s' m',
+      M6HdrExtOk ext' → s'.LengthsOk c → (r = 0#64 ∨ r = 1#64 ∨ r = 20#64) →
+      s'.core.cur_vars = s.core.cur_vars → s'.core.fuel.toNat ≤ s.core.fuel.toNat →
+      s'.core.probing = s.core.probing → s'.core.min_clr_len = s.core.min_clr_len →
+      s'.scratch.work_stk1 = s.scratch.work_stk1 → s'.scratch.work_stk2 = s.scratch.work_stk2 →
+      (r = 20#64 → F0.Unsat ∧ FullSparseInvW c F0 F_cur s' ∧
+        s'.core.cur_level < s.core.cur_level) →
+      (r = 0#64 → FullSparseInvW c F0 F_cur s') →
+      (r = 1#64 → FullSparseInvW c F0 F_cur s' ∧ s'.core.cur_level < s.core.cur_level) →
+      (FullM6HdrMem c ext' s' ⋆ R) m' → Q (r, ()) m' :=
+    fun r ext' s' m' hext' hlen' hr hcv_eq hfu_le hprb_eq hmcl_eq hws1_eq hws2_eq h20 h0 h1 hm' =>
+      hQ0 (r, ()) ext' s' m' hext' trivial hlen'
+        ⟨hr, hcv_eq, hfu_le, hprb_eq, hmcl_eq, hws1_eq, hws2_eq, h20, h0, h1⟩ hm'
   have hcl := hs.1.core_ok
   have hw := hs.2.1
   have hmv := c.hmaxv; unfold dimacsBound at hmv
@@ -1030,14 +1066,16 @@ theorem full_learn_clause_m6_wp (Γ : Env)
     c0_to_group; c0_call hDnl
     have hml_bv64 : (BitVec.ofNat 64 max_lvl).toNat = max_lvl :=
       Proof.Spec.bv64_ofNat_toNat (by omega)
-    refine ⟨c, s_sw, Rext, rfl, hsw_len, by dsimp [s_sw]; omega, hm_sw', fun nlvl _ hnlvl_pos => ?_⟩
+    dsimp only [Proof.Learn.Spec.detNewLevelSpec]
+    refine FullContract.intro (w := ()) hsw_len (by dsimp [s_sw]; omega) hm_sw' ?_
+    rintro ⟨nlvl, ⟨⟩⟩ _ m_sw'' _ ⟨rfl, _, hnlvl_pos⟩ hm_sw''
     obtain ⟨hnlvl_ge, hnlvl_lt⟩ :=
       hnlvl_pos hcur_pos (by dsimp [s_sw]; rw [hml_bv64]; exact hml_lt)
     dsimp only [s_sw] at hnlvl_ge hnlvl_lt
     rw [hml_bv64] at hnlvl_ge
     c0_to_group; c0_call hBt
     refine ⟨c, s_sw, Rext, rfl, hsw_len, by dsimp [s_sw]; omega,
-      fun _ => by have := hcl.cur_vars_le; omega, hsw_inv.2.1.trail_lits_lt, hm_sw', ?_⟩
+      fun _ => by have := hcl.cur_vars_le; omega, hsw_inv.2.1.trail_lits_lt, hm_sw'', ?_⟩
     intro vals_bt lvl_bt rsns_bt trl_bt tp_bt te_bt prop_bt cl_bt unass_bt sc_bt m_bt s_bt
       hbt_len _ _ hbt_cl hbt_pres _ _ hbt_keep _ hbt_otfs hm_bt
     have hcl_bt : cl_bt = nlvl.toNat := by dsimp [s_sw] at hbt_cl; omega

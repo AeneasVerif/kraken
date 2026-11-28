@@ -130,8 +130,8 @@ theorem full_restart_due_wp (Γ : Env)
 
 /-- Soundness proof for `full_restart` against `restartSpec`. -/
 theorem full_restart_wp (Γ : Env)
-    (hRandec : Γ.Has "full_randec_var_lvl_fid" fullRandecVarLvlSpec)
-    (hNDV : Γ.Has "full_next_dec_var" fullNextDecVarSpec)
+    (hRandec : Γ.Has "full_randec_var_lvl_fid" randecVarLvlSpec)
+    (hNDV : Γ.Has "full_next_dec_var" nextDecVarSpec)
     (hBT : Γ.Has "full_backtrack" fullBacktrackSpec) :
     ∀ a m Q X, Spec.restartSpec a m Q X →
       Func.wp Γ full_restart_body a m Q X := by
@@ -148,9 +148,10 @@ theorem full_restart_wp (Γ : Env)
   let s1 : FullState := { s with scratch := { s.scratch with
     restarts := s.scratch.restarts + 1#64 } }
   have hlen1 : s1.LengthsOk c := ⟨hlen.core_ok, { hlen.scratch_ok with }⟩
-  refine wp_call_of_spec _ _ (hRandec _ _ _ _ ⟨c, s1, R, rfl, hlen1, ‹_›, ?_⟩)
-  rintro ⟨nv0, ⟨⟩⟩ s2 m2 hcore2 hlen2 ⟨hpres2, _⟩ hm2
-  dsimp only [PreservesCoreSlice, fullSafetySlice] at hcore2 hlen2 hm2
+  refine wp_call_of_spec _ _ (hRandec _ _ _ _ ?_)
+  dsimp only [randecVarLvlSpec]
+  refine FullContract.intro (w := ()) hlen1 trivial ‹_› ?_
+  rintro ⟨nv0, ⟨⟩⟩ s2 m2 hlen2 ⟨hcore2, hpres2, _, _⟩ hm2
   refine wp_join_group (ts := [i64])
     (fun (_nv, ()) m3 => ∃ s3, s3.core = s.core ∧ s3.LengthsOk c ∧
       FullExtScratchPres s s3 ∧ (FullMem c s3 ⋆ R) m3)
@@ -158,11 +159,12 @@ theorem full_restart_wp (Γ : Env)
     (fun Jnv hJnv => by
       c0_hsplit
       · c0_hsteps_nogrp
-        refine wp_call_of_spec _ _ (hNDV _ _ _ _ ⟨c, s2, R, rfl, hlen2, hm2, ?_⟩)
-        rintro ⟨nv1, ⟨⟩⟩ s3 m3 hcore3 hlen3 ⟨hpres3, _⟩ hm3
-        dsimp only [PreservesCoreSlice, fullSafetySlice] at hcore3 hlen3 hm3
+        refine wp_call_of_spec _ _ (hNDV _ _ _ _ ?_)
+        dsimp only [nextDecVarSpec]
+        refine FullContract.intro (w := ()) hlen2 trivial hm2 ?_
+        rintro ⟨nv1, ⟨⟩⟩ s3 m3 hlen3 ⟨hcore3, hpres3, _⟩ hm3
         c0_hsteps
-        exact hJnv (nv1, ()) m3 ⟨s3, hcore3.trans hcore2, hlen3,
+        exact hJnv (nv1, ()) m3 ⟨s3, hcore2.trans hcore3, hlen3,
           extPres_trans hpres2 hpres3, hm3⟩
       · c0_hsteps; exact hJnv (nv0, ()) m2 ⟨s2, hcore2, hlen2, hpres2, hm2⟩)
   have hcv3_le : s3.core.cur_vars ≤ c.max_vars := hlen3.core_ok.cur_vars_le

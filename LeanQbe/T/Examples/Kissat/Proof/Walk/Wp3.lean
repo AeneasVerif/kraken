@@ -740,7 +740,7 @@ theorem full_walk_m7_wp (Γ : Env)
 /-! ## 3. `full_warmup_m7` (`fullWarmupM7Spec`) -/
 
 theorem full_warmup_m7_wp (Γ : Env)
-    (hNdv : Γ.Has "full_next_dec_var" fullNextDecVarSpec)
+    (hNdv : Γ.Has "full_next_dec_var" nextDecVarSpec)
     (hAssign : Γ.Has "full_assign" fullAssignSpec)
     (hPropBey : Γ.Has "full_propagate_beyond_m7" propagateBeyondM6Spec)
     (hBt : Γ.Has "full_backtrack" fullBacktrackSpec) :

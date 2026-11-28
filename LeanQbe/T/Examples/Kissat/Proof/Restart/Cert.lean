@@ -59,8 +59,10 @@ theorem cert : SegCert deps Src.Restart.fns Spec.specs := by
   have hLim : Γ.Sat Proof.Limits.Spec.specs := hdeps.left.right
   have hTr : Γ.Sat Proof.Tiers.Spec.specs := hdeps.right
   have hBacktrack := Proof.Backtrack.Spec.has_full_backtrack hBk
-  have hRandecLvl := Proof.Decide.Spec.has_full_randec_var_lvl_fid hDec
-  have hNextDec := Proof.Decide.Spec.has_full_next_dec_var hDec
+  have hRandecLvl := SpecTable.has_at hDec 1 rfl
+    (by unfold Decide.Spec.randecVarLvlSpec; exact FullContract.toSpec_xfree _)
+  have hNextDec := SpecTable.has_at hDec 0 rfl
+    (by unfold Decide.Spec.nextDecVarSpec; exact FullContract.toSpec_xfree _)
   have hHeapUp := Proof.Heap.Spec.has_full_heap_up hHp
   have hHeapDown := Proof.Heap.Spec.has_full_heap_down hHp
   have hHeapPush := Proof.Heap.Spec.has_full_heap_push hHp

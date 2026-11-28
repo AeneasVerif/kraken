@@ -9,6 +9,7 @@ public import LeanQbe.T.Examples.Kissat.Proof.Learn.Helpers
 public import LeanQbe.T.Examples.Kissat.Proof.Clause.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Backtrack.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Header
+import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
 import LeanQbe.T.Logic.C0Step
 import LeanQbe.T.Logic.C0HeadStep
 import LeanQbe.T.Logic.ControlComb
@@ -985,7 +986,7 @@ theorem s13_learn_clause_post_ac_wp {Γ X} {Q : Post [i64]} {c : FullCfg} {F0 : 
     {tmp_sw : List (BitVec 32)}
     (hAsgn : ∀ a m Q X, fullAssignLvlSpec a m Q X →
       Γ "full_assign_lvl" [i64, i32, i32, i32] [] a m Q X)
-    (hEsub : ∀ a m Q X, Proof.Learn.Spec.fullEagerSubsumeSpec a m Q X →
+    (hEsub : ∀ a m Q X, Proof.Learn.Spec.eagerSubsumeSpec a m Q X →
       Γ "full_eager_subsume" [i64, i64] [] a m Q X)
     (hQ : ∀ r s' m',
       s'.LengthsOk c → (r = 0#64 ∨ r = 1#64 ∨ r = 20#64) →
@@ -1130,20 +1131,39 @@ theorem s13_learn_clause_post_ac_wp {Γ X} {Q : Post [i64]} {c : FullCfg} {F0 : 
             simpa only [s_as, s_u, htmp_eq, htlen_eq] using
               htmp_lt k (by simpa [s_as, s_u, htlen_eq] using hk)
           c0_call hEsub
-          refine ⟨c, F0, F_cur, s_as, R, rfl, has_sparse, htmp_as_lt, ?_, hm_as', ?_⟩
-          · intro _
-            by_cases hfe : new_ref64 = 0xFFFFFFFE#64
-            · subst hfe; exfalso; have : (0xFFFFFFFE#64 : BitVec 64).toNat = 2 ^ 32 - 2 := rfl
-              omega
-            · simp only [hfe, ↓reduceIte] at hnr_ok
-              change new_ref64.toNat ∈ fullArenaClauseRefs s_u
-              rw [hrefs_u]; exact hnr_ok.2.1
-          · intro ar' ag' _nr' sc' m_fin _ hfin_sparse hws1' hws2' hm_fin
-            c0_steps
-            exact hQ 1#64 _ m_fin hfin_sparse.1 (Or.inr (Or.inl rfl)) hcv_eq hfuel hprb hmcl
-              (hws1'.trans (by simp [s_as, s_u, hws1]))
-              (hws2'.trans (by simp [s_as, s_u, hws2])) (fun h => by cases h)
-              (fun h => by cases h) (fun _ => ⟨hfin_sparse, hcur_lt⟩) hm_fin
+          dsimp only [Proof.Learn.Spec.eagerSubsumeSpec]
+          refine FullContract.intro (w := (F0, F_cur)) has_sparse.1
+            ⟨has_sparse, htmp_as_lt, fun hlt => by
+              dsimp only at hlt ⊢
+              by_cases hfe : new_ref64 = 0xFFFFFFFE#64
+              · subst hfe; exact absurd hlt (by decide)
+              · simp only [hfe, ↓reduceIte] at hnr_ok
+                change new_ref64.toNat ∈ fullArenaClauseRefs s_u
+                rw [hrefs_u]; exact hnr_ok.2.1⟩
+            hm_as' ?_
+          rintro ⟨⟩ s_fin m_fin hfin_len ⟨hframe, hfin_sparse, hws1', hws2'⟩ hm_fin
+          dsimp only [AgreesExcept, Proof.Learn.Spec.eagerSubsumeCoreMask, s_as, s_u] at hframe
+          have hfin_cv : s_fin.core.cur_vars = s_ac.core.cur_vars := by
+            have h := congrArg FullCoreState.cur_vars hframe; exact h
+          have hfin_fu : s_fin.core.fuel = s_ac.core.fuel := by
+            have h := congrArg FullCoreState.fuel hframe; exact h
+          have hfin_pr : s_fin.core.probing = s_ac.core.probing := by
+            have h := congrArg FullCoreState.probing hframe; exact h
+          have hfin_mc : s_fin.core.min_clr_len = s_ac.core.min_clr_len := by
+            have h := congrArg FullCoreState.min_clr_len hframe; exact h
+          have hfin_cl : s_fin.core.cur_level = s_ac.core.cur_level := by
+            have h := congrArg FullCoreState.cur_level hframe; exact h
+          c0_steps
+          exact hQ 1#64 s_fin m_fin hfin_len (Or.inr (Or.inl rfl))
+            (hfin_cv.trans hcv_eq)
+            (hfin_fu ▸ hfuel)
+            (hfin_pr.trans hprb)
+            (hfin_mc.trans hmcl)
+            (hws1'.trans (by simp [s_as, s_u, hws1]))
+            (hws2'.trans (by simp [s_as, s_u, hws2])) (fun h => by cases h)
+            (fun h => by cases h)
+            (fun _ => ⟨hfin_sparse, hfin_cl ▸ hcur_lt⟩)
+            hm_fin
         · intro Jrsn hJrsn; c0_split
           · have hfe : new_ref64 = 0xFFFFFFFE#64 := by assumption
             simp only [hfe, ↓reduceIte] at hnr_ok

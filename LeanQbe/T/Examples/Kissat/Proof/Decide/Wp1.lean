@@ -6,6 +6,7 @@ module
 
 public import LeanQbe.T.Examples.Kissat.Proof.Decide.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Float64.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
 public import LeanQbe.T.Examples.Kissat.Proof.Limits.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Arena1
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Tactics
@@ -17,8 +18,8 @@ public import LeanQbe.T.Logic.ControlComb
 /-!
 # Soundness Proofs for `Kissat.Src.Decide` — Part 1 (`Proof.Decide.Wp1`)
 
-Proves `full_randec_var_lvl_fid_wp` (`fullRandecVarLvlSpec`) and `full_randec_var_m7_wp`
-(`fullRandecVarSpec`) (`0` legacy imports, `0` `@[expose]` on theorems/lemmas/sections).
+Proves `full_randec_var_lvl_fid_wp` (`randecVarLvlSpec`) and `full_randec_var_m7_wp`
+(`randecVarSpec`) (`0` legacy imports, `0` `@[expose]` on theorems/lemmas/sections).
 -/
 
 set_option autoImplicit false
@@ -115,7 +116,7 @@ private theorem lcg_guPres {s sT : FullState} (h : M7GuPrefixPres s sT)
     (rng' : BitVec 64) :
     M7GuPrefixPres s { sT with scratch := { sT.scratch with rng_state := rng' } } := h
 
-/-- Soundness proof for `full_randec_var_lvl_fid` against `fullRandecVarLvlSpec`. -/
+/-- Soundness proof for `full_randec_var_lvl_fid` against `randecVarLvlSpec`. -/
 theorem full_randec_var_lvl_fid_wp (Γ : Env)
     (hInit : ∀ a m Q X, step13M7StateInitSpec a m Q X →
       Γ "full_m7_state_init" [i64] [] a m Q X)
@@ -125,10 +126,19 @@ theorem full_randec_var_lvl_fid_wp (Γ : Env)
     (hMul : ∀ a m Q X, f64uPure2Spec a m Q X → Γ "f64u_mul" [i64, i64] [i64] a m Q X)
     (hTo : ∀ a m Q X, f64uPure1Spec a m Q X → Γ "f64u_to_u64" [i64] [i64] a m Q X)
     (hLcg : ∀ a m Q X, m7LcgNextSpec a m Q X → Γ "full_lcg_next_m7" [i64] [i64] a m Q X) :
-    ∀ a m Q X, fullRandecVarLvlSpec a m Q X →
+    ∀ a m Q X, randecVarLvlSpec a m Q X →
       Func.wp Γ full_randec_var_lvl_fid_body a m Q X := by
-  rintro ⟨h, max_lvl, ⟨⟩⟩ m Q X ⟨c, s, R, rfl, hlen, hm, hQ⟩
-  dsimp only [fullSafetySlice] at hlen hm hQ
+  rintro ⟨h, max_lvl, ⟨⟩⟩ m Q X hs
+  obtain ⟨c, s, _, R, rfl, hlen, _, hm, hQ0⟩ := FullContract.elim hs
+  let hQ : ∀ (r : Tup Val [i64]) (s' : FullState) (m' : Mem 64),
+      s'.core = s.core → s'.LengthsOk c →
+      (FullExtScratchPres s s' ∧ M7GuPrefixPres s s' ∧
+        (r.1 = 0xFFFFFFFFFFFFFFFF#64 ∨
+          (r.1.toNat < s.core.cur_vars ∧
+            (s.core.flags[r.1.toNat]?.getD 0#32 &&& 1#32) ≠ 0#32 ∧
+            s.core.vals[2 * r.1.toNat]?.getD 0#8 = 0#8))) →
+      (FullMem c s' ⋆ R) m' → Q r m' :=
+    fun r s' m' hc' hl' ⟨hp', hg', hr'⟩ hm' => hQ0 r s' m' hl' ⟨hc', hp', hg', hr'⟩ hm'
   have hmax := c.hmaxv; unfold dimacsBound at hmax
   have hcv_le := hlen.core_ok.cur_vars_le
   have hretFF : ∀ s' m', s'.core = s.core → s'.LengthsOk c → FullExtScratchPres s s' →
@@ -303,14 +313,17 @@ theorem full_randec_var_lvl_fid_wp (Γ : Env)
     exact hJT mt.toNat (0#64, ()) m3
       ⟨Nat.zero_le _, by simp, s3, hcore3, hlen3, hext3, hpre3, hm3⟩
 
-/-- Soundness proof for `full_randec_var_m7` against canonical `fullRandecVarSpec`. -/
+/-- Soundness proof for `full_randec_var_m7` against canonical `randecVarSpec`. -/
 theorem full_randec_var_m7_wp (Γ : Env)
-    (hLvl : ∀ a m Q X, fullRandecVarLvlSpec a m Q X →
+    (hLvl : ∀ a m Q X, randecVarLvlSpec a m Q X →
       Γ "full_randec_var_lvl_fid" [i64, i64] [i64] a m Q X) :
-    ∀ a m Q X, fullRandecVarSpec a m Q X → Func.wp Γ full_randec_var_m7_body a m Q X := by
-  rintro ⟨h, ⟨⟩⟩ m Q X ⟨c, s, R, rfl, hlen, hm, hQ⟩
+    ∀ a m Q X, randecVarSpec a m Q X → Func.wp Γ full_randec_var_m7_body a m Q X := by
+  rintro ⟨h, ⟨⟩⟩ m Q X hs
+  obtain ⟨c, s, _, R, rfl, hlen, _, hm, hQ⟩ := FullContract.elim hs
   unfold Func.wp full_randec_var_m7_body
   c0_call hLvl
-  exact ⟨c, s, R, rfl, hlen, hm, fun r s' m' hc hl hp hm' => hQ r s' m' hc hl hp hm'⟩
+  dsimp only [randecVarLvlSpec]
+  exact FullContract.intro (w := ()) hlen trivial hm fun r s' m' hl' hp' hm' =>
+    hQ r s' m' hl' hp' hm'
 
 end LeanQbe.T.Examples.Kissat.Proof.Decide

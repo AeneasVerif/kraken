@@ -6,6 +6,7 @@ module
 
 public import LeanQbe.T.Examples.Kissat.Proof.Analyze.WpAnalyzeCore
 import LeanQbe.T.Examples.Kissat.Proof.Analyze.Helpers
+import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
 import LeanQbe.T.Logic.C0Step
 import LeanQbe.T.Logic.C0HeadStep
 import LeanQbe.T.Logic.ControlComb
@@ -42,17 +43,30 @@ open LeanQbe.T.Examples.Kissat.Proof.Analyze.Helpers
 open LeanQbe.T.Examples.Kissat.Proof.Tiers.Spec
 
 /-- Parametric `Func.wp` proof for `Src.Analyze.full_analyze_m6_hdr_body` against
-`Analyze.Spec.fullAnalyzeM6HdrSpec`. -/
+`Analyze.Spec.analyzeSpec`. -/
 theorem full_analyze_m6_hdr_wp (Γ : Env)
     (hDrUpd : ∀ a m Q X, m6HdrDrMutSpec a m Q X →
       Γ "m6_hdr_dr_update" [i64] [] a m Q X)
-    (hAnaCore : ∀ a m Q X, m6HdrAnalyzeSpec a m Q X →
+    (hAnaCore : ∀ a m Q X, analyzeSpec a m Q X →
       Γ "full_analyze_core_m6" [i64] [i64] a m Q X) :
-    ∀ a m Q X, m6HdrAnalyzeSpec a m Q X →
+    ∀ a m Q X, analyzeSpec a m Q X →
       Func.wp Γ Src.Analyze.full_analyze_m6_hdr_body a m Q X := by
   rintro ⟨h, ⟨⟩⟩ m Q X hs
-  obtain ⟨c, F0, F_cur, ext, s, R, rfl, hinv, hconf, hm, hQ⟩ := m6HdrAnalyzeSpec_elim hs
-  have hcfg := hinv.cfgOk; have hext := hinv.extOk; have hsp := hinv.sparseW
+  obtain ⟨c, ext, s, ⟨F0, F_cur⟩, R, rfl, hcfg, hext, _, ⟨hsp, hconf⟩, hm, hQ0⟩ :=
+    M6HdrContract.elim hs
+  let hQ : ∀ (r : BitVec 64) ext' s' m',
+      M6HdrExtOk ext' → s'.LengthsOk c → (r = 0#64 ∨ r = 1#64 ∨ r = 20#64) →
+      s'.core.cur_vars = s.core.cur_vars → s'.core.fuel.toNat ≤ s.core.fuel.toNat →
+      (s'.scratch.work_stk2 = s.scratch.work_stk2 ∧
+        (r = 20#64 → FullOtfsInvW c F0 F_cur s' ∧
+          s'.core.cur_level ≤ s.core.cur_level ∧ s'.core.dense_mode = s.core.dense_mode)) →
+      (r = 20#64 → F0.Unsat) → (r = 0#64 → FullOtfsInvW c F0 F_cur s') →
+      (r = 1#64 → FullM6HdrInvW c F0 F_cur ext' s' ∧ s'.core.cur_level < s.core.cur_level) →
+      (FullM6HdrMem c ext' s' ⋆ R) m' → Q (r, ()) m' :=
+    fun r ext' s' m' hext' hlen' hr hcv' hfu' ⟨hws2', h20'⟩ h20u h0' h1' hm' =>
+      hQ0 (r, ()) ext' s' m' hext' trivial hlen' ⟨hr, hcv', hfu', hws2',
+        fun eq20 => let ⟨ho, hcl, hdm⟩ := h20' eq20; ⟨h20u eq20, ho, hcl, hdm⟩,
+        h0', fun eq1 => let ⟨hinv', hcl'⟩ := h1' eq1; ⟨hinv'.sparseW, hcl'⟩⟩ hm'
   unfold Func.wp Src.Analyze.full_analyze_m6_hdr_body; dsimp only
   refine wp_m6Hdr_focus_frame hm fun hm' => ?_
   c0_hsteps_nogrp
@@ -73,9 +87,16 @@ theorem full_analyze_m6_hdr_wp (Γ : Env)
       (fun () m2 => ∃ ext2, M6HdrExtOk ext2 ∧ (FullM6HdrMem c ext2 s ⋆ R) m2)
       (fun _ () m2 ⟨ext2, hext2, hm2⟩ => ?_)
       (fun _ hJp => ?_)
-    · have hinv2 : FullM6HdrInvW c F0 F_cur ext2 s := FullM6HdrInvW.mk_inv hcfg hext2 hsp
-      c0_hsteps_nogrp; c0_call hAnaCore
-      exact m6HdrAnalyzeSpec_of hinv2 hconf hm2 hQ
+    · c0_hsteps_nogrp; c0_call hAnaCore
+      dsimp only [analyzeSpec]
+      exact M6HdrContract.intro (w := (F0, F_cur))
+        hcfg hext2 hsp.1 ⟨hsp, hconf⟩ hm2
+        fun ⟨r, ⟨⟩⟩ ext' s' m' hext' _ hlen' ⟨hr, hcv', hfu', hws2', h20', h0', h1'⟩ hm' =>
+          hQ r ext' s' m' hext' hlen' hr hcv' hfu'
+            ⟨hws2', fun eq20 => let ⟨_, ho, hcl, hdm⟩ := h20' eq20; ⟨ho, hcl, hdm⟩⟩
+            (fun eq20 => (h20' eq20).1) h0'
+            (fun eq1 => let ⟨hsp', hcl'⟩ := h1' eq1; ⟨FullM6HdrInvW.mk_inv hcfg hext' hsp', hcl'⟩)
+            hm'
     · c0_hsteps_nogrp
       · c0_call hDrUpd
         refine m6HdrDrMutSpec_of hcfg hext hsp.1 (fullM6HdrMem_unfocus hm')

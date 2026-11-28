@@ -4,8 +4,10 @@ Released under Apache 2.0 license as described in the file LICENSE.
 -/
 module
 
+public import LeanQbe.T.Examples.Kissat.Proof.Learn.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Header
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Contracts1
+import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas
 import LeanQbe.T.Examples.Kissat.Proof.Learn.Helpers
 import LeanQbe.T.Logic.C0Step
 import LeanQbe.T.Logic.C0HeadStep
@@ -503,7 +505,7 @@ theorem oneLit_large_tail_exec_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
     {F_cur : List (List Nat)} {cut1 clvl : Nat} {s sb : FullState}
     {cref forcedv : BitVec 32} {jlvlv : BitVec 64} {R : Mem 64 → Prop} {Q : Post [i64]}
     {X : XPost} {mb : Mem 64}
-    (hDet : ∀ args m Q X, fullDetNewLevelSpec args m Q X →
+    (hDet : ∀ args m Q X, Proof.Learn.Spec.detNewLevelSpec args m Q X →
       Γ "full_det_new_level" [i64, i64] [i64] args m Q X)
     (hBt : ∀ args m Q X, fullBacktrackSpec args m Q X →
       Γ "full_backtrack_ac_fid" [i64, i64] [] args m Q X)
@@ -530,18 +532,22 @@ theorem oneLit_large_tail_exec_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
   have hj_lt_cl : jlvlv.toNat < sb.core.cur_level := by rw [hbcl]; exact hjl_lt
   have hmaxv := c.hmaxv; unfold dimacsBound at hmaxv
   unfold oneLitTailExpr; c0_call hDet
-  refine ⟨c, sb, R, rfl, hblen, by
+  dsimp only [Proof.Learn.Spec.detNewLevelSpec]
+  refine FullContract.intro (w := ()) hblen (by
     have := hbw.cur_level_le; have := hblen.core_ok.trail_end_le
-    have := hblen.core_ok.cur_vars_le; omega,
-    hmb, fun nlvl _ hnlvl => ?_⟩
-  obtain ⟨hjl_le_nl, hnl_lt⟩ := hnlvl (by omega) hj_lt_cl; rw [hbcl] at hnl_lt
+    have := hblen.core_ok.cur_vars_le; omega) hmb ?_
+  rintro ⟨nlvl, ⟨⟩⟩ _ mb' _ ⟨hsb', _, hnlvl⟩ hm_b'
+  rw [hsb'] at hm_b'
+  obtain ⟨hjl_le_nl, hnl_lt⟩ := hnlvl (by omega) hj_lt_cl
+  dsimp only at hjl_le_nl hnl_lt
+  rw [hbcl] at hnl_lt
   c0_call hBt
   refine ⟨c, sb, R, rfl, hblen, by
     have := hbw.cur_level_le; have := hblen.core_ok.trail_end_le
     have := hblen.core_ok.cur_vars_le; omega,
     fun h => by have := hbw.cur_level_le; have := hblen.core_ok.trail_end_le
                 have := hblen.core_ok.cur_vars_le; omega,
-    hbw.trail_lits_lt, hmb, ?_⟩
+    hbw.trail_lits_lt, hm_b', ?_⟩
   dsimp only
   intro vals2 lvl2 rsns2 trl2 tp2 te2 prop2 cl2 unass2 sc2 m2 hlen2 _ _ hcl2 hpres _ _ hvl2 _ hw2
     hm2

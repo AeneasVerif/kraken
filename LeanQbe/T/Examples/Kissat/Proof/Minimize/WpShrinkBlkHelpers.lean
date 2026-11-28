@@ -31,7 +31,7 @@ open LeanQbe.T.Examples.Kissat.Proof.Spec.FullArenaTactics
 open LeanQbe.T.Examples.Kissat.Proof.Minimize.Spec
 open scoped FullArenaTactics FullMinTactics
 
-abbrev m8BlkState := Spec.m8ShrinkBlkBoolState
+abbrev m8BlkState := m8ShrinkBlkBoolState
 
 theorem m8CoreInv_blk {c : FullCfg} {F0 : CNF Nat} {s : FullState}
     (hcore : FullOtfsCoreInv c F0 s) {tmp1 : List (BitVec 32)} {mrk1 : List (BitVec 8)}
@@ -53,7 +53,7 @@ theorem m8Blk_step {s : FullState} {tmp1 : List (BitVec 32)} {mrk1 : List (BitVe
       st'.core.min_clr_len st'.core.min_clr_full ticks1 := by
   intro st st'
   dsimp only [st', fullMinMarkStepState, fullMinMarkStepCore, fullMinMarkCore, st, m8BlkState,
-    Spec.m8ShrinkBlkBoolState]
+    m8ShrinkBlkBoolState]
   split <;> rfl
 
 theorem m8Witness_shrinkBlk {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
