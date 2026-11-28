@@ -320,6 +320,10 @@ theorem specs_sigs : specs.map SpecEntry.sig = Src.Kitten.fns.map Fn.sig := rfl
 
 theorem specs_nodup : (specs.map SpecEntry.name).Nodup := by decide
 
+theorem specs_noExit : specs.all SpecEntry.noExit = true := rfl
+
+def deps : List SpecEntry := []
+
 /-! ## 3. `Env.Sat specs` Projections -/
 
 private theorem mem_has {Γ : Env} (h : Γ.Sat specs) {nm : Sym} {as bs : List Ty}

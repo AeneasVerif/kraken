@@ -20,7 +20,7 @@ import LeanQbe.T.Examples.Kissat.Proof.Kitten.WpSolve
 /-!
 # Canonical Segment Certificate for `Kissat.Src.Kitten` (`Kissat.Proof.Kitten.Cert`)
 
-Proves `cert : SegCert [] Src.Kitten.fns Spec.specs` (`14` C0 functions, `0` externs)
+Proves `cert : SegCert Spec.deps Src.Kitten.fns Spec.specs` (`14` C0 functions, `0` externs)
 against `Kissat.Src.Kitten.fns` via `Spec.has_full_*` and `SpecEntry.Impl.of`.
 Zero legacy `Full*` imports; zero `@[expose]` on theorems/lemmas; `<= 100` cols.
 -/
@@ -35,8 +35,9 @@ open LeanQbe.T
 open LeanQbe.T.Examples.Kissat.Src.Kitten
 open LeanQbe.T.Examples.Kissat.Proof.Kitten.Spec
 
-/-- Canonical segment certificate for `LeanQbe.T.Examples.Kissat.Src.Kitten` (`14` fns, `0` externs). -/
-theorem cert : SegCert [] Src.Kitten.fns Spec.specs := by
+/-- Canonical segment certificate for `LeanQbe.T.Examples.Kissat.Src.Kitten`
+    (`14` fns, `0` externs). -/
+theorem cert : SegCert Spec.deps Src.Kitten.fns Spec.specs := by
   intro Γ _ hrows
   have hMaxV := has_full_m6_max_v hrows
   have hAddTicks := has_full_k6_add_ticks hrows
