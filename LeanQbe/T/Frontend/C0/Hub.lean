@@ -8,6 +8,10 @@ public import LeanQbe.T.Frontend.C0.Lexer
 public import LeanQbe.T.Frontend.C0.Lower
 public import LeanQbe.T.Frontend.C0.Parser
 public import LeanQbe.T.Frontend.C0.Syntax
+public import LeanQbe.T.Frontend.C0.Template.Elab
+public import LeanQbe.T.Frontend.C0.Template.Scan
+public import LeanQbe.T.Frontend.C0.Template.Snippet
+public import LeanQbe.T.Frontend.C0.Template.Wp
 public import LeanQbe.T.Frontend.C0.ToFlat
 
 set_option autoImplicit false
