@@ -281,6 +281,12 @@ public import LeanQbe.T.Examples.Kissat.Proof.Gates.WpM8Ite
 public import LeanQbe.T.Examples.Kissat.Proof.Heap.Cert
 public import LeanQbe.T.Examples.Kissat.Proof.Heap.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Heap.Wp
+public import LeanQbe.T.Examples.Kissat.Proof.Internal.Cert
+public import LeanQbe.T.Examples.Kissat.Proof.Internal.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Internal.Wp0
+public import LeanQbe.T.Examples.Kissat.Proof.Internal.Wp1
+public import LeanQbe.T.Examples.Kissat.Proof.Internal.Wp2
+public import LeanQbe.T.Examples.Kissat.Proof.Internal.Wp3
 public import LeanQbe.T.Examples.Kissat.Proof.Kitten.Cert
 public import LeanQbe.T.Examples.Kissat.Proof.Kitten.Layout
 public import LeanQbe.T.Examples.Kissat.Proof.Kitten.LemmasBtAdd
