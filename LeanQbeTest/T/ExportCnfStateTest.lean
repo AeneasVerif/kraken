@@ -56,7 +56,8 @@ open LeanQbe.T.PrintCpp
 open LeanQbe.T.Frontend.C0
 open LeanQbe.T.Examples.LratBytes
 open LeanQbe.T.Examples.Kissat
-open LeanQbe.T.Examples.Kissat.Full
+open LeanQbe.T.Examples.Kissat.Ref hiding dimacsBound parseDimacs
+open LeanQbe.T.Examples.Kissat.Proof.Spec
 open LeanQbe.T.Examples.Kissat.ExportCnfFmt
 open LeanQbe.T.Examples.Kissat.ExportCnfState
 

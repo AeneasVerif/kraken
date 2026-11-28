@@ -5,8 +5,8 @@ Released under Apache 2.0 license as described in the file LICENSE.
 module
 
 public import LeanQbe.T.Examples.Kissat.ExportCnfEntryProof
-public import LeanQbe.T.Examples.Kissat.FullOneLitConflLemmas
-import LeanQbe.T.Examples.Kissat.FullArena
+public import LeanQbe.T.Examples.Kissat.Proof.Spec.SatNv1
+import LeanQbe.T.Examples.Kissat.Proof.Spec.Arena1
 import LeanQbe.T.Logic.MemLemmas
 import LeanQbe.T.Logic.ControlComb
 import LeanQbe.T.Logic.C0Step
@@ -38,8 +38,20 @@ open LeanQbe.T
 open LeanQbe.T.ProofUtil
 open LeanQbe.T.Examples.LratBytes
 open LeanQbe.T.Examples.Kissat
-open LeanQbe.T.Examples.Kissat.Full
-open LeanQbe.T.Examples.Kissat.FullM6Hdr
+open LeanQbe.T.Examples.Kissat.Src
+open LeanQbe.T.Examples.Kissat.Ref hiding isDimacsWs isDimacsDigit dimacsBound
+  skipWsCommentsAux skipWsComments skipWs skipWs1 parseDigitsAux parseNat
+  parseHeader parseClauseAux parseClause parseClauses parseDimacs
+open LeanQbe.T.Examples.Kissat.Proof.Spec hiding
+  fullM6WorkBase fullM6WorkHdr m6ExtAddr_fullM6WorkHdr
+  region_work_to_m6_workBase region_work_from_m6_hdrMem
+  fullM6PreprocessSpec fullM6PreprocessSpec_of fullM6PreprocessSpec_monoX
+  nvM6CnfPtr nvM6WorkLen nvM6SatBytes nvM6SatCnf nvM6SatWorkPtr
+  nvM6ExtInitWords nvM6SatCfg nvM6SatState nvM6SatBlockHdr nvM6SatBlockBytes
+  nvM6SatBlockU32A nvM6SatBlockU32B nvM6SatBlockU32C nvM6SatBlockWvec
+  nvM6SatBlockTail nvM6SatArenaBytes nvM6MemBytes nvM6Mem_ok
+  nvM6SatCfg_avail_fit nvM6SatCfg_hsize nvM6SatCnf_sat nvM6SatCnf_not_unsat
+  nvM6ExtInitWords_len nvM6Sat_lengths
 open LeanQbe.T.Examples.Kissat.ExportCnfFmt
 open LeanQbe.T.Examples.Kissat.ExportCnfState
 open LeanQbe.T.Examples.Kissat.ExportCnfEntry
@@ -119,15 +131,15 @@ theorem nvM6SatCfg_hsize :
   extend_cap := 0
   scratch_cap := 0
   hbva := rfl
-  hmv := by unfold dimacsBound; omega
-  hmaxv := by unfold dimacsBound; omega
-  hnc := by unfold dimacsBound; omega
-  harena := by unfold dimacsBound; omega
-  hwcap := by unfold dimacsBound; omega
-  hdel := by unfold dimacsBound; omega
-  hred := by unfold dimacsBound; omega
-  hext := by unfold dimacsBound; omega
-  hscr := by unfold dimacsBound; omega
+  hmv := by unfold Ref.dimacsBound; omega
+  hmaxv := by unfold Ref.dimacsBound; omega
+  hnc := by unfold Ref.dimacsBound; omega
+  harena := by unfold Ref.dimacsBound; omega
+  hwcap := by unfold Ref.dimacsBound; omega
+  hdel := by unfold Ref.dimacsBound; omega
+  hred := by unfold Ref.dimacsBound; omega
+  hext := by unfold Ref.dimacsBound; omega
+  hscr := by unfold Ref.dimacsBound; omega
   havail_fit := nvM6SatCfg_avail_fit
   hsize := nvM6SatCfg_hsize
 
@@ -181,7 +193,7 @@ private theorem nvM6Sat_lengths : nvM6SatState.LengthsOk nvM6SatCfg :=
         simp [nvM6SatState, nvM6SatCfg, nvOneLitState, nvOneLitScratch]⟩
 
 @[expose] def nvM6SatBlockHdr : List UInt8 :=
-  bytes64 [2#64, 1#64, 0#64, 0#64] ++ bytes64 (Full.hdrTailWords nvM6SatCfg nvM6SatState)
+  bytes64 [2#64, 1#64, 0#64, 0#64] ++ bytes64 (hdrTailWords nvM6SatCfg nvM6SatState)
 
 @[expose] def nvM6SatBlockBytes : List UInt8 :=
   (bytesOf (t := i8) nvM6SatState.core.vals ++ List.replicate 4 0) ++
@@ -286,8 +298,8 @@ private theorem nvM6SatArena_ok :
     unfold u32FullBytes nvM6SatCfg; decide
   have hHdr := nvJ
     (nv_arr64_p (a := nvM6SatCfg.hdr) (xs := [2#64, 1#64, 0#64, 0#64]) 32 rfl (by decide))
-    (nv_arr64_p (a := nvM6SatCfg.hdr + 32) (xs := Full.hdrTailWords nvM6SatCfg nvM6SatState)
-      1120 (by rw [Full.hdrTailWords_length]) (by decide)) rfl
+    (nv_arr64_p (a := nvM6SatCfg.hdr + 32) (xs := hdrTailWords nvM6SatCfg nvM6SatState)
+      1120 (by rw [hdrTailWords_length]) (by decide)) rfl
   let pB1 : Mem 64 → Prop :=
     region (nvM6SatCfg.pVals + 4#64) 4 ⋆ region (nvM6SatCfg.pWalkVals + 4#64) 4 ⋆
     region (nvM6SatCfg.pLitMark + 4#64) 4 ⋆ region (nvM6SatCfg.pMark + 2#64) 6
@@ -443,7 +455,7 @@ private theorem nv_base_sat_mem_sep :
       bytes nvOutBufPtr (List.replicate 64 0))
       ((nvM6MemBytes ++ (List.replicate 4080 0 ++ bytes64 [nvOutBufPtr, 64#64, 99#64] ++
         List.replicate 64 0)).At nvM6CnfPtr) := by
-  have hhdr := Full.hdrTailWords_length nvM6SatCfg nvM6SatState
+  have hhdr := hdrTailWords_length nvM6SatCfg nvM6SatState
   have hsl : nvM6SatCfg.slack = 3924 := by
     unfold FullCfg.slack nvM6SatCfg nvM6WorkLen fullM6ExtBytes fullFixedBytes valsBytes
       markBytes u32FullBytes fullMinDepthOf
@@ -644,9 +656,8 @@ private theorem nvM6UnitState_witnessInv :
         levels_inhabited := fun _ _ h2 => by rw [hcl] at h2; omega
         level0_sound := fun i hi _ => by
           rw [hte] at hi; obtain rfl : i = 0 := (by omega)
-          exact CNF.entails_clause_of_mem (by
-            rw [CNF.Internal.mem_iff]
-            simp [cnfOfClauses, nvM6UnitState, nvM6SatState, nvOneLitState])
+          exact entails_mem_cnfOfClauses (by
+            simp [nvM6UnitState, nvM6SatState, nvOneLitState])
         trail_pos_inv := fun i hi => by
           rw [hte] at hi; obtain rfl : i = 0 := (by omega); rfl
         level0_rsn_none := fun i hi _ => by
@@ -693,12 +704,8 @@ private theorem nvM6InconsState_witnessInv :
               CNF.Clause.ext (by simp [shiftDownClause, CNF.Clause.literals_ofLiterals])
             simp only [nvM6EmptyClCnf, shiftDownCnf, Array.mem_map]
             exact ⟨CNF.Clause.empty, by simp [CNF.empty, CNF.add], he⟩⟩
-        inconsistent_sound := fun _ => by
-          refine CNF.unsat_of_mem_unsat (c := CNF.Clause.empty) ?_ CNF.Clause.unsat_empty
-          rw [CNF.Internal.mem_iff]
-          have he : cnfClause [] = CNF.Clause.empty :=
-            CNF.Clause.ext (by simp [cnfClause, CNF.Clause.literals_ofLiterals])
-          simp [cnfOfClauses, he]
+        inconsistent_sound := fun _ =>
+          unsat_of_entails_nil (entails_mem_cnfOfClauses (by simp))
         arena := ⟨Or.inl rfl,
           (fun _ hr => nomatch (show _ ∈ ([] : List Nat) from hr)),
           (fun _ hr _ => nomatch (show _ ∈ ([] : List Nat) from hr)),
@@ -772,10 +779,10 @@ theorem nvExportUnitMem_sep :
         region (nvM6SatWorkPtr + BitVec.ofNat 64 nvM6WorkLen) 4080 ⋆
         exportOutMem nvOutDescPtr nvOutBufPtr 64#64 99#64 ⋆
         bytes nvOutBufPtr (List.replicate 64 0))) base := sep_ac hb0
-  have h1 := (Full.FullArenaTactics.store_full_trail_end 1 (by decide) hb).2
-  have h2 := (Full.FullArenaTactics.store_full_unassigned 1#64 h1).2
-  have h3 := (Full.FullArenaTactics.store_full_vals (i := 2) 0#8 (by decide) h2).2
-  have h4 := (Full.FullArenaTactics.store_full_vals (i := 3) 0#8 (by decide) h3).2
+  have h1 := (FullArenaTactics.store_full_trail_end 1 (by decide) hb).2
+  have h2 := (FullArenaTactics.store_full_unassigned 1#64 h1).2
+  have h3 := (FullArenaTactics.store_full_vals (i := 2) 0#8 (by decide) h2).2
+  have h4 := (FullArenaTactics.store_full_vals (i := 3) 0#8 (by decide) h3).2
   have heq : nvExportUnitMem =
       storeMem (storeMem (storeMem (storeMem base
         i64 (nvM6SatCfg.hdr + 144) (BitVec.ofNat 64 1)) i64 (nvM6SatCfg.hdr + 792) 1#64)
@@ -835,13 +842,13 @@ theorem nvExportInconsMem_sep :
         exportOutMem nvOutDescPtr nvOutBufPtr 64#64 99#64 ⋆
         bytes nvOutBufPtr (List.replicate 64 0)))
       (storeBytes base nvM6CnfPtr nvM6EmptyClBytes) := sep_ac h0
-  have h1 := (Full.FullArenaTactics.store_full_trail_end 0 (by decide) hf).2
-  have h2 := (Full.FullArenaTactics.store_full_unassigned 2#64 h1).2
-  have h3 := (Full.FullArenaTactics.store_full_inconsistent 1#64 h2).2
-  have h4 := (Full.FullArenaTactics.store_full_vals (i := 0) 0#8 (by decide) h3).2
-  have h5 := (Full.FullArenaTactics.store_full_vals (i := 1) 0#8 (by decide) h4).2
-  have h6 := (Full.FullArenaTactics.store_full_vals (i := 2) 0#8 (by decide) h5).2
-  have h7 := (Full.FullArenaTactics.store_full_vals (i := 3) 0#8 (by decide) h6).2
+  have h1 := (FullArenaTactics.store_full_trail_end 0 (by decide) hf).2
+  have h2 := (FullArenaTactics.store_full_unassigned 2#64 h1).2
+  have h3 := (FullArenaTactics.store_full_inconsistent 1#64 h2).2
+  have h4 := (FullArenaTactics.store_full_vals (i := 0) 0#8 (by decide) h3).2
+  have h5 := (FullArenaTactics.store_full_vals (i := 1) 0#8 (by decide) h4).2
+  have h6 := (FullArenaTactics.store_full_vals (i := 2) 0#8 (by decide) h5).2
+  have h7 := (FullArenaTactics.store_full_vals (i := 3) 0#8 (by decide) h6).2
   let m3 := storeMem (storeMem (storeMem (storeBytes base nvM6CnfPtr nvM6EmptyClBytes)
     i64 (nvM6SatCfg.hdr + 144) (BitVec.ofNat 64 0)) i64 (nvM6SatCfg.hdr + 792) 2#64)
     i64 (nvM6SatCfg.hdr + 1024) 1#64

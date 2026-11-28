@@ -6,9 +6,10 @@ module
 
 public import LeanQbe.T.Examples.Kissat.ExportCnfEntry
 public import LeanQbe.T.Examples.Kissat.ExportCnfStateProof
-public import LeanQbe.T.Examples.Kissat.FullM6HdrProof0
-public import LeanQbe.T.Examples.Kissat.FullM4CompactLemmas
-import LeanQbe.T.Examples.Kissat.FullArena
+public import LeanQbe.T.Examples.Kissat.Proof.Spec.SatNv
+public import LeanQbe.T.Examples.Kissat.Proof.Spec.Contracts2
+public import LeanQbe.T.Examples.Kissat.Proof.Spec.Header
+import LeanQbe.T.Examples.Kissat.Proof.Spec.Arena1
 import LeanQbe.T.Logic.BitVec
 import LeanQbe.T.Logic.Bytes
 import LeanQbe.T.Logic.MemLemmas
@@ -39,8 +40,14 @@ open LeanQbe.T
 open LeanQbe.T.ProofUtil
 open LeanQbe.T.Examples.LratBytes
 open LeanQbe.T.Examples.Kissat
-open LeanQbe.T.Examples.Kissat.Full
-open LeanQbe.T.Examples.Kissat.FullM6Hdr
+open LeanQbe.T.Examples.Kissat.Src
+open LeanQbe.T.Examples.Kissat.Ref hiding isDimacsWs isDimacsDigit dimacsBound
+  skipWsCommentsAux skipWsComments skipWs skipWs1 parseDigitsAux parseNat
+  parseHeader parseClauseAux parseClause parseClauses parseDimacs
+open LeanQbe.T.Examples.Kissat.Proof.Spec hiding
+  fullM6WorkBase fullM6WorkHdr m6ExtAddr_fullM6WorkHdr
+  region_work_to_m6_workBase region_work_from_m6_hdrMem
+  fullM6PreprocessSpec fullM6PreprocessSpec_of fullM6PreprocessSpec_monoX
 open LeanQbe.T.Examples.Kissat.ExportCnfFmt
 open LeanQbe.T.Examples.Kissat.ExportCnfState
 open LeanQbe.T.Examples.Kissat.ExportCnfEntry
@@ -270,7 +277,7 @@ def fullM6PreprocessSpec : Spec [i64] [i64] :=
       h = c.hdr ∧ FullM6HdrInv c F0 ext s ∧ s.core.cur_level = 0 ∧
       (FullM6HdrMem c ext s ⋆ R) m ∧
       ∀ r c' ext' s' m',
-        FullM4Compact.FullCfgCompat c c' → s'.LengthsOk c' →
+        FullCfgCompat c c' → s'.LengthsOk c' →
         FullM6HdrCfgOk c' → M6HdrExtOk ext' →
         (r = 0#64 ∨ r = 1#64 ∨ r = 10#64 ∨ r = 20#64) →
         s'.core.fuel.toNat ≤ s.core.fuel.toNat →
@@ -280,7 +287,7 @@ def fullM6PreprocessSpec : Spec [i64] [i64] :=
         (FullM6HdrMem c' ext' s' ⋆ R) m' → Q (r, ()) m'
 
 /-- Strengthened `full_m6_mem_init` specification carrying `probing = 0`,
-`vals = replicate`, and `wvec = replicate` needed by `Full.fullParseBodySpec`. -/
+`vals = replicate`, and `wvec = replicate` needed by `fullParseBodySpec`. -/
 def fullM6MemInitExactSpec : Spec [i64, i64, i64, i64, i64] [i64] :=
   fun (cnf_ptr, cend, work_base, avail, fuel, ()) m Q _ =>
     ∃ (cnfBytes : List UInt8) (R : Mem 64 → Prop),
@@ -376,7 +383,7 @@ def kissatSimplifyExportLoadedSpec : Spec [i64, i64, i64] [i64] :=
         bytes out_ptr buf ⋆ R) m ∧
       ∀ (r : BitVec 64) (c' : FullCfg) (ext' : List (BitVec 64)) (s' : FullState)
         (outBytes : List UInt8) (written : Nat) (m' : Mem 64),
-        FullM4Compact.FullCfgCompat c c' →
+        FullCfgCompat c c' →
         s'.LengthsOk c' →
         FullM6HdrCfgOk c' →
         M6HdrExtOk ext' →
@@ -488,7 +495,7 @@ def exportCnfEntryEnv : Env :=
     (∃ h : f = "full_m6_mem_init" ∧ as = [i64, i64, i64, i64, i64] ∧ rs = [i64],
       specCast h.2.1 h.2.2 fullM6MemInitExactSpec xs m Q X) ∨
     (∃ h : f = "full_parse_body_m6" ∧ as = [i64, i64] ∧ rs = [i64],
-      specCast h.2.1 h.2.2 Full.fullParseBodySpec xs m Q X) ∨
+      specCast h.2.1 h.2.2 fullParseBodySpec xs m Q X) ∨
     (∃ h : f = "full_preprocess_m6" ∧ as = [i64] ∧ rs = [i64],
       specCast h.2.1 h.2.2 fullM6PreprocessSpec xs m Q X) ∨
     exportCnfStateEnv f as rs xs m Q X
@@ -502,7 +509,7 @@ theorem fullM6PreprocessSpec_of {c : FullCfg} {F0 : CNF Nat} {ext : List (BitVec
     (hinv : FullM6HdrInv c F0 ext s) (hcl0 : s.core.cur_level = 0)
     (hm : (FullM6HdrMem c ext s ⋆ R) m)
     (hQ : ∀ r c' ext' s' m',
-      FullM4Compact.FullCfgCompat c c' → s'.LengthsOk c' →
+      FullCfgCompat c c' → s'.LengthsOk c' →
       FullM6HdrCfgOk c' → M6HdrExtOk ext' →
       (r = 0#64 ∨ r = 1#64 ∨ r = 10#64 ∨ r = 20#64) →
       s'.core.fuel.toNat ≤ s.core.fuel.toNat →
@@ -552,7 +559,102 @@ theorem fullM6MemInitExactSpec_monoX
     (h : fullM6MemInitExactSpec xs m Q X) : fullM6MemInitExactSpec xs m Q X' := by
   rcases xs with ⟨_, _, _, _, _, ⟨⟩⟩; exact h
 
-/-! ## 3. BitVec Helpers & Sub-Function WP Proofs -/
+/-! ## 3. BitVec Helpers, Parser Bridges, & Sub-Function WP Proofs -/
+
+private theorem ref_isDimacsWs_eq (b : UInt8) :
+    Ref.isDimacsWs b = LratBytes.isDimacsWs b := rfl
+
+private theorem ref_isDimacsDigit_eq (b : UInt8) :
+    Ref.isDimacsDigit b = LratBytes.isDimacsDigit b := rfl
+
+private theorem ref_dimacsBound_eq : Ref.dimacsBound = LratBytes.dimacsBound := rfl
+
+private theorem ref_skipWsCommentsAux_eq (inC : Bool) (bs : List UInt8) :
+    Ref.skipWsCommentsAux inC bs = LratBytes.skipWsCommentsAux inC bs := by
+  induction bs generalizing inC with
+  | nil => cases inC <;> rfl
+  | cons b bs ih =>
+    cases inC
+    · by_cases hw : LratBytes.isDimacsWs b
+      · simp [Ref.skipWsCommentsAux, LratBytes.skipWsCommentsAux, ref_isDimacsWs_eq, hw, ih]
+      · by_cases hc : b == 99 <;>
+          simp [Ref.skipWsCommentsAux, LratBytes.skipWsCommentsAux, ref_isDimacsWs_eq, hw, hc, ih]
+    · by_cases h10 : b = 10
+      · subst h10; simp [Ref.skipWsCommentsAux, LratBytes.skipWsCommentsAux, ih false]
+      · rw [Ref.skipWsCommentsAux.eq_3, LratBytes.skipWsCommentsAux.eq_3] <;>
+          first | exact ih true | exact h10
+
+private theorem ref_skipWsComments_eq (bs : List UInt8) :
+    Ref.skipWsComments bs = LratBytes.skipWsComments bs :=
+  ref_skipWsCommentsAux_eq false bs
+
+private theorem ref_skipWs_eq (bs : List UInt8) :
+    Ref.skipWs bs = LratBytes.skipWs bs := by
+  induction bs with
+  | nil => rfl
+  | cons b bs ih =>
+    by_cases hw : LratBytes.isDimacsWs b <;>
+      simp [Ref.skipWs, LratBytes.skipWs, ref_isDimacsWs_eq, hw, ih]
+
+private theorem ref_skipWs1_eq (bs : List UInt8) :
+    Ref.skipWs1 bs = LratBytes.skipWs1 bs := by
+  cases bs with
+  | nil => rfl
+  | cons b bs =>
+    simp only [Ref.skipWs1, LratBytes.skipWs1, ref_isDimacsWs_eq, ref_skipWs_eq]
+
+private theorem ref_parseDigitsAux_eq (acc : Nat) (bs : List UInt8) :
+    Ref.parseDigitsAux acc bs = LratBytes.parseDigitsAux acc bs := by
+  induction bs generalizing acc with
+  | nil => rfl
+  | cons b bs ih =>
+    by_cases hd : LratBytes.isDimacsDigit b
+    · by_cases hlt : acc * 10 + (b.toNat - 48) < LratBytes.dimacsBound <;>
+        simp [Ref.parseDigitsAux, LratBytes.parseDigitsAux,
+          ref_isDimacsDigit_eq, ref_dimacsBound_eq, hd, hlt, ih]
+    · by_cases hw : LratBytes.isDimacsWs b <;>
+        simp [Ref.parseDigitsAux, LratBytes.parseDigitsAux,
+          ref_isDimacsDigit_eq, ref_isDimacsWs_eq, hd, hw]
+
+private theorem ref_parseNat_eq (bs : List UInt8) :
+    Ref.parseNat bs = LratBytes.parseNat bs := by
+  cases bs with
+  | nil => rfl
+  | cons b bs =>
+    simp only [Ref.parseNat, LratBytes.parseNat, ref_isDimacsDigit_eq, ref_parseDigitsAux_eq]
+
+private theorem ref_parseHeader_eq_lrat (bs : List UInt8) :
+    Ref.parseHeader bs = LratBytes.parseHeader bs := by
+  simp only [Ref.parseHeader, LratBytes.parseHeader,
+    ref_skipWsComments_eq, ref_skipWs1_eq, ref_parseNat_eq]
+  rfl
+
+private theorem ref_parseClauseAux_eq (fuel mv : Nat)
+    (acc : List (Literal Nat)) (bs : List UInt8) :
+    Ref.parseClauseAux fuel mv acc bs = LratBytes.parseClauseAux fuel mv acc bs := by
+  induction fuel generalizing acc bs with
+  | zero => rfl
+  | succ fuel ih =>
+    simp only [Ref.parseClauseAux, LratBytes.parseClauseAux,
+      ref_skipWsComments_eq, ref_parseNat_eq, ih]
+    rfl
+
+private theorem ref_parseClause_eq (mv : Nat) (bs : List UInt8) :
+    Ref.parseClause mv bs = LratBytes.parseClause mv bs :=
+  ref_parseClauseAux_eq (bs.length + 1) mv [] bs
+
+private theorem ref_parseClauses_eq (mv nc : Nat) (cnf : CNF Nat) (bs : List UInt8) :
+    Ref.parseClauses mv nc cnf bs = LratBytes.parseClauses mv nc cnf bs := by
+  induction nc generalizing cnf bs with
+  | zero => simp only [Ref.parseClauses, LratBytes.parseClauses, ref_skipWsComments_eq]
+  | succ k ih => simp only [Ref.parseClauses, LratBytes.parseClauses, ref_parseClause_eq, ih]
+
+private theorem ref_parseDimacs_eq_lrat (bs : List UInt8) :
+    Ref.parseDimacs bs = LratBytes.parseDimacs bs := by
+  simp only [Ref.parseDimacs, LratBytes.parseDimacs, ref_parseHeader_eq_lrat]
+  cases LratBytes.parseHeader bs with
+  | none => rfl
+  | some hdr => exact ref_parseClauses_eq _ _ _ _
 
 theorem bv64_ofNat_lt_iff {a b : Nat} (ha : a < 2 ^ 64) (hb : b < 2 ^ 64) :
     (BitVec.ofNat 64 a < BitVec.ofNat 64 b) = true ↔ a < b := by
@@ -731,7 +833,7 @@ private theorem call_emit_triv {Γ : Env}
 
 /-- WP correctness of `kissat_simplify_export_loaded(h, cnf_end, out)`. -/
 theorem kissat_simplify_export_loaded_wp (Γ : Env)
-    (hParse : ∀ a m Q X, Full.fullParseBodySpec a m Q X →
+    (hParse : ∀ a m Q X, fullParseBodySpec a m Q X →
       Γ "full_parse_body_m6" [i64, i64] [i64] a m Q X)
     (hPre : ∀ a m Q X, fullM6PreprocessSpec a m Q X →
       Γ "full_preprocess_m6" [i64] [i64] a m Q X)
@@ -761,7 +863,8 @@ theorem kissat_simplify_export_loaded_wp (Γ : Env)
     array64 (c.hdr - 2304) ext ⋆
       exportOutMem outDesc out_ptr (BitVec.ofNat 64 buf.length) 0#64 ⋆
       bytes out_ptr buf ⋆ R,
-    rfl, rfl, hcfit, hi0_le, hph, hcv, hdcur, hcl0, hte0, hprop0, hal0, hoom0, hprb0, hinc0,
+    rfl, rfl, hcfit, hi0_le, (ref_parseHeader_eq_lrat cnfBytes).trans hph, hcv, hdcur, hcl0, hte0,
+    hprop0, hal0, hoom0, hprb0, hinc0,
     hvals0, hwvec0, hinv0.sparse, hm_f, fun pb s1 m1 hlen1 hpb _ _ _ h20 h1 hut hm1 => ?_⟩
   have hm1_m6 : (bytes cnf_ptr cnfBytes ⋆ FullM6HdrMem c ext s1 ⋆
       exportOutMem outDesc out_ptr (BitVec.ofNat 64 buf.length) 0#64 ⋆
@@ -779,7 +882,7 @@ theorem kissat_simplify_export_loaded_wp (Γ : Env)
       have hvals_take : s.core.vals.take (2 * c.mv) = List.replicate (2 * c.mv) 0#8 := by
         rw [hvals0, List.take_replicate, Nat.min_eq_left (by omega)]
       exact absurd (hut (hvals_take ▸ hu)) (by decide)
-    exact hQ 0#64 c ext s1 [] 0 m1 (FullM4Compact.FullCfgCompat.refl c) hlen1 hcfg hext0
+    exact hQ 0#64 c ext s1 [] 0 m1 (FullCfgCompat.refl c) hlen1 hcfg hext0
       (Or.inl rfl) (by decide) (fun _ => ⟨Or.inl rfl, hm1_m6⟩) (fun h => absurd rfl h)
       (fun hu _ => absurd hu hnot_ut)
   · have hp_nz : pb ≠ 0#64 := ‹_›
@@ -802,18 +905,19 @@ theorem kissat_simplify_export_loaded_wp (Γ : Env)
     refine wp_load_of hld_cap ?_
     c0_hsteps_nogrp
     · obtain ⟨F0, hparse0, hunsat0⟩ := h20 ‹pb = 20#64›
+      rw [ref_parseDimacs_eq_lrat] at hparse0
       dsimp only
       refine call_emit_triv hTriv hcap hm1_m6 fun r m2 h0 h1 => ?_
       have hne1 : (1#64 : BitVec 64) ≠ 0#64 := by decide
       by_cases hlt12 : buf.length < 12
       · obtain ⟨rfl, hm2'⟩ := h0 (by simpa [hne1, unsatDimacsBytes_len] using hlt12)
-        exact hQ 0#64 c ext s1 [] 12 m2 (FullM4Compact.FullCfgCompat.refl c) hlen1 hcfg hext0
+        exact hQ 0#64 c ext s1 [] 12 m2 (FullCfgCompat.refl c) hlen1 hcfg hext0
           (Or.inl rfl) (by decide)
           (fun _ => ⟨Or.inr hlt12, by simpa [hne1, unsatDimacsBytes_len] using hm2'⟩)
           (fun h => absurd rfl h) (fun _ hge12 => absurd hlt12 (by omega))
       · have hge12 : 12 ≤ buf.length := Nat.le_of_not_lt hlt12
         obtain ⟨rfl, hm2'⟩ := h1 (by simpa [hne1, unsatDimacsBytes_len] using hge12)
-        exact hQ 20#64 c ext s1 unsatDimacsBytes 12 m2 (FullM4Compact.FullCfgCompat.refl c)
+        exact hQ 20#64 c ext s1 unsatDimacsBytes 12 m2 (FullCfgCompat.refl c)
           hlen1 hcfg hext0 (Or.inr (Or.inr (Or.inr rfl))) (by decide)
           (fun h => absurd h (by decide))
           (fun _ => ⟨by decide, hge12, unsatDimacsBytes_len,
@@ -824,6 +928,7 @@ theorem kissat_simplify_export_loaded_wp (Γ : Env)
           (fun _ _ => rfl)
     · have hp1 : pb = 1#64 := hpb_cases.elim id (fun h20 => absurd h20 ‹pb ≠ 20#64›)
       obtain ⟨cnfIn, hparse_in, hsp1, hcl1⟩ := h1 hp1
+      rw [ref_parseDimacs_eq_lrat] at hparse_in
       have hcnf_pos : CnfVarsPos cnfIn := parseDimacs_vars_pos hparse_in
       have hnot_ut : ¬ UnitUnsatTrace c.mv (List.replicate (2 * c.mv) 0#8)
           (cnfBytes.drop i0) c.nc := fun hu => by

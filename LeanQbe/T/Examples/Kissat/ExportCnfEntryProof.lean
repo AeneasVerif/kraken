@@ -37,8 +37,14 @@ open LeanQbe.T
 open LeanQbe.T.ProofUtil
 open LeanQbe.T.Examples.LratBytes
 open LeanQbe.T.Examples.Kissat
-open LeanQbe.T.Examples.Kissat.Full
-open LeanQbe.T.Examples.Kissat.FullM6Hdr
+open LeanQbe.T.Examples.Kissat.Src
+open LeanQbe.T.Examples.Kissat.Ref hiding isDimacsWs isDimacsDigit dimacsBound
+  skipWsCommentsAux skipWsComments skipWs skipWs1 parseDigitsAux parseNat
+  parseHeader parseClauseAux parseClause parseClauses parseDimacs
+open LeanQbe.T.Examples.Kissat.Proof.Spec hiding
+  fullM6WorkBase fullM6WorkHdr m6ExtAddr_fullM6WorkHdr
+  region_work_to_m6_workBase region_work_from_m6_hdrMem
+  fullM6PreprocessSpec fullM6PreprocessSpec_of fullM6PreprocessSpec_monoX
 open LeanQbe.T.Examples.Kissat.ExportCnfFmt
 open LeanQbe.T.Examples.Kissat.ExportCnfState
 open LeanQbe.T.Examples.Kissat.ExportCnfEntry
@@ -397,7 +403,7 @@ private theorem stEnv_hdr : ∀ a m Q X, kissatEmitDimacsHdrSpec a m Q X →
     exportCnfStateEnv "kissat_emit_dimacs_hdr" [i64, i64, i64, i64, i64] [i64] a m Q X :=
   fun _ _ _ _ h => by simpa [exportCnfStateEnv, exportCnfFmtEnv] using h
 
-private theorem stEnv_backtrack : ∀ a m Q X, Full.fullBacktrackSpec a m Q X →
+private theorem stEnv_backtrack : ∀ a m Q X, fullBacktrackSpec a m Q X →
     exportCnfStateEnv "full_backtrack" [i64, i64] [] a m Q X :=
   fun _ _ _ _ h => by simpa [exportCnfStateEnv] using h
 
@@ -437,7 +443,7 @@ theorem exportCnfEntryEnv_cnf_bytes :
   fun _ _ _ _ h => Or.inr (Or.inr (Or.inr (Or.inr (stEnv_cnf_bytes _ _ _ _ h))))
 
 theorem exportCnfEntryEnv_backtrack :
-    ∀ a m Q X, Full.fullBacktrackSpec a m Q X →
+    ∀ a m Q X, fullBacktrackSpec a m Q X →
       exportCnfEntryEnv "full_backtrack" [i64, i64] [] a m Q X :=
   fun _ _ _ _ h => Or.inr (Or.inr (Or.inr (Or.inr (stEnv_backtrack _ _ _ _ h))))
 
@@ -447,7 +453,7 @@ theorem exportCnfEntryEnv_mem_init :
   fun _ _ _ _ h => Or.inr (Or.inl ⟨⟨rfl, rfl, rfl⟩, h⟩)
 
 theorem exportCnfEntryEnv_parse :
-    ∀ a m Q X, Full.fullParseBodySpec a m Q X →
+    ∀ a m Q X, fullParseBodySpec a m Q X →
       exportCnfEntryEnv "full_parse_body_m6" [i64, i64] [i64] a m Q X :=
   fun _ _ _ _ h => Or.inr (Or.inr (Or.inl ⟨⟨rfl, rfl, rfl⟩, h⟩))
 
@@ -498,11 +504,11 @@ theorem exportCnfEntryOnlyEnv_bytes :
 
 /-- `ModuleOk` soundness for the entire `12`-fn exporter stack inside an arbitrary `Γ : Env`. -/
 theorem exportCnfEntryFns_sound_in (Γ : Env)
-    (hBacktrack : ∀ a m Q X, Full.fullBacktrackSpec a m Q X →
+    (hBacktrack : ∀ a m Q X, fullBacktrackSpec a m Q X →
       Γ "full_backtrack" [i64, i64] [] a m Q X)
     (hMemInit : ∀ a m Q X, fullM6MemInitExactSpec a m Q X →
       Γ "full_m6_mem_init" [i64, i64, i64, i64, i64] [i64] a m Q X)
-    (hParse : ∀ a m Q X, Full.fullParseBodySpec a m Q X →
+    (hParse : ∀ a m Q X, fullParseBodySpec a m Q X →
       Γ "full_parse_body_m6" [i64, i64] [i64] a m Q X)
     (hPre : ∀ a m Q X, fullM6PreprocessSpec a m Q X →
       Γ "full_preprocess_m6" [i64] [i64] a m Q X)

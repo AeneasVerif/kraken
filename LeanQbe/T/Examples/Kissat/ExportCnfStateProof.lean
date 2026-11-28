@@ -6,11 +6,10 @@ module
 
 public import LeanQbe.T.Examples.Kissat.ExportCnfState
 public import LeanQbe.T.Examples.Kissat.ExportCnfFmtProof
-public import LeanQbe.T.Examples.Kissat.FullInv1
-public import LeanQbe.T.Examples.Kissat.FullSpec2
+public import LeanQbe.T.Examples.Kissat.Proof.Spec.Contracts1
 public import LeanQbe.T.Logic.Bytes
 public import LeanQbe.T.Logic.Rules
-import LeanQbe.T.Examples.Kissat.FullArena
+import LeanQbe.T.Examples.Kissat.Proof.Spec.Arena1
 import LeanQbe.T.Logic.MemLemmas
 import LeanQbe.T.Logic.ControlComb
 import LeanQbe.T.Logic.C0Step
@@ -54,7 +53,8 @@ open LeanQbe.T.C0Step
 open LeanQbe.T.C0HeadStep
 open LeanQbe.T.Examples.LratBytes
 open LeanQbe.T.Examples.Kissat
-open LeanQbe.T.Examples.Kissat.Full
+open LeanQbe.T.Examples.Kissat.Ref hiding dimacsBound parseDimacs
+open LeanQbe.T.Examples.Kissat.Proof.Spec
 open LeanQbe.T.Examples.Kissat.ExportCnfFmt
 open Kraken.Bedrock2.Test
 open scoped FullArenaTactics
@@ -493,7 +493,7 @@ private theorem exportBinSliceClauses_props {c : FullCfg} {F_cur : List (List Na
     | zero => simp [exportBinSliceClauses]
     | succ r =>
       obtain ⟨w0, hget, hbin, hlg⟩ := modeWatchSlice_step hslice (Nat.succ_pos r)
-      have hmax := c.hmaxv; unfold dimacsBound at hmax
+      have hmax := c.hmaxv; unfold Ref.dimacsBound at hmax
       have hcv := hlen.cur_vars_le
       have hl0_64 : l0 < 2 ^ 64 := by omega
       unfold exportBinSliceClauses
@@ -603,7 +603,7 @@ private theorem exportArenaScan_props {c : FullCfg} {F_cur : List (List Nat)} {k
       have hstep : pos + 3 + fullArenaClauseSizeCore k pos ≤
           fullArenaNextOff k.arena k.arena_len pos := hwf.2.2.1
       have hnxt_le : fullArenaNextOff k.arena k.arena_len pos ≤ k.arena_len := hwf.2.2.2.1
-      have hmax := c.hmaxv; unfold dimacsBound at hmax
+      have hmax := c.hmaxv; unfold Ref.dimacsBound at hmax
       have hcv := hlen.cur_vars_le
       by_cases hlive : fullArenaClauseIrredLiveCore k pos = true
       · simp only [List.filter_cons, hlive, ↓reduceIte, List.map_cons, List.length_cons,
@@ -653,7 +653,7 @@ theorem exportState_counts_lt {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List N
   obtain ⟨hb_l, hb_b, _⟩ := exportBinClauses_props hlen hw.watches
   obtain ⟨ha_l, ha_b, _⟩ := exportArenaClauses_props hlen hw.arena
   have hmx := c.hmaxv; have har := c.harena; have hwc := c.hwcap
-  unfold dimacsBound at hmx har hwc
+  unfold Ref.dimacsBound at hmx har hwc
   have hcv := hlen.cur_vars_le; have hte := hlen.trail_end_le
   have hal := hlen.arena_len_le; have hwl := hlen.wlen_le
   refine ⟨by omega, by omega, ?_⟩
@@ -864,7 +864,7 @@ theorem kissat_export_arena_next_wp (Γ : Env) :
   have hcl := hlen.core_ok
   have har_len := hcl.arena_len_arr
   have hale := hcl.arena_len_le
-  have hcap := c.harena; unfold dimacsBound at hcap
+  have hcap := c.harena; unfold Ref.dimacsBound at hcap
   have hcref_lt64 : cref.toNat + 3 < 2 ^ 64 := by omega
   have hal_lt64 : s.core.arena_len < 2 ^ 64 := by omega
   unfold Func.wp kissat_export_arena_next_body; dsimp only
@@ -1035,7 +1035,7 @@ theorem kissat_export_trail_units_wp (Γ : Env)
   have htrl_len := hcl.trl_len
   have hte_le := hcl.trail_end_le
   have hcv_le := hcl.cur_vars_le
-  have hmx := c.hmaxv; unfold dimacsBound at hmx
+  have hmx := c.hmaxv; unfold Ref.dimacsBound at hmx
   have hte_lt64 : s.core.trail_end < 2 ^ 64 := by omega
   have hmF : (FullMem c s ⋆ (bytes out buf ⋆ cell64 cnt_ptr (BitVec.ofNat 64 cnt0) ⋆ R)) m :=
     full_frame_ac hm
@@ -1148,7 +1148,7 @@ theorem kissat_export_bin_clauses_wp (Γ : Env)
   have hwstk_len := hcl.wstk_len_arr
   have hwlen_le := hcl.wlen_le
   have hcv_le := hcl.cur_vars_le
-  have hmx := c.hmaxv; have hwc := c.hwcap; unfold dimacsBound at hmx hwc
+  have hmx := c.hmaxv; have hwc := c.hwcap; unfold Ref.dimacsBound at hmx hwc
   have hmF : (FullMem c s ⋆ (bytes out buf ⋆ cell64 cnt_ptr (BitVec.ofNat 64 cnt0) ⋆ R)) m :=
     full_frame_ac hm
   unfold Func.wp kissat_export_bin_clauses_body; dsimp only
@@ -1469,7 +1469,7 @@ theorem kissat_export_arena_clauses_wp (Γ : Env)
   have hcl := hlen.core_ok
   have har_len := hcl.arena_len_arr
   have hale := hcl.arena_len_le
-  have hcap_ar := c.harena; unfold dimacsBound at hcap_ar
+  have hcap_ar := c.harena; unfold Ref.dimacsBound at hcap_ar
   have hmF : (FullMem c s ⋆ (bytes out buf ⋆ cell64 cnt_ptr (BitVec.ofNat 64 cnt0) ⋆ R)) m :=
     full_frame_ac hm
   unfold Func.wp kissat_export_arena_clauses_body; dsimp only
@@ -1725,7 +1725,7 @@ theorem kissat_export_cnf_bytes_wp (Γ : Env)
       Func.wp Γ kissat_export_cnf_bytes_body args m Q X := by
   rintro args m Q X ⟨c, F0, F_cur, s, out, out_len_ptr, old_len, buf, R, rfl, hcap, hlen, hw,
     hm, hQ⟩
-  have hmx := c.hmaxv; unfold dimacsBound at hmx
+  have hmx := c.hmaxv; unfold Ref.dimacsBound at hmx
   have hcl_lt64 : s.core.cur_level < 2 ^ 64 := by
     have := hw.cur_level_le; have := hlen.core_ok.trail_end_le
     have := hlen.core_ok.cur_vars_le; omega
