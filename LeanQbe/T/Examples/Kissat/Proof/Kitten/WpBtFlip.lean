@@ -35,33 +35,6 @@ open scoped K6MemATactics K6PtrTactics
 
 /-! ## 1. `K6TailEq` Preservation Helpers -/
 
-theorem k6TailEq_putArr_nonTail {L : K6Layout} {ks : K6State} {f : K6ArrField}
-    (hf : f ≠ .lvlArr ∧ f ≠ .rsn ∧ f ≠ .flags ∧ f ≠ .vals ∧ f ≠ .whead)
-    (i : Nat) (val : BitVec 32) : K6TailEq L ks (ks.putArr f i val) := by
-  refine ⟨by cases f <;> rfl, fun v _ _ => ?_⟩
-  cases f <;> simp only [ne_eq, not_true_eq_false, false_and, and_false] at hf <;>
-    exact ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
-
-theorem k6TailEq_putArr_var {L : K6Layout} {ks : K6State} {f : K6ArrField}
-    (hf : f = .lvlArr ∨ f = .rsn ∨ f = .flags) {i : Nat} (hi : i < ks.nv.toNat)
-    (val : BitVec 32) : K6TailEq L ks (ks.putArr f i val) := by
-  refine ⟨by cases f <;> rfl, fun v hv _ => ?_⟩
-  have hne : i ≠ v := by omega
-  rcases hf with rfl | rfl | rfl <;> dsimp only [K6State.putArr]
-  · exact ⟨List.getElem?_set_ne hne, rfl, rfl, rfl, rfl, rfl, rfl⟩
-  · exact ⟨rfl, List.getElem?_set_ne hne, rfl, rfl, rfl, rfl, rfl⟩
-  · exact ⟨rfl, rfl, List.getElem?_set_ne hne, rfl, rfl, rfl, rfl⟩
-
-theorem k6TailEq_putArr_lit {L : K6Layout} {ks : K6State} {f : K6ArrField}
-    (hf : f = .vals ∨ f = .whead) {i : Nat} (hi : i < 2 * ks.nv.toNat)
-    (val : BitVec 32) : K6TailEq L ks (ks.putArr f i val) := by
-  refine ⟨by cases f <;> rfl, fun v hv _ => ?_⟩
-  have hne0 : i ≠ 2 * v := by omega
-  have hne1 : i ≠ 2 * v + 1 := by omega
-  rcases hf with rfl | rfl <;> dsimp only [K6State.putArr]
-  · exact ⟨rfl, rfl, rfl, List.getElem?_set_ne hne0, List.getElem?_set_ne hne1, rfl, rfl⟩
-  · exact ⟨rfl, rfl, rfl, rfl, rfl, List.getElem?_set_ne hne0, List.getElem?_set_ne hne1⟩
-
 private theorem k6TailEq_of_k6BtStep {L : K6Layout} {ks st : K6State} (lit : BitVec 32)
     (hlit : lit.toNat < 2 * ks.nv.toNat) (ht : K6TailEq L ks st) :
     let v := (lit >>> 1).toNat
@@ -77,15 +50,12 @@ private theorem k6TailEq_of_k6BtStep {L : K6Layout} {ks st : K6State} (lit : Bit
   have hst' : K6TailEq L ks st' := by
     have hnv' : st'.nv = st.nv := by dsimp only [st']; k6_field
     refine k6TailEq_trans ht ⟨hnv', fun w hw _ => ?_⟩
-    have h0 : lit.toNat ≠ 2 * w := by omega
-    have h1 : lit.toNat ≠ 2 * w + 1 := by omega
-    have h2 : (lit ^^^ 1#32).toNat ≠ 2 * w := by omega
-    have h3 : (lit ^^^ 1#32).toNat ≠ 2 * w + 1 := by omega
-    have h4 : v ≠ w := by omega
+    have hne : lit.toNat ≠ 2 * w ∧ lit.toNat ≠ 2 * w + 1 ∧
+        (lit ^^^ 1#32).toNat ≠ 2 * w ∧ (lit ^^^ 1#32).toNat ≠ 2 * w + 1 ∧ v ≠ w := by omega
     dsimp only [st', K6State.putArr, K6State.putHdr]
-    exact ⟨List.getElem?_set_ne h4, List.getElem?_set_ne h4, rfl,
-      (List.getElem?_set_ne h2).trans (List.getElem?_set_ne h0),
-      (List.getElem?_set_ne h3).trans (List.getElem?_set_ne h1), rfl, rfl⟩
+    exact ⟨List.getElem?_set_ne hne.2.2.2.2, List.getElem?_set_ne hne.2.2.2.2, rfl,
+      (List.getElem?_set_ne hne.2.2.1).trans (List.getElem?_set_ne hne.1),
+      (List.getElem?_set_ne hne.2.2.2.1).trans (List.getElem?_set_ne hne.2.1), rfl, rfl⟩
   exact ⟨hst', fun qs => k6TailEq_trans hst' (k6TailEq_of_putHdr_ne_nv (f := .qsearch)
     (by decide) qs)⟩
 
@@ -290,138 +260,6 @@ private theorem k6_flip_finish_post {c : FullCfg} {s : FullState} {P : (Nat → 
     (by rw [hof]; exact hna') (by unfold k6AssumpLitsS k6AssumpLits; rw [hof, hna', hass'])
     (by rw [hof]; exact hneq') hmJ
 
-private theorem k6_flip_reloc_tailEq {L : K6Layout} {ks0 ksW : K6State}
-    {w repl other nxt prev : BitVec 32} {l arOff slot ri : Nat}
-    (ht : K6TailEq L ks0 ksW) (hl : l < 2 * ksW.nv.toNat) (hrepl : repl.toNat < 2 * ksW.nv.toNat) :
-    let ar' := (ksW.arena.set (arOff + slot) repl).set (arOff + ri) (BitVec.ofNat 32 l)
-    let wh1 := if prev = 0xFFFFFFFF#32 then ksW.whead.set l nxt else ksW.whead
-    let wn1 := if prev = 0xFFFFFFFF#32 then ksW.wnext else ksW.wnext.set prev.toNat nxt
-    K6TailEq L ks0
-      (k6WatchStep0 { ksW with arena := ar', whead := wh1, wnext := wn1 } w repl other) := by
-  intro ar' wh1 wn1
-  refine k6TailEq_trans ht ⟨rfl, fun v hv _ => ?_⟩
-  have hne_l : l ≠ 2 * v := by omega
-  have hne_l1 : l ≠ 2 * v + 1 := by omega
-  have hne_r0 : repl.toNat ≠ 2 * v := by omega
-  have hne_r1 : repl.toNat ≠ 2 * v + 1 := by omega
-  dsimp only [k6WatchStep0, wh1]
-  split
-  · exact ⟨rfl, rfl, rfl, rfl, rfl,
-      (List.getElem?_set_ne hne_r0).trans (List.getElem?_set_ne hne_l),
-      (List.getElem?_set_ne hne_r1).trans (List.getElem?_set_ne hne_l1)⟩
-  · exact ⟨rfl, rfl, rfl, rfl, rfl, List.getElem?_set_ne hne_r0, List.getElem?_set_ne hne_r1⟩
-
-private theorem k6_flip_nonbin_setup {L : K6Layout} {P : (Nat → Bool) → Prop} {ksW : K6State}
-    {w0 : Nat} (hinvW : K6Inv L P ksW) (hw0_nc : w0 / 2 < ksW.nc.toNat)
-    (hw_div2 : (BitVec.ofNat 32 w0 >>> (1 : Nat)).toNat = w0 / 2)
-    (hw_mod2 : (BitVec.ofNat 32 w0 &&& 1#32).toNat = w0 % 2) :
-    let other := ksW.arena[k6ClauseOff ksW (w0 / 2) + (w0 % 2 ^^^ 1)]?.getD 0#32
-    (∀ idx < k6ClauseSize ksW (w0 / 2),
-      k6ClauseOff ksW (w0 / 2) + idx < L.acap ∧
-      (ksW.arena[k6ClauseOff ksW (w0 / 2) + idx]?.getD 0#32).toNat < 2 * ksW.nv.toNat) ∧
-    other.toNat < 2 * ksW.nv.toNat ∧
-    other.toNat ∈ k6ClauseLits ksW (w0 / 2) ∧
-    (BitVec.ofNat 32 w0 &&& (1 : BitVec 32)) = BitVec.ofNat 32 (w0 % 2) ∧
-    (BitVec.ofNat 32 w0 &&& (1 : BitVec 32) ^^^ (1 : BitVec 32)) =
-      BitVec.ofNat 32 (w0 % 2 ^^^ 1) ∧
-    (ksW.clOff[w0 / 2]?.getD 0#32 +
-      (BitVec.ofNat 32 w0 &&& (1 : BitVec 32) ^^^ (1 : BitVec 32))).toNat =
-      k6ClauseOff ksW (w0 / 2) + (w0 % 2 ^^^ 1) ∧
-    ((ksW.clOff[(BitVec.ofNat 32 w0 >>> (1 : Nat)).toNat]?.getD 0#32) +
-      (BitVec.ofNat 32 w0 &&& (1 : BitVec 32) ^^^ (1 : BitVec 32))).toNat < szAr L ∧
-    other.toNat < sz2V L := by
-  have hac_b := L.hacap; have hm_b := L.hmaxV
-  have hshW := hinvW.shapes; have hclW := hinvW.clauses; have hnvW := hclW.nv_le
-  have hwf_c := hclW.cl_wf (w0 / 2) hw0_nc
-  have har_ok : ∀ idx < k6ClauseSize ksW (w0 / 2),
-      k6ClauseOff ksW (w0 / 2) + idx < L.acap ∧
-      (ksW.arena[k6ClauseOff ksW (w0 / 2) + idx]?.getD 0#32).toNat < 2 * ksW.nv.toNat := by
-    intro idx hidx
-    have hcap : k6ClauseOff ksW (w0 / 2) + idx < L.acap := by have := hclW.alen_le; omega
-    have hmem : (ksW.arena[k6ClauseOff ksW (w0 / 2) + idx]?.getD 0#32).toNat ∈
-        k6ClauseLits ksW (w0 / 2) := by
-      rw [k6_mem_clauseLits_iff (by rw [hshW.arena_len]; have := hclW.alen_le; omega)]
-      exact ⟨idx, hidx, rfl⟩
-    exact ⟨hcap, hwf_c.2.2.1 _ hmem⟩
-  have hother_slot_lt : w0 % 2 ^^^ 1 < 2 := by
-    rcases Nat.mod_two_eq_zero_or_one w0 with h | h <;> simp [h]
-  let other := ksW.arena[k6ClauseOff ksW (w0 / 2) + (w0 % 2 ^^^ 1)]?.getD 0#32
-  have hother_nv : other.toNat < 2 * ksW.nv.toNat := (har_ok _ (by omega)).2
-  have hot_mem : other.toNat ∈ k6ClauseLits ksW (w0 / 2) := by
-    rw [k6_mem_clauseLits_iff (by rw [hshW.arena_len]; have := hclW.alen_le; omega)]
-    exact ⟨w0 % 2 ^^^ 1, by omega, rfl⟩
-  have hw_m2_lt : w0 % 2 < 2 ^ 32 := Nat.lt_trans (Nat.mod_lt w0 (by decide)) (by decide)
-  have hm2_xor_lt : w0 % 2 ^^^ 1 < 2 ^ 32 := by
-    rcases Nat.mod_two_eq_zero_or_one w0 with h | h <;> simp [h]
-  have hslot_bv : (BitVec.ofNat 32 w0 &&& (1 : BitVec 32)) = BitVec.ofNat 32 (w0 % 2) := by
-    apply BitVec.eq_of_toNat_eq
-    change (BitVec.ofNat 32 w0 &&& 1#32).toNat = (BitVec.ofNat 32 (w0 % 2)).toNat
-    rw [hw_mod2, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hw_m2_lt]
-  have hslot_other_bv :
-      (BitVec.ofNat 32 w0 &&& (1 : BitVec 32) ^^^ (1 : BitVec 32)) =
-        BitVec.ofNat 32 (w0 % 2 ^^^ 1) := by
-    apply BitVec.eq_of_toNat_eq
-    rw [BitVec.toNat_xor, show (BitVec.ofNat 32 w0 &&& (1 : BitVec 32)).toNat =
-      (BitVec.ofNat 32 w0 &&& 1#32).toNat from rfl, hw_mod2,
-      show (1 : BitVec 32).toNat = 1 from rfl, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hm2_xor_lt]
-  have hcl_off_add :
-      (ksW.clOff[w0 / 2]?.getD 0#32 +
-        (BitVec.ofNat 32 w0 &&& (1 : BitVec 32) ^^^ (1 : BitVec 32))).toNat =
-      k6ClauseOff ksW (w0 / 2) + (w0 % 2 ^^^ 1) := by
-    have hcap' : k6ClauseOff ksW (w0 / 2) + (w0 % 2 ^^^ 1) < L.acap :=
-      (har_ok (w0 % 2 ^^^ 1) (by omega)).1
-    unfold k6ClauseOff at hcap' ⊢; unfold dimacsBound at hac_b
-    rw [hslot_other_bv]; have := hm2_xor_lt; bv_omega
-  have hcl_off_ar :
-      ((ksW.clOff[(BitVec.ofNat 32 w0 >>> (1 : Nat)).toNat]?.getD 0#32) +
-        (BitVec.ofNat 32 w0 &&& (1 : BitVec 32) ^^^ (1 : BitVec 32))).toNat < szAr L := by
-    unfold szAr; rw [hw_div2, hcl_off_add]; exact (har_ok (w0 % 2 ^^^ 1) (by omega)).1
-  exact ⟨har_ok, hother_nv, hot_mem, hslot_bv, hslot_other_bv, hcl_off_add, hcl_off_ar,
-    Nat.lt_of_lt_of_le hother_nv (by unfold sz2V; omega)⟩
-
-private theorem k6_flip_reloc_addrs {L : K6Layout} {P : (Nat → Bool) → Prop} {ksW : K6State}
-    {w0 : Nat} {ri : BitVec 32} (_hinvW : K6Inv L P ksW)
-    (hw_div2 : (BitVec.ofNat 32 w0 >>> (1 : Nat)).toNat = w0 / 2)
-    (hslot_bv : (BitVec.ofNat 32 w0 &&& (1 : BitVec 32)) = BitVec.ofNat 32 (w0 % 2))
-    (hslot_cap : k6ClauseOff ksW (w0 / 2) + w0 % 2 < L.acap)
-    (hri_cap : k6ClauseOff ksW (w0 / 2) + ri.toNat < L.acap) :
-    (ksW.clOff[w0 / 2]?.getD 0#32 + (BitVec.ofNat 32 w0 &&& (1 : BitVec 32))).toNat =
-      (ksW.clOff[w0 / 2]?.getD 0#32).toNat + w0 % 2 ∧
-    (ksW.clOff[(BitVec.ofNat 32 w0 >>> (1 : Nat)).toNat]?.getD 0#32 +
-      (BitVec.ofNat 32 w0 &&& (1 : BitVec 32))).toNat < szAr L ∧
-    (ksW.clOff[w0 / 2]?.getD 0#32 + ri).toNat = (ksW.clOff[w0 / 2]?.getD 0#32).toNat + ri.toNat ∧
-    (ksW.clOff[(BitVec.ofNat 32 w0 >>> (1 : Nat)).toNat]?.getD 0#32 + ri).toNat < szAr L := by
-  have hac_b := L.hacap
-  have hslot_off_eq : (ksW.clOff[w0 / 2]?.getD 0#32 +
-      (BitVec.ofNat 32 w0 &&& (1 : BitVec 32))).toNat =
-      (ksW.clOff[w0 / 2]?.getD 0#32).toNat + w0 % 2 := by
-    rw [hslot_bv]; unfold dimacsBound at hac_b
-    change (ksW.clOff[w0 / 2]?.getD 0#32 + BitVec.ofNat 32 (w0 % 2)).toNat = _
-    unfold k6ClauseOff at hslot_cap; bv_omega
-  have hri_off_eq : (ksW.clOff[w0 / 2]?.getD 0#32 + ri).toNat =
-      (ksW.clOff[w0 / 2]?.getD 0#32).toNat + ri.toNat := by
-    unfold dimacsBound at hac_b; unfold k6ClauseOff at hri_cap; bv_omega
-  exact ⟨hslot_off_eq, by unfold szAr; rw [hw_div2, hslot_off_eq]; exact hslot_cap,
-    hri_off_eq, by unfold szAr; rw [hw_div2, hri_off_eq]; exact hri_cap⟩
-
-private theorem k6_flip_arena_eq {L : K6Layout} {ksW : K6State} {w0 idx1 idx2 : Nat}
-    {s1 ri repl l : BitVec 32} (h1 : idx1 = w0 / 2) (h2 : idx2 = w0 / 2)
-    (hs1 : s1 = BitVec.ofNat 32 (w0 % 2))
-    (hcap_s : k6ClauseOff ksW (w0 / 2) + w0 % 2 < L.acap)
-    (hcap_r : k6ClauseOff ksW (w0 / 2) + ri.toNat < L.acap) :
-    (ksW.arena.set (ksW.clOff[idx1]?.getD 0#32 + s1).toNat repl).set
-        (ksW.clOff[idx2]?.getD 0#32 + ri).toNat l =
-      (ksW.arena.set ((ksW.clOff[w0 / 2]?.getD 0#32).toNat + w0 % 2) repl).set
-        ((ksW.clOff[w0 / 2]?.getD 0#32).toNat + ri.toNat) l := by
-  subst h1; subst h2; subst hs1
-  have hac_b := L.hacap
-  have hm2 : w0 % 2 < 2 ^ 32 := Nat.lt_trans (Nat.mod_lt w0 (by decide)) (by decide)
-  unfold dimacsBound at hac_b; unfold k6ClauseOff at hcap_s hcap_r
-  have hb1 : (ksW.clOff[w0 / 2]?.getD 0#32).toNat + w0 % 2 < 2 ^ 32 := by omega
-  have hb2 : (ksW.clOff[w0 / 2]?.getD 0#32).toNat + ri.toNat < 2 ^ 32 := by omega
-  rw [BitVec.toNat_add, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hm2, Nat.mod_eq_of_lt hb1,
-    BitVec.toNat_add, Nat.mod_eq_of_lt hb2]
-
 private theorem k6_flip_wblit_eq {ksW : K6State} {w0 idx : Nat} {s1 : BitVec 32}
     (hidx : idx = w0 / 2)
     (hs : (ksW.clOff[w0 / 2]?.getD 0#32 + s1).toNat =
@@ -467,18 +305,19 @@ theorem full_k6_flip_wp (Γ : Env)
     change (BitVec.ofNat 32 L.maxV).toNat = 0 at h0
     rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)] at h0; omega
   · rw [hmv32_eq]
-    c0_hstep; c0_hstep; c0_hstep; c0_hstep; c0_hstep; c0_hstep; c0_hstep
-    rw [k6_ptr_base L c.pScratchBuf]
+    c0_hsteps_nogrp; rw [k6_ptr_base L c.pScratchBuf]
     have hmA : (K6MemA L kPtr ks ⋆ Rfr) m := by rw [hRfr]; exact hmA0
     clear hmA0
+    have hret_f : (K6MemA L kPtr ks ⋆ Rfr) m → Q (false, ()) m :=
+      hfinish false ks m hinv rfl (k6TailEq_refl L ks) rfl rfl rfl
     c0_hsplit
-    · c0_hsteps!; exact hfinish false ks m hinv rfl (k6TailEq_refl L ks) rfl rfl rfl hmA
+    · c0_hsteps!; exact hret_f hmA
     · c0_hsplit
-      · c0_hsteps!; exact hfinish false ks m hinv rfl (k6TailEq_refl L ks) rfl rfl rfl hmA
+      · c0_hsteps!; exact hret_f hmA
       · c0_hsplit
-        · c0_hsteps!; exact hfinish false ks m hinv rfl (k6TailEq_refl L ks) rfl rfl rfl hmA
+        · c0_hsteps!; exact hret_f hmA
         · c0_hsplit
-          · c0_hsteps!; exact hfinish false ks m hinv rfl (k6TailEq_refl L ks) rfl rfl rfl hmA
+          · c0_hsteps!; exact hret_f hmA
           · have hval1 : ks.vals[lit.toNat]? = some 1#32 := by
               have hc : ks.vals[lit.toNat]?.getD 0#32 = 1#32 := ‹_›
               rw [List.getElem?_eq_getElem (by rw [hsh.vals_len]; exact hlit_mv2),
@@ -578,8 +417,8 @@ theorem full_k6_flip_wp (Γ : Env)
                   have hnk : Jnk () m' := by
                     refine hJnk () m' ?_
                     obtain ⟨har_ok, hother_nv, hot_mem, hslot_bv, hslot_other_bv, hcl_off_add,
-                      hcl_off_ar, hother_mv2⟩ :=
-                      k6_flip_nonbin_setup hinvW hcid_lt hw_div2 hw_mod2
+                      hcl_off_ar, hother_mv2, _⟩ :=
+                      k6_nonbin_setup hinvW hcid_lt hw_div2 hw_mod2
                     let other := ksW.arena[k6ClauseOff ksW (w0 / 2) + (w0 % 2 ^^^ 1)]?.getD 0#32
                     have hw_sh1 : (BitVec.ofNat 32 w0 >>> (1 : Nat)).toNat = w0 / 2 := hw_div2
                     have hoth_arr_lt :
@@ -611,22 +450,20 @@ theorem full_k6_flip_wp (Γ : Env)
                         · have hri_ne : ri ≠ 0xFFFFFFFF#32 := by bv_omega
                           obtain ⟨hri_ge, hri_lt, hrepl_eq, hrepl_ne, _⟩ :=
                             hbrk.resolve_left hri_ne
-                          have hrepl_ne' : repl.toNat ≠ lit.toNat :=
-                            fun h => hrepl_ne (BitVec.eq_of_toNat_eq h)
                           obtain ⟨hrl_inv, ⟨chW', hwc'⟩⟩ :=
-                            k6WatchReloc_preserves hinvW hlit_ltW hwc hri_ge hri_lt hrepl_ne'
-                              rfl hrepl_eq
+                            k6WatchReloc_preserves hinvW hlit_ltW hwc hri_ge hri_lt
+                              (fun h => hrepl_ne (BitVec.eq_of_toNat_eq h)) rfl hrepl_eq
                           obtain ⟨hri_cap, hri_lit⟩ := har_ok ri.toNat hri_lt
                           obtain ⟨hslot_cap, _⟩ :=
                             har_ok (w0 % 2) (by have := Nat.mod_lt w0 (by decide : 0 < 2); omega)
                           obtain ⟨hslot_off_eq, hslot_ar, hri_off_eq, hri_ar⟩ :=
-                            k6_flip_reloc_addrs hinvW hw_div2 hslot_bv hslot_cap hri_cap
+                            k6_reloc_addrs hw_div2 hslot_bv hslot_cap hri_cap
                           have hsw_lit : BitVec.setWidth 32 lit = lit := by
                             apply BitVec.eq_of_toNat_eq; simp
                           have hlit_bn : BitVec.ofNat 32 lit.toNat = lit := by simp
                           have hw_sh_bv : (BitVec.ofNat 32 w0 >>> 1#32).toNat = w0 / 2 := by
-                            change ((BitVec.ofNat 32 w0).toNat >>> (1#32 : BitVec 32).toNat) = _
-                            rw [hw_tn]; simp [Nat.shiftRight_eq_div_pow]
+                            change (BitVec.ofNat 32 w0 >>> (1#32 : BitVec 32).toNat).toNat = w0 / 2
+                            exact hw_div2
                           have hrepl_mv2 : repl.toNat < sz2V L := by
                             change repl = ksW.arena[k6ClauseOff ksW (w0 / 2) +
                               ri.toNat]?.getD 0#32 at hrepl_eq
@@ -638,73 +475,55 @@ theorem full_k6_flip_wp (Γ : Env)
                               have hu32 : u < 2 ^ 32 := by unfold K6Layout.maxCl at hu_len; omega
                               rw [hp_eq, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hu32]
                               unfold sz2Cl; exact hu_len
-                          have htlR := k6_flip_reloc_tailEq
+                          have htlR := k6_reloc_tailEq
                             (w := BitVec.ofNat 32 w0) (repl := repl)
                             (other := ksW.arena[k6ClauseOff ksW (w0 / 2) +
                               (w0 % 2 ^^^ 1)]?.getD 0#32)
                             (nxt := ksW.wnext[w0]?.getD 0#32) (prev := prev)
                             (arOff := k6ClauseOff ksW (w0 / 2)) (slot := w0 % 2) (ri := ri.toNat)
                             w_tl hlit_ltW (by rw [hrepl_eq]; exact hri_lit)
-                          have hcl_off0 : k6ClauseOff ksW (w0 / 2) =
-                              (ksW.clOff[w0 / 2]?.getD 0#32).toNat := rfl
-                          have hcl_bv_eq :
-                              (ksW.clOff[w0 / 2]?.getD 0#32 +
-                                (BitVec.ofNat 32 w0 &&& 1#32 ^^^ 1#32)).toNat =
-                              (ksW.clOff[w0 / 2]?.getD 0#32).toNat + (w0 % 2 ^^^ 1) := by
-                            rw [← hcl_off0]; exact hcl_off_add
-                          have hslot_bv_eq :
-                              (ksW.clOff[w0 / 2]?.getD 0#32 + (BitVec.ofNat 32 w0 &&& 1#32)).toNat =
-                              (ksW.clOff[w0 / 2]?.getD 0#32).toNat + w0 % 2 := hslot_off_eq
+                          have hcl_bv_eq : (ksW.clOff[w0 / 2]?.getD 0#32 +
+                              (BitVec.ofNat 32 w0 &&& 1#32 ^^^ 1#32)).toNat =
+                              (ksW.clOff[w0 / 2]?.getD 0#32).toNat + (w0 % 2 ^^^ 1) := hcl_off_add
+                          let nxt := ksW.wnext[w0]?.getD 0#32
+                          let ks1r : K6State := {
+                            ksW with
+                            arena := (ksW.arena.set (k6ClauseOff ksW (w0 / 2) + w0 % 2) repl).set
+                              (k6ClauseOff ksW (w0 / 2) + ri.toNat) (BitVec.ofNat 32 lit.toNat),
+                            whead := if prev = 0xFFFFFFFF#32 then ksW.whead.set lit.toNat nxt
+                              else ksW.whead,
+                            wnext := if prev = 0xFFFFFFFF#32 then ksW.wnext
+                              else ksW.wnext.set prev.toNat nxt }
+                          let other :=
+                            ksW.arena[k6ClauseOff ksW (w0 / 2) + (w0 % 2 ^^^ 1)]?.getD 0#32
                           c0_hsteps_nogrp
                           try refine LeanQbe.T.wp_unroll_group fun _ _ => ?_
-                          c0_hsplit
-                          · have hpeq : prev = 0xFFFFFFFF#32 := by bv_omega
-                            c0_hsteps!; rw [hw_tn]
-                            refine ih (prev, ksW.wnext[w0]?.getD 0#32, visits + 1#64, ticks + 1#64,
-                                done, todo', _, chW') _ (by simp)
-                              ⟨hwc', hrl_inv, w_nv, htlR, w_na, w_as, w_va, w_la, w_nq, w_mv, ?_⟩
-                            refine Eq.mp (congrArg (fun x => (K6MemA L kPtr x ⋆ Rfr) _) ?_) ‹_›
-                            dsimp only [k6WatchStep0, k6ClauseOff, Val]
-                            simp only [hpeq, ↓reduceIte]
-                            k6_ext <;> (
-                              first
+                          c0_hsplit <;> (
+                            first
+                            | have hpeq : prev = 0xFFFFFFFF#32 := by bv_omega
+                            | (have hpne : prev ≠ 0xFFFFFFFF#32 := by bv_omega
+                               have hprv_bd := hprv_lt hpne)
+                            c0_hsteps!; try rw [hw_tn]
+                            refine ih (prev, nxt, visits + 1#64, ticks + 1#64,
+                                done, todo', k6WatchStep0 ks1r (BitVec.ofNat 32 w0) repl other,
+                                chW') _ (by simp) ⟨hwc', hrl_inv, w_nv, htlR, w_na, w_as, w_va,
+                                w_la, w_nq, w_mv, Eq.mp (congrArg (fun x =>
+                                  (K6MemA L kPtr x ⋆ Rfr) _)
+                                  ?_) hm⟩
+                            dsimp only [k6WatchStep0, ks1r, nxt, other, k6ClauseOff]
+                            first | simp only [hpeq, ↓reduceIte] | simp only [hpne, ↓reduceIte]
+                            k6_ext <;> (first
                               | rfl
-                              | (try rw [hw_tn]; try rw [BitVec.ofNat_toNat]; try rw [hlit_bn]
-                                 first
-                                 | rfl
-                                 | (refine k6_flip_wblit_eq ?_ ?_ <;>
-                                     (first | exact hw_div2 | exact hw_sh_bv | exact hcl_bv_eq |
-                                       (rw [← hcl_off0]; exact hcl_off_add)))
-                                 | (refine k6_flip_arena_eq ?_ ?_ ?_ hslot_cap hri_cap <;>
-                                     (first | exact hw_div2 | exact hw_sh_bv | exact hslot_bv))
-                                 | (try simp only [show (1 : BitVec 32) = 1#32 from rfl]
-                                    try rw [hw_div2]; try rw [hw_sh_bv]; try rw [hcl_bv_eq]
-                                    try rw [hslot_bv_eq]; try rw [hri_off_eq]; try rw [hcl_off0]
-                                    try (congr 1; exact hlit_bn.symm); try rfl)))
-                          · have hpne : prev ≠ 0xFFFFFFFF#32 := by bv_omega
-                            have hprv_bd := hprv_lt hpne
-                            c0_hsteps!; rw [hw_tn]
-                            refine ih (prev, ksW.wnext[w0]?.getD 0#32, visits + 1#64, ticks + 1#64,
-                                done, todo', _, chW') _ (by simp)
-                              ⟨hwc', hrl_inv, w_nv, htlR, w_na, w_as, w_va, w_la, w_nq, w_mv, ?_⟩
-                            refine Eq.mp (congrArg (fun x => (K6MemA L kPtr x ⋆ Rfr) _) ?_) ‹_›
-                            dsimp only [k6WatchStep0, k6ClauseOff, Val]
-                            simp only [hpne, ↓reduceIte]
-                            k6_ext <;> (
-                              first
-                              | rfl
-                              | (try rw [hw_tn]; try rw [BitVec.ofNat_toNat]; try rw [hlit_bn]
-                                 first
-                                 | rfl
-                                 | (refine k6_flip_wblit_eq ?_ ?_ <;>
-                                     (first | exact hw_div2 | exact hw_sh_bv | exact hcl_bv_eq |
-                                       (rw [← hcl_off0]; exact hcl_off_add)))
-                                 | (refine k6_flip_arena_eq ?_ ?_ ?_ hslot_cap hri_cap <;>
-                                     (first | exact hw_div2 | exact hw_sh_bv | exact hslot_bv))
-                                 | (try simp only [show (1 : BitVec 32) = 1#32 from rfl]
-                                    try rw [hw_div2]; try rw [hw_sh_bv]; try rw [hcl_bv_eq]
-                                    try rw [hslot_bv_eq]; try rw [hri_off_eq]; try rw [hcl_off0]
-                                    try (congr 1; exact hlit_bn.symm); try rfl)))
+                              | { rw [hlit_bn]
+                                  exact k6_reloc_arena_slot hw_div2 hw_sh_bv rfl hslot_bv hslot_cap
+                                    hri_cap }
+                              | { try rw [K6PtrTactics.k6_bv32_one]
+                                  rw [show (BitVec.ofNat 32 w0 >>> OfNat.ofNat 1).toNat = w0 / 2
+                                    from hw_div2, hcl_bv_eq] }
+                              | { try rw [hw_tn]; try rw [K6PtrTactics.k6_bv32_one]
+                                  try rw [show (BitVec.ofNat 32 w0 >>> OfNat.ofNat 1).toNat =
+                                    w0 / 2 from hw_div2]
+                                  try rw [hw_sh_bv]; try rw [hcl_bv_eq]; try rfl }))
                       · intro B2 L2 r m1 hB2 ih1 ⟨rfl, hr_le, hr2⟩
                         dsimp only at hr_le hr2 ⊢
                         have hw_md : w0 % 2 ^ 32 / 2 = w0 / 2 := by
@@ -720,14 +539,14 @@ theorem full_k6_flip_wp (Γ : Env)
                             unfold k6ClauseOff at hr_cap ⊢; unfold dimacsBound at hac_b; bv_omega
                           have hr_ar : (ksW.clOff[(BitVec.ofNat 32 w0 >>> (1 : Nat)).toNat]?.getD
                               0#32 + r).toNat < szAr L := by
-                            unfold szAr; rw [hw_sh1, hco]; exact hr_cap
+                                unfold szAr; rw [hw_sh1, hco]; exact hr_cap
                           have hcand_mv2 : (ksW.arena[(ksW.clOff[(BitVec.ofNat 32 w0 >>>
                               (1 : Nat)).toNat]?.getD 0#32 + r).toNat]?.getD 0#32).toNat <
                               sz2V L := by rw [hw_sh1, hco]; unfold sz2V; omega
                           have hr1_wrap : (r + 1#32).toNat = r.toNat + 1 := by
-                            have hsz_bd : sz.toNat < 2 ^ 28 := by
-                              have := (hclW.cl_wf (w0 / 2) (Nat.div_lt_of_lt_mul hw0_nc)).2.1
-                              have := hclW.alen_le; unfold dimacsBound at hac_b
+                            have := (hclW.cl_wf (w0 / 2) (Nat.div_lt_of_lt_mul hw0_nc)).2.1
+                            have := hclW.alen_le; unfold dimacsBound at hac_b
+                            have : sz.toNat < 2 ^ 28 := by
                               change k6ClauseSize ksW (w0 / 2) < 2 ^ 28; omega
                             bv_omega
                           c0_hsteps_nogrp
@@ -740,19 +559,19 @@ theorem full_k6_flip_wp (Γ : Env)
                                   r).toNat]?.getD 0#32 ≠ lit := by bv_omega
                               rwa [hco'] at hc0
                             c0_hsplit
-                            · have hc_val1 : ksW.vals[(ksW.arena[off.toNat + r.toNat]?.getD
-                                  0#32).toNat]? = some 1#32 := by
-                                have hvl : (ksW.arena[off.toNat + r.toNat]?.getD 0#32).toNat <
-                                    ksW.vals.length := by
-                                  rw [hshW.vals_len]
-                                  change (ksW.arena[k6ClauseOff ksW (w0 / 2) +
+                            · have hc_val1 : ksW.vals[(ksW.arena[off.toNat +
+                              r.toNat]?.getD 0#32).toNat]? =
+                                  some 1#32 := by
+                                have hvl : (ksW.arena[off.toNat +
+                                  r.toNat]?.getD 0#32).toNat < ksW.vals.length := by
+                                  rw [hshW.vals_len]; change (ksW.arena[k6ClauseOff ksW (w0 / 2) +
                                     r.toNat]?.getD 0#32).toNat < 2 * L.maxV; omega
                                 have hc0 : ksW.vals[(ksW.arena[(ksW.clOff[w0 % 2 ^ 32 / 2]?.getD
                                     0#32 + r).toNat]?.getD 0#32).toNat]?.getD 0#32 = 1#32 := by
-                                  bv_omega
-                                rw [hco'] at hc0; rw [List.getElem?_eq_getElem hvl,
-                                  Option.getD_some] at hc0
-                                rw [List.getElem?_eq_getElem hvl, hc0]
+                                      bv_omega
+                                rw [hco'] at hc0
+                                exact k6_vals_some hshW
+                                  (by unfold sz2V; rw [hshW.vals_len] at hvl; exact hvl) hc0
                               c0_hsteps!; rw [hw_sh1, hco]
                               exact hB2 (r, r, ksW.arena[off.toNat + r.toNat]?.getD 0#32) _
                                 ⟨rfl, Or.inr ⟨hr2, hr_lt, rfl, hne_cand, hc_val1⟩⟩

@@ -31,45 +31,6 @@ open LeanQbe.T.Examples.Kissat.Src.Kitten
 open K6MemATactics K6PtrTactics
 open scoped K6MemATactics K6PtrTactics
 
-section DynKlMem
-@[scoped bv_c0] private theorem k6c_sext_1 :
-    BitVec.signExtend 64 1#32 = BitVec.ofNat 64 1 := rfl
-@[scoped c0_load] private theorem load_k6_kl_dyn_z0 {L : K6Layout} {kPtr : BitVec 64}
-    {ks : K6State} {R : Mem 64 → Prop} {m : Mem 64} (hm : (K6MemA L kPtr ks ⋆ R) m) :
-    loadVal m i32
-      ((kPtr + ((32 : BitVec 32) + (8 : BitVec 32) * L.mv32).setWidth 64 * 4) +
-        BitVec.ofNat 64 0 * 4) = some (ks.kl[0]?.getD 0#32) := by
-  rw [k6_ptr_kl L kPtr]; exact load_k6_kl0 hm
-@[scoped c0_store] private theorem store_k6_kl_dyn_z0 {L : K6Layout} {kPtr : BitVec 64}
-    {ks : K6State} {R : Mem 64 → Prop} {m : Mem 64} (v : BitVec 32)
-    (hm : (K6MemA L kPtr ks ⋆ R) m) :
-    storeOk m i32
-      ((kPtr + ((32 : BitVec 32) + (8 : BitVec 32) * L.mv32).setWidth 64 * 4) +
-        BitVec.ofNat 64 0 * 4) ∧
-      (K6MemA L kPtr (ks.putArr .kl 0 v) ⋆ R)
-        (storeMem m i32
-          ((kPtr + ((32 : BitVec 32) + (8 : BitVec 32) * L.mv32).setWidth 64 * 4) +
-            BitVec.ofNat 64 0 * 4) v) := by
-  rw [k6_ptr_kl L kPtr]; exact store_k6_kl0 v hm
-@[scoped c0_load] private theorem load_k6_kl_dyn_z1 {L : K6Layout} {kPtr : BitVec 64}
-    {ks : K6State} {R : Mem 64 → Prop} {m : Mem 64} (hm : (K6MemA L kPtr ks ⋆ R) m) :
-    loadVal m i32
-      ((kPtr + ((32 : BitVec 32) + (8 : BitVec 32) * L.mv32).setWidth 64 * 4) +
-        BitVec.ofNat 64 1 * 4) = some (ks.kl[1]?.getD 0#32) := by
-  rw [k6_ptr_kl L kPtr]; exact load_k6_kl1 hm
-@[scoped c0_store] private theorem store_k6_kl_dyn_z1 {L : K6Layout} {kPtr : BitVec 64}
-    {ks : K6State} {R : Mem 64 → Prop} {m : Mem 64} (v : BitVec 32)
-    (hm : (K6MemA L kPtr ks ⋆ R) m) :
-    storeOk m i32
-      ((kPtr + ((32 : BitVec 32) + (8 : BitVec 32) * L.mv32).setWidth 64 * 4) +
-        BitVec.ofNat 64 1 * 4) ∧
-      (K6MemA L kPtr (ks.putArr .kl 1 v) ⋆ R)
-        (storeMem m i32
-          ((kPtr + ((32 : BitVec 32) + (8 : BitVec 32) * L.mv32).setWidth 64 * 4) +
-            BitVec.ofNat 64 1 * 4) v) := by
-  rw [k6_ptr_kl L kPtr]; exact store_k6_kl1 v hm
-end DynKlMem
-
 private structure K6AnaBrkPost (L : K6Layout) (P : (Nat → Bool) → Prop) (ks : K6State)
     (uip : BitVec 32) (st : K6State) : Prop where
   sh : st.ShapesOk L
@@ -115,39 +76,87 @@ private theorem k6a_clear_flags_exit {L : K6Layout} {P : (Nat → Bool) → Prop
     · exact hcl_orig v hv hnz
     · exact hcl_done v hv ((hBrk.flags_seen v hv).mp hnz)
   have hshF : stF.ShapesOk L := { hBrk.sh with flags_len := hfls_len }
-  have hpresF : K6AnaPreserved ks stF :=
-    ⟨hBrk.pres.nv, hBrk.pres.nc, hBrk.pres.lvl, hBrk.pres.prop, hBrk.pres.trl_end,
-     hBrk.pres.unass, hBrk.pres.incons, hBrk.pres.alen, hBrk.pres.acap, hBrk.pres.nassump,
-     hBrk.pres.status, hBrk.pres.max_v, hBrk.pres.max_orig, hBrk.pres.max_cl, hBrk.pres.neq,
-     hBrk.pres.lvlArr, hBrk.pres.rsn, hBrk.pres.trl, hBrk.pres.vals, hBrk.pres.assump,
-     hBrk.pres.whead, hBrk.pres.wnext, hBrk.pres.wblit, hBrk.pres.clOff, hBrk.pres.clSz,
-     hBrk.pres.arena⟩
+  have hpresF : K6AnaPreserved ks stF := k6AnaPreserved_trans hBrk.pres (k6AnaPreserved_frame _)
   have ⟨hinvF, hsyncF⟩ := k6a_inv_of_ana_clean hinv hsync hshF hpresF hnk_mv hna_mv hfl_clean
   exact ⟨hinvF, hsyncF, hpresF, k6a_clear_flags_tail hBrk.tail htl_fl⟩
+
+private abbrev K6AnaQ (L : K6Layout) (P : (Nat → Bool) → Prop) (ks : K6State)
+    (kPtr : BitVec 64) (R : Mem 64 → Prop) (Q : Post [.bool]) : Prop :=
+  ∀ (ok : Bool) (ks' : K6State) (m' : Mem 64),
+    K6Inv L P ks' → K6TrailSynced ks' → ks'.nv = ks.nv → K6TailEq L ks ks' →
+    ks'.nassump = ks.nassump → ks'.assump = ks.assump → ks'.incons = ks.incons →
+    ks'.status = ks.status → ks'.neq = ks.neq →
+    (ok = true → ks'.lvl.toNat < ks.lvl.toNat ∧
+      (0 < ks'.lvl.toNat → ∃ i < ks'.trl_end.toNat,
+        ks'.lvlArr[(ks'.trl[i]?.getD 0#32).toNat / 2]?.getD 0#32 = ks'.lvl) ∧
+      (∀ d ∈ k6TrailDecisions ks', ∃ i < ks.trl_end.toNat,
+        (ks.trl[i]?.getD 0#32).toNat = d ∧ d ∈ k6TrailDecisions ks ∧
+        (ks.lvlArr[d / 2]?.getD 0#32).toNat ≤ ks'.lvl.toNat) ∧
+      (∀ i < ks.trl_end.toNat,
+        (ks.lvlArr[(ks.trl[i]?.getD 0#32).toNat / 2]?.getD 0#32).toNat ≤ ks'.lvl.toNat →
+        i < ks'.trl_end.toNat ∧ ks'.trl[i]? = ks.trl[i]? ∧
+        ks'.lvlArr[(ks.trl[i]?.getD 0#32).toNat / 2]? =
+          ks.lvlArr[(ks.trl[i]?.getD 0#32).toNat / 2]?)) →
+    (K6Mem L kPtr ks' ⋆ R) m' → Q (ok, ()) m'
+
+private def K6AnaQSt (ksBt st5 : K6State) : Prop :=
+  ∃ qf ql qs qst qp qn qsa, st5 =
+    { ksBt with qfirst := qf, qlast := ql, qsearch := qs, qstamp := qst,
+                qprev := qp, qnext := qn, qstampArr := qsa }
+
+private theorem k6a_assign_finish_post {L : K6Layout} {P : (Nat → Bool) → Prop}
+    {ks ksBt stF : K6State} {uip rsn jlvl : BitVec 32} {kPtr : BitVec 64}
+    {R : Mem 64 → Prop} {mFin : Mem 64} {Q : Post [.bool]}
+    (hQ : K6AnaQ L P ks kPtr R Q)
+    (hinvF : K6Inv L P stF) (hsyncF : K6TrailSynced stF) (htl_stF : K6TailEq L ks stF)
+    (e_nv : stF.nv = ks.nv) (e_na : stF.nassump = ks.nassump) (e_as : stF.assump = ks.assump)
+    (e_in : stF.incons = ks.incons) (e_st : stF.status = ks.status) (e_nq : stF.neq = ks.neq)
+    (e_lvl : stF.lvl = jlvl) (e_te : stF.trl_end = ksBt.trl_end) (e_tr : stF.trl = ksBt.trl)
+    (e_la : stF.lvlArr = ksBt.lvlArr) (e_rs : stF.rsn =
+      ksBt.rsn) (hj_lt : jlvl.toNat < ks.lvl.toNat)
+    (huip_ltF : uip.toNat < 2 * stF.nv.toNat) (huip_none : ¬ ∃ i < ksBt.trl_end.toNat,
+      (ksBt.trl[i]?.getD 0#32).toNat / 2 = uip.toNat / 2)
+    (huip_v0 : stF.vals[uip.toNat]? = some 0#32) (hte_lt_nv : ksBt.trl_end.toNat < ksBt.nv.toNat)
+    (hnv_bt : stF.nv = ksBt.nv)
+    (hlvl0 : stF.lvl = 0#32 → SemEntails P [uip.toNat])
+    (hnon0 : rsn = 0xFFFFFFFF#32 → stF.lvl = 0#32)
+    (hmem_cid : rsn = 0xFFFFFFFF#32 ∨ (rsn.toNat < stF.nc.toNat ∧
+      uip.toNat ∈ k6ClauseLits stF rsn.toNat ∧
+      ∀ l ∈ k6ClauseLits stF rsn.toNat, l ≠ uip.toNat →
+        ∃ j < stF.trl_end.toNat, (stF.trl[j]?.getD 0#32).toNat = l ^^^ 1))
+    (hdec_ks : ∀ d ∈ k6TrailDecisions ksBt, ∃ i < ks.trl_end.toNat,
+      (ks.trl[i]?.getD 0#32).toNat = d ∧ d ∈ k6TrailDecisions ks ∧
+      (ks.lvlArr[d / 2]?.getD 0#32).toNat ≤ jlvl.toNat)
+    (hA2_bt : ∀ i < ks.trl_end.toNat,
+      (ks.lvlArr[(ks.trl[i]?.getD 0#32).toNat / 2]?.getD 0#32).toNat ≤ jlvl.toNat →
+      i < ksBt.trl_end.toNat ∧ ksBt.trl[i]? = ks.trl[i]? ∧
+      ksBt.lvlArr[(ks.trl[i]?.getD 0#32).toNat / 2]? =
+        ks.lvlArr[(ks.trl[i]?.getD 0#32).toNat / 2]?)
+    (hnot_dec : stF.lvl = 0#32 ∨ rsn ≠ 0xFFFFFFFF#32)
+    (hmFin : (K6Mem L kPtr (k6AssignStep stF uip rsn) ⋆ R) mFin) : Q (true, ()) mFin := by
+  obtain ⟨hinvFin, hsyncFin⟩ := k6AssignStep_preserves_inv hinvF hsyncF huip_ltF huip_v0 hlvl0
+    (fun hl hrs => absurd (hnon0 hrs) (by bv_omega)) hmem_cid
+  obtain ⟨hdecFin, hlwFin, htrFin⟩ := k6a_assignStep_decisions_eq hinvF huip_ltF
+    (by rw [e_te, hnv_bt]; exact hte_lt_nv) (by rw [e_te, e_tr]; exact huip_none) hnot_dec
+  have f_lvl : (k6AssignStep stF uip rsn).lvl = jlvl := e_lvl
+  have f_dec : k6TrailDecisions (k6AssignStep stF uip rsn) = k6TrailDecisions ksBt := by
+    rw [hdecFin]; unfold k6TrailDecisions; rw [e_te, e_tr, e_la, e_rs]
+  have htlFin := k6TailEq_trans htl_stF (k6TailEq_of_k6AssignStep uip rsn huip_ltF)
+  exact hQ true _ mFin hinvFin hsyncFin e_nv htlFin e_na e_as e_in e_st e_nq
+    (fun _ => ⟨by rw [f_lvl]; exact hj_lt, hlwFin,
+      fun d hd => by rw [f_dec] at hd; rw [f_lvl]; exact hdec_ks d hd,
+      fun i hi hlv => by
+        rw [f_lvl] at hlv
+        obtain ⟨hi_bt, ht_bt, hl_bt⟩ := hA2_bt i hi hlv
+        obtain ⟨hi_f, ht_f, hl_f⟩ := htrFin i (by rw [e_te]; exact hi_bt)
+        rw [e_tr] at ht_f hl_f; rw [e_la, ht_bt] at hl_f
+        exact ⟨hi_f, ht_f.trans ht_bt, hl_f.trans hl_bt⟩⟩) hmFin
 
 private theorem k6a_nkl1_finish {L : K6Layout} {P : (Nat → Bool) → Prop}
     {ks stSw ksBt st5 : K6State} {uip jlvl : BitVec 32} {kPtr : BitVec 64}
     {R : Mem 64 → Prop} {mFin : Mem 64} {Q : Post [.bool]}
-    (hQ : ∀ (ok : Bool) (ks' : K6State) (m' : Mem 64),
-      K6Inv L P ks' → K6TrailSynced ks' → ks'.nv = ks.nv → K6TailEq L ks ks' →
-      ks'.nassump = ks.nassump → ks'.assump = ks.assump → ks'.incons = ks.incons →
-      ks'.status = ks.status → ks'.neq = ks.neq →
-      (ok = true → ks'.lvl.toNat < ks.lvl.toNat ∧
-        (0 < ks'.lvl.toNat → ∃ i < ks'.trl_end.toNat,
-          ks'.lvlArr[(ks'.trl[i]?.getD 0#32).toNat / 2]?.getD 0#32 = ks'.lvl) ∧
-        (∀ d ∈ k6TrailDecisions ks', ∃ i < ks.trl_end.toNat,
-          (ks.trl[i]?.getD 0#32).toNat = d ∧ d ∈ k6TrailDecisions ks ∧
-          (ks.lvlArr[d / 2]?.getD 0#32).toNat ≤ ks'.lvl.toNat) ∧
-        (∀ i < ks.trl_end.toNat,
-          (ks.lvlArr[(ks.trl[i]?.getD 0#32).toNat / 2]?.getD 0#32).toNat ≤ ks'.lvl.toNat →
-          i < ks'.trl_end.toNat ∧ ks'.trl[i]? = ks.trl[i]? ∧
-          ks'.lvlArr[(ks.trl[i]?.getD 0#32).toNat / 2]? =
-            ks.lvlArr[(ks.trl[i]?.getD 0#32).toNat / 2]?)) →
-      (K6Mem L kPtr ks' ⋆ R) m' → Q (ok, ()) m')
-    (hinv5 : K6Inv L P st5) (hsync5 : K6TrailSynced st5)
-    (hst5_eq : ∃ qf ql qs qst qp qn qsa, st5 =
-      { ksBt with qfirst := qf, qlast := ql, qsearch := qs, qstamp := qst,
-                  qprev := qp, qnext := qn, qstampArr := qsa })
+    (hQ : K6AnaQ L P ks kPtr R Q)
+    (hinv5 : K6Inv L P st5) (hsync5 : K6TrailSynced st5) (hst5_eq : K6AnaQSt ksBt st5)
     (hbtPres : K6BtPreserved stSw ksBt) (hpresSw : K6AnaPreserved ks stSw)
     (htl_st5 : K6TailEq L ks st5) (hlvlBt : ksBt.lvl = jlvl) (hj0 : jlvl = 0#32)
     (hj_lt : jlvl.toNat < ks.lvl.toNat) (huip_lt_k : uip.toNat < 2 * ks.nv.toNat)
@@ -166,62 +175,22 @@ private theorem k6a_nkl1_finish {L : K6Layout} {P : (Nat → Bool) → Prop}
   obtain ⟨qf, ql, qs, qst, qp, qn, qsa, hst5⟩ := hst5_eq
   have hbt_nv : ksBt.nv = ks.nv := hbtPres.nv.trans hpresSw.nv
   have hst5_lvl0 : st5.lvl = 0#32 := by rw [hst5, hlvlBt, hj0]
-  have huip_lt5 : uip.toNat < 2 * st5.nv.toNat := by rw [hst5, hbt_nv]; exact huip_lt_k
-  obtain ⟨hinvFin, hsyncFin⟩ := k6AssignStep_preserves_inv hinv5 hsync5 (lit := uip)
-    (rsn := 0xFFFFFFFF#32) huip_lt5 (by rw [hst5]; exact huip_v0) (fun _ => hent_uip)
-    (fun h => by rw [hst5_lvl0] at h; simp at h) (Or.inl rfl)
-  obtain ⟨hdecFin, hlwFin, htrFin⟩ := k6a_assignStep_decisions_eq hinv5 (lit := uip)
-    (rsn := 0xFFFFFFFF#32) huip_lt5 (by rw [hst5]; exact hte_lt_nv)
-    (by rw [hst5]; exact huip_none) (Or.inl hst5_lvl0)
-  have f_lvl : (k6AssignStep st5 uip 0xFFFFFFFF#32).lvl = jlvl := by
-    change st5.lvl = jlvl; rw [hst5, hlvlBt]
-  have f_dec : k6TrailDecisions (k6AssignStep st5 uip 0xFFFFFFFF#32) = k6TrailDecisions ksBt := by
-    rw [hdecFin]; unfold k6TrailDecisions; rw [hst5]
-  have htlFin := k6TailEq_trans htl_st5 (k6TailEq_of_k6AssignStep uip 0xFFFFFFFF#32 huip_lt5)
-  exact hQ true (k6AssignStep st5 uip 0xFFFFFFFF#32) mFin hinvFin hsyncFin
-    (by rw [hst5]; exact hbt_nv) htlFin (by rw [hst5]; exact hbtPres.nassump.trans hpresSw.nassump)
+  exact k6a_assign_finish_post hQ hinv5 hsync5 htl_st5 (by rw [hst5]; exact hbt_nv)
+    (by rw [hst5]; exact hbtPres.nassump.trans hpresSw.nassump)
     (by rw [hst5]; exact hbtPres.assump.trans hpresSw.assump)
     (by rw [hst5]; exact hbtPres.incons.trans hpresSw.incons)
     (by rw [hst5]; exact hbtPres.status.trans hpresSw.status)
     (by rw [hst5]; exact hbtPres.neq.trans hpresSw.neq)
-    (fun _ => ⟨by rw [f_lvl]; exact hj_lt, hlwFin,
-      fun d hd => by rw [f_dec] at hd; rw [f_lvl]; exact hdec_ks d hd,
-      fun i hi hlv => by
-        rw [f_lvl] at hlv
-        obtain ⟨hi_bt, ht_bt, hl_bt⟩ := hA2_bt i hi hlv
-        obtain ⟨hi_f, ht_f, hl_f⟩ := htrFin i (by rw [hst5]; exact hi_bt)
-        have ht_f' : (k6AssignStep st5 uip 0xFFFFFFFF#32).trl[i]? = ksBt.trl[i]? :=
-          ht_f.trans (by rw [hst5])
-        have hl_f' : (k6AssignStep st5 uip 0xFFFFFFFF#32).lvlArr[
-            (ks.trl[i]?.getD 0#32).toNat / 2]? =
-            ksBt.lvlArr[(ks.trl[i]?.getD 0#32).toNat / 2]? := by
-          have h1 := hl_f; have htr_st5 : st5.trl[i]? = ks.trl[i]? := by rw [hst5]; exact ht_bt
-          rw [htr_st5] at h1; exact h1.trans (by rw [hst5])
-        exact ⟨hi_f, ht_f'.trans ht_bt, hl_f'.trans hl_bt⟩⟩) hmFin
+    (by rw [hst5, hlvlBt]) (by rw [hst5]) (by rw [hst5]) (by rw [hst5]) (by rw [hst5])
+    hj_lt (by rw [hst5, hbt_nv]; exact huip_lt_k) huip_none (by rw [hst5]; exact huip_v0)
+    hte_lt_nv (by rw [hst5]) (fun _ => hent_uip) (fun _ => hst5_lvl0) (Or.inl rfl)
+    hdec_ks hA2_bt (Or.inl hst5_lvl0) hmFin
 
 private theorem k6a_nkl2_assign_finish {L : K6Layout} {P : (Nat → Bool) → Prop}
     {ks stSw ksBt st5 : K6State} {uip jlvl : BitVec 32} {ar7 : List (BitVec 32)}
     {kPtr : BitVec 64} {R : Mem 64 → Prop} {mFin : Mem 64} {Q : Post [.bool]}
-    (hQ : ∀ (ok : Bool) (ks' : K6State) (m' : Mem 64),
-      K6Inv L P ks' → K6TrailSynced ks' → ks'.nv = ks.nv → K6TailEq L ks ks' →
-      ks'.nassump = ks.nassump → ks'.assump = ks.assump → ks'.incons = ks.incons →
-      ks'.status = ks.status → ks'.neq = ks.neq →
-      (ok = true → ks'.lvl.toNat < ks.lvl.toNat ∧
-        (0 < ks'.lvl.toNat → ∃ i < ks'.trl_end.toNat,
-          ks'.lvlArr[(ks'.trl[i]?.getD 0#32).toNat / 2]?.getD 0#32 = ks'.lvl) ∧
-        (∀ d ∈ k6TrailDecisions ks', ∃ i < ks.trl_end.toNat,
-          (ks.trl[i]?.getD 0#32).toNat = d ∧ d ∈ k6TrailDecisions ks ∧
-          (ks.lvlArr[d / 2]?.getD 0#32).toNat ≤ ks'.lvl.toNat) ∧
-        (∀ i < ks.trl_end.toNat,
-          (ks.lvlArr[(ks.trl[i]?.getD 0#32).toNat / 2]?.getD 0#32).toNat ≤ ks'.lvl.toNat →
-          i < ks'.trl_end.toNat ∧ ks'.trl[i]? = ks.trl[i]? ∧
-          ks'.lvlArr[(ks.trl[i]?.getD 0#32).toNat / 2]? =
-            ks.lvlArr[(ks.trl[i]?.getD 0#32).toNat / 2]?)) →
-      (K6Mem L kPtr ks' ⋆ R) m' → Q (ok, ()) m')
-    (hinv5 : K6Inv L P st5) (hsync5 : K6TrailSynced st5)
-    (hst5_eq : ∃ qf ql qs qst qp qn qsa, st5 =
-      { ksBt with qfirst := qf, qlast := ql, qsearch := qs, qstamp := qst,
-                  qprev := qp, qnext := qn, qstampArr := qsa })
+    (hQ : K6AnaQ L P ks kPtr R Q)
+    (hinv5 : K6Inv L P st5) (hsync5 : K6TrailSynced st5) (hst5_eq : K6AnaQSt ksBt st5)
     (hbtPres : K6BtPreserved stSw ksBt) (hpresSw : K6AnaPreserved ks stSw)
     (htl_st5 : K6TailEq L ks st5) (hlvlBt : ksBt.lvl = jlvl)
     (hj_lt : jlvl.toNat < ks.lvl.toNat) (hjlvl_pos : 0 < jlvl.toNat)
@@ -257,11 +226,6 @@ private theorem k6a_nkl2_assign_finish {L : K6Layout} {P : (Nat → Bool) → Pr
   have hm_v := L.hmaxV; have hac := L.hacap
   obtain ⟨qf, ql, qs, qst, qp, qn, qsa, hst5⟩ := hst5_eq
   have hbt_nv : ksBt.nv = ks.nv := hbtPres.nv.trans hpresSw.nv
-  have hbt_na : ksBt.nassump = ks.nassump := hbtPres.nassump.trans hpresSw.nassump
-  have hbt_as : ksBt.assump = ks.assump := hbtPres.assump.trans hpresSw.assump
-  have hbt_in : ksBt.incons = ks.incons := hbtPres.incons.trans hpresSw.incons
-  have hbt_st : ksBt.status = ks.status := hbtPres.status.trans hpresSw.status
-  have hbt_nq : ksBt.neq = ks.neq := hbtPres.neq.trans hpresSw.neq
   have hsh5 := hinv5.shapes; have hkl5_len : st5.kl.length = L.maxV := hsh5.kl_len
   have hkl5_lt : ∀ k < st5.nkl.toNat, (st5.kl[k]?.getD 0#32).toNat < 2 * st5.nv.toNat := by
     intro k hk; rw [hst5, hbtPres.nkl] at hk; rw [hst5, hbtPres.kl, hbtPres.nv]
@@ -269,16 +233,14 @@ private theorem k6a_nkl2_assign_finish {L : K6Layout} {P : (Nat → Bool) → Pr
     · subst hk0; rw [hsw0, Option.getD_some, hpresSw.nv]; exact huip_lt_k
     · exact (hsw_nt k (by omega) hk).1
   have hkl5_0 : st5.kl[0]?.getD 0#32 = uip := by rw [hst5, hbtPres.kl, hsw0, Option.getD_some]
-  have hkl0_lt : (st5.kl[0]?.getD 0#32).toNat < 2 * st5.nv.toNat := hkl5_lt 0 (by omega)
-  have hkl1_lt : (st5.kl[1]?.getD 0#32).toNat < 2 * st5.nv.toNat := hkl5_lt 1 (by omega)
+  have hkl0_lt := hkl5_lt 0 (by omega); have hkl1_lt := hkl5_lt 1 (by omega)
   have hget0 : st5.kl[0]'(by omega) = st5.kl[0]?.getD 0#32 := by
     simp [List.getElem?_eq_getElem (by omega : 0 < st5.kl.length)]
   have hget1 : st5.kl[1]'(by omega) = st5.kl[1]?.getD 0#32 := by
     simp [List.getElem?_eq_getElem (by omega : 1 < st5.kl.length)]
   have hnkl5_le : st5.nkl.toNat ≤ L.maxV := hinv5.clauses.nkl_le
-  have hnkl5_28 : st5.nkl.toNat < 2 ^ 28 := by omega
   obtain ⟨hinvW, hsyncW, w_lvl, w_nv, w_na, w_as, w_te, _, w_inc, _⟩ :=
-    k6AddClause_ge2_preserves hinv5 hsync5 hnc_lt hnkl5_ge2 hnkl5_28 (by omega) hfit har7_len
+    k6AddClause_ge2_preserves hinv5 hsync5 hnc_lt hnkl5_ge2 (by omega) (by omega) hfit har7_len
       har7_old har7_lits hkl5_lt hent_kl5
   rw [hget0, hget1] at hinvW hsyncW w_lvl w_nv w_na w_as w_te w_inc
   let stM := (((({ st5 with arena := ar7 } : K6State).putHdr .alen
@@ -288,11 +250,12 @@ private theorem k6a_nkl2_assign_finish {L : K6Layout} {P : (Nat → Bool) → Pr
   have hnc_ne : st5.nc ≠ 0xFFFFFFFF#32 := by unfold K6Layout.maxCl at hnc_lt; bv_omega
   have hnc1 : (st5.nc + 1#32).toNat = st5.nc.toNat + 1 := by
     unfold K6Layout.maxCl at hnc_lt; bv_omega
-  have hstW_nc : stW.nc = st5.nc + 1#32 := by
-    dsimp only [stW, k6WatchStep, k6WatchStep0, stM]; k6_field
-  have hnc_ltW : st5.nc.toNat < stW.nc.toNat := by rw [hstW_nc, hnc1]; omega
-  have hstW_lits : k6ClauseLits stW st5.nc.toNat =
-      (st5.kl.take st5.nkl.toNat).map BitVec.toNat := by
+  have hnc_ltW : st5.nc.toNat < stW.nc.toNat := by
+    rw [show stW.nc = st5.nc + 1#32 from by
+          dsimp only [stW, k6WatchStep, k6WatchStep0, stM]; k6_field,
+        hnc1]; omega
+  have hstW_lits : k6ClauseLits stW st5.nc.toNat = (st5.kl.take st5.nkl.toNat).map BitVec.toNat :=
+    by
     have hoffW : k6ClauseOff stW st5.nc.toNat = st5.alen.toNat := by
       unfold k6ClauseOff; dsimp only [stW, k6WatchStep, k6WatchStep0, stM]; k6_field
       rw [List.getElem?_set_self (by rw [hsh5.clOff_len]; omega), Option.getD_some]
@@ -315,30 +278,16 @@ private theorem k6a_nkl2_assign_finish {L : K6Layout} {P : (Nat → Bool) → Pr
   have hstW_lvl_pos : 0 < stW.lvl.toNat := by rw [w_lvl, hst5, hlvlBt]; exact hjlvl_pos
   have hstW_trl : stW.trl = ksBt.trl := by
     dsimp only [stW, k6WatchStep, k6WatchStep0, stM]; k6_field; rw [hst5]
-  have hstW_vals : stW.vals = ksBt.vals := by
-    dsimp only [stW, k6WatchStep, k6WatchStep0, stM]; k6_field; rw [hst5]
-  have hstW_rsn : stW.rsn = ksBt.rsn := by
-    dsimp only [stW, k6WatchStep, k6WatchStep0, stM]; k6_field; rw [hst5]
-  have hstW_lvlArr : stW.lvlArr = ksBt.lvlArr := by
-    dsimp only [stW, k6WatchStep, k6WatchStep0, stM]; k6_field; rw [hst5]
-  have hstW_st : stW.status = ks.status := by
-    have h1 : stW.status = st5.status := by
-      dsimp only [stW, k6WatchStep, k6WatchStep0, stM]; k6_field
-    rw [h1, hst5]; exact hbt_st
-  have hstW_nq : stW.neq = ks.neq := by
-    have h1 : stW.neq = st5.neq := by dsimp only [stW, k6WatchStep, k6WatchStep0, stM]; k6_field
-    rw [h1, hst5]; exact hbt_nq
   have hothersW : ∀ x ∈ k6ClauseLits stW st5.nc.toNat, x ≠ uip.toNat →
       ∃ j < stW.trl_end.toNat, (stW.trl[j]?.getD 0#32).toNat = x ^^^ 1 := by
     intro x hx hne; rw [hstW_lits, List.mem_map] at hx; obtain ⟨b, hb, rfl⟩ := hx
     rw [List.mem_take_iff_getElem] at hb; obtain ⟨k, hk, rfl⟩ := hb
-    have hk_n : k < st5.nkl.toNat := by omega
     have hk_pos : 1 ≤ k := by
       by_cases hk0 : k = 0
       · exfalso; subst hk0; apply hne; have := hkl5_0
         rw [List.getElem?_eq_getElem (by omega), Option.getD_some] at this; rw [this]
       · omega
-    have hswk := hsw_nt k hk_pos (by rw [hst5, hbtPres.nkl] at hk_n; exact hk_n)
+    have hswk := hsw_nt k hk_pos (by rw [hst5, hbtPres.nkl] at hk; omega)
     dsimp only at hswk
     have hgetk : (stSw.kl[k]?.getD 0#32).toNat = (st5.kl[k]'(by omega)).toNat := by
       rw [← hbtPres.kl, ← show st5.kl = ksBt.kl by rw [hst5],
@@ -347,36 +296,31 @@ private theorem k6a_nkl2_assign_finish {L : K6Layout} {P : (Nat → Bool) → Pr
     exact hkl_bt_trl _ (by rw [← hpresSw.nv]; exact hswk.1) hswk.2.2.2
       (by rw [← hpresSw.lvlArr]; exact hswk.2.2.1)
   have huip_ltW : uip.toNat < 2 * stW.nv.toNat := by rw [w_nv, hst5, hbt_nv]; exact huip_lt_k
-  obtain ⟨hinvFin, hsyncFin⟩ := k6AssignStep_preserves_inv hinvW hsyncW (lit := uip) (rsn := st5.nc)
-    huip_ltW (by rw [hstW_vals]; exact huip_v0)
-    (fun h => by rw [h] at hstW_lvl_pos; simp at hstW_lvl_pos)
-    (fun _ h => absurd h hnc_ne) (Or.inr ⟨hnc_ltW, huip_memW, hothersW⟩)
-  obtain ⟨hdecFin, hlwFin, htrFin⟩ := k6a_assignStep_decisions_eq hinvW (lit := uip)
-    (rsn := st5.nc) huip_ltW (by rw [w_te, w_nv, hst5]; exact hte_lt_nv)
-    (by rw [hstW_trl, w_te, hst5]; exact huip_none) (Or.inr hnc_ne)
-  have f_lvl : (k6AssignStep stW uip st5.nc).lvl = jlvl := by
-    change stW.lvl = jlvl; rw [w_lvl, hst5, hlvlBt]
-  have f_dec : k6TrailDecisions (k6AssignStep stW uip st5.nc) = k6TrailDecisions ksBt := by
-    rw [hdecFin]; unfold k6TrailDecisions; rw [hstW_trl, hstW_lvlArr, hstW_rsn, w_te, hst5]
-  have htl_stM : K6TailEq L st5 stM := by
-    dsimp only [stM]; exact ⟨rfl, fun _ _ _ => ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩⟩
-  have hstM_nv : stM.nv = st5.nv := by dsimp only [stM]; k6_field
-  have htl_stW := k6TailEq_trans htl_st5 (k6TailEq_trans htl_stM
+  have htl_stW := k6TailEq_trans htl_st5 (k6TailEq_trans
+    (⟨rfl, fun _ _ _ => ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩⟩)
     (k6TailEq_of_k6WatchStep st5.nc (st5.kl[0]?.getD 0#32) (st5.kl[1]?.getD 0#32)
-      (hstM_nv ▸ hkl0_lt) (hstM_nv ▸ hkl1_lt)))
-  have htlFin := k6TailEq_trans htl_stW (k6TailEq_of_k6AssignStep uip st5.nc huip_ltW)
-  exact hQ true (k6AssignStep stW uip st5.nc) mFin hinvFin hsyncFin
-    (w_nv.trans (by rw [hst5]; exact hbt_nv)) htlFin
-    (w_na.trans (by rw [hst5]; exact hbt_na)) (w_as.trans (by rw [hst5]; exact hbt_as))
-    (w_inc.trans (by rw [hst5]; exact hbt_in)) hstW_st hstW_nq
-    (fun _ => ⟨by rw [f_lvl]; exact hj_lt, hlwFin,
-      fun d hd => by rw [f_dec] at hd; rw [f_lvl]; exact hdec_ks d hd,
-      fun i hi hlv => by
-        rw [f_lvl] at hlv
-        obtain ⟨hi_bt, ht_bt, hl_bt⟩ := hA2_bt i hi hlv
-        obtain ⟨hi_f, ht_f, hl_f⟩ := htrFin i (by rw [w_te, hst5]; exact hi_bt)
-        rw [hstW_trl] at ht_f hl_f; rw [hstW_lvlArr, ht_bt] at hl_f
-        exact ⟨hi_f, ht_f.trans ht_bt, hl_f.trans hl_bt⟩⟩) hmFin
+      (by show _ < 2 * stM.nv.toNat; dsimp only [stM]; k6_field; exact hkl0_lt)
+      (by show _ < 2 * stM.nv.toNat; dsimp only [stM]; k6_field; exact hkl1_lt)))
+  exact k6a_assign_finish_post hQ hinvW hsyncW htl_stW (w_nv.trans (by rw [hst5]; exact hbt_nv))
+    (w_na.trans (by rw [hst5]; exact hbtPres.nassump.trans hpresSw.nassump))
+    (w_as.trans (by rw [hst5]; exact hbtPres.assump.trans hpresSw.assump))
+    (w_inc.trans (by rw [hst5]; exact hbtPres.incons.trans hpresSw.incons))
+    (by have h1 : stW.status = st5.status := by
+          dsimp only [stW, k6WatchStep, k6WatchStep0, stM]; k6_field
+        rw [h1, hst5]; exact hbtPres.status.trans hpresSw.status)
+    (by have h1 : stW.neq = st5.neq := by dsimp only [stW, k6WatchStep, k6WatchStep0, stM]; k6_field
+        rw [h1, hst5]; exact hbtPres.neq.trans hpresSw.neq)
+    (by rw [w_lvl, hst5, hlvlBt]) (by rw [w_te, hst5]) hstW_trl
+    (by dsimp only [stW, k6WatchStep, k6WatchStep0, stM]; k6_field; rw [hst5])
+    (by dsimp only [stW, k6WatchStep, k6WatchStep0, stM]; k6_field; rw [hst5])
+    hj_lt huip_ltW huip_none
+    (by have : stW.vals = ksBt.vals := by
+          dsimp only [stW, k6WatchStep, k6WatchStep0, stM]; k6_field; rw [hst5]
+        rw [this]; exact huip_v0)
+    hte_lt_nv (by rw [w_nv, hst5])
+    (fun h => by rw [h] at hstW_lvl_pos; simp at hstW_lvl_pos)
+    (fun h => absurd h hnc_ne) (Or.inr ⟨hnc_ltW, huip_memW, hothersW⟩)
+    hdec_ks hA2_bt (Or.inr hnc_ne) hmFin
 
 private theorem k6a_clear_flags_step_inv {stB : K6State} {ai : BitVec 32} {fls : List (BitVec 32)}
     {L : K6Layout} (hfls_len : fls.length = L.maxV) (hnvB : stB.nv.toNat ≤ L.maxV)
@@ -414,52 +358,82 @@ private theorem k6a_clear_flags_step_inv {stB : K6State} {ai : BitVec 32} {fls :
   · intro v hv hvm; simp only [fls', List.getElem?_set_ne (by omega : av ≠ v)]
     exact htl_fl v hv hvm
 
-private theorem k6a_jlvl_step_inv {stF : K6State} {ks_lvl jlvl wi i il : BitVec 32}
-    (hi1 : 1 ≤ i.toNat) (hi_lt : i.toNat < stF.nkl.toNat) (hj_lt : jlvl.toNat < ks_lvl.toNat)
-    (hi_eq1 : i.toNat = 1 → jlvl = 0#32 ∧ wi = 1#32)
-    (hi_ge2 : 2 ≤ i.toNat → 1 ≤ wi.toNat ∧ wi.toNat < i.toNat ∧ 0 < jlvl.toNat ∧
-      stF.lvlArr[(stF.kl[wi.toNat]?.getD 0#32).toNat / 2]?.getD 0#32 = jlvl)
-    (hall_le : ∀ k, 1 ≤ k → k < i.toNat →
-      (stF.lvlArr[(stF.kl[k]?.getD 0#32).toNat / 2]?.getD 0#32).toNat ≤ jlvl.toNat)
-    (hi1_add : (i + 1#32).toNat = i.toNat + 1)
-    (hil_eq : il = stF.lvlArr[(stF.kl[i.toNat]?.getD 0#32).toNat / 2]?.getD 0#32)
-    (hil_pos : 0 < il.toNat) (hil_lt : il.toNat < ks_lvl.toNat) :
-    (jlvl.toNat < il.toNat →
-      1 ≤ (i + 1#32).toNat ∧ (i + 1#32).toNat ≤ stF.nkl.toNat ∧ il.toNat < ks_lvl.toNat ∧
-      ((i + 1#32).toNat = 1 → il = 0#32 ∧ i = 1#32) ∧
-      (2 ≤ (i + 1#32).toNat → 1 ≤ i.toNat ∧ i.toNat < (i + 1#32).toNat ∧ 0 < il.toNat ∧
-        stF.lvlArr[(stF.kl[i.toNat]?.getD 0#32).toNat / 2]?.getD 0#32 = il) ∧
-      (∀ k, 1 ≤ k → k < (i + 1#32).toNat →
-        (stF.lvlArr[(stF.kl[k]?.getD 0#32).toNat / 2]?.getD 0#32).toNat ≤ il.toNat)) ∧
-    (il.toNat ≤ jlvl.toNat →
-      1 ≤ (i + 1#32).toNat ∧ (i + 1#32).toNat ≤ stF.nkl.toNat ∧ jlvl.toNat < ks_lvl.toNat ∧
-      ((i + 1#32).toNat = 1 → jlvl = 0#32 ∧ wi = 1#32) ∧
-      (2 ≤ (i + 1#32).toNat → 1 ≤ wi.toNat ∧ wi.toNat < (i + 1#32).toNat ∧ 0 < jlvl.toNat ∧
-        stF.lvlArr[(stF.kl[wi.toNat]?.getD 0#32).toNat / 2]?.getD 0#32 = jlvl) ∧
-      (∀ k, 1 ≤ k → k < (i + 1#32).toNat →
-        (stF.lvlArr[(stF.kl[k]?.getD 0#32).toNat / 2]?.getD 0#32).toNat ≤ jlvl.toNat)) := by
-  refine ⟨fun hgt => ⟨by rw [hi1_add]; omega, by rw [hi1_add]; omega, hil_lt,
-      fun h => by rw [hi1_add] at h; omega,
-      fun _ => ⟨hi1, by rw [hi1_add]; omega, hil_pos, hil_eq.symm⟩,
+private def K6JlvlInv (stF : K6State) (ks_lvl jlvl wi i : BitVec 32) : Prop :=
+  1 ≤ i.toNat ∧ i.toNat ≤ stF.nkl.toNat ∧ jlvl.toNat < ks_lvl.toNat ∧
+  (i.toNat = 1 → jlvl = 0#32 ∧ wi = 1#32) ∧
+  (2 ≤ i.toNat → 1 ≤ wi.toNat ∧ wi.toNat < i.toNat ∧ 0 < jlvl.toNat ∧
+    stF.lvlArr[(stF.kl[wi.toNat]?.getD 0#32).toNat / 2]?.getD 0#32 = jlvl) ∧
+  (∀ k, 1 ≤ k → k < i.toNat →
+    (stF.lvlArr[(stF.kl[k]?.getD 0#32).toNat / 2]?.getD 0#32).toNat ≤ jlvl.toNat)
+
+private theorem k6a_lvl_loop_prep {L : K6Layout} {P : (Nat → Bool) → Prop} {stF : K6State}
+    {ks_lvl jlvl wi i : BitVec 32} (hinvF : K6Inv L P stF) (hstF_lvl : stF.lvl = ks_lvl)
+    (hinvJ : K6JlvlInv stF ks_lvl jlvl wi i) (hi_lt : i.toNat < stF.nkl.toNat)
+    (hkl_ntF : ∀ k, 1 ≤ k → k < stF.nkl.toNat →
+      let l := (stF.kl[k]?.getD 0#32).toNat
+      l < 2 * stF.nv.toNat ∧ 0 < (stF.lvlArr[l / 2]?.getD 0#32).toNat ∧
+      (stF.lvlArr[l / 2]?.getD 0#32).toNat < stF.lvl.toNat ∧ stF.vals[l]? = some 2#32)
+    {uip : BitVec 32} :
+    let stKl0 := stF.putArr .kl 0 uip
+    let il := stF.lvlArr[(stF.kl[i.toNat]?.getD 0#32).toNat / 2]?.getD 0#32
+    i.toNat < szV L ∧ (stKl0.kl[i.toNat]?.getD 0#32 >>> 1).toNat =
+      (stF.kl[i.toNat]?.getD 0#32).toNat / 2 ∧
+    (stKl0.kl[i.toNat]?.getD 0#32 >>> 1).toNat < szV L ∧ (i + 1#32).toNat = i.toNat + 1 ∧
+    stKl0.lvlArr = stF.lvlArr ∧
+    (jlvl.toNat < il.toNat → K6JlvlInv stF ks_lvl il i (i + 1#32)) ∧
+    (il.toNat ≤ jlvl.toNat → K6JlvlInv stF ks_lvl jlvl wi (i + 1#32)) := by
+  intro stKl0 il
+  obtain ⟨hi1, _, hj_lt, hi_eq1, hi_ge2, hall_le⟩ := hinvJ
+  have hm_v := L.hmaxV; have hnv := hinvF.clauses.nv_le; have hnkl := hinvF.clauses.nkl_le
+  have hnt := hkl_ntF i.toNat hi1 hi_lt; dsimp only at hnt
+  have hkl0_i : stKl0.kl[i.toNat]? = stF.kl[i.toNat]? := by
+    dsimp only [stKl0]; k6_field; exact List.getElem?_set_ne (by omega)
+  have hlv_div : (stKl0.kl[i.toNat]?.getD 0#32 >>> 1).toNat =
+      (stF.kl[i.toNat]?.getD 0#32).toNat / 2 := by rw [hkl0_i]; exact (k6_bv32_div2_lt hnt.1).1
+  have hi1_add : (i + 1#32).toNat = i.toNat + 1 := by bv_omega
+  refine ⟨by unfold szV; omega, hlv_div, by unfold szV; rw [hlv_div]; omega, hi1_add,
+    by dsimp only [stKl0]; k6_field,
+    fun hgt => ⟨by rw [hi1_add]; omega, by rw [hi1_add]; omega,
+      by rw [← hstF_lvl]; exact hnt.2.2.1, fun h => by rw [hi1_add] at h; omega,
+      fun _ => ⟨hi1, by rw [hi1_add]; omega, hnt.2.1, rfl⟩,
       fun k hk1 hk_lt => by
-        rw [hi1_add] at hk_lt
-        by_cases hki : k = i.toNat
-        · subst hki; rw [← hil_eq]; exact le_refl _
+        rw [hi1_add] at hk_lt; by_cases hki : k = i.toNat
+        · subst hki; exact le_refl _
         · have := hall_le k hk1 (by omega); omega⟩,
     fun hle => by
       have hi_ge2_cur : 2 ≤ i.toNat := by
         by_cases h1 : i.toNat = 1
-        · have hj0 := (hi_eq1 h1).1; rw [hj0] at hle; simp at hle; omega
+        · have hj0 := (hi_eq1 h1).1; rw [hj0] at hle; simp [il] at hle; have := hnt.2.1; omega
         · omega
       obtain ⟨hw1, hw_lt, hj_pos, hw_lvl⟩ := hi_ge2 hi_ge2_cur
-      refine ⟨by rw [hi1_add]; omega, by rw [hi1_add]; omega, hj_lt,
+      exact ⟨by rw [hi1_add]; omega, by rw [hi1_add]; omega, hj_lt,
         fun h => by rw [hi1_add] at h; omega,
         fun _ => ⟨hw1, by rw [hi1_add]; omega, hj_pos, hw_lvl⟩,
         fun k hk1 hk_lt => by
-          rw [hi1_add] at hk_lt
-          by_cases hki : k = i.toNat
-          · subst hki; rw [← hil_eq]; exact hle
+          rw [hi1_add] at hk_lt; by_cases hki : k = i.toNat
+          · subst hki; exact hle
           · exact hall_le k hk1 (by omega)⟩⟩
+
+private theorem k6a_ret5_post {L : K6Layout} {P : (Nat → Bool) → Prop}
+    {ks st5 stSw ksBt : K6State} {kPtr : BitVec 64} {R : Mem 64 → Prop} {Q : Post [Ty.bool]}
+    (hret_false : ∀ (ks' : K6State) (m' : Mem 64), K6Inv L P ks' → K6TrailSynced ks' →
+      ks'.nv = ks.nv → K6TailEq L ks ks' → ks'.nassump = ks.nassump →
+      ks'.assump = ks.assump → ks'.incons = ks.incons → ks'.status = ks.status →
+      ks'.neq = ks.neq → (K6Mem L kPtr ks' ⋆ R) m' → Q (false, ()) m')
+    (hinv5 : K6Inv L P st5) (hsync5 : K6TrailSynced st5) (htl_st5 : K6TailEq L ks st5)
+    (hbtPres : K6BtPreserved stSw ksBt) (hpresSw : K6AnaPreserved ks stSw)
+    (hbt_nv : ksBt.nv = ks.nv)
+    (hst5_eq : ∃ qf ql qs qst qp qn qsa, st5 =
+      { ksBt with qfirst := qf, qlast := ql, qsearch := qs, qstamp := qst,
+                  qprev := qp, qnext := qn, qstampArr := qsa })
+    {m' : Mem 64} (hm' : (K6Mem L kPtr st5 ⋆ R) m') : Q (false, ()) m' := by
+  obtain ⟨qf, ql, qs, qst, qp, qn, qsa, hst5⟩ := hst5_eq
+  exact hret_false st5 m' hinv5 hsync5 (by rw [hst5]; exact hbt_nv) htl_st5
+    (by rw [hst5]; exact hbtPres.nassump.trans hpresSw.nassump)
+    (by rw [hst5]; exact hbtPres.assump.trans hpresSw.assump)
+    (by rw [hst5]; exact hbtPres.incons.trans hpresSw.incons)
+    (by rw [hst5]; exact hbtPres.status.trans hpresSw.status)
+    (by rw [hst5]; exact hbtPres.neq.trans hpresSw.neq) hm'
 
 private theorem k6a_arena_copy_step {st5 : K6State} {i7 : BitVec 32} {ar7 : List (BitVec 32)}
     {L : K6Layout} (har7_len : ar7.length = L.acap) (hkl_len : st5.kl.length = L.maxV)
@@ -481,8 +455,8 @@ private theorem k6a_arena_copy_step {st5 : K6State} {i7 : BitVec 32} {ar7 : List
           List.getElem?_eq_getElem (by rw [hkl_len]; omega), Option.getD_some]
       · rw [List.getElem?_set_ne (by omega)]; exact har7_lits k (by omega)⟩
 
-private theorem k6a_ana_uip_exit_post {L : K6Layout} {P : (Nat → Bool) → Prop} {ks st st1 : K6State}
-    {p : BitVec 32} {idx' : Nat}
+private theorem k6a_ana_uip_exit_post {L : K6Layout} {P : (Nat → Bool) → Prop}
+    {ks st st1 : K6State} {p : BitVec 32} {idx' : Nat}
     (hinv1 : K6AnaInv L P { st with openCnt := st.openCnt - 1#32 } idx')
     (hpresL : K6AnaPreserved ks st)
     (hpres1 : K6AnaPreserved st { st with openCnt := st.openCnt - 1#32 })
@@ -506,73 +480,6 @@ private theorem k6a_ana_uip_exit_post {L : K6Layout} {P : (Nat → Bool) → Pro
     fun _ => ⟨huip_lt, huip_lvl, fun i hi1 hi2 =>
       let hk := hinv1.kl_nonTop i hi1 hi2; ⟨hk.1, hk.2.2.1, hk.2.2.2.1, hk.2.2.2.2⟩,
       by rw [huip_eq]; exact hent_hit⟩⟩
-
-private theorem k6a_lvl_loop_prep {L : K6Layout} {P : (Nat → Bool) → Prop} {stF : K6State}
-    {ks_lvl jlvl wi i : BitVec 32} (hinvF : K6Inv L P stF) (hstF_lvl : stF.lvl = ks_lvl)
-    (hi1 : 1 ≤ i.toNat) (hi_lt : i.toNat < stF.nkl.toNat) (hj_lt : jlvl.toNat < ks_lvl.toNat)
-    (hi_eq1 : i.toNat = 1 → jlvl = 0#32 ∧ wi = 1#32)
-    (hi_ge2 : 2 ≤ i.toNat → 1 ≤ wi.toNat ∧ wi.toNat < i.toNat ∧ 0 < jlvl.toNat ∧
-      stF.lvlArr[(stF.kl[wi.toNat]?.getD 0#32).toNat / 2]?.getD 0#32 = jlvl)
-    (hall_le : ∀ k, 1 ≤ k → k < i.toNat →
-      (stF.lvlArr[(stF.kl[k]?.getD 0#32).toNat / 2]?.getD 0#32).toNat ≤ jlvl.toNat)
-    (hkl_ntF : ∀ k, 1 ≤ k → k < stF.nkl.toNat →
-      let l := (stF.kl[k]?.getD 0#32).toNat
-      l < 2 * stF.nv.toNat ∧ 0 < (stF.lvlArr[l / 2]?.getD 0#32).toNat ∧
-      (stF.lvlArr[l / 2]?.getD 0#32).toNat < stF.lvl.toNat ∧ stF.vals[l]? = some 2#32)
-    {uip : BitVec 32} :
-    let stKl0 := stF.putArr .kl 0 uip
-    let il := stF.lvlArr[(stF.kl[i.toNat]?.getD 0#32).toNat / 2]?.getD 0#32
-    i.toNat < szV L ∧ (stKl0.kl[i.toNat]?.getD 0#32 >>> 1).toNat =
-      (stF.kl[i.toNat]?.getD 0#32).toNat / 2 ∧
-    (stKl0.kl[i.toNat]?.getD 0#32 >>> 1).toNat < szV L ∧ (i + 1#32).toNat = i.toNat + 1 ∧
-    stKl0.lvlArr = stF.lvlArr ∧
-    ((jlvl.toNat < il.toNat →
-      1 ≤ (i + 1#32).toNat ∧ (i + 1#32).toNat ≤ stF.nkl.toNat ∧ il.toNat < ks_lvl.toNat ∧
-      ((i + 1#32).toNat = 1 → il = 0#32 ∧ i = 1#32) ∧
-      (2 ≤ (i + 1#32).toNat → 1 ≤ i.toNat ∧ i.toNat < (i + 1#32).toNat ∧ 0 < il.toNat ∧
-        stF.lvlArr[(stF.kl[i.toNat]?.getD 0#32).toNat / 2]?.getD 0#32 = il) ∧
-      (∀ k, 1 ≤ k → k < (i + 1#32).toNat →
-        (stF.lvlArr[(stF.kl[k]?.getD 0#32).toNat / 2]?.getD 0#32).toNat ≤ il.toNat)) ∧
-     (il.toNat ≤ jlvl.toNat →
-      1 ≤ (i + 1#32).toNat ∧ (i + 1#32).toNat ≤ stF.nkl.toNat ∧ jlvl.toNat < ks_lvl.toNat ∧
-      ((i + 1#32).toNat = 1 → jlvl = 0#32 ∧ wi = 1#32) ∧
-      (2 ≤ (i + 1#32).toNat → 1 ≤ wi.toNat ∧ wi.toNat < (i + 1#32).toNat ∧ 0 < jlvl.toNat ∧
-        stF.lvlArr[(stF.kl[wi.toNat]?.getD 0#32).toNat / 2]?.getD 0#32 = jlvl) ∧
-      (∀ k, 1 ≤ k → k < (i + 1#32).toNat →
-        (stF.lvlArr[(stF.kl[k]?.getD 0#32).toNat / 2]?.getD 0#32).toNat ≤ jlvl.toNat))) := by
-  intro stKl0 il
-  have hm_v := L.hmaxV; have hnv := hinvF.clauses.nv_le; have hnkl := hinvF.clauses.nkl_le
-  have hnt := hkl_ntF i.toNat hi1 hi_lt; dsimp only at hnt
-  have hkl0_i : stKl0.kl[i.toNat]? = stF.kl[i.toNat]? := by
-    dsimp only [stKl0]; k6_field; exact List.getElem?_set_ne (by omega)
-  have hlv_div : (stKl0.kl[i.toNat]?.getD 0#32 >>> 1).toNat =
-      (stF.kl[i.toNat]?.getD 0#32).toNat / 2 := by rw [hkl0_i]; exact (k6_bv32_div2_lt hnt.1).1
-  have hi1_add : (i + 1#32).toNat = i.toNat + 1 := by bv_omega
-  have hstep := k6a_jlvl_step_inv (ks_lvl := ks_lvl) hi1 hi_lt hj_lt hi_eq1 hi_ge2 hall_le
-    hi1_add rfl hnt.2.1 (by rw [← hstF_lvl]; exact hnt.2.2.1)
-  exact ⟨by unfold szV; omega, hlv_div, by unfold szV; rw [hlv_div]; omega, hi1_add,
-    by dsimp only [stKl0]; k6_field, hstep⟩
-
-private theorem k6a_ret5_post {L : K6Layout} {P : (Nat → Bool) → Prop}
-    {ks st5 stSw ksBt : K6State} {kPtr : BitVec 64} {R : Mem 64 → Prop} {Q : Post [Ty.bool]}
-    (hret_false : ∀ (ks' : K6State) (m' : Mem 64), K6Inv L P ks' → K6TrailSynced ks' →
-      ks'.nv = ks.nv → K6TailEq L ks ks' → ks'.nassump = ks.nassump →
-      ks'.assump = ks.assump → ks'.incons = ks.incons → ks'.status = ks.status →
-      ks'.neq = ks.neq → (K6Mem L kPtr ks' ⋆ R) m' → Q (false, ()) m')
-    (hinv5 : K6Inv L P st5) (hsync5 : K6TrailSynced st5) (htl_st5 : K6TailEq L ks st5)
-    (hbtPres : K6BtPreserved stSw ksBt) (hpresSw : K6AnaPreserved ks stSw)
-    (hbt_nv : ksBt.nv = ks.nv)
-    (hst5_eq : ∃ qf ql qs qst qp qn qsa, st5 =
-      { ksBt with qfirst := qf, qlast := ql, qsearch := qs, qstamp := qst,
-                  qprev := qp, qnext := qn, qstampArr := qsa })
-    {m' : Mem 64} (hm' : (K6Mem L kPtr st5 ⋆ R) m') : Q (false, ()) m' := by
-  obtain ⟨qf, ql, qs, qst, qp, qn, qsa, hst5⟩ := hst5_eq
-  exact hret_false st5 m' hinv5 hsync5 (by rw [hst5]; exact hbt_nv) htl_st5
-    (by rw [hst5]; exact hbtPres.nassump.trans hpresSw.nassump)
-    (by rw [hst5]; exact hbtPres.assump.trans hpresSw.assump)
-    (by rw [hst5]; exact hbtPres.incons.trans hpresSw.incons)
-    (by rw [hst5]; exact hbtPres.status.trans hpresSw.status)
-    (by rw [hst5]; exact hbtPres.neq.trans hpresSw.neq) hm'
 
 private theorem k6a_init_clause_res {L : K6Layout} {P : (Nat → Bool) → Prop} {ks : K6State}
     {confl_cid : BitVec 32} (hinv : K6Inv L P ks) (hsync : K6TrailSynced ks)
@@ -712,38 +619,34 @@ theorem full_k6_analyze_wp (Γ : Env)
             refine wp_while_state_pure (ts := [i32, i32, i32])
               (α := BitVec 32 × BitVec 32 × BitVec 32) (fun t => (t.1, t.2.1, t.2.2, ()))
               (fun t => stF.nkl.toNat - t.2.2.toNat)
-              (fun t => 1 ≤ t.2.2.toNat ∧ t.2.2.toNat ≤ stF.nkl.toNat ∧
-                t.1.toNat < ks.lvl.toNat ∧
-                (t.2.2.toNat = 1 → t.1 = 0#32 ∧ t.2.1 = 1#32) ∧
-                (2 ≤ t.2.2.toNat → 1 ≤ t.2.1.toNat ∧ t.2.1.toNat < t.2.2.toNat ∧
-                  0 < t.1.toNat ∧
-                  stF.lvlArr[(stF.kl[t.2.1.toNat]?.getD 0#32).toNat / 2]?.getD 0#32 = t.1) ∧
-                (∀ k, 1 ≤ k → k < t.2.2.toNat →
-                  (stF.lvlArr[(stF.kl[k]?.getD 0#32).toNat / 2]?.getD 0#32).toNat ≤ t.1.toNat))
-              ?_ ?_
+              (fun t => K6JlvlInv stF ks.lvl t.1 t.2.1 t.2.2) ?_ ?_
             · intro L3 hL3; exact wp_jump_state
                 (proj := fun t : BitVec 32 × BitVec 32 × BitVec 32 => (t.1, t.2.1, t.2.2, ()))
                 (0#32, 1#32, 1#32) rfl (hL3 (0#32, 1#32, 1#32) ⟨by decide,
                   by rw [hstF]; exact hBrk.nkl_pos, hlvl_pos, fun _ => ⟨rfl, rfl⟩,
                   fun h => by simp at h, fun k h1 h2 => by simp at h2; omega⟩)
-            · rintro L3 ⟨jlvl, wi, i⟩ ⟨hi1, hi_le, hj_lt, hi_eq1, hi_ge2, hall_le⟩ ih3
-              dsimp only at hi1 hi_le hj_lt hi_eq1 hi_ge2 hall_le ⊢
+            · rintro L3 ⟨jlvl, wi, i⟩ hinvJ ih3
+              have ⟨hi1, hi_le, hj_lt, hi_eq1, hi_ge2, hall_le⟩ := hinvJ
+              dsimp only at hi1 hi_le hj_lt hi_eq1 hi_ge2 hall_le ih3 ⊢
               have hkl0_nkl : stKl0.nkl = stF.nkl := by dsimp only [stKl0]; k6_field
               c0_hsplit
               · have hi_lt : i.toNat < stF.nkl.toNat := by rw [← hkl0_nkl]; exact hc
                 obtain ⟨hi_mv, hlv_div, hlv_mv, hi1_add, hkl0_lv, hjl_step⟩ :=
-                  k6a_lvl_loop_prep hinvF hpresF.lvl hi1 hi_lt hj_lt hi_eq1 hi_ge2 hall_le hkl_ntF
+                  k6a_lvl_loop_prep hinvF hpresF.lvl hinvJ hi_lt hkl_ntF
                 let il := stF.lvlArr[(stF.kl[i.toNat]?.getD 0#32).toNat / 2]?.getD 0#32
                 c0_hsteps!
                 · have hgt : jlvl.toNat < il.toNat := by
                     dsimp only [il]; rw [← hlv_div, ← hkl0_lv]; exact hc
                   rw [hkl0_lv, hlv_div]
-                  exact ih3 (il, i, i + 1#32) (by dsimp only; rw [hi1_add]; omega) (hjl_step.1 hgt)
-                · have hle : il.toNat ≤ jlvl.toNat := by
-                    have h1 : ¬ jlvl.toNat < (stKl0.lvlArr[(stKl0.kl[i.toNat]?.getD 0#32 >>>
-                        1).toNat]?.getD 0#32).toNat := hc
-                    rw [hkl0_lv, hlv_div] at h1; dsimp only [il]; omega
-                  exact ih3 (jlvl, wi, i + 1#32) (by dsimp only; rw [hi1_add]; omega)
+                  exact ih3 (il, i, i + 1#32)
+                    (show stF.nkl.toNat - (i + 1#32).toNat < stF.nkl.toNat - i.toNat by
+                      rw [hi1_add]; exact Nat.sub_lt_sub_left hi_lt (Nat.lt_succ_self _))
+                    (hjl_step.1 hgt)
+                · have hle : il.toNat ≤ jlvl.toNat := Nat.le_of_not_lt (by
+                    dsimp only [il]; rw [← hlv_div, ← hkl0_lv]; exact hc)
+                  exact ih3 (jlvl, wi, i + 1#32)
+                    (show stF.nkl.toNat - (i + 1#32).toNat < stF.nkl.toNat - i.toNat by
+                      rw [hi1_add]; exact Nat.sub_lt_sub_left hi_lt (Nat.lt_succ_self _))
                     (hjl_step.2 hle)
               · have hi_eq : i.toNat = stF.nkl.toNat := by
                   have h1 : ¬ i.toNat < stKl0.nkl.toNat := hc; rw [hkl0_nkl] at h1; omega
@@ -985,7 +888,7 @@ theorem full_k6_analyze_wp (Γ : Env)
                 k6a_resolvent_step_hit hinvL' ⟨hfl_hit, hlvl_hit⟩
               have hent_hit : SemEntails P ((p.toNat ^^^ 1) ::
                   k6ResolventLits { st with openCnt := st.openCnt - 1#32 } (idx_bv.toNat - 1)) :=
-                k6a_semEntails_subset hres_hit hentL'
+                SemEntails.subset hres_hit hentL'
               let st1 := st.putHdr .openCnt (st.openCnt - 1#32)
               have hst1_eq : st1 = { st with openCnt := st.openCnt - 1#32 } := by k6_ext
               c0_hsplit

@@ -5,6 +5,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 module
 
 public import LeanQbe.T.Examples.Kissat.Proof.Kitten.Spec
+public import LeanQbe.T.Logic.C0Grind
 
 /-!
 # Scoped Pointer Tactics & Pure Array/BitVector Helpers (`Kissat.Proof.Kitten.Tactics`)
@@ -24,6 +25,7 @@ namespace LeanQbe.T.Examples.Kissat.Proof.Kitten
 
 open Std Std.Sat Std.ExtHashMap Kraken.Bedrock2.Test
 open LeanQbe.T LeanQbe.T.C0HeadStep LeanQbe.T.ProofUtil
+open LeanQbe.T.C0Grind
 open LeanQbe.T.Examples.Kissat
 open LeanQbe.T.Examples.Kissat.Ref
 open LeanQbe.T.Examples.Kissat.Proof.Spec
@@ -258,6 +260,76 @@ def_k6_dyn_arr clOff 30 szCl k6_ptr_clOff
 def_k6_dyn_arr clSz 34 szCl k6_ptr_clSz
 def_k6_dyn_arr arena 38 szAr k6_ptr_arena
 
+@[scoped bv_c0] theorem k6_sext_1 :
+    BitVec.signExtend 64 1#32 = BitVec.ofNat 64 1 := rfl
+
+section DynKlMem
+variable {L : K6Layout} {kPtr : BitVec 64} {ks : K6State} {R : Mem 64 → Prop} {m : Mem 64}
+
+@[scoped c0_load] theorem load_k6_kl_dyn_z0 (hm : (K6MemA L kPtr ks ⋆ R) m) :
+    loadVal m i32
+      ((kPtr + ((32 : BitVec 32) + (8 : BitVec 32) * L.mv32).setWidth 64 * 4) +
+        BitVec.ofNat 64 0 * 4) = some (ks.kl[0]?.getD 0#32) := by
+  rw [k6_ptr_kl L kPtr]; exact load_k6_kl0 hm
+
+@[scoped c0_store] theorem store_k6_kl_dyn_z0 (v : BitVec 32) (hm : (K6MemA L kPtr ks ⋆ R) m) :
+    storeOk m i32
+      ((kPtr + ((32 : BitVec 32) + (8 : BitVec 32) * L.mv32).setWidth 64 * 4) +
+        BitVec.ofNat 64 0 * 4) ∧
+      (K6MemA L kPtr (ks.putArr .kl 0 v) ⋆ R)
+        (storeMem m i32
+          ((kPtr + ((32 : BitVec 32) + (8 : BitVec 32) * L.mv32).setWidth 64 * 4) +
+            BitVec.ofNat 64 0 * 4) v) := by
+  rw [k6_ptr_kl L kPtr]; exact store_k6_kl0 v hm
+
+@[scoped c0_load] theorem load_k6_kl_dyn_z1 (hm : (K6MemA L kPtr ks ⋆ R) m) :
+    loadVal m i32
+      ((kPtr + ((32 : BitVec 32) + (8 : BitVec 32) * L.mv32).setWidth 64 * 4) +
+        BitVec.ofNat 64 1 * 4) = some (ks.kl[1]?.getD 0#32) := by
+  rw [k6_ptr_kl L kPtr]; exact load_k6_kl1 hm
+
+@[scoped c0_store] theorem store_k6_kl_dyn_z1 (v : BitVec 32) (hm : (K6MemA L kPtr ks ⋆ R) m) :
+    storeOk m i32
+      ((kPtr + ((32 : BitVec 32) + (8 : BitVec 32) * L.mv32).setWidth 64 * 4) +
+        BitVec.ofNat 64 1 * 4) ∧
+      (K6MemA L kPtr (ks.putArr .kl 1 v) ⋆ R)
+        (storeMem m i32
+          ((kPtr + ((32 : BitVec 32) + (8 : BitVec 32) * L.mv32).setWidth 64 * 4) +
+            BitVec.ofNat 64 1 * 4) v) := by
+  rw [k6_ptr_kl L kPtr]; exact store_k6_kl1 v hm
+
+end DynKlMem
+
+theorem k6_arena_addr_eq (L : K6Layout) (kPtr : BitVec 64) {off j : BitVec 32}
+    (hsum : off.toNat + j.toNat < 2 ^ 32) :
+    kPtr + BitVec.ofNat 64 (4 * L.oArena) +
+        BitVec.setWidth 64 off * 4 + BitVec.setWidth 64 j * 4 =
+      kPtr + BitVec.ofNat 64 (4 * L.oArena) + BitVec.setWidth 64 (off + j) * 4 := by
+  rw [BitVec.add_assoc (kPtr + BitVec.ofNat 64 (4 * L.oArena))]; congr 1
+  c0_grind
+
+@[scoped c0_load] theorem load_k6_arena_split {L : K6Layout} {kPtr : BitVec 64}
+    {ks : K6State} {R : Mem 64 → Prop} {m : Mem 64} {off j : BitVec 32}
+    (hsum : off.toNat + j.toNat < 2 ^ 32) (hcap : off.toNat + j.toNat < L.acap)
+    (hm : (K6MemA L kPtr ks ⋆ R) m) :
+    loadVal m i32 (kPtr + BitVec.ofNat 64 (4 * L.oArena) +
+        BitVec.setWidth 64 off * 4 + BitVec.setWidth 64 j * 4) =
+      some (ks.arena[(off + j).toNat]?.getD 0#32) := by
+  rw [k6_arena_addr_eq L kPtr hsum, BitVec.toNat_add, Nat.mod_eq_of_lt hsum]
+  exact load_k6_arena_off hsum hcap hm
+
+@[scoped c0_store] theorem store_k6_arena_split {L : K6Layout} {kPtr : BitVec 64}
+    {ks : K6State} {R : Mem 64 → Prop} {m : Mem 64} (v : BitVec 32) {off j : BitVec 32}
+    (hsum : off.toNat + j.toNat < 2 ^ 32) (hcap : off.toNat + j.toNat < L.acap)
+    (hm : (K6MemA L kPtr ks ⋆ R) m) :
+    storeOk m i32 (kPtr + BitVec.ofNat 64 (4 * L.oArena) +
+        BitVec.setWidth 64 off * 4 + BitVec.setWidth 64 j * 4) ∧
+      (K6MemA L kPtr (ks.putArr .arena (off + j).toNat v) ⋆ R)
+        (storeMem m i32 (kPtr + BitVec.ofNat 64 (4 * L.oArena) +
+          BitVec.setWidth 64 off * 4 + BitVec.setWidth 64 j * 4) v) := by
+  rw [k6_arena_addr_eq L kPtr hsum, BitVec.toNat_add, Nat.mod_eq_of_lt hsum]
+  exact store_k6_arena_off v hsum hcap hm
+
 end K6PtrTactics
 
 theorem k6_vals_cons {t : Ty} {ts : List Ty} (a : Arg Val t) (as : Tup (Arg Val) ts) :
@@ -322,45 +394,62 @@ theorem k6_fullState_lengthsOk_scratch {c : FullCfg} {s : FullState} {scr' : Lis
   ⟨hlen.core_ok, { hlen.scratch_ok with scratch_buf_len := hscr }⟩
 
 theorem k6_bv32_lt31_and_mask {x : BitVec 32} (hx : x.toNat < 2 ^ 31) :
-    x &&& 0x7FFFFFFF#32 = x ∧ x &&& 0x80000000#32 = 0#32 := by
-  constructor <;> apply BitVec.eq_of_getElem_eq <;> intro i hi
-  · simp only [BitVec.getElem_and]
-    by_cases h31 : i = 31
-    · subst h31
-      have hf : x[31] = false := by
-        rw [BitVec.getElem_eq_testBit_toNat, Nat.testBit_eq_decide_div_mod_eq,
-          Nat.div_eq_of_lt hx]
-        rfl
-      simp [hf]
-    · have ht : (0x7FFFFFFF#32 : BitVec 32)[i] = true := by revert i hi h31; decide
-      simp [ht]
-  · simp only [BitVec.getElem_and, BitVec.getElem_zero]
-    by_cases h31 : i = 31
-    · subst h31
-      have hf : x[31] = false := by
-        rw [BitVec.getElem_eq_testBit_toNat, Nat.testBit_eq_decide_div_mod_eq,
-          Nat.div_eq_of_lt hx]
-        rfl
-      simp [hf]
-    · have hf : (0x80000000#32 : BitVec 32)[i] = false := by revert i hi h31; decide
-      simp [hf]
+    x &&& 0x7FFFFFFF#32 = x ∧ x &&& 0x80000000#32 = 0#32 :=
+  ⟨by c0_bv_bit_grind, by c0_bv_bit_grind⟩
 
 theorem k6_bv32_or_bin_mask {x : BitVec 32} (hx : x.toNat < 2 ^ 31) :
     (x ||| 0x80000000#32) &&& 0x7FFFFFFF#32 = x ∧
-      (x ||| 0x80000000#32) &&& 0x80000000#32 = 0x80000000#32 := by
-  have hlt := k6_bv32_lt31_and_mask hx
-  have h1 : (x ||| 0x80000000#32) &&& 0x7FFFFFFF#32 =
-      (x &&& 0x7FFFFFFF#32) ||| (0x80000000#32 &&& 0x7FFFFFFF#32) := by
-    apply BitVec.eq_of_getLsbD_eq; intro i _hi
-    simp only [BitVec.getLsbD_and, BitVec.getLsbD_or, Bool.and_or_distrib_right]
-  have h2 : (x ||| 0x80000000#32) &&& 0x80000000#32 =
-      (x &&& 0x80000000#32) ||| (0x80000000#32 &&& 0x80000000#32) := by
-    apply BitVec.eq_of_getLsbD_eq; intro i _hi
-    simp only [BitVec.getLsbD_and, BitVec.getLsbD_or, Bool.and_or_distrib_right]
-  rw [h1, hlt.1, show (0x80000000#32 &&& 0x7FFFFFFF#32 : BitVec 32) = 0#32 from by decide,
-    BitVec.or_zero]
-  rw [h2, hlt.2, BitVec.zero_or, BitVec.and_self]
-  exact ⟨rfl, rfl⟩
+      (x ||| 0x80000000#32) &&& 0x80000000#32 = 0x80000000#32 :=
+  ⟨by c0_bv_bit_grind, by c0_bv_bit_grind⟩
+
+theorem k6_bv32_shl1_or_bit {pick ph : BitVec 32} {nv mv : Nat}
+    (hp : pick.toNat < nv) (hnv : nv ≤ mv) (hmv : mv ≤ 8192) (hph : ph.toNat < 2) :
+    ((pick <<< (1 : Nat)) ||| ph).toNat = 2 * pick.toNat + ph.toNat ∧
+    ((pick <<< (1 : Nat)) ||| ph).toNat < 2 * nv := by
+  have h1 : (pick <<< (1 : Nat)).toNat = 2 * pick.toNat := by
+    rw [BitVec.toNat_shiftLeft]; simp; omega
+  have h2 : ((pick <<< (1 : Nat)) ||| ph).toNat = 2 * pick.toNat + ph.toNat := by
+    rcases (by omega : ph.toNat = 0 ∨ ph.toNat = 1) with hz | ho
+    · have : ph = 0#32 := BitVec.eq_of_toNat_eq hz; subst this; simp [h1]
+    · have : ph = 1#32 := BitVec.eq_of_toNat_eq ho; subst this
+      rw [BitVec.toNat_or, h1, show (1#32 : BitVec 32).toNat = 1 from rfl,
+        show 2 * pick.toNat = 2 ^ 1 * pick.toNat by omega]
+      exact (Nat.two_pow_add_eq_or_of_lt (by decide : 1 < 2 ^ 1) pick.toNat).symm
+  exact ⟨h2, by omega⟩
+
+theorem k6_vals_some {L : K6Layout} {ks : K6State} (hsh : ks.ShapesOk L)
+    {l : Nat} {v : BitVec 32} (hl : l < sz2V L) (hv : ks.vals[l]?.getD 0#32 = v) :
+    ks.vals[l]? = some v := by
+  have hvl : l < ks.vals.length := by rw [hsh.vals_len]; exact hl
+  rw [List.getElem?_eq_getElem hvl, Option.getD_some] at hv
+  rw [List.getElem?_eq_getElem hvl, hv]
+
+theorem k6TailEq_putArr_nonTail {L : K6Layout} {ks : K6State} {f : K6ArrField}
+    (hf : f ≠ .lvlArr ∧ f ≠ .rsn ∧ f ≠ .flags ∧ f ≠ .vals ∧ f ≠ .whead)
+    (i : Nat) (val : BitVec 32) : K6TailEq L ks (ks.putArr f i val) := by
+  refine ⟨by cases f <;> rfl, fun v _ _ => ?_⟩
+  cases f <;> simp only [ne_eq, not_true_eq_false, false_and, and_false] at hf <;>
+    exact ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+
+theorem k6TailEq_putArr_var {L : K6Layout} {ks : K6State} {f : K6ArrField}
+    (hf : f = .lvlArr ∨ f = .rsn ∨ f = .flags) {i : Nat} (hi : i < ks.nv.toNat)
+    (val : BitVec 32) : K6TailEq L ks (ks.putArr f i val) := by
+  refine ⟨by cases f <;> rfl, fun v hv _ => ?_⟩
+  have hne : i ≠ v := by omega
+  rcases hf with rfl | rfl | rfl <;> dsimp only [K6State.putArr]
+  · exact ⟨List.getElem?_set_ne hne, rfl, rfl, rfl, rfl, rfl, rfl⟩
+  · exact ⟨rfl, List.getElem?_set_ne hne, rfl, rfl, rfl, rfl, rfl⟩
+  · exact ⟨rfl, rfl, List.getElem?_set_ne hne, rfl, rfl, rfl, rfl⟩
+
+theorem k6TailEq_putArr_lit {L : K6Layout} {ks : K6State} {f : K6ArrField}
+    (hf : f = .vals ∨ f = .whead) {i : Nat} (hi : i < 2 * ks.nv.toNat)
+    (val : BitVec 32) : K6TailEq L ks (ks.putArr f i val) := by
+  refine ⟨by cases f <;> rfl, fun v hv _ => ?_⟩
+  have hne0 : i ≠ 2 * v := by omega
+  have hne1 : i ≠ 2 * v + 1 := by omega
+  rcases hf with rfl | rfl <;> dsimp only [K6State.putArr]
+  · exact ⟨rfl, rfl, rfl, List.getElem?_set_ne hne0, List.getElem?_set_ne hne1, rfl, rfl⟩
+  · exact ⟨rfl, rfl, rfl, rfl, rfl, List.getElem?_set_ne hne0, List.getElem?_set_ne hne1⟩
 
 theorem k6_list_nodup_getElem_inj {α : Type} {xs : List α} (hnd : xs.Nodup)
     {i j : Nat} (hi : i < xs.length) (hj : j < xs.length) (hij : xs[i] = xs[j]) : i = j := by

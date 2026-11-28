@@ -56,7 +56,7 @@ theorem k6a_init_anaInv {L : K6Layout} {P : (Nat → Bool) → Prop} {ks : K6Sta
     hinv.clauses.max_cl_eq, hinv.clauses.nv_le, hinv.clauses.nc_le, hinv.clauses.alen_le,
     hinv.clauses.nassump_le, hlvl_pos, Nat.le_refl _, hinv.clauses.cl_wf, hinv.clauses.cl_mono,
     hinv.clauses.incons_ok, hinv.clauses.assump_ok, hinv.watches,
-    k6BaseAssignOk_cast hinv.assign rfl rfl rfl rfl rfl rfl rfl rfl rfl, hsync, hinv.reasons,
+    k6BaseAssignOk_cast hinv.assign, hsync, hinv.reasons,
     by change 1 ≤ (1#32 : BitVec 32).toNat; decide, by change 1 ≤ ks.nv.toNat; exact hnv_pos,
     by change (0#32 : BitVec 32).toNat ≤ ks.nv.toNat; simp,
     by change ((ks.ana.take 0).map BitVec.toNat).Nodup; simp,
@@ -69,11 +69,8 @@ theorem k6a_init_anaInv {L : K6Layout} {P : (Nat → Bool) → Prop} {ks : K6Sta
     by change (((ks.kl.take 1).drop 1).map _).Nodup
        have : (ks.kl.take 1).drop 1 = [] := List.drop_eq_nil_of_le (by simp; omega)
        rw [this]; simp,
-    by rw [hfilt0]; rfl,
-    fun v hv hnz _ => absurd (hfl_clean v hv) hnz⟩,
-    ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-     rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩,
-    ⟨rfl, fun _ _ _ => ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩⟩⟩
+    by rw [hfilt0]; rfl, fun v hv hnz _ => absurd (hfl_clean v hv) hnz⟩,
+    k6AnaPreserved_frame ks, ⟨rfl, fun _ _ _ => ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩⟩⟩
 
 theorem k6a_resolvent_step_skip {L : K6Layout} {P : (Nat → Bool) → Prop} {st : K6State}
     {idx' : Nat} (hinv : K6AnaInv L P st (idx' + 1))
@@ -132,7 +129,7 @@ theorem k6a_resolvent_step_hit {L : K6Layout} {P : (Nat → Bool) → Prop} {st 
      hinv.alen_le, hinv.nassump_le, hinv.lvl_pos,
      by change idx' ≤ st.trl_end.toNat; have := hinv.idx_le; omega,
      hinv.cl_wf, hinv.cl_mono, hinv.incons_ok, hinv.assump_ok, hinv.watches,
-     k6BaseAssignOk_cast hinv.assign rfl rfl rfl rfl rfl rfl rfl rfl rfl, hinv.synced,
+     k6BaseAssignOk_cast hinv.assign, hinv.synced,
      hinv.reasons, hinv.nkl_pos, hinv.nkl_le, hinv.nana_le, hinv.ana_nodup, hinv.ana_lt,
      hinv.flags_seen, hinv.kl_nonTop, hinv.kl_injective, hinv.nkl_count, hinv.kl_nodup,
      by change (st.openCnt - 1#32).toNat = ((List.range idx').filter fun j =>
@@ -141,8 +138,7 @@ theorem k6a_resolvent_step_hit {L : K6Layout} {P : (Nat → Bool) → Prop} {st 
             (st.flags[v]?.getD 0#32 &&& 2#32) ≠ 0#32)).length
         rw [hsub, hop_succ]; omega,
      hinv.seen_in_trl⟩
-  refine ⟨hpos, hinv1, ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-    rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩,
+  refine ⟨hpos, hinv1, k6AnaPreserved_frame st,
     ⟨rfl, fun _ _ _ => ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩⟩, fun x hx => ?_⟩
   rw [k6a_mem_resolvent_iff] at hx; rw [List.mem_cons, k6a_mem_resolvent_iff]
   rcases hx with ⟨j, hj, htrl, hlvl, hfl⟩ | hr
@@ -266,10 +262,7 @@ theorem k6a_swap_kl_preserves {L : K6Layout} {P : (Nat → Bool) → Prop}
     · rw [k6a_ite_t hc]; exact ⟨_, by k6_ext⟩
     · rw [k6a_ite_f hc]; exact ⟨_, by k6_ext⟩
   obtain ⟨kl', hfr_eq⟩ := hfr
-  have hpres : K6AnaPreserved stClean stSw := by
-    rw [hfr_eq]
-    exact ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
-      rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+  have hpres : K6AnaPreserved stClean stSw := by rw [hfr_eq]; exact k6AnaPreserved_frame _
   have htlSw : K6TailEq L stClean stSw := by
     rw [hfr_eq]; exact ⟨rfl, fun _ _ _ => ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩⟩
   have ⟨hinvSw, hsyncSw⟩ := k6a_inv_of_ana_clean hinv hsync hshSw hpres
@@ -283,7 +276,8 @@ theorem k6a_swap_kl_preserves {L : K6Layout} {P : (Nat → Bool) → Prop}
   have hsw0 : stSw.kl[0]? = some uip := by
     dsimp only [stSw]; by_cases hc : 2 ≤ stClean.nkl.toNat ∧ wi ≠ 1#32
     · rw [k6a_ite_t hc]; have ⟨hw1, _⟩ := hwi hc.1
-      k6_field; rw [List.getElem?_set_ne (by omega), List.getElem?_set_ne (by omega)]; exact hkl0_0
+      k6_field; rw [List.getElem?_set_ne (by omega), List.getElem?_set_ne (by omega)]
+      exact hkl0_0
     · rw [k6a_ite_f hc]; exact hkl0_0
   have hmem_of_idx : ∀ k < stClean.nkl.toNat,
       (stSw.kl[k]?.getD 0#32).toNat ∈ (stSw.kl.take stSw.nkl.toNat).map BitVec.toNat := by
@@ -296,17 +290,16 @@ theorem k6a_swap_kl_preserves {L : K6Layout} {P : (Nat → Bool) → Prop}
     · obtain ⟨hw1, hw_lt⟩ := hwi hc.1
       have hkl_sw : stSw.kl = (stKl0.kl.set 1 (stKl0.kl[wi.toNat]?.getD 0#32)).set wi.toNat
           (stKl0.kl[1]?.getD 0#32) := by dsimp only [stSw]; rw [k6a_ite_t hc]; k6_field
-      have hl1 : 1 < stClean.kl.length := by omega
-      have hlw : wi.toNat < stClean.kl.length := by omega
       by_cases hkw : k = wi.toNat
       · subst hkw; refine ⟨1, by omega, by omega, ?_⟩
         rw [hkl_sw, List.getElem?_set_self (by rw [List.length_set, hsh0.kl_len]; omega),
-          hkl0_pos 1 (by omega), List.getElem?_eq_getElem hl1, Option.getD_some]
+          hkl0_pos 1 (by omega), List.getElem?_eq_getElem (by omega : 1 < stClean.kl.length),
+          Option.getD_some]
       · by_cases hk_1 : k = 1
         · subst hk_1; refine ⟨wi.toNat, hw1, hw_lt, ?_⟩
           rw [hkl_sw, List.getElem?_set_ne (by omega),
-            List.getElem?_set_self (by rw [hsh0.kl_len]; omega),
-            hkl0_pos wi.toNat hw1, List.getElem?_eq_getElem hlw, Option.getD_some]
+            List.getElem?_set_self (by rw [hsh0.kl_len]; omega), hkl0_pos wi.toNat hw1,
+            List.getElem?_eq_getElem (by omega : wi.toNat < stClean.kl.length), Option.getD_some]
         · refine ⟨k, hk1, hk_lt, ?_⟩
           rw [hkl_sw, List.getElem?_set_ne (Ne.symm hkw), List.getElem?_set_ne (Ne.symm hk_1),
             hkl0_pos k hk1]
@@ -323,31 +316,32 @@ theorem k6a_swap_kl_preserves {L : K6Layout} {P : (Nat → Bool) → Prop}
           stClean.kl[k + 1]?.getD 0#32 := by
         simp only [List.getElem_drop, List.getElem_take]
         rw [List.getElem?_eq_getElem (by omega), Option.getD_some]; congr 1; omega
-      rw [hb_eq]; by_cases hc : 2 ≤ stClean.nkl.toNat ∧ wi ≠ 1#32
-      · obtain ⟨hw1, hw_lt⟩ := hwi hc.1
-        have hkl_sw : stSw.kl = (stKl0.kl.set 1 (stKl0.kl[wi.toNat]?.getD 0#32)).set wi.toNat
-            (stKl0.kl[1]?.getD 0#32) := by dsimp only [stSw]; rw [k6a_ite_t hc]; k6_field
-        have h1 : stSw.kl[wi.toNat]? = stClean.kl[1]? := by
-          have hlen_w : wi.toNat < (stKl0.kl.set 1 (stKl0.kl[wi.toNat]?.getD 0#32)).length := by
-            rw [List.length_set, hsh0.kl_len]; omega
-          rw [hkl_sw, List.getElem?_set_self hlen_w, hkl0_pos 1 (by omega),
-            List.getElem?_eq_getElem (by omega : 1 < stClean.kl.length), Option.getD_some]
-        have h2 : stSw.kl[1]? = stClean.kl[wi.toNat]? := by
-          rw [hkl_sw, List.getElem?_set_ne (by bv_omega),
-            List.getElem?_set_self (by rw [hsh0.kl_len]; omega), hkl0_pos wi.toNat hw1,
-            List.getElem?_eq_getElem (by omega : wi.toNat < stClean.kl.length), Option.getD_some]
-        by_cases hk_1 : k + 1 = 1
-        · rw [hk_1, ← h1]; exact hmem_of_idx wi.toNat hw_lt
-        · by_cases hk_w : k + 1 = wi.toNat
-          · rw [hk_w, ← h2]; exact hmem_of_idx 1 (by omega)
-          · have h3 : stSw.kl[k + 1]? = stClean.kl[k + 1]? := by
+      rw [hb_eq]
+      obtain ⟨j, hj_lt, hjeq⟩ : ∃ j < stClean.nkl.toNat, stSw.kl[j]? = stClean.kl[k + 1]? := by
+        by_cases hc : 2 ≤ stClean.nkl.toNat ∧ wi ≠ 1#32
+        · obtain ⟨hw1, hw_lt⟩ := hwi hc.1
+          have hkl_sw : stSw.kl = (stKl0.kl.set 1 (stKl0.kl[wi.toNat]?.getD 0#32)).set wi.toNat
+              (stKl0.kl[1]?.getD 0#32) := by dsimp only [stSw]; rw [k6a_ite_t hc]; k6_field
+          by_cases hk_1 : k + 1 = 1
+          · refine ⟨wi.toNat, hw_lt, ?_⟩
+            rw [hk_1, hkl_sw,
+              List.getElem?_set_self (by rw [List.length_set, hsh0.kl_len]; omega),
+              hkl0_pos 1 (by omega),
+              List.getElem?_eq_getElem (by omega : 1 < stClean.kl.length), Option.getD_some]
+          · by_cases hk_w : k + 1 = wi.toNat
+            · refine ⟨1, by omega, ?_⟩
+              rw [hk_w, hkl_sw,
+                List.getElem?_set_ne (by intro h; exact hc.2 (BitVec.eq_of_toNat_eq h)),
+                List.getElem?_set_self (by rw [hsh0.kl_len]; omega), hkl0_pos wi.toNat hw1,
+                List.getElem?_eq_getElem (by omega : wi.toNat < stClean.kl.length),
+                Option.getD_some]
+            · refine ⟨k + 1, hk1, ?_⟩
               rw [hkl_sw, List.getElem?_set_ne (Ne.symm hk_w), List.getElem?_set_ne (Ne.symm hk_1),
                 hkl0_pos (k + 1) (by omega)]
-            rw [← h3]; exact hmem_of_idx (k + 1) hk1
-      · have h3 : stSw.kl[k + 1]? = stClean.kl[k + 1]? := by
-          have hkl_sw : stSw.kl = stKl0.kl := by dsimp only [stSw]; rw [k6a_ite_f hc]
-          rw [hkl_sw, hkl0_pos (k + 1) (by omega)]
-        rw [← h3]; exact hmem_of_idx (k + 1) hk1
+        · exact ⟨k + 1, hk1, by
+            have hkl_sw : stSw.kl = stKl0.kl := by dsimp only [stSw]; rw [k6a_ite_f hc]
+            rw [hkl_sw, hkl0_pos (k + 1) (by omega)]⟩
+      rw [← hjeq]; exact hmem_of_idx j hj_lt
   · intro k hk1 hk_lt; rw [hsw_nkl] at hk_lt
     obtain ⟨k', hk'1, hk'lt, hkeq⟩ := hbij k hk1 hk_lt
     dsimp only; rw [hkeq, hfr_eq]; exact hkl_nt k' hk'1 hk'lt
@@ -593,7 +587,7 @@ theorem k6a_ana_mtf_exit_inv {L : K6Layout} {P : (Nat → Bool) → Prop}
       (qst := qst) (qp := qp) (qn := qn) (qsa := qsa))
   have hent_kl5 : SemEntails P ((st5.kl.take st5.nkl.toNat).map BitVec.toNat) := by
     rw [hst5, hbtPres.kl, hbtPres.nkl]
-    exact k6a_semEntails_subset hsw_mem hent_uip
+    exact SemEntails.subset hsw_mem hent_uip
   have hca5 : st5.acap.toNat = L.acap := by
     rw [hinv5.clauses.acap_eq, BitVec.toNat_ofNat,
       Nat.mod_eq_of_lt (by unfold dimacsBound at hac; omega)]

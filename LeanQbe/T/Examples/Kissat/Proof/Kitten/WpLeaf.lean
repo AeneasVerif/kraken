@@ -166,40 +166,19 @@ private theorem K6MtfSt.nv_eq {L : K6Layout} {ks ks' : K6State} (r : K6MtfSt L k
 private theorem K6MtfSt.mv_eq {L : K6Layout} {ks ks' : K6State} (r : K6MtfSt L ks ks') :
     ks'.max_v = ks.max_v := by rcases r.2 with ⟨_, _, _, _, _, _, _, rfl⟩; rfl
 
-private theorem K6MtfSt.putQf {L : K6Layout} {ks ks' : K6State} (r : K6MtfSt L ks ks')
-    (v : BitVec 32) : K6MtfSt L ks (ks'.putHdr .qfirst v) := by
+private theorem K6MtfSt.putHdr {L : K6Layout} {ks ks' : K6State} (r : K6MtfSt L ks ks')
+    (f : K6HdrField) (hf : f = .qfirst ∨ f = .qlast ∨ f = .qsearch ∨ f = .qstamp)
+    (v : BitVec 32) : K6MtfSt L ks (ks'.putHdr f v) := by
   rcases r with ⟨hsh, qf, ql, qs, qst, qp, qn, qsa, rfl⟩
-  exact ⟨hsh.putHdr .qfirst v, v, ql, qs, qst, qp, qn, qsa, rfl⟩
+  rcases hf with rfl | rfl | rfl | rfl <;>
+    exact ⟨hsh.putHdr _ v, _, _, _, _, qp, qn, qsa, rfl⟩
 
-private theorem K6MtfSt.putQl {L : K6Layout} {ks ks' : K6State} (r : K6MtfSt L ks ks')
-    (v : BitVec 32) : K6MtfSt L ks (ks'.putHdr .qlast v) := by
+private theorem K6MtfSt.putArr {L : K6Layout} {ks ks' : K6State} (r : K6MtfSt L ks ks')
+    (f : K6ArrField) (hf : f = .qprev ∨ f = .qnext ∨ f = .qstampArr) (i : Nat)
+    (v : BitVec 32) : K6MtfSt L ks (ks'.putArr f i v) := by
   rcases r with ⟨hsh, qf, ql, qs, qst, qp, qn, qsa, rfl⟩
-  exact ⟨hsh.putHdr .qlast v, qf, v, qs, qst, qp, qn, qsa, rfl⟩
-
-private theorem K6MtfSt.putQs {L : K6Layout} {ks ks' : K6State} (r : K6MtfSt L ks ks')
-    (v : BitVec 32) : K6MtfSt L ks (ks'.putHdr .qsearch v) := by
-  rcases r with ⟨hsh, qf, ql, qs, qst, qp, qn, qsa, rfl⟩
-  exact ⟨hsh.putHdr .qsearch v, qf, ql, v, qst, qp, qn, qsa, rfl⟩
-
-private theorem K6MtfSt.putQst {L : K6Layout} {ks ks' : K6State} (r : K6MtfSt L ks ks')
-    (v : BitVec 32) : K6MtfSt L ks (ks'.putHdr .qstamp v) := by
-  rcases r with ⟨hsh, qf, ql, qs, qst, qp, qn, qsa, rfl⟩
-  exact ⟨hsh.putHdr .qstamp v, qf, ql, qs, v, qp, qn, qsa, rfl⟩
-
-private theorem K6MtfSt.putQp {L : K6Layout} {ks ks' : K6State} (r : K6MtfSt L ks ks')
-    (i : Nat) (v : BitVec 32) : K6MtfSt L ks (ks'.putArr .qprev i v) := by
-  rcases r with ⟨hsh, qf, ql, qs, qst, qp, qn, qsa, rfl⟩
-  exact ⟨hsh.putArr .qprev i v, qf, ql, qs, qst, qp.set i v, qn, qsa, rfl⟩
-
-private theorem K6MtfSt.putQn {L : K6Layout} {ks ks' : K6State} (r : K6MtfSt L ks ks')
-    (i : Nat) (v : BitVec 32) : K6MtfSt L ks (ks'.putArr .qnext i v) := by
-  rcases r with ⟨hsh, qf, ql, qs, qst, qp, qn, qsa, rfl⟩
-  exact ⟨hsh.putArr .qnext i v, qf, ql, qs, qst, qp, qn.set i v, qsa, rfl⟩
-
-private theorem K6MtfSt.putQsa {L : K6Layout} {ks ks' : K6State} (r : K6MtfSt L ks ks')
-    (i : Nat) (v : BitVec 32) : K6MtfSt L ks (ks'.putArr .qstampArr i v) := by
-  rcases r with ⟨hsh, qf, ql, qs, qst, qp, qn, qsa, rfl⟩
-  exact ⟨hsh.putArr .qstampArr i v, qf, ql, qs, qst, qp, qn, qsa.set i v, rfl⟩
+  rcases hf with rfl | rfl | rfl <;>
+    exact ⟨hsh.putArr _ i v, qf, ql, qs, qst, _, _, _, rfl⟩
 
 private theorem K6MtfSt.finishA {L : K6Layout} {ks ks' : K6State} {kPtr : BitVec 64}
     {R : Mem 64 → Prop} {m' : Mem 64} {Q : Post []}
@@ -252,43 +231,46 @@ theorem full_k6_mtf_wp (Γ : Env) :
               (fun st m' => K6MtfSt L ks st ∧ (K6MemA L kPtr st ⋆ R) m') ?_ ?_
             · intro J5 ks5 m5 ⟨hr5, hm5⟩
               c0_hsteps!
-              · exact (hr5.putQs v).finishA hQ hm
+              · exact (hr5.putHdr .qsearch (Or.inr (Or.inr (Or.inl rfl))) v).finishA hQ hm
               · exact hr5.finishA hQ hm5
             · intro J5 hJ5
               c0_hsteps!
-              · exact hJ5 _ _ ⟨(hr4.putQst _).putQsa _ _, hm⟩
+              · exact hJ5 _ _ ⟨(hr4.putHdr .qstamp (Or.inr (Or.inr (Or.inr rfl))) _).putArr
+                  .qstampArr (Or.inr (Or.inr rfl)) _ _, hm⟩
               · exact hJ5 _ _ ⟨hr4, hm4⟩
           · intro J4 hJ4
             c0_hsteps_nogrp
             · c0_hsteps!
-              exact hJ4 _ _ ⟨(((hr3.putQp v.toNat ol).putQn v.toNat 0xFFFFFFFF#32).putQl v).putQf
-                v, hm⟩
+              exact hJ4 _ _ ⟨(((hr3.putArr .qprev (Or.inl rfl) v.toNat ol).putArr .qnext
+                (Or.inr (Or.inl rfl)) v.toNat 0xFFFFFFFF#32).putHdr .qlast
+                (Or.inr (Or.inl rfl)) v).putHdr .qfirst (Or.inl rfl) v, hm⟩
             · have hol_len : ol.toNat < szV L := by
                 have : ol.toNat < ks.nv.toNat := by dsimp only [ol]; rw [← hnv3]; bv_omega
                 unfold szV; omega
               c0_hsteps!
-              exact hJ4 _ _ ⟨(((hr3.putQp v.toNat ol).putQn v.toNat 0xFFFFFFFF#32).putQl v).putQn
-                ol.toNat v, hm⟩
+              exact hJ4 _ _ ⟨(((hr3.putArr .qprev (Or.inl rfl) v.toNat ol).putArr .qnext
+                (Or.inr (Or.inl rfl)) v.toNat 0xFFFFFFFF#32).putHdr .qlast
+                (Or.inr (Or.inl rfl)) v).putArr .qnext (Or.inr (Or.inl rfl)) ol.toNat v, hm⟩
         · intro J3 hJ3
           c0_hsteps_nogrp
-          · c0_hsteps!; exact hJ3 _ _ ⟨hr2.putQl pv, hm⟩
+          · c0_hsteps!; exact hJ3 _ _ ⟨hr2.putHdr .qlast (Or.inr (Or.inl rfl)) pv, hm⟩
           · have hn_len : nxt.toNat < szV L := by
               have : nxt.toNat < ks.nv.toNat := by dsimp only [nxt]; rw [← hnv2]; bv_omega
               unfold szV; omega
             c0_hsteps!
-            exact hJ3 _ _ ⟨hr2.putQp nxt.toNat pv, hm⟩
+            exact hJ3 _ _ ⟨hr2.putArr .qprev (Or.inl rfl) nxt.toNat pv, hm⟩
       · intro J2 hJ2
         c0_hsteps_nogrp
-        · c0_hsteps!; exact hJ2 _ _ ⟨hr1.putQf nxt, hm⟩
+        · c0_hsteps!; exact hJ2 _ _ ⟨hr1.putHdr .qfirst (Or.inl rfl) nxt, hm⟩
         · have hp_len : pv.toNat < szV L := by
             have : pv.toNat < ks.nv.toNat := by dsimp only [pv]; rw [← hnv1]; bv_omega
             unfold szV; omega
           c0_hsteps!
-          exact hJ2 _ _ ⟨hr1.putQn pv.toNat nxt, hm⟩
+          exact hJ2 _ _ ⟨hr1.putArr .qnext (Or.inr (Or.inl rfl)) pv.toNat nxt, hm⟩
     · intro J1 hJ1
       c0_hsteps!
-      · exact hJ1 _ _ ⟨(K6MtfSt.base hsh).putQs pv, hm⟩
-      · exact hJ1 _ _ ⟨(K6MtfSt.base hsh).putQs nxt, hm⟩
+      · exact hJ1 _ _ ⟨(K6MtfSt.base hsh).putHdr .qsearch (Or.inr (Or.inr (Or.inl rfl))) pv, hm⟩
+      · exact hJ1 _ _ ⟨(K6MtfSt.base hsh).putHdr .qsearch (Or.inr (Or.inr (Or.inl rfl))) nxt, hm⟩
       · exact hJ1 _ _ ⟨K6MtfSt.base hsh, hmA⟩
       · exact hJ1 _ _ ⟨K6MtfSt.base hsh, hmA⟩
       · exact hJ1 _ _ ⟨K6MtfSt.base hsh, hmA⟩
