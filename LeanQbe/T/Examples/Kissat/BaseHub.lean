@@ -181,6 +181,7 @@ public import LeanQbe.T.Examples.Kissat.FullVivifyLemmas3
 public import LeanQbe.T.Examples.Kissat.FullWalkExtLemmas
 public import LeanQbe.T.Examples.Kissat.FullWalkExtLemmas1
 public import LeanQbe.T.Examples.Kissat.FullWalkExtLemmas2
+public import LeanQbe.T.Examples.Kissat.KissatAbiCommon
 public import LeanQbe.T.Examples.Kissat.KissatCertCommon
 public import LeanQbe.T.Examples.Kissat.KissatCertParamCommon
 public import LeanQbe.T.Examples.Kissat.KissatPlainCertCommon

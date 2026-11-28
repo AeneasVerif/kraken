@@ -1,12 +1,13 @@
 module
 
-public import LeanQbe.T.Examples.Kissat.KissatCertCommon
+public import LeanQbe.T.Examples.Kissat.KissatAbiCommon
 public import LeanQbe.T.Arm64.TargLemmas
+import LeanQbe.T.Logic.Bytes
 
 /-!
 # AAPCS64 Arm64 `ArchKissatAbi` Instance (`Arm64.KissatAbi`)
 
-Connects `LeanQbe.T.Examples.Kissat.KissatCertCommon.ArchKissatAbi` to `armTarget`, `armLayout`,
+Connects `ArchKissatAbi` (legacy-free `KissatAbiCommon`) to `armTarget`, `armLayout`,
 `armLegalTarget`, `armLabelClean`, and `armInit`. Reducible so concrete Kraken-AArch64 theorem
 statements unify definitionally without unfolding overhead.
 -/
