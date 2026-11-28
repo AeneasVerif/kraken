@@ -10,7 +10,6 @@ namespace LeanQbeTest.T.SegCertToy.Build.Oracle.S1
 
 open LeanQbe.T
 
-@[expose] def plan : InlPlan :=
-  []
+@[expose] def plan : InlPlan := []
 
 end LeanQbeTest.T.SegCertToy.Build.Oracle.S1
