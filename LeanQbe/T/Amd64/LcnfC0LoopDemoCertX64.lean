@@ -8,11 +8,11 @@ public import LeanQbe.T.MainCertFlat
 meta import Lean
 meta import LeanQbe.T.MainCertElab
 meta import LeanQbe.T.MainCertFlatElab
-public meta import LeanQbe.T.Amd64.Targ
-public meta import LeanQbe.T.Amd64.LcnfC0FullCertX64
-public meta import LeanQbe.T.LeanLCNF.LcnfC0LoopDemo
-public meta import LeanQbe.T.LeanLCNF.LcnfC0LinkKit
-public meta import Kraken.X64.Syntax
+meta import LeanQbe.T.Amd64.Targ
+meta import LeanQbe.T.Amd64.LcnfC0FullCertX64
+meta import LeanQbe.T.LeanLCNF.LcnfC0LoopDemo
+meta import LeanQbe.T.LeanLCNF.LcnfC0LinkKit
+meta import Kraken.X64.Syntax
 
 /-!
 # SysV x86-64 Closed Linked Certificate for `FactLoop` (`LcnfC0LoopDemoCertX64`)

@@ -1,8 +1,11 @@
 module
 
-public import LeanQbe.T.CoreHub
+public import LeanQbe.T.Flat
+public import LeanQbe.T.Notation
+public import LeanQbe.T.Wf
 public import LeanQbeTest.T.Examples
 public import LeanQbeTest.T.Smoke
+import LeanQbe.T.FlatLemmas
 meta import Lean.Elab.Term
 
 /-!

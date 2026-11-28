@@ -1044,5 +1044,212 @@ class TestPreflightAndGateParity(unittest.TestCase):
             )
 
 
+class TestLakeExactRdepsAndM5(unittest.TestCase):
+    """Covers exact Lean 4.37 / Lake 5.0 trace propagation and M5 `import all` checks."""
+
+    def test_lake_trace_propagation_all_import_kinds(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            files = {
+                "Seed.lean": "module\npublic def x : Nat := 1\n",
+                "PrivHop.lean": "module\nimport Seed\n",
+                "AfterPriv.lean": "module\npublic import PrivHop\n",
+                "PubHop.lean": "module\npublic import Seed\n",
+                "AfterPub.lean": "module\nimport PubHop\n",
+                "MetaConsumer.lean": "module\nmeta import PrivHop\n",
+                "AfterMeta.lean": "module\nimport MetaConsumer\n",
+                "PubMetaPoison.lean": "module\npublic meta import PrivHop\n",
+                "AfterPubMeta.lean": "module\nimport PubMetaPoison\n",
+                "AllConsumer.lean": "module\nimport all Seed\n",
+                "AfterAll.lean": "module\nimport all AllConsumer\n",
+                "LegacyFile.lean": "import PrivHop\n",
+            }
+            for rel, body in files.items():
+                (root / rel).write_text(body, encoding="utf-8")
+            rel_paths = list(files)
+
+            # 1. proof-body-only edit: ONLY Seed + import all chain + legacy non-module!
+            r_proof = li.collect_lean_rdeps(
+                root,
+                ["Seed"],
+                lean_rel_paths=rel_paths,
+                barrels=frozenset(),
+                trace_mode="lake",
+                edit_kind="proof",
+            )
+            self.assertEqual(
+                r_proof,
+                ["AfterAll", "AllConsumer", "LegacyFile", "Seed"],
+            )
+
+            # 2. ir-only edit: walks private `import` via `metaTransTrace`, rebuilds
+            # `meta import` and `public meta import` (plus normal consumers of `public meta`),
+            # while plain `import` / `public import` do NOT rebuild!
+            r_ir = li.collect_lean_rdeps(
+                root,
+                ["Seed"],
+                lean_rel_paths=rel_paths,
+                barrels=frozenset(),
+                trace_mode="lake",
+                edit_kind="ir",
+            )
+            self.assertEqual(
+                r_ir,
+                [
+                    "AfterAll",
+                    "AfterPubMeta",
+                    "AllConsumer",
+                    "LegacyFile",
+                    "MetaConsumer",
+                    "PubMetaPoison",
+                    "Seed",
+                ],
+            )
+
+            # 3. olean edit: private `import` is a 1-hop barrier (`PrivHop` rebuilds,
+            # `AfterPriv` does NOT), `public import` propagates (`PubHop` + `AfterPub`),
+            # `metaTransTrace` still walks `PrivHop` -> `MetaConsumer` & `PubMetaPoison`.
+            r_olean = li.collect_lean_rdeps(
+                root,
+                ["Seed"],
+                lean_rel_paths=rel_paths,
+                barrels=frozenset(),
+                trace_mode="lake",
+                edit_kind="olean",
+            )
+            self.assertEqual(
+                r_olean,
+                [
+                    "AfterAll",
+                    "AfterPub",
+                    "AfterPubMeta",
+                    "AllConsumer",
+                    "LegacyFile",
+                    "MetaConsumer",
+                    "PrivHop",
+                    "PubHop",
+                    "PubMetaPoison",
+                    "Seed",
+                ],
+            )
+            # Compare against legacy uniform graph mode (includes AfterPriv and AfterMeta)
+            r_graph = li.collect_lean_rdeps(
+                root,
+                ["Seed"],
+                lean_rel_paths=rel_paths,
+                barrels=frozenset(),
+                trace_mode="graph",
+            )
+            self.assertIn("AfterPriv", r_graph)
+            self.assertIn("AfterMeta", r_graph)
+
+    def test_classify_lean_diff_edit_kind_and_auto_rdeps(self) -> None:
+        base_src = (
+            "module\n"
+            "public import LeanQbe.T.IL\n\n"
+            "public section\n"
+            "theorem foo (n : Nat) : n = n := by\n"
+            "  rfl\n\n"
+            "def helper : Nat := 1\n"
+        )
+        proof_edit = base_src.replace("  rfl", "  -- comment\n  exact Eq.refl n")
+        self.assertEqual(li.classify_lean_diff_edit_kind(base_src, proof_edit), "proof")
+
+        sig_edit = base_src.replace("n = n", "n + 0 = n")
+        self.assertEqual(li.classify_lean_diff_edit_kind(base_src, sig_edit), "olean")
+
+        def_edit = base_src.replace("def helper : Nat := 1", "def helper : Nat := 2")
+        self.assertEqual(li.classify_lean_diff_edit_kind(base_src, def_edit), "olean")
+
+        imp_edit = base_src.replace("public import LeanQbe.T.IL", "import LeanQbe.T.IL")
+        self.assertEqual(li.classify_lean_diff_edit_kind(base_src, imp_edit), "olean")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "A.lean").write_text(
+                "module\npublic section\ntheorem t : True := by\n  trivial\n",
+                encoding="utf-8",
+            )
+            (repo / "B.lean").write_text("module\npublic import A\n", encoding="utf-8")
+            _git(repo, "init")
+            _git(repo, "config", "user.name", "Test")
+            _git(repo, "config", "user.email", "test@example.com")
+            _git(repo, "config", "commit.gpgsign", "false")
+            _git(repo, "add", "-A")
+            _git(repo, "commit", "-m", "base")
+            base_sha = _git(repo, "rev-parse", "HEAD").stdout.strip()
+
+            # Proof-body-only edit -> auto mode rebuilds ONLY A
+            (repo / "A.lean").write_text(
+                "module\npublic section\ntheorem t : True := by\n  exact True.intro\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                rs.compute_rdeps(repo, ["A.lean"], base=base_sha, edit_kind="auto"),
+                ["A"],
+            )
+            # Signature edit -> auto mode rebuilds A and B
+            (repo / "A.lean").write_text(
+                "module\npublic section\ntheorem t : True ∧ True := by\n  exact ⟨trivial, trivial⟩\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                rs.compute_rdeps(repo, ["A.lean"], base=base_sha, edit_kind="auto"),
+                ["A", "B"],
+            )
+
+    def test_real_repo_lake_exact_rdeps_cli_c0step_proof_vs_olean(self) -> None:
+        proof_mods = rs.compute_rdeps(
+            REPO_ROOT,
+            ["LeanQbe/T/Logic/C0Step.lean"],
+            trace_mode="lake",
+            edit_kind="proof",
+        )
+        self.assertEqual(proof_mods, ["LeanQbe.T.Logic.C0Step"])
+
+        res = subprocess.run(
+            [
+                sys.executable,
+                "-B",
+                str(SCRIPTS_DIR / "rdeps_scope.py"),
+                "--root",
+                str(REPO_ROOT),
+                "--changed",
+                "-",
+                "--trace-mode",
+                "lake",
+                "--edit-kind",
+                "proof",
+            ],
+            input="LeanQbe/T/Logic/C0Step.lean\n",
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(res.stdout.strip().splitlines(), ["LeanQbe.T.Logic.C0Step"])
+
+    def test_m5_hygiene_ban_all_import_all_and_allowlist(self) -> None:
+        src = "module\nimport all Kraken.Mem\ndef x : Nat := 1\n"
+        rep = li.audit_lean_source("LeanQbe/T/Example.lean", src)
+        self.assertEqual(rep["import_all_lines"], [2])
+        self.assertEqual(li.collect_hygiene_violations("LeanQbe/T/Example.lean", rep), [])
+        errs = li.collect_hygiene_violations(
+            "LeanQbe/T/Example.lean", rep, ban_all_import_all=True
+        )
+        self.assertEqual(len(errs), 1)
+        self.assertIn("M5", errs[0])
+        self.assertEqual(
+            li.collect_hygiene_violations(
+                "LeanQbe/T/Example.lean",
+                rep,
+                ban_all_import_all=True,
+                import_all_allowlist={"LeanQbe/T/Example.lean"},
+            ),
+            [],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

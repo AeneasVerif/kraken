@@ -233,5 +233,234 @@ class TestPurityFirewalls(unittest.TestCase):
             self.assertEqual(g.violations, [], f"{g.leak_id}: {g.violations}")
 
 
+class TestModsysFirewalls(unittest.TestCase):
+    """Covers Wave M0 `--modsys` / `--modsys-report-only` rules (`M1`-`M6`)."""
+
+    def test_m1_through_m6_catch_violations_and_accept_clean(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+
+            def wf(rel: str, body: str) -> None:
+                p = root / rel
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text(body, encoding="utf-8")
+
+            # M1: MainFlat privately reaches a Lemmas file; MainCertSegElab meta-imports
+            # a proof-bearing module; Amd64.Isa is clean.
+            wf("LeanQbe/T/MainFlat.lean", "module\npublic import LeanQbe.T.LegalFlat\n")
+            wf("LeanQbe/T/LegalFlat.lean", "module\nimport LeanQbe.T.MainLemmas\n")
+            wf("LeanQbe/T/MainLemmas.lean", "module\n")
+            wf("LeanQbe/T/Amd64/Isa.lean", "module\n")
+            wf("LeanQbe/T/MainCertSeg.lean", "module\nimport LeanQbe.T.Logic.C0Step\n")
+            wf("LeanQbe/T/Logic/C0Step.lean", "module\n")
+            wf(
+                "LeanQbe/T/MainCertSegElab.lean",
+                "module\npublic meta import LeanQbe.T.MainCertSeg\n",
+            )
+
+            # M2: Build/Amd64 dirty vs clean
+            wf(
+                "LeanQbe/T/Examples/Kissat/Build/Amd64/Dirty.lean",
+                "module\n"
+                "meta import LeanQbe.T.MainCertSegElab\n"
+                "meta import LeanQbe.T.Amd64.Targ\n",
+            )
+            wf(
+                "LeanQbe/T/Examples/Kissat/Build/Amd64/Clean.lean",
+                "module\n"
+                "import LeanQbe.T.MainCertSegElab\n"
+                "meta import LeanQbe.T.Amd64.Isa\n",
+            )
+
+            # M3: public meta import allowlist vs hard-deny paths
+            wf(
+                "LeanQbe/T/Examples/Kissat/Src/Header.lean",
+                "module\npublic meta import Lean.Elab.Tactic\n",
+            )
+            wf(
+                "LeanQbe/T/Examples/Kissat/Proof/Sub/Tactics.lean",
+                "module\npublic meta import Lean.Elab.Tactic\n",
+            )
+            wf(
+                "LeanQbe/T/FooElab.lean",
+                "module\npublic meta import Lean.Elab.Command\n",
+            )
+
+            # M4: Proof-only public import in Proof/ and *Lemmas*
+            wf(
+                "LeanQbe/T/Examples/Kissat/Proof/Sub/WpBad.lean",
+                "module\n"
+                "public import LeanQbe.T.Logic.C0Step\n"
+                "public import LeanQbe.T.Logic.ProofKit\n"
+                "public import LeanQbe.T.Logic.ControlComb\n"
+                "public import Kraken.SeparationTactics\n"
+                "public import LeanQbe.T.Examples.Kissat.Proof.Lib.ContractLemmas\n"
+                "import LeanQbe.T.Logic.C0HeadStep\n",
+            )
+            wf(
+                "LeanQbe/T/BadLemmas.lean",
+                "module\npublic import LeanQbe.T.Examples.Kissat.Proof.Spec.Tactics\n",
+            )
+
+            # M5: import all (both BAD_IMPORT_ALL and Kraken import all)
+            wf(
+                "LeanQbe/T/Bedrock2/BadAll.lean",
+                "module\nimport all LeanQbe.T.FlatLemmas\nimport all Kraken.Mem\n",
+            )
+
+            # M6: hub import + leaf test vs shared fixture test
+            wf(
+                "LeanQbeTest/T/SharedFixture.lean",
+                "module\npublic import LeanQbe.T.Amd64.Isa\n",
+            )
+            wf(
+                "LeanQbeTest/T/LeafBad.lean",
+                "module\n"
+                "public import LeanQbe.T.CoreHub\n"
+                "public import LeanQbeTest.T.SharedFixture\n"
+                "public meta import Lean.Elab.Term\n",
+            )
+            wf(
+                "LeanQbeTest/T/LeafClean.lean",
+                "module\nimport LeanQbeTest.T.SharedFixture\nmeta import Lean.Elab.Term\n",
+            )
+
+            groups = cf.run_audit(root, modsys=True)
+            by_id = {g.leak_id: g for g in groups}
+            for mid in ("M1", "M2", "M3", "M4", "M5", "M6"):
+                self.assertIn(mid, by_id)
+                self.assertFalse(by_id[mid].report_only)
+
+            m1_hits = {(v.file, v.kind, v.module) for v in by_id["M1"].violations}
+            self.assertIn(
+                ("LeanQbe/T/MainFlat.lean", "m1-exec-proof-leak", "LeanQbe.T.MainLemmas"),
+                m1_hits,
+            )
+            self.assertIn(
+                (
+                    "LeanQbe/T/MainCertSegElab.lean",
+                    "m1-cert-elab-meta-proof-leak",
+                    "LeanQbe.T.Logic.C0Step",
+                ),
+                m1_hits,
+            )
+            self.assertFalse(any(v.file == "LeanQbe/T/Amd64/Isa.lean" for v in by_id["M1"].violations))
+
+            m2_hits = {(v.file, v.kind, v.module) for v in by_id["M2"].violations}
+            self.assertEqual(
+                m2_hits,
+                {
+                    (
+                        "LeanQbe/T/Examples/Kissat/Build/Amd64/Dirty.lean",
+                        "m2-meta-elab-import",
+                        "LeanQbe.T.MainCertSegElab",
+                    ),
+                    (
+                        "LeanQbe/T/Examples/Kissat/Build/Amd64/Dirty.lean",
+                        "m2-meta-targ-import",
+                        "LeanQbe.T.Amd64.Targ",
+                    ),
+                },
+            )
+
+            m3_files = {v.file for v in by_id["M3"].violations}
+            self.assertIn("LeanQbe/T/Examples/Kissat/Src/Header.lean", m3_files)
+            self.assertIn("LeanQbe/T/Examples/Kissat/Proof/Sub/Tactics.lean", m3_files)
+            self.assertIn("LeanQbeTest/T/LeafBad.lean", m3_files)
+            self.assertNotIn("LeanQbe/T/FooElab.lean", m3_files)
+            self.assertNotIn("LeanQbe/T/MainCertSegElab.lean", m3_files)
+
+            m4_hits = {(v.file, v.module) for v in by_id["M4"].violations}
+            self.assertIn(
+                ("LeanQbe/T/Examples/Kissat/Proof/Sub/WpBad.lean", "LeanQbe.T.Logic.C0Step"),
+                m4_hits,
+            )
+            self.assertIn(
+                ("LeanQbe/T/Examples/Kissat/Proof/Sub/WpBad.lean", "Kraken.SeparationTactics"),
+                m4_hits,
+            )
+            self.assertNotIn(
+                ("LeanQbe/T/Examples/Kissat/Proof/Sub/WpBad.lean", "LeanQbe.T.Logic.C0HeadStep"),
+                m4_hits,
+            )
+            self.assertIn(
+                ("LeanQbe/T/BadLemmas.lean", "LeanQbe.T.Examples.Kissat.Proof.Spec.Tactics"),
+                m4_hits,
+            )
+
+            m5_hits = {(v.file, v.kind, v.module) for v in by_id["M5"].violations}
+            self.assertEqual(
+                m5_hits,
+                {
+                    ("LeanQbe/T/Bedrock2/BadAll.lean", "bad-import-all", "LeanQbe.T.FlatLemmas"),
+                    ("LeanQbe/T/Bedrock2/BadAll.lean", "import-all", "Kraken.Mem"),
+                },
+            )
+            # Ratcheting allowlist hides only allowlisted entry
+            groups_al = cf.run_audit(
+                root,
+                modsys=True,
+                m5_allowlist={"LeanQbe/T/Bedrock2/BadAll.lean": {"Kraken.Mem"}},
+            )
+            m5_al = {g.leak_id: g for g in groups_al}["M5"].violations
+            self.assertEqual([(v.kind, v.module) for v in m5_al], [("bad-import-all", "LeanQbe.T.FlatLemmas")])
+
+            m6_hits = {(v.file, v.kind, v.module) for v in by_id["M6"].violations}
+            self.assertIn(("LeanQbeTest/T/LeafBad.lean", "m6-hub-import", "LeanQbe.T.CoreHub"), m6_hits)
+            self.assertIn(
+                ("LeanQbeTest/T/LeafBad.lean", "m6-leaf-test-public-import", "LeanQbeTest.T.SharedFixture"),
+                m6_hits,
+            )
+            self.assertIn(
+                ("LeanQbeTest/T/LeafBad.lean", "m6-leaf-test-public-meta-import", "Lean.Elab.Term"),
+                m6_hits,
+            )
+            self.assertFalse(any(v.file == "LeanQbeTest/T/SharedFixture.lean" for v in by_id["M6"].violations))
+            self.assertFalse(any(v.file == "LeanQbeTest/T/LeafClean.lean" for v in by_id["M6"].violations))
+
+            # --modsys-report-only still exits 0 when L1-L5 are clean, but fails if L1 leaks
+            self.assertEqual(cf.main(["--root", str(root), "--modsys-report-only"]), 0)
+            wf("LeanQbe/T/MainLemmas.lean", "module\npublic import LeanQbe.T.OptLemmas\n")
+            self.assertEqual(cf.main(["--root", str(root), "--modsys-report-only"]), 1)
+
+    def test_real_repo_m0_modsys_invariants_and_report_only_cli(self) -> None:
+        groups = cf.run_audit(
+            REPO_ROOT,
+            require_isa=True,
+            data_proof=True,
+            purity_ref=True,
+            modsys_report_only=True,
+        )
+        by_id = {g.leak_id: g for g in groups}
+        for mid in ("M1", "M2", "M3", "M4", "M5", "M6"):
+            self.assertIn(mid, by_id)
+            self.assertTrue(by_id[mid].report_only)
+        # Wave M0 guarantees: 0 BAD_IMPORT_ALL, 0 hub imports, 0 demo-cert public meta imports
+        bad_all = [v for v in by_id["M5"].violations if v.kind == "bad-import-all"]
+        self.assertEqual(bad_all, [], f"unexpected BAD_IMPORT_ALL: {bad_all}")
+        hub_viols = [v for v in by_id["M6"].violations if v.kind == "m6-hub-import"]
+        self.assertEqual(hub_viols, [], f"unexpected hub imports: {hub_viols}")
+        demo_m3 = [
+            v for v in by_id["M3"].violations if "LcnfC0LoopDemoCert" in v.file
+        ]
+        self.assertEqual(demo_m3, [], f"unexpected demo-cert M3 violations: {demo_m3}")
+        # M1 catches current MainFlat proof-import bypasses in report-only mode
+        self.assertTrue(any(v.file == "LeanQbe/T/MainFlat.lean" for v in by_id["M1"].violations))
+        # CLI exits 0 under --modsys-report-only when strict checks pass
+        rc = cf.main(
+            [
+                "--root",
+                str(REPO_ROOT),
+                "--require-isa",
+                "--data-proof",
+                "--purity-ref",
+                "--modsys-report-only",
+                "--max-per-group",
+                "3",
+            ]
+        )
+        self.assertEqual(rc, 0)
+
+
 if __name__ == "__main__":
     unittest.main()

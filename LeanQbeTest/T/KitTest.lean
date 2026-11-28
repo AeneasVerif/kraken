@@ -1,6 +1,9 @@
 module
 
-public import LeanQbe.T.CoreHub
+public import LeanQbe.T.FlatLemmas
+public import LeanQbe.T.Logic.Rules
+public import LeanQbe.T.Logic.ZeroTerm
+public import LeanQbe.T.Notation
 public import LeanQbeTest.T.Examples
 
 /-!

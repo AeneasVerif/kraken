@@ -1,13 +1,13 @@
 module
-public import LeanQbe.T.CoreHub
-public import LeanQbe.T.FlatLemmas
-public import LeanQbe.T.Target
+import LeanQbe.T.FlatLemmas
+import LeanQbe.T.Logic.MemLemmas
+import LeanQbe.T.Target
 
 /-!
 # Cross-Module `t_kernel_rfl`, Co-Import, `ToExpr`, and Axiom Audit for `Target.lean`
 
 Verifies in a separate downstream `module` that:
-1. `Target` co-imports cleanly alongside `LeanQbe.T.CoreHub` (no `region`/`cell64`/`array64`
+1. `Target` co-imports cleanly alongside `LeanQbe.T.Logic.MemLemmas` (no `region`/`cell64`/`array64`
    collisions).
 2. `Fn.backendOk` (across `.let_` `zext`/`bswap`/`add`, `.group`/`.jump`, `.load`/`.store`,
    `assignArgs`/`assignRets`) and `Trie.insert`/`erase`/`find?` reduce in the Lean kernel across a

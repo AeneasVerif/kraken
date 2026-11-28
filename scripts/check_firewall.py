@@ -24,20 +24,26 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import collections
 import json
 import re
 import sys
 import time
+from collections.abc import Mapping, Set as AbstractSet
 from dataclasses import dataclass, field
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from lean_imports import (
     ANY_ATTR_RE,
+    BARRELS,
     DECL_RE,
     ImportStmt,
+    list_lean_files,
     module_to_path,
     parse_imports,
+    rel_path_to_mod,
+    scan_import_all_sites,
     strip_lean_code,
 )
 
@@ -135,6 +141,46 @@ PURITY_SPEC_TOP_END_RE = re.compile(
     r"scoped|meta|nonrec)?\s*(?:def|abbrev|structure|inductive|class|end|section|namespace)\b)"
 )
 
+MODSYS_ROOTS: tuple[str, ...] = ("LeanQbe", "LeanQbeTest", "LeanQbeBootstrap0Test")
+M1_DIRECT_EXEC_ROOTS: tuple[str, ...] = (
+    "LeanQbe/T/MainFlat.lean",
+    "LeanQbe/T/Main.lean",
+    "LeanQbe/T/InlinePlanSeg.lean",
+    "LeanQbe/T/Amd64/Isa.lean",
+    "LeanQbe/T/Arm64/Isa.lean",
+    "LeanQbe/T/Frontend/C0/Elab.lean",
+)
+M1_EXTRA_CERT_ELAB_FILES: tuple[str, ...] = (
+    "LeanQbe/T/MainCertSegStaged.lean",
+    "LeanQbe/T/MainCertInline.lean",
+    "LeanQbe/T/MainCertInlineChunk.lean",
+    "LeanQbe/T/MainCertScc.lean",
+)
+M2_SCOPE_RE = re.compile(
+    r"^(?:LeanQbe/(?:.*/)?Build/(?:Inl|Amd64|Arm64)/[^/]+\.lean"
+    r"|LeanQbe/T/(?:Amd64|Arm64)/[^/]*Cert[^/]*\.lean)$"
+)
+M3_ALLOWLIST_EXACT_STEMS: frozenset[str] = frozenset(
+    {
+        "MainCertInline",
+        "MainCertInlineChunk",
+        "MainCertScc",
+        "MainCertSegStaged",
+        "MainCertFlatDecode",
+    }
+)
+M4_PROOF_EXACT_MODS: frozenset[str] = frozenset(
+    {
+        "LeanQbe.T.Logic.ControlComb",
+        "Kraken.SeparationTactics",
+    }
+)
+M4_PROOF_PREFIXES: tuple[str, ...] = (
+    "LeanQbe.T.Logic.C0Step",
+    "LeanQbe.T.Logic.C0HeadStep",
+    "LeanQbe.T.Logic.ProofKit",
+)
+
 
 @dataclass
 class Violation:
@@ -150,13 +196,14 @@ class Violation:
 
 @dataclass
 class LeakGroupReport:
-    """Summary of one firewall leak category (L1-L5)."""
+    """Summary of one firewall leak category (L1-L5, D1-D2, P-Ref/P-Spec, M1-M6)."""
 
     leak_id: str
     label: str
     files: list[str]
     missing_files: list[str] = field(default_factory=list)
     violations: list[Violation] = field(default_factory=list)
+    report_only: bool = False
 
 
 def find_transitive_leaks(
@@ -1017,14 +1064,372 @@ def check_purity_spec_files(
     return viols
 
 
+def _discover_modsys_files(
+    root: Path, roots: tuple[str, ...] = MODSYS_ROOTS
+) -> list[str]:
+    """List repo-relative `.lean` paths under `roots`, excluding `.lake`/`.git`/`Kraken`."""
+    present = tuple(r for r in roots if (root / r).is_dir())
+    if not present:
+        return []
+    rels = list_lean_files(
+        root,
+        *present,
+        excludes=("Kraken", "bv_decide_qbe", "archive", ".lake", ".git"),
+    )
+    return [
+        r.as_posix()
+        for r in rels
+        if ".lake" not in r.parts and ".git" not in r.parts
+    ]
+
+
+def _is_m1_proof_module(mod: str) -> bool:
+    """Return True if `mod` is a proof/lemma/check/tactic module banned from `metaTransTrace`."""
+    leaf = mod.rsplit(".", 1)[-1]
+    if "Lemmas" in mod or "Check" in leaf:
+        return True
+    if ".Proof." in mod or mod.endswith(".Proof"):
+        return True
+    if mod == "Kraken.SeparationTactics":
+        return True
+    if mod.startswith(("LeanQbe.T.Logic.C0Step", "LeanQbe.T.Logic.ProofKit")):
+        return True
+    return False
+
+
+def _walk_m1_shortest_proof_hits(
+    root: Path,
+    start_imports: list[ImportStmt],
+    cache: dict[Path, list[ImportStmt]],
+) -> list[tuple[str, list[str], int]]:
+    """BFS over ALL import edges (public, private, meta, all) stopping at proof hits."""
+    q: collections.deque[tuple[str, list[str], int]] = collections.deque(
+        (imp.module, [imp.module], imp.line) for imp in start_imports
+    )
+    visited: set[str] = set()
+    hits: list[tuple[str, list[str], int]] = []
+    while q:
+        mod, chain, first_line = q.popleft()
+        if mod in visited:
+            continue
+        visited.add(mod)
+        if _is_m1_proof_module(mod):
+            hits.append((mod, chain, first_line))
+            continue
+        path = module_to_path(root, mod)
+        if path is None or not path.is_file():
+            continue
+        for nxt in _load_imports(path, cache):
+            if nxt.module not in visited:
+                q.append((nxt.module, [*chain, nxt.module], first_line))
+    return hits
+
+
+def check_m1_exec_meta_firewall(
+    root: Path,
+    cache: dict[Path, list[ImportStmt]],
+) -> tuple[list[str], list[Violation]]:
+    """M1: Executable-root zero-proof `metaTransTrace` firewall (walks private imports!)."""
+    exec_files = [rel for rel in M1_DIRECT_EXEC_ROOTS if (root / rel).is_file()]
+    cert_elab_set: set[str] = set()
+    t_dir = root / "LeanQbe" / "T"
+    if t_dir.is_dir():
+        for p in sorted(t_dir.rglob("*Cert*Elab*.lean")):
+            if ".lake" in p.parts or ".git" in p.parts:
+                continue
+            cert_elab_set.add(p.relative_to(root).as_posix())
+    for rel in M1_EXTRA_CERT_ELAB_FILES:
+        if (root / rel).is_file():
+            cert_elab_set.add(rel)
+    cert_elab_files = sorted(cert_elab_set)
+
+    violations: list[Violation] = []
+    for rel in exec_files:
+        imps = _load_imports(root / rel, cache)
+        for mod, chain, line in _walk_m1_shortest_proof_hits(root, imps, cache):
+            violations.append(
+                Violation(
+                    leak_id="M1",
+                    file=rel,
+                    line=line,
+                    module=mod,
+                    kind="m1-exec-proof-leak",
+                    detail=(
+                        "executable root reaches proof module via metaTransTrace "
+                        "(including private imports): " + " -> ".join(chain)
+                    ),
+                )
+            )
+
+    for rel in cert_elab_files:
+        imps = _load_imports(root / rel, cache)
+        meta_imps = [imp for imp in imps if imp.is_meta]
+        for mod, chain, line in _walk_m1_shortest_proof_hits(root, meta_imps, cache):
+            violations.append(
+                Violation(
+                    leak_id="M1",
+                    file=rel,
+                    line=line,
+                    module=mod,
+                    kind="m1-cert-elab-meta-proof-leak",
+                    detail=(
+                        "cert elaborator `meta import` reaches proof module via "
+                        "metaTransTrace: " + " -> ".join(chain)
+                    ),
+                )
+            )
+
+    return [*exec_files, *cert_elab_files], violations
+
+
+def check_m2_build_cert_imports(
+    root: Path,
+    all_files: list[str],
+    cache: dict[Path, list[ImportStmt]],
+) -> tuple[list[str], list[Violation]]:
+    """M2: `Build/*` & `*Cert*` elaborator (`import *Elab`) and target (`meta import *.Isa`) firewall."""
+    scoped = [rel for rel in all_files if M2_SCOPE_RE.match(rel)]
+    violations: list[Violation] = []
+    for rel in scoped:
+        imps = _load_imports(root / rel, cache)
+        for imp in imps:
+            if not imp.is_meta:
+                continue
+            leaf = imp.module.rsplit(".", 1)[-1]
+            if leaf.endswith("Elab"):
+                violations.append(
+                    Violation(
+                        leak_id="M2",
+                        file=rel,
+                        line=imp.line,
+                        module=imp.module,
+                        kind="m2-meta-elab-import",
+                        detail=(
+                            f"forbidden `meta import {imp.module}` in Build/Cert module "
+                            f"(use plain private `import {imp.module}`)"
+                        ),
+                    )
+                )
+            elif imp.module.endswith(".Targ"):
+                violations.append(
+                    Violation(
+                        leak_id="M2",
+                        file=rel,
+                        line=imp.line,
+                        module=imp.module,
+                        kind="m2-meta-targ-import",
+                        detail=(
+                            f"forbidden `meta import {imp.module}` walks Targ private "
+                            "proof imports (use `meta import *.Isa`)"
+                        ),
+                    )
+                )
+    return scoped, violations
+
+
+def _is_m3_allowlisted(rel: str) -> bool:
+    """Return True if `rel` is allowlisted to use `public meta import`."""
+    if rel.startswith(("LeanQbeTest/", "LeanQbeBootstrap0Test/")):
+        return False
+    if rel.endswith("/Src/Header.lean") or rel == "Src/Header.lean":
+        return False
+    if "/Proof/" in f"/{rel}":
+        return False
+    stem = Path(rel).stem
+    if "Lemmas" in stem or stem.startswith(("Wp", "Helpers")):
+        return False
+    if stem in M3_ALLOWLIST_EXACT_STEMS:
+        return True
+    if stem.endswith(("Elab", "Attr", "Syntax")) or stem.startswith("Notation"):
+        return True
+    if "Tactics" in stem or "Splice" in stem:
+        return True
+    return False
+
+
+def check_m3_public_meta_allowlist(
+    root: Path,
+    all_files: list[str],
+    cache: dict[Path, list[ImportStmt]],
+) -> list[Violation]:
+    """M3: Ban `public meta import` outside explicitly allowlisted meta/elab/syntax modules."""
+    violations: list[Violation] = []
+    for rel in all_files:
+        if _is_m3_allowlisted(rel):
+            continue
+        imps = _load_imports(root / rel, cache)
+        for imp in imps:
+            if imp.is_public and imp.is_meta:
+                violations.append(
+                    Violation(
+                        leak_id="M3",
+                        file=rel,
+                        line=imp.line,
+                        module=imp.module,
+                        kind="m3-public-meta-import",
+                        detail=(
+                            f"forbidden `public meta import {imp.module}` outside "
+                            "allowlisted meta/elab modules"
+                        ),
+                    )
+                )
+    return violations
+
+
+def _is_m4_proof_tactic_module(mod: str) -> bool:
+    """Return True if `mod` is a proof-automation/tactic module banned from `public import`."""
+    if mod in M4_PROOF_EXACT_MODS:
+        return True
+    if mod.endswith(".Proof.Lib.ContractLemmas"):
+        return True
+    if not mod.endswith("Rules") and mod.startswith(M4_PROOF_PREFIXES):
+        return True
+    leaf = mod.rsplit(".", 1)[-1]
+    if "Tactics" in leaf:
+        return True
+    return False
+
+
+def check_m4_proof_public_imports(
+    root: Path,
+    all_files: list[str],
+    cache: dict[Path, list[ImportStmt]],
+) -> tuple[list[str], list[Violation]]:
+    """M4: Ban `public import` of pure tactic/proof-automation modules in `Proof/` & `*Lemmas*`."""
+    scoped = [
+        rel
+        for rel in all_files
+        if rel.startswith("LeanQbe/")
+        and ("/Proof/" in f"/{rel}" or "Lemmas" in Path(rel).stem)
+    ]
+    violations: list[Violation] = []
+    for rel in scoped:
+        imps = _load_imports(root / rel, cache)
+        for imp in imps:
+            if imp.is_public and _is_m4_proof_tactic_module(imp.module):
+                violations.append(
+                    Violation(
+                        leak_id="M4",
+                        file=rel,
+                        line=imp.line,
+                        module=imp.module,
+                        kind="m4-proof-public-import",
+                        detail=(
+                            f"proof-only module `{imp.module}` must use private "
+                            "`import`, not `public import`"
+                        ),
+                    )
+                )
+    return scoped, violations
+
+
+def check_m5_import_all_repo_wide(
+    root: Path,
+    allowlist: AbstractSet[str] | Mapping[str, AbstractSet[str]] | None = None,
+) -> list[Violation]:
+    """M5: Repo-wide zero `import all` rule across `LeanQbe*` / `LeanQbe*Test`."""
+    violations: list[Violation] = []
+    for rel, imp in scan_import_all_sites(root, roots=MODSYS_ROOTS, allowlist=allowlist):
+        is_bad = imp.is_public or imp.module.startswith("LeanQbe")
+        kind = "bad-import-all" if is_bad else "import-all"
+        detail = (
+            f"forbidden `{'public ' if imp.is_public else ''}import all {imp.module}`"
+            + (" (BAD_IMPORT_ALL)" if is_bad else " (M5 repo-wide ban)")
+        )
+        violations.append(
+            Violation(
+                leak_id="M5",
+                file=rel,
+                line=imp.line,
+                module=imp.module,
+                kind=kind,
+                detail=detail,
+            )
+        )
+    return violations
+
+
+def check_m6_hub_and_leaf_tests(
+    root: Path,
+    all_files: list[str],
+    cache: dict[Path, list[ImportStmt]],
+) -> list[Violation]:
+    """M6: Ban `*Hub` imports in library/test modules and `public [meta] import` in leaf tests."""
+    rdep_counts: dict[str, int] = collections.defaultdict(int)
+    file_imps: list[tuple[str, str, list[ImportStmt]]] = []
+    for rel in all_files:
+        mod = rel_path_to_mod(Path(rel))
+        imps = _load_imports(root / rel, cache)
+        file_imps.append((rel, mod, imps))
+        if mod in BARRELS:
+            continue
+        for imp in imps:
+            rdep_counts[imp.module] += 1
+
+    violations: list[Violation] = []
+    for rel, mod, imps in file_imps:
+        if mod in BARRELS:
+            continue
+        is_test = rel.startswith(("LeanQbeTest/", "LeanQbeBootstrap0Test/"))
+        is_leaf_test = is_test and rdep_counts.get(mod, 0) == 0
+        for imp in imps:
+            if imp.module in BARRELS:
+                violations.append(
+                    Violation(
+                        leak_id="M6",
+                        file=rel,
+                        line=imp.line,
+                        module=imp.module,
+                        kind="m6-hub-import",
+                        detail=(
+                            f"forbidden hub/barrel import `{imp.module}` "
+                            "(replace with minimal direct imports)"
+                        ),
+                    )
+                )
+            if is_leaf_test and imp.is_public:
+                if imp.is_meta:
+                    violations.append(
+                        Violation(
+                            leak_id="M6",
+                            file=rel,
+                            line=imp.line,
+                            module=imp.module,
+                            kind="m6-leaf-test-public-meta-import",
+                            detail=(
+                                f"leaf test (`rdeps == 0`) uses `public meta import "
+                                f"{imp.module}` (use `meta import`)"
+                            ),
+                        )
+                    )
+                else:
+                    violations.append(
+                        Violation(
+                            leak_id="M6",
+                            file=rel,
+                            line=imp.line,
+                            module=imp.module,
+                            kind="m6-leaf-test-public-import",
+                            detail=(
+                                f"leaf test (`rdeps == 0`) uses `public import "
+                                f"{imp.module}` (use private `import`)"
+                            ),
+                        )
+                    )
+    return violations
+
+
 def run_audit(
     root: Path,
     require_isa: bool = False,
     data_proof: bool = False,
     purity_ref: bool = False,
     purity_spec: bool = False,
+    modsys: bool = False,
+    modsys_report_only: bool = False,
+    m5_allowlist: AbstractSet[str] | Mapping[str, AbstractSet[str]] | None = None,
 ) -> list[LeakGroupReport]:
-    """Run all firewall checks (L1-L5, plus optional D1-D2, P-Ref, P-Spec) against `root`."""
+    """Run firewall checks (`L1-L5`, optional `D1-D2`, `P-Ref`, `P-Spec`, `M1-M6`) against `root`."""
     cache: dict[Path, list[ImportStmt]] = {}
 
     l1_files = ["LeanQbe/T/MainLemmas.lean"]
@@ -1148,6 +1553,61 @@ def run_audit(
                 violations=check_purity_spec_files(root, spec_files, cache),
             )
         )
+    if modsys or modsys_report_only:
+        all_modsys_files = _discover_modsys_files(root)
+        m1_files, m1_viols = check_m1_exec_meta_firewall(root, cache)
+        m2_files, m2_viols = check_m2_build_cert_imports(root, all_modsys_files, cache)
+        m3_viols = check_m3_public_meta_allowlist(root, all_modsys_files, cache)
+        m4_files, m4_viols = check_m4_proof_public_imports(root, all_modsys_files, cache)
+        m5_viols = check_m5_import_all_repo_wide(root, allowlist=m5_allowlist)
+        m6_viols = check_m6_hub_and_leaf_tests(root, all_modsys_files, cache)
+        m_ro = modsys_report_only
+        reports.extend(
+            [
+                LeakGroupReport(
+                    leak_id="M1",
+                    label="Executable-root zero-proof `metaTransTrace` firewall",
+                    files=m1_files,
+                    violations=m1_viols,
+                    report_only=m_ro,
+                ),
+                LeakGroupReport(
+                    leak_id="M2",
+                    label="`Build/*` & `*Cert*` elaborator/target import firewall",
+                    files=m2_files,
+                    violations=m2_viols,
+                    report_only=m_ro,
+                ),
+                LeakGroupReport(
+                    leak_id="M3",
+                    label="`public meta import` allowlist",
+                    files=all_modsys_files,
+                    violations=m3_viols,
+                    report_only=m_ro,
+                ),
+                LeakGroupReport(
+                    leak_id="M4",
+                    label="Proof-only `public import` ban (`Proof/` & `*Lemmas*`)",
+                    files=m4_files,
+                    violations=m4_viols,
+                    report_only=m_ro,
+                ),
+                LeakGroupReport(
+                    leak_id="M5",
+                    label="Repo-wide zero `import all` (`LeanQbe*` & `LeanQbe*Test`)",
+                    files=all_modsys_files,
+                    violations=m5_viols,
+                    report_only=m_ro,
+                ),
+                LeakGroupReport(
+                    leak_id="M6",
+                    label="Hub import ban & leaf-test hygiene (`rdeps == 0`)",
+                    files=all_modsys_files,
+                    violations=m6_viols,
+                    report_only=m_ro,
+                ),
+            ]
+        )
     return reports
 
 
@@ -1155,26 +1615,39 @@ def format_human_report(
     groups: list[LeakGroupReport],
     elapsed_ms: float,
     report_only: bool,
+    *,
+    max_per_group: int | None = None,
 ) -> str:
     """Render concise human-readable firewall report."""
     active_leaks = [g for g in groups if g.violations]
     total_viols = sum(len(g.violations) for g in groups)
+    strict_viols = sum(
+        len(g.violations) for g in groups if not (report_only or g.report_only)
+    )
     mode = "report-only" if report_only else "strict"
     lines: list[str] = [
         f"firewall lint ({mode}, {elapsed_ms:.1f}ms): "
         f"{len(active_leaks)}/{len(groups)} leak group(s), "
-        f"{total_viols} offending public import(s)"
+        f"{total_viols} offending import(s) ({strict_viols} strict)"
     ]
     for g in groups:
-        status = f"FAIL ({len(g.violations)})" if g.violations else "OK"
+        is_ro = report_only or g.report_only
+        if g.violations:
+            tag = "REPORT" if is_ro else "FAIL"
+            status = f"{tag} ({len(g.violations)})"
+        else:
+            status = "OK"
         lines.append(f"[{g.leak_id}] {status}: {g.label}")
         if g.missing_files:
             lines.append(
                 "  note: pre-P2B absent file(s): " + ", ".join(g.missing_files)
             )
-        for v in g.violations:
+        shown = g.violations if max_per_group is None else g.violations[:max_per_group]
+        for v in shown:
             loc = f"{v.file}:{v.line}" if v.line > 0 else v.file
             lines.append(f"  - {loc}: {v.detail}")
+        if max_per_group is not None and len(g.violations) > max_per_group:
+            lines.append(f"  ... ({len(g.violations) - max_per_group} more)")
     return "\n".join(lines)
 
 
@@ -1213,6 +1686,22 @@ def main(argv: list[str] | None = None) -> int:
         help="Enforce Rule `P-Spec` purity on `**/Kissat*/Spec/*.lean` and pre-W8 `Spec*` modules (opt-in).",
     )
     ap.add_argument(
+        "--modsys",
+        action="store_true",
+        help="Enable Lean 4.37 module-system lints `M1`-`M6` (strict unless `--report-only`).",
+    )
+    ap.add_argument(
+        "--modsys-report-only",
+        action="store_true",
+        help="Enable `M1`-`M6` in non-failing report-only mode (strict checks still fail).",
+    )
+    ap.add_argument(
+        "--max-per-group",
+        type=int,
+        default=None,
+        help="Optional cap on printed violations per group in human output.",
+    )
+    ap.add_argument(
         "--json",
         action="store_true",
         help="Emit machine-readable JSON output.",
@@ -1227,11 +1716,16 @@ def main(argv: list[str] | None = None) -> int:
         data_proof=args.data_proof,
         purity_ref=args.purity_ref,
         purity_spec=args.purity_spec,
+        modsys=args.modsys,
+        modsys_report_only=args.modsys_report_only,
     )
     elapsed_ms = (time.perf_counter() - t0) * 1000.0
 
     leak_groups = sum(1 for g in groups if g.violations)
     total_viols = sum(len(g.violations) for g in groups)
+    strict_viols = sum(
+        len(g.violations) for g in groups if not (args.report_only or g.report_only)
+    )
 
     if args.json:
         payload = {
@@ -1239,10 +1733,12 @@ def main(argv: list[str] | None = None) -> int:
             "elapsed_ms": round(elapsed_ms, 2),
             "leak_groups": leak_groups,
             "total_violations": total_viols,
+            "strict_violations": strict_viols,
             "groups": [
                 {
                     "leak_id": g.leak_id,
                     "label": g.label,
+                    "report_only": args.report_only or g.report_only,
                     "files": g.files,
                     "missing_files": g.missing_files,
                     "violations": [
@@ -1261,9 +1757,16 @@ def main(argv: list[str] | None = None) -> int:
         }
         print(json.dumps(payload, indent=2))
     else:
-        print(format_human_report(groups, elapsed_ms, args.report_only))
+        print(
+            format_human_report(
+                groups,
+                elapsed_ms,
+                args.report_only,
+                max_per_group=args.max_per_group,
+            )
+        )
 
-    if not args.report_only and total_viols > 0:
+    if not args.report_only and strict_viols > 0:
         return 1
     return 0
 

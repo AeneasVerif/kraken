@@ -1,10 +1,15 @@
 module
 
-public import LeanQbe.T.CoreHub
+public import LeanQbe.T.Flat
+public import LeanQbe.T.Legal
+public import LeanQbe.T.Wf
 public import LeanQbe.T.Examples.UnionFindLemmas
 public import LeanQbeTest.T.Examples
 public import LeanQbeTest.T.Smoke
 public import LeanQbeTest.T.NotationTest
+import LeanQbe.T.FlatLemmas
+import LeanQbe.T.LegalCheck3
+import LeanQbe.T.LegalLemmas
 
 /-!
 # Target-parameterized legalisation tests (`LeanQbe.T.Legal`)

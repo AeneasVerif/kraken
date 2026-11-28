@@ -2,15 +2,15 @@ module
 
 public import LeanQbe.T.Bedrock2.Phoas
 public import LeanQbe.T.Flat
+public import LeanQbe.T.FlatDirectLemmas
 public import LeanQbe.T.FlatLemmas
-import all LeanQbe.T.FlatLemmas
 
 /-!
 # First-Order De Bruijn Mirror (`BFlat`) and `FlatLemmas` Triad
 
 Promotes the first-order de Bruijn mirror of structured Bedrock2 (`BFlat rs`),
 reusing `LeanQbe.T.K`, `idxArg`/`idxArgs`, `pushTup`/`pushTypes`, `lookupV`,
-`denoteArg`/`denoteArgs`, `checkArg`/`checkArgs`, `CtxRel`, `CtxTypes`, `CtxMatch`,
+`denoteArg`/`denoteArgs`, `checkArg`/`checkArgs`, `CtxRel`, `CtxTypes`, `FlatCtxMatch`,
 and `t_kernel_rfl`:
 
 1. `toBFlat` / `BFlat.denote` / `BFlat.wfCheck` / `BFlat.noHlt` / `BFlat.wp`
@@ -506,73 +506,101 @@ theorem BFlat.wp_iff_denote_wp {ext : ExtSpecB} {Γ : EnvB} :
                fun hb => (BFlat.wp_iff_denote_wp k B Q (pushTup s vs) t₁ m₁).2 (hf hb)⟩) _ t' m'⟩
   | _, .hlt, _, _, _, _, _ => Iff.rfl
 
-private theorem ctxMatch_consV {G : Ctx K Val} {vs : List ((t : Ty) × Val t)}
-    (hvs : CtxMatch lookupV G vs) (t : Ty) (v : Val t) :
-    CtxMatch lookupV (⟨t, vs.length, v⟩ :: G) (⟨t, v⟩ :: vs) :=
-  ctxMatch_pushTupV hvs (as := [t]) (v, ())
+private theorem lookupV_head_b {V : Ty → Type} (t : Ty) (v : V t) (vs : List ((u : Ty) × V u)) :
+    lookupV (⟨t, v⟩ :: vs) t 0 = some v := by
+  dsimp only [lookupV, listGet?]; exact PassFlatKit.castTy_self t v
+
+private theorem flatCtxMatch_pushTupV {V : Ty → Type} {G : Ctx K V} {vs : List ((t : Ty) × V t)}
+    (hvs : FlatCtxMatch lookupV G vs) {as : List Ty} (xs : Tup V as) :
+    FlatCtxMatch lookupV (Tup.zip (Tup.levels as vs.length) xs ++ G) (pushTup xs vs) :=
+  FlatCtxMatch.pushTup lookupV_head_b (fun _ _ _ _ _ => rfl) xs hvs
+
+private theorem flatCtxMatch_consV {G : Ctx K Val} {vs : List ((t : Ty) × Val t)}
+    (hvs : FlatCtxMatch lookupV G vs) (t : Ty) (v : Val t) :
+    FlatCtxMatch lookupV (⟨t, vs.length, v⟩ :: G) (⟨t, v⟩ :: vs) :=
+  flatCtxMatch_pushTupV hvs (as := [t]) (v, ())
+
+private theorem denoteArg_idxArg_b {V : Ty → Type} {G : Ctx K V} {vs : List ((t : Ty) × V t)}
+    (hvs : FlatCtxMatch lookupV G vs) {t : Ty} {a₁ : Arg K t} {a₂ : Arg V t}
+    (ha : ArgRel G t a₁ a₂) :
+    denoteArg vs (idxArg vs.length a₁) = some a₂ := by
+  cases ha with
+  | @var lvl v hm =>
+    obtain ⟨hlt, hl⟩ := hvs _ hm
+    dsimp only [idxArg]; simp only [hlt, ↓reduceIte]; dsimp only [denoteArg]; rw [hl]
+  | imm c => rfl
+
+private theorem denoteArgs_idxArgs_b {V : Ty → Type} {G : Ctx K V} {vs : List ((t : Ty) × V t)}
+    (hvs : FlatCtxMatch lookupV G vs) :
+    {ts : List Ty} → {as₁ : Tup (Arg K) ts} → {as₂ : Tup (Arg V) ts} →
+    TRel (ArgRel G) as₁ as₂ →
+    denoteArgs vs (idxArgs vs.length as₁) = some as₂
+  | [], (), (), .nil => rfl
+  | _ :: _, (_, _), (_, _), .cons h hs => by
+    dsimp only [idxArgs, denoteArgs]; rw [denoteArg_idxArg_b hvs h, denoteArgs_idxArgs_b hvs hs]
 
 /-- (c) Reification-denotation round-trip preserves `Cmd.wp` identically under `Cmd.Wf`. -/
 theorem BFlat.denote_wp_iff {ext : ExtSpecB} {Γ : EnvB} {rs : List Ty}
     {G : Ctx K Val} {c₁ : Cmd K rs} {c₂ : Cmd Val rs}
     (hwf : Cmd.Wf G c₁ c₂) :
-    ∀ (vs : List ((t : Ty) × Val t)), CtxMatch lookupV G vs →
+    ∀ (vs : List ((t : Ty) × Val t)), FlatCtxMatch lookupV G vs →
     ∀ (B : Nat) (Q : PostB rs) (t : TraceB) (m : Mem 64),
     Cmd.wp ext Γ B Q ((toBFlat c₁ vs.length).denote Val vs) t m ↔
       Cmd.wp ext Γ B Q c₂ t m := by
   induction hwf with
   | ret hvs' =>
       intro vs hvs _ _ _ _
-      have hda := denoteArgs_idxArgs hvs hvs'
+      have hda := denoteArgs_idxArgs_b hvs hvs'
       dsimp only [toBFlat, BFlat.denote]; rw [hda]
   | let_ hop _ ih =>
       intro vs hvs B Q t m
       cases hop with | mk code hargs =>
-      have hda := denoteArgs_idxArgs hvs hargs
+      have hda := denoteArgs_idxArgs_b hvs hargs
       dsimp only [toBFlat, BFlat.denote]; rw [hda]; dsimp only [Cmd.wp]
       refine ⟨Op.wp_mono fun r hr => ?_, Op.wp_mono fun r hr => ?_⟩
       · have hk := (ih (Tup.levels _ vs.length) r (pushTup r vs)
-          (ctxMatch_pushTupV hvs r) B Q t m).1
+          (flatCtxMatch_pushTupV hvs r) B Q t m).1
         rw [pushTup_length r vs] at hk; exact hk hr
       · have hk := (ih (Tup.levels _ vs.length) r (pushTup r vs)
-          (ctxMatch_pushTupV hvs r) B Q t m).2
+          (flatCtxMatch_pushTupV hvs r) B Q t m).2
         rw [pushTup_length r vs] at hk; exact hk hr
   | load ty ha _ ih =>
       intro vs hvs B Q t m
-      have hda := denoteArg_idxArg hvs ha
+      have hda := denoteArg_idxArg_b hvs ha
       dsimp only [toBFlat, BFlat.denote]; rw [hda]; dsimp only [Cmd.wp]
       exact exists_congr fun v => and_congr_right fun _ =>
-        ih vs.length v (⟨ty, v⟩ :: vs) (ctxMatch_consV hvs ty v) B Q t m
+        ih vs.length v (⟨ty, v⟩ :: vs) (flatCtxMatch_consV hvs ty v) B Q t m
   | store hv ha _ ih =>
       intro vs hvs B Q t _
-      have hdv := denoteArg_idxArg hvs hv
-      have hda := denoteArg_idxArg hvs ha
+      have hdv := denoteArg_idxArg_b hvs hv
+      have hda := denoteArg_idxArg_b hvs ha
       dsimp only [toBFlat, BFlat.denote]; rw [hdv, hda]; dsimp only [Cmd.wp]
       exact and_congr_right fun _ => ih vs hvs B Q t _
   | call _ hargs _ ih =>
       intro vs hvs B Q t m
-      have hda := denoteArgs_idxArgs hvs hargs
+      have hda := denoteArgs_idxArgs_b hvs hargs
       dsimp only [toBFlat, BFlat.denote]; rw [hda]; dsimp only [Cmd.wp]
       exact exists_congr fun P => and_congr_right fun _ =>
         forall₃_congr fun r t' m' => imp_congr_right fun _ => by
           have hk := ih (Tup.levels _ vs.length) r (pushTup r vs)
-            (ctxMatch_pushTupV hvs r) B Q t' m'
+            (flatCtxMatch_pushTupV hvs r) B Q t' m'
           rwa [pushTup_length r vs] at hk
   | interact _ hargs _ ih =>
       intro vs hvs B Q t m
-      have hda := denoteArgs_idxArgs hvs hargs
+      have hda := denoteArgs_idxArgs_b hvs hargs
       dsimp only [toBFlat, BFlat.denote]; rw [hda]; dsimp only [Cmd.wp]
       exact exists₃_congr fun _ _ _ => and_congr_right fun _ => and_congr_right fun _ =>
         forall₂_congr fun _ res => imp_congr_right fun _ => forall_congr' fun m' =>
           imp_congr_right fun _ => by
             simpa [pushTup_length] using
               ih (Tup.levels _ vs.length) res (pushTup res vs)
-                (ctxMatch_pushTupV hvs res) B Q _ m'
+                (flatCtxMatch_pushTupV hvs res) B Q _ m'
   | stackalloc nbytes _ ih =>
       intro vs hvs B Q t mSmall
       dsimp only [toBFlat, BFlat.denote, Cmd.wp]
       exact and_congr_right fun _ => forall₃_congr fun a _ mComb =>
         imp_congr_right fun _ => imp_congr_right fun _ =>
-          ih vs.length a (⟨i64, a⟩ :: vs) (ctxMatch_consV hvs i64 a) (B - nbytes) _ t mComb
+          ih vs.length a (⟨i64, a⟩ :: vs) (flatCtxMatch_consV hvs i64 a) (B - nbytes) _ t mComb
   | seq _ _ ih₁ ih₂ =>
       intro vs hvs B Q t m
       dsimp only [toBFlat, BFlat.denote, Cmd.wp]
@@ -580,21 +608,21 @@ theorem BFlat.denote_wp_iff {ext : ExtSpecB} {Γ : EnvB} {rs : List Ty}
       refine ⟨Cmd.wp_mono (fun mid t' m' hm => ?_) _ t m,
         Cmd.wp_mono (fun mid t' m' hm => ?_) _ t m⟩
       · have hk := (ih₂ (Tup.levels _ vs.length) mid (pushTup mid vs)
-          (ctxMatch_pushTupV hvs mid) B Q t' m').1
+          (flatCtxMatch_pushTupV hvs mid) B Q t' m').1
         rw [pushTup_length mid vs] at hk; exact hk hm
       · have hk := (ih₂ (Tup.levels _ vs.length) mid (pushTup mid vs)
-          (ctxMatch_pushTupV hvs mid) B Q t' m').2
+          (flatCtxMatch_pushTupV hvs mid) B Q t' m').2
         rw [pushTup_length mid vs] at hk; exact hk hm
   | cond hc _ _ iht ihe =>
       intro vs hvs B Q t m
-      have hdc := denoteArg_idxArg hvs hc
+      have hdc := denoteArg_idxArg_b hvs hc
       dsimp only [toBFlat, BFlat.denote]; rw [hdc]; dsimp only [Cmd.wp]
       exact and_congr
         (imp_congr_right fun _ => iht vs hvs B Q t m)
         (imp_congr_right fun _ => ihe vs hvs B Q t m)
   | while_ hinit _ _ _ iht ihb ihk =>
       intro vs hvs B Q t m
-      have hdi := denoteArgs_idxArgs hvs hinit
+      have hdi := denoteArgs_idxArgs_b hvs hinit
       dsimp only [toBFlat, BFlat.denote]; rw [hdi]; dsimp only [Cmd.wp]
       refine forall_congr' fun I => imp_congr_left <|
         forall₃_congr fun s t' m' => imp_congr_left ?_
@@ -602,18 +630,18 @@ theorem BFlat.denote_wp_iff {ext : ExtSpecB} {Γ : EnvB} {rs : List Ty}
           Cmd.wp ext Γ B P ((toBFlat _ (vs.length + _)).denote Val (pushTup s vs)) t' m' ↔
             Cmd.wp ext Γ B P _ t' m' := fun P => by
         simpa [pushTup_length] using
-          iht (Tup.levels _ vs.length) s (pushTup s vs) (ctxMatch_pushTupV hvs s) B P t' m'
+          iht (Tup.levels _ vs.length) s (pushTup s vs) (flatCtxMatch_pushTupV hvs s) B P t' m'
       rw [htm]
       have hbm : ∀ t₁ m₁,
           Cmd.wp ext Γ B I ((toBFlat _ (vs.length + _)).denote Val (pushTup s vs)) t₁ m₁ ↔
             Cmd.wp ext Γ B I _ t₁ m₁ := fun t₁ m₁ => by
         simpa [pushTup_length] using
-          ihb (Tup.levels _ vs.length) s (pushTup s vs) (ctxMatch_pushTupV hvs s) B I t₁ m₁
+          ihb (Tup.levels _ vs.length) s (pushTup s vs) (flatCtxMatch_pushTupV hvs s) B I t₁ m₁
       have hkm : ∀ t₁ m₁,
           Cmd.wp ext Γ B Q ((toBFlat _ (vs.length + _)).denote Val (pushTup s vs)) t₁ m₁ ↔
             Cmd.wp ext Γ B Q _ t₁ m₁ := fun t₁ m₁ => by
         simpa [pushTup_length] using
-          ihk (Tup.levels _ vs.length) s (pushTup s vs) (ctxMatch_pushTupV hvs s) B Q t₁ m₁
+          ihk (Tup.levels _ vs.length) s (pushTup s vs) (flatCtxMatch_pushTupV hvs s) B Q t₁ m₁
       exact ⟨Cmd.wp_mono (fun (b, ()) t₁ m₁ ⟨ht, hf⟩ =>
           ⟨fun hb => (hbm t₁ m₁).1 (ht hb), fun hb => (hkm t₁ m₁).1 (hf hb)⟩) _ t' m',
         Cmd.wp_mono (fun (b, ()) t₁ m₁ ⟨ht, hf⟩ =>
@@ -626,9 +654,9 @@ theorem FuncB.renorm_wp_iff {as rs : List Ty} {ext : ExtSpecB} {Γ : EnvB}
     (Q : PostB rs) :
     FuncB.wp ext Γ (FuncB.renorm f) B xs t m Q ↔ FuncB.wp ext Γ f B xs t m Q := by
   have hwf := h K Val (Tup.levels as 0) xs
-  have hvs : CtxMatch lookupV (Tup.zip (Tup.levels as 0) xs) (pushTup xs []) := by
+  have hvs : FlatCtxMatch lookupV (Tup.zip (Tup.levels as 0) xs) (pushTup xs []) := by
     simpa [List.append_nil] using
-      (ctxMatch_pushTupV (G := ([] : Ctx K Val)) (vs := []) (fun _ hp => nomatch hp) xs)
+      (flatCtxMatch_pushTupV (G := ([] : Ctx K Val)) (vs := []) FlatCtxMatch.empty xs)
   have hd := BFlat.denote_wp_iff (ext := ext) (Γ := Γ) hwf (pushTup xs []) hvs B Q t m
   simpa [FuncB.wp, FuncB.renorm, denoteFuncB, reifyFuncB, pushTup_length] using hd
 

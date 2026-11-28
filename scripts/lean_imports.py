@@ -610,6 +610,7 @@ def audit_lean_source(
     expose_on_thm: list[int] = []
     banned_by_line: dict[int, str] = {}
     bad_import_all: list[int] = []
+    import_all_lines: list[int] = []
     total_import_all = 0
     conflicts: list[int] = []
 
@@ -697,6 +698,7 @@ def audit_lean_source(
         if BAD_IMPORT_ALL_RE.match(code):
             bad_import_all.append(idx)
         if ANY_IMPORT_ALL_RE.match(code):
+            import_all_lines.append(idx)
             total_import_all += 1
             if is_proof_shard:
                 proof_import_all.append(idx)
@@ -778,6 +780,7 @@ def audit_lean_source(
         "expose_on_thm": expose_on_thm,
         "banned_hits": banned_hits,
         "bad_import_all": bad_import_all,
+        "import_all_lines": import_all_lines,
         "total_import_all": total_import_all,
         "conflicts": conflicts,
         "proof_import_all": proof_import_all,
@@ -802,6 +805,7 @@ KRAKEN_ROOT_FILES: frozenset[str] = frozenset({
     "Kraken.lean", "KrakenAArch64.lean", "KrakenBedrock2.lean",
     "KrakenRunnerX64.lean", "KrakenRunnerAArch64.lean", "Att2Intel.lean", "Bedrock2C.lean",
 })
+STANDALONE_NON_LAKE_DIRS: frozenset[str] = frozenset({"bv_decide_qbe", "archive", "test"})
 KISSAT_X64_PFX: tuple[str, ...] = (
     "LeanQbe.T.Examples.Kissat.Build.Amd64.",
     "LeanQbe.T.Examples.Kissat.Build.Oracle.Amd64.",
@@ -854,6 +858,18 @@ def is_kraken_path(rel: Path | str) -> bool:
     """Return True if `rel` resides under `Kraken/` or is a root Kraken file."""
     p = rel if isinstance(rel, Path) else Path(rel)
     return (bool(p.parts) and p.parts[0] == "Kraken") or (p.name in KRAKEN_ROOT_FILES)
+
+
+def is_standalone_non_lake_path(rel: Path | str) -> bool:
+    """Return True if `rel` is a standalone non-Lake script/fixture `.lean` file."""
+    p = rel if isinstance(rel, Path) else Path(rel)
+    if not p.parts:
+        return False
+    if p.parts[0] in STANDALONE_NON_LAKE_DIRS:
+        return True
+    if p.parts[0] == "scripts" and p.as_posix() != "scripts/AuditAxioms.lean":
+        return True
+    return False
 
 
 def modules_to_lake_targets(mods: Iterable[str]) -> list[str]:
@@ -929,32 +945,319 @@ def bfs_rdeps(
     return sorted(seen)
 
 
+LAKE_TRACE_MODES: frozenset[str] = frozenset({"graph", "lake"})
+LAKE_EDIT_KINDS: frozenset[str] = frozenset({"olean", "ir", "proof"})
+
+
+def lake_trace_rdeps(
+    seeds: Iterable[str],
+    rev_imports: Mapping[str, Iterable[tuple[str, ImportStmt]]],
+    is_module_map: Mapping[str, bool],
+    *,
+    edit_kind: str = "olean",
+    seed_edit_kinds: Mapping[str, str] | None = None,
+    max_rdeps: int | None = None,
+) -> list[str] | None:
+    """Compute exact Lean 4.37 / Lake 5.0 reverse rebuild closure for `seeds`.
+
+    Mirrors `ModuleImportInfo.addImport` (`Lake/Build/Module.lean:358-446`):
+      - `trans`: `.olean` / `transTrace` (normal `import` stops after 1 hop;
+        `public import` propagates; `public meta import` injects `meta` here).
+      - `meta`: `.olean + .ir.sig + .ir` / `metaTransTrace` (propagates
+        unconditionally across ALL imports, including private `import`, and
+        rebuilds every `meta import` / `public meta import` consumer).
+      - `all`: `.olean + .server + .private + .ir.sig + .ir` / `allTransTrace`
+        (rebuilds `import all` consumers).
+      - `legacy`: non-`module` transitive trace (`legacyTransTrace`).
+    """
+    if edit_kind not in LAKE_EDIT_KINDS:
+        raise ValueError(f"invalid edit_kind {edit_kind!r}; expected one of {sorted(LAKE_EDIT_KINDS)}")
+    seed_list = sorted(set(seeds))
+    if not seed_list:
+        return []
+    if max_rdeps is not None and len(seed_list) > max_rdeps:
+        return None
+
+    rebuilt: set[str] = set(seed_list)
+    dirty_ch: set[tuple[str, str]] = set()
+    q: collections.deque[tuple[str, str]] = collections.deque()
+
+    def _add_ch(mod: str, ch: str) -> None:
+        key = (mod, ch)
+        if key not in dirty_ch:
+            dirty_ch.add(key)
+            q.append(key)
+
+    for s in seed_list:
+        sk = seed_edit_kinds.get(s, edit_kind) if seed_edit_kinds is not None else edit_kind
+        if sk not in LAKE_EDIT_KINDS:
+            raise ValueError(f"invalid seed edit_kind {sk!r} for {s}")
+        if sk == "olean":
+            _add_ch(s, "trans")
+            _add_ch(s, "meta")
+            _add_ch(s, "all")
+            _add_ch(s, "legacy")
+        elif sk == "ir":
+            _add_ch(s, "meta")
+            _add_ch(s, "all")
+            _add_ch(s, "legacy")
+        else:  # "proof"
+            _add_ch(s, "all")
+            _add_ch(s, "legacy")
+
+    while q:
+        b, ch = q.popleft()
+        for a, imp in rev_imports.get(b, ()):
+            a_is_mod = is_module_map.get(a, True)
+            if ch == "legacy":
+                _add_ch(a, "legacy")
+                if not a_is_mod and a not in rebuilt:
+                    rebuilt.add(a)
+                    if max_rdeps is not None and len(rebuilt) > max_rdeps:
+                        return None
+            elif ch == "all":
+                if imp.is_all:
+                    _add_ch(a, "all")
+                    if a_is_mod and a not in rebuilt:
+                        rebuilt.add(a)
+                        if max_rdeps is not None and len(rebuilt) > max_rdeps:
+                            return None
+            elif ch == "meta":
+                _add_ch(a, "meta")
+                if imp.is_meta:
+                    if not imp.is_all:
+                        _add_ch(a, "all")
+                        if a_is_mod and a not in rebuilt:
+                            rebuilt.add(a)
+                            if max_rdeps is not None and len(rebuilt) > max_rdeps:
+                                return None
+                    if imp.is_public:
+                        _add_ch(a, "trans")
+            elif ch == "trans":
+                if not imp.is_all and not imp.is_meta:
+                    _add_ch(a, "all")
+                    if a_is_mod and a not in rebuilt:
+                        rebuilt.add(a)
+                        if max_rdeps is not None and len(rebuilt) > max_rdeps:
+                            return None
+                    if imp.is_public:
+                        _add_ch(a, "trans")
+
+    return sorted(rebuilt)
+
+
+def _non_proof_code_lines(text: str) -> list[str]:
+    """Return non-empty cleaned lines outside `theorem`/`lemma` proof bodies (after `:=`)."""
+    raw_lines = text.splitlines()
+    cleaned, doc_opens = _strip_lean_lines(text)
+    cleaned_lines = cleaned.splitlines()
+    while len(cleaned_lines) < len(raw_lines):
+        cleaned_lines.append("")
+    while len(doc_opens) < len(raw_lines):
+        doc_opens.append(False)
+
+    out: list[str] = []
+    in_thm: tuple[int, bool] | None = None  # (decl_indent, seen_assign)
+
+    for idx, raw in enumerate(raw_lines):
+        code = cleaned_lines[idx].strip()
+        indent = len(raw) - len(raw.lstrip())
+        is_doc_start = doc_opens[idx]
+        without_attrs = ANY_ATTR_RE.sub("", code).strip() if code else ""
+
+        if in_thm is not None:
+            decl_indent, _ = in_thm
+            if indent <= decl_indent and (
+                is_doc_start
+                or code.startswith("@[")
+                or (without_attrs and TOP_DECL_RE.match(without_attrs))
+            ):
+                in_thm = None
+
+        if not code:
+            continue
+
+        if in_thm is None:
+            m_decl = DECL_RE.match(without_attrs)
+            if m_decl and m_decl.group(1) in ("theorem", "lemma"):
+                if ":=" in code:
+                    sig_prefix = code.split(":=", 1)[0].rstrip()
+                    out.append(f"{sig_prefix} :=")
+                    in_thm = (indent, True)
+                else:
+                    out.append(code)
+                    in_thm = (indent, False)
+            else:
+                out.append(code)
+        else:
+            decl_indent, seen_assign = in_thm
+            if not seen_assign:
+                if ":=" in code:
+                    sig_prefix = code.split(":=", 1)[0].rstrip()
+                    out.append(f"{sig_prefix} :=")
+                    in_thm = (decl_indent, True)
+                else:
+                    out.append(code)
+            # Lines strictly inside proof body after `:=` are excluded.
+    return out
+
+
+def classify_lean_diff_edit_kind(base_text: str, head_text: str) -> str:
+    """Conservatively classify a `.lean` edit as `'proof'` or `'olean'`.
+
+    Returns `'proof'` ONLY when both versions are `module` files with identical
+    import headers and identical cleaned code outside `theorem`/`lemma` proof
+    bodies (comments, docstrings, whitespace, or proof-body-only changes).
+    """
+    base_mod, base_imps = parse_imports_text(base_text)
+    head_mod, head_imps = parse_imports_text(head_text)
+    if not (base_mod and head_mod):
+        return "olean"
+    base_sig = [(i.module, i.is_public, i.is_meta, i.is_all) for i in base_imps]
+    head_sig = [(i.module, i.is_public, i.is_meta, i.is_all) for i in head_imps]
+    if base_sig != head_sig:
+        return "olean"
+    if _non_proof_code_lines(base_text) == _non_proof_code_lines(head_text):
+        return "proof"
+    return "olean"
+
+
+def classify_git_edit_kind(root: Path, rel_str: str, base: str | None) -> str:
+    """Classify a workspace `.lean` file against `base` as `'proof'` or `'olean'`."""
+    if not base:
+        return "olean"
+    base_ref = base
+    if run_git(root, "rev-parse", "--verify", f"{base}^{{commit}}").returncode != 0:
+        return "olean"
+    mb = run_git(root, "merge-base", base, "HEAD")
+    if mb.returncode == 0 and mb.stdout.strip():
+        base_ref = mb.stdout.strip()
+    old = run_git(root, "show", f"{base_ref}:{rel_str}")
+    if old.returncode != 0:
+        return "olean"
+    p = root / rel_str
+    if not p.is_file():
+        return "olean"
+    return classify_lean_diff_edit_kind(old.stdout, p.read_text(encoding="utf-8"))
+
+
+def scan_import_all_sites(
+    root: Path,
+    *,
+    roots: tuple[str, ...] = ("LeanQbe", "LeanQbeTest", "LeanQbeBootstrap0Test"),
+    allowlist: AbstractSet[str] | Mapping[str, AbstractSet[str]] | None = None,
+) -> list[tuple[str, ImportStmt]]:
+    """Return `(rel_path, ImportStmt)` for every non-allowlisted `import all` under `roots`."""
+    present_roots = tuple(r for r in roots if (root / r).is_dir())
+    if not present_roots:
+        return []
+    rel_paths = list_lean_files(
+        root,
+        *present_roots,
+        excludes=("Kraken", "bv_decide_qbe", "archive", ".lake", ".git"),
+    )
+    hits: list[tuple[str, ImportStmt]] = []
+    for rel in rel_paths:
+        if ".lake" in rel.parts or ".git" in rel.parts:
+            continue
+        rel_str = rel.as_posix()
+        full = root / rel
+        if not full.is_file():
+            continue
+        _, imps = parse_imports(full)
+        for imp in imps:
+            if not imp.is_all:
+                continue
+            if isinstance(allowlist, Mapping):
+                if imp.module in allowlist.get(rel_str, ()):
+                    continue
+            elif allowlist is not None and rel_str in allowlist:
+                continue
+            hits.append((rel_str, imp))
+    return hits
+
+
 def collect_lean_rdeps(
     root: Path,
     seeds: Iterable[str],
     *,
     lean_rel_paths: Iterable[Path | str] | None = None,
-    read_imports_fn: Callable[[Path], Iterable[str]] | None = None,
+    read_imports_fn: Callable[[Path], Iterable[str | ImportStmt]] | None = None,
     barrels: AbstractSet[str] = BARRELS,
     max_rdeps: int | None = None,
+    trace_mode: str = "graph",
+    edit_kind: str = "olean",
+    seed_edit_kinds: Mapping[str, str] | None = None,
 ) -> list[str] | None:
-    """Build non-barrel reverse-import graph and return BFS closure of `seeds`."""
+    """Build non-barrel reverse-import closure of `seeds`.
+
+    `trace_mode`:
+      - `'graph'` (default): treats all import edges uniformly (backward-compatible BFS).
+      - `'lake'`: exact Lean 4.37 / Lake 5.0 trace propagation (`transTrace`,
+        `metaTransTrace`, `allTransTrace`, `legacyTransTrace`) parameterized by
+        `edit_kind` (`'olean'`, `'ir'`, `'proof'`) or per-seed `seed_edit_kinds`.
+    """
+    if trace_mode not in LAKE_TRACE_MODES:
+        raise ValueError(f"invalid trace_mode {trace_mode!r}; expected one of {sorted(LAKE_TRACE_MODES)}")
     seed_set = set(seeds)
     if not seed_set:
         return []
     if max_rdeps is not None and len(seed_set) > max_rdeps:
         return None
     raw_paths = list(lean_rel_paths) if lean_rel_paths is not None else list_lean_files(root)
+
+    if trace_mode == "lake":
+        rev_imports: dict[str, list[tuple[str, ImportStmt]]] = collections.defaultdict(list)
+        is_module_map: dict[str, bool] = {}
+        for raw_rel in raw_paths:
+            rel = raw_rel if isinstance(raw_rel, Path) else Path(raw_rel)
+            if is_kraken_path(rel) or is_standalone_non_lake_path(rel):
+                continue
+            mod = rel_path_to_mod(rel)
+            if mod in barrels:
+                continue
+            if read_imports_fn is not None:
+                raw_imps = list(read_imports_fn(rel))
+                if raw_imps and isinstance(raw_imps[0], ImportStmt):
+                    is_module_map[mod] = True
+                    stmts = [i for i in raw_imps if isinstance(i, ImportStmt)]
+                else:
+                    is_module_map[mod] = False
+                    stmts = [
+                        ImportStmt(line=0, module=str(i), is_public=True)
+                        for i in raw_imps
+                    ]
+            else:
+                full = root / rel
+                if not full.is_file():
+                    continue
+                uses_mod, stmts = parse_imports(full)
+                is_module_map[mod] = uses_mod
+            for imp in stmts:
+                if imp.module not in barrels:
+                    rev_imports[imp.module].append((mod, imp))
+        return lake_trace_rdeps(
+            seed_set,
+            rev_imports,
+            is_module_map,
+            edit_kind=edit_kind,
+            seed_edit_kinds=seed_edit_kinds,
+            max_rdeps=max_rdeps,
+        )
+
     rgraph: dict[str, list[str]] = collections.defaultdict(list)
     for raw_rel in raw_paths:
         rel = raw_rel if isinstance(raw_rel, Path) else Path(raw_rel)
-        if is_kraken_path(rel):
+        if is_kraken_path(rel) or is_standalone_non_lake_path(rel):
             continue
         mod = rel_path_to_mod(rel)
         if mod in barrels:
             continue
         if read_imports_fn is not None:
-            imps = read_imports_fn(rel)
+            imps = (
+                i.module if isinstance(i, ImportStmt) else str(i)
+                for i in read_imports_fn(rel)
+            )
         else:
             full = root / rel
             if not full.is_file():
@@ -1071,6 +1374,8 @@ def collect_hygiene_violations(
     max_decl_loc: int | None = None,
     first_long_line_only: bool = False,
     banned_label: str = "forbidden token",
+    ban_all_import_all: bool = False,
+    import_all_allowlist: AbstractSet[str] = frozenset(),
 ) -> list[str]:
     """Format static hygiene violations from an `audit_lean_source` report."""
     eff_max_decl = max_proof_thm_loc if max_decl_loc is None else max_decl_loc
@@ -1100,11 +1405,19 @@ def collect_hygiene_violations(
         for ln in rep["conflicts"]  # type: ignore[attr-defined]
     )
     bad_all: list[int] = rep["bad_import_all"]  # type: ignore[assignment]
+    proof_all: list[int] = rep["proof_import_all"]  # type: ignore[assignment]
     errs.extend(f"{rel_path}:{ln}: forbidden `import all`" for ln in bad_all)
     errs.extend(
         f"{rel_path}:{ln}: forbidden `import all` in Proof/ shard"
-        for ln in rep["proof_import_all"] if ln not in bad_all  # type: ignore[attr-defined]
+        for ln in proof_all if ln not in bad_all
     )
+    if ban_all_import_all and rel_path not in import_all_allowlist:
+        flagged_all = set(bad_all) | set(proof_all)
+        all_lines: list[int] = rep.get("import_all_lines", [])  # type: ignore[assignment]
+        errs.extend(
+            f"{rel_path}:{ln}: forbidden `import all` (M5 repo-wide ban)"
+            for ln in all_lines if ln not in flagged_all
+        )
     errs.extend(
         f"{rel_path}:{hit['line']}: {banned_label} in `{hit['text']}`"
         for hit in rep["banned_hits"]  # type: ignore[attr-defined]

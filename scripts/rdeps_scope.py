@@ -17,6 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from lean_imports import (
     BARRELS,
+    classify_git_edit_kind,
     collect_lean_rdeps,
     is_kraken_path,
     mod_to_rel_path,
@@ -117,12 +118,31 @@ def compute_rdeps(
     *,
     max_rdeps: int = 250,
     base: str | None = None,
+    trace_mode: str = "lake",
+    edit_kind: str = "olean",
 ) -> list[str] | None:
-    """Return sorted affected module names, or `None` when failing closed to `full`."""
+    """Return sorted affected module names, or `None` when failing closed to `full`.
+
+    `trace_mode`:
+      - `'lake'` (default): exact Lean 4.37 / Lake 5.0 trace propagation
+        (`transTrace`, `metaTransTrace`, `allTransTrace`, `legacyTransTrace`).
+      - `'graph'`: legacy edge-uniform reverse-import BFS.
+    `edit_kind`:
+      - `'olean'` (default): conservative public-interface change.
+      - `'ir'`: private / unexposed `def` body change (`.ir` only).
+      - `'proof'`: theorem proof-body / comment-only change (`.olean.private` only).
+      - `'auto'`: classify each changed `.lean` file against `base` (falls back
+        conservatively to `'olean'` when `base` is absent or diff touches any
+        header/signature/non-theorem line).
+    """
     if not changed:
         return None
+    if trace_mode not in ("lake", "graph"):
+        raise ValueError(f"invalid trace_mode: {trace_mode!r}")
+    if edit_kind not in ("olean", "ir", "proof", "auto"):
+        raise ValueError(f"invalid edit_kind: {edit_kind!r}")
 
-    lean_changed: set[str] = set()
+    lean_changed: dict[str, str] = {}
     headline_seeds: set[str] = set()
     for raw in changed:
         f = raw.strip()
@@ -139,7 +159,7 @@ def compute_rdeps(
                 return None
             mod = rel_path_to_mod(rel)
             if mod not in BARRELS:
-                lean_changed.add(mod)
+                lean_changed[mod] = f
         elif HEADLINES_D_RE.fullmatch(f):
             hseeds = _collect_headline_seeds(root, f, base)
             if hseeds is None:
@@ -150,15 +170,29 @@ def compute_rdeps(
         else:
             return None  # unknown build/script/config file -> fail closed
 
-    seeds = sorted(lean_changed | headline_seeds)
+    seeds = sorted(set(lean_changed) | headline_seeds)
     if not seeds or len(seeds) > max_rdeps:
         return None
+
+    seed_edit_kinds: dict[str, str] | None = None
+    eff_edit_kind = edit_kind
+    if trace_mode == "lake" and edit_kind == "auto":
+        eff_edit_kind = "olean"
+        seed_edit_kinds = {}
+        for mod in seeds:
+            if mod in headline_seeds:
+                seed_edit_kinds[mod] = "olean"
+            else:
+                seed_edit_kinds[mod] = classify_git_edit_kind(root, lean_changed[mod], base)
 
     return collect_lean_rdeps(
         root,
         seeds,
         barrels=BARRELS,
         max_rdeps=max_rdeps,
+        trace_mode=trace_mode,
+        edit_kind=eff_edit_kind,
+        seed_edit_kinds=seed_edit_kinds,
     )
 
 
@@ -175,13 +209,25 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument(
         "--base",
         default=None,
-        help="Optional git base ref for scoping modified scripts/headlines.d/*.txt.",
+        help="Optional git base ref for scoping modified scripts/headlines.d/*.txt and --edit-kind auto.",
     )
     ap.add_argument(
         "--max-rdeps",
         type=int,
         default=250,
         help="Fail closed to full if |rdeps| exceeds this cap (default: 250).",
+    )
+    ap.add_argument(
+        "--trace-mode",
+        choices=("lake", "graph"),
+        default="lake",
+        help="Reverse-dependency propagation model: exact Lake 5.0 traces ('lake', default) or uniform graph ('graph').",
+    )
+    ap.add_argument(
+        "--edit-kind",
+        choices=("olean", "ir", "proof", "auto"),
+        default="olean",
+        help="Seed edit kind for --trace-mode lake (default: olean).",
     )
     ap.add_argument(
         "--out-headlines",
@@ -207,6 +253,8 @@ def main(argv: list[str] | None = None) -> int:
         changed,
         max_rdeps=args.max_rdeps,
         base=args.base,
+        trace_mode=args.trace_mode,
+        edit_kind=args.edit_kind,
     )
     if mods is None:
         return 1
