@@ -1111,7 +1111,7 @@ def render_arch_full(mf: BuildManifest, arch: ArchInfo) -> str:
             "/-- Whole-module cross-segment link check across `allSegChunks`. -/",
             "theorem allSegs_link :",
             f"    checkLinkList {arch.layout} [] (SegChunks.allChunks allSegChunks) = true := by",
-            "  rfl",
+            "  t_kernel_rfl",
             "",
             "/-- Whole-module verified `LinkedCert` assembled via `LinkedCert.ofSegs`. -/",
             "@[expose] noncomputable def fullCert :",
