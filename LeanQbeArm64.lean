@@ -12,6 +12,7 @@ public import LeanQbe.T.Arm64.AriscaCertS4
 public import LeanQbe.T.Arm64.Base
 public import LeanQbe.T.Arm64.BenchAbi
 public import LeanQbe.T.Arm64.Bignum
+public import LeanQbe.T.Arm64.BinaryLayout
 public import LeanQbe.T.Arm64.BitblastFidelityParam
 public import LeanQbe.T.Arm64.ChaCha
 public import LeanQbe.T.Arm64.DebugAsm
