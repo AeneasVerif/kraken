@@ -21,12 +21,26 @@ IMPORT_RE = IMPORT_LINE_RE
 
 DEFAULT_MAX_LOC = 2500
 DEFAULT_MAX_COL = 100
-DEFAULT_MAX_PROOF_THM_LOC = 450
+DEFAULT_MAX_DECL_LOC = 450
+DEFAULT_MAX_PROOF_THM_LOC = DEFAULT_MAX_DECL_LOC
 
 PROOF_SHARD_PREFIXES: tuple[str, ...] = (
     "LeanQbe/T/Examples/Kissat/Proof/",
     "LeanQbe/T/Examples/Bitblast/Proof/",
 )
+LEGACY_FULL_PATH_RE = re.compile(r"^LeanQbe/T/Examples/Kissat/Full[^/]*\.lean$")
+LOCAL_MODULE_ROOTS: frozenset[str] = frozenset({
+    "LeanQbe",
+    "LeanQbeAmd64",
+    "LeanQbeArm64",
+    "LeanQbeBootstrap0",
+    "LeanQbeTest",
+    "LeanQbeBootstrap0Test",
+    "Kraken",
+    "KrakenAArch64",
+    "KrakenBedrock2",
+})
+HUNK_NEW_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
 
 BANNED_TOKEN_RE = re.compile(
     r"\b(?:sorry|admit|bv_decide|native_decide|ofReduceBool|ofReduceNat"
@@ -49,11 +63,18 @@ CONFLICT_RE = re.compile(r"^(?:<{7}|={7}|>{7})(?: |$)")
 EXPOSE_ATTR_RE = re.compile(r"@\[[^\]]*\bexpose\b[^\]]*\]")
 ANY_ATTR_RE = re.compile(r"@\[[^\]]*\]")
 THM_DECL_RE = re.compile(
-    r"^(?:(?:public|private|protected|noncomputable|unsafe)\s+)*"
-    r"(?:theorem|lemma)\b(?:\s+([^\s:({\[<]+))?"
+    r"^(?:(?:public|private|protected|noncomputable|unsafe|local|scoped|"
+    r"meta|nonrec)\s+)*(?:theorem|lemma)\b(?:\s+([^\s:({\[<\"|]+))?"
+)
+DECL_RE = re.compile(
+    r"^(?:(?:public|private|protected|noncomputable|unsafe|partial|local|"
+    r"scoped|meta|nonrec)\s+)*"
+    r"(theorem|lemma|def|abbrev|instance|example|structure|inductive|class|"
+    r"opaque|macro|macro_rules|elab|elab_rules)\b(?:\s+([^\s:({\[<\"|]+))?"
 )
 MODIFIER_ONLY_RE = re.compile(
-    r"^(?:(?:@\[[^\]]*\]|public|private|protected|noncomputable|unsafe)(?:\s+|$))+$"
+    r"^(?:(?:@\[[^\]]*\]|public|private|protected|noncomputable|unsafe|"
+    r"partial|local|scoped|meta|nonrec)(?:\s+|$))+$"
 )
 NS_OPEN_RE = re.compile(r"^namespace\s+(\S+)")
 SEC_OPEN_RE = re.compile(
@@ -64,11 +85,13 @@ MUTUAL_OPEN_RE = re.compile(r"^mutual(?:\s|$)")
 END_SCOPE_RE = re.compile(r"^end(?:\s+(\S+))?(?:\s|$)")
 TOP_DECL_RE = re.compile(
     r"^(?:(?:public|private|protected|noncomputable|unsafe|partial|local|"
-    r"scoped|meta)\s+)*(?:theorem|lemma|def|abbrev|structure|inductive|class|"
-    r"instance|axiom|opaque|example|macro|macro_rules|syntax|elab|elab_rules|"
-    r"declare_syntax_cat|section|namespace|end|open|variable|universe|"
-    r"set_option|attribute|mutual|initialize|builtin_initialize|"
-    r"register_simp_attr|deriving|#print|#check|#guard|#eval|#reduce)\b"
+    r"scoped|meta|nonrec)\s+)*(?:(?:theorem|lemma|def|abbrev|structure|"
+    r"inductive|class|instance|axiom|opaque|example|macro|macro_rules|syntax|"
+    r"elab|elab_rules|declare_syntax_cat|section|namespace|end|open|variable|"
+    r"universe|set_option|attribute|mutual|initialize|builtin_initialize|"
+    r"register_simp_attr|deriving|export|notation|infix|infixl|infixr|"
+    r"prefix|postfix|run_cmd|#print|#check|#guard|#eval|#reduce)\b"
+    r"|c0_[A-Za-z0-9_]*!(?:\s|$))"
 )
 
 
@@ -489,6 +512,74 @@ def is_proof_shard_path(rel_path: str) -> bool:
     return rel_path.startswith(PROOF_SHARD_PREFIXES)
 
 
+def is_legacy_full_path(rel_path: str) -> bool:
+    """Return True if `rel_path` is a legacy top-level `Kissat/Full*.lean` file."""
+    return bool(LEGACY_FULL_PATH_RE.match(rel_path))
+
+
+def is_local_module(mod: str) -> bool:
+    """Return True if `mod` belongs to a repo-local Lake library root."""
+    return mod.split(".", 1)[0] in LOCAL_MODULE_ROOTS
+
+
+def parse_diff_changed_lines(diff_text: str) -> dict[str, set[int]]:
+    """Parse `git diff -U0 --no-renames` into `{rel_path: {1-based changed lines}}`."""
+    out: dict[str, set[int]] = {}
+    cur_file: str | None = None
+    for raw in diff_text.splitlines():
+        if raw.startswith("+++ "):
+            if raw == "+++ /dev/null":
+                cur_file = None
+            elif raw.startswith("+++ b/"):
+                cur_file = raw[6:]
+                out.setdefault(cur_file, set())
+            else:
+                cur_file = None
+            continue
+        if cur_file is None:
+            continue
+        m = HUNK_NEW_RE.match(raw)
+        if m:
+            start = int(m.group(1))
+            count = 1 if m.group(2) is None else int(m.group(2))
+            if count > 0:
+                out[cur_file].update(range(start, start + count))
+    return out
+
+
+def check_tracked_local_imports(
+    root: Path,
+    rel_path: str,
+    text: str,
+    tracked_files: AbstractSet[str],
+) -> list[str]:
+    """Verify every local `LeanQbe*`/`Kraken*` import in `text` is git-tracked and present."""
+    errs: list[str] = []
+    _, imps = parse_imports_text(text)
+    for imp in imps:
+        if not is_local_module(imp.module):
+            continue
+        imp_rel = mod_to_rel_path(imp.module).as_posix()
+        on_disk = (root / imp_rel).is_file()
+        if imp_rel not in tracked_files:
+            if on_disk:
+                errs.append(
+                    f"{rel_path}:{imp.line}: imported local module `{imp.module}` "
+                    f"({imp_rel}) is untracked (exists on disk but not git-tracked)"
+                )
+            else:
+                errs.append(
+                    f"{rel_path}:{imp.line}: imported local module `{imp.module}` "
+                    f"({imp_rel}) is missing / not git-tracked"
+                )
+        elif not on_disk:
+            errs.append(
+                f"{rel_path}:{imp.line}: imported local module `{imp.module}` "
+                f"({imp_rel}) is tracked in git but missing from working tree"
+            )
+    return errs
+
+
 def _pop_scope(scopes: list[tuple[str, str | None, bool, int]], end_name: str | None) -> None:
     """Pop matching Lean `namespace`/`section`/`mutual` scope(s) from stack."""
     if not scopes:
@@ -508,8 +599,10 @@ def audit_lean_source(
     max_loc: int = DEFAULT_MAX_LOC,
     max_col: int = DEFAULT_MAX_COL,
     max_proof_thm_loc: int = DEFAULT_MAX_PROOF_THM_LOC,
+    max_decl_loc: int | None = None,
 ) -> dict[str, object]:
-    """Audit a single `.lean` source string for hygiene and P0-5 Proof shard rules."""
+    """Audit a single `.lean` source string for hygiene and P0-5 rules."""
+    eff_max_decl_loc = max_proof_thm_loc if max_decl_loc is None else max_decl_loc
     raw_lines = text.splitlines()
     loc = len(raw_lines)
     over_loc = loc >= max_loc
@@ -524,6 +617,7 @@ def audit_lean_source(
     proof_import_all: list[int] = []
     proof_expose_section: list[dict[str, int]] = []
     proof_long_theorems: list[dict[str, object]] = []
+    long_decls: list[dict[str, object]] = []
 
     cleaned, doc_opens = _strip_lean_lines(text)
     for m in BANNED_ATTR_RE.finditer(cleaned):
@@ -540,39 +634,62 @@ def audit_lean_source(
     pending_expose = False
     scopes: list[tuple[str, str | None, bool, int]] = []
     flagged_expose_secs: set[int] = set()
-    in_thm: tuple[str, int, int] | None = None
-    last_thm_code_ln = 0
+    in_decl: tuple[str, str, str, int, int] | None = None
+    last_decl_code_ln = 0
+
+    def _flush_decl() -> None:
+        nonlocal in_decl
+        if in_decl is None:
+            return
+        decl_kind, decl_name, decl_ns, decl_start, _ = in_decl
+        span = last_decl_code_ln - decl_start + 1
+        if span > eff_max_decl_loc:
+            long_decls.append(
+                {
+                    "kind": decl_kind,
+                    "name": decl_name,
+                    "ns": decl_ns,
+                    "start_line": decl_start,
+                    "end_line": last_decl_code_ln,
+                    "lines": span,
+                }
+            )
+        if (
+            is_proof_shard
+            and decl_kind in ("theorem", "lemma")
+            and span > max_proof_thm_loc
+        ):
+            proof_long_theorems.append(
+                {
+                    "name": decl_name,
+                    "start_line": decl_start,
+                    "end_line": last_decl_code_ln,
+                    "lines": span,
+                }
+            )
+        in_decl = None
 
     for idx, raw in enumerate(raw_lines, 1):
         if CONFLICT_RE.match(raw):
             conflicts.append(idx)
-        if len(raw) > max_col and not raw.strip().startswith(("--", "/-", '"')):
+        if len(raw) > max_col:
             long_lines.append({"line": idx, "cols": len(raw)})
 
         raw_clean = cleaned_lines[idx - 1]
         code = raw_clean.strip()
         indent = len(raw) - len(raw.lstrip())
         is_doc_start = doc_opens[idx - 1]
+        without_attrs = ANY_ATTR_RE.sub("", code).strip() if code else ""
 
-        if in_thm is not None:
-            thm_name, thm_start, thm_indent = in_thm
-            # Close theorem before the next top-level command, attribute, or doc comment.
-            if indent <= thm_indent and (
+        if in_decl is not None:
+            decl_indent = in_decl[4]
+            # Close declaration before the next top-level command, attribute, or doc comment.
+            if indent <= decl_indent and (
                 is_doc_start
                 or code.startswith("@[")
-                or (code and TOP_DECL_RE.match(code))
+                or (without_attrs and TOP_DECL_RE.match(without_attrs))
             ):
-                span = last_thm_code_ln - thm_start + 1
-                if is_proof_shard and span > max_proof_thm_loc:
-                    proof_long_theorems.append(
-                        {
-                            "name": thm_name,
-                            "start_line": thm_start,
-                            "end_line": last_thm_code_ln,
-                            "lines": span,
-                        }
-                    )
-                in_thm = None
+                _flush_decl()
 
         if not code:
             continue
@@ -586,8 +703,8 @@ def audit_lean_source(
         if BANNED_TOKEN_RE.search(code) or AXIOM_DECL_RE.search(code):
             banned_by_line.setdefault(idx, code[:90])
 
-        # Track section/namespace/mutual scopes when not inside a theorem body.
-        if in_thm is None:
+        # Track section/namespace/mutual scopes when not inside a declaration body.
+        if in_decl is None:
             m_ns = NS_OPEN_RE.match(code)
             m_sec = SEC_OPEN_RE.match(code)
             if m_ns:
@@ -604,10 +721,12 @@ def audit_lean_source(
                     _pop_scope(scopes, m_end.group(1))
 
         has_expose = bool(EXPOSE_ATTR_RE.search(code))
-        without_attrs = ANY_ATTR_RE.sub("", code).strip()
-        m_thm = THM_DECL_RE.match(without_attrs)
+        m_decl = DECL_RE.match(without_attrs)
+        is_thm = bool(
+            in_decl is None and m_decl and m_decl.group(1) in ("theorem", "lemma")
+        )
 
-        if m_thm:
+        if is_thm:
             if has_expose or pending_expose:
                 expose_on_thm.append(idx)
             pending_expose = False
@@ -618,9 +737,6 @@ def audit_lean_source(
                         proof_expose_section.append(
                             {"section_line": sec_ln, "theorem_line": idx}
                         )
-            if in_thm is None:
-                in_thm = (m_thm.group(1) or "<anon>", idx, indent)
-                last_thm_code_ln = idx
         else:
             if has_expose:
                 if (
@@ -633,21 +749,23 @@ def audit_lean_source(
             elif pending_expose:
                 if not (not without_attrs or MODIFIER_ONLY_RE.match(without_attrs)):
                     pending_expose = False
-            if in_thm is not None:
-                last_thm_code_ln = idx
 
-    if in_thm is not None:
-        thm_name, thm_start, _ = in_thm
-        span = last_thm_code_ln - thm_start + 1
-        if is_proof_shard and span > max_proof_thm_loc:
-            proof_long_theorems.append(
-                {
-                    "name": thm_name,
-                    "start_line": thm_start,
-                    "end_line": last_thm_code_ln,
-                    "lines": span,
-                }
+        if m_decl and in_decl is None:
+            ns_prefix = ".".join(
+                sname for skind, sname, _, _ in scopes if skind == "ns" and sname
             )
+            in_decl = (
+                m_decl.group(1),
+                m_decl.group(2) or "<anon>",
+                ns_prefix,
+                idx,
+                indent,
+            )
+            last_decl_code_ln = idx
+        elif in_decl is not None:
+            last_decl_code_ln = idx
+
+    _flush_decl()
 
     banned_hits = [
         {"line": ln, "text": banned_by_line[ln]} for ln in sorted(banned_by_line)
@@ -665,6 +783,7 @@ def audit_lean_source(
         "proof_import_all": proof_import_all,
         "proof_expose_section": proof_expose_section,
         "proof_long_theorems": proof_long_theorems,
+        "long_decls": long_decls,
     }
 
 
@@ -948,13 +1067,17 @@ def collect_hygiene_violations(
     rep: Mapping[str, object],
     *,
     base_loc: int | None = None,
+    changed_lines: AbstractSet[int] | None = None,
+    base_long_decls: Mapping[tuple[str, str, str], int] | None = None,
     max_loc: int = DEFAULT_MAX_LOC,
     max_col: int = DEFAULT_MAX_COL,
     max_proof_thm_loc: int = DEFAULT_MAX_PROOF_THM_LOC,
+    max_decl_loc: int | None = None,
     first_long_line_only: bool = False,
     banned_label: str = "forbidden token",
 ) -> list[str]:
     """Format static hygiene violations from an `audit_lean_source` report."""
+    eff_max_decl = max_proof_thm_loc if max_decl_loc is None else max_decl_loc
     errs: list[str] = []
     loc = int(rep["loc"])  # type: ignore[arg-type]
     if rep["over_loc"]:
@@ -967,7 +1090,13 @@ def collect_hygiene_violations(
             errs.append(f"{rel_path}: {loc} LOC >= {max_loc}")
 
     long_lines: list[dict[str, object]] = rep["long_lines"]  # type: ignore[assignment]
-    for ln_info in (long_lines[:1] if first_long_line_only else long_lines):
+    if changed_lines is not None and not is_proof_shard_path(rel_path):
+        active_long_lines = [
+            ln_info for ln_info in long_lines if int(ln_info["line"]) in changed_lines
+        ]
+    else:
+        active_long_lines = long_lines
+    for ln_info in (active_long_lines[:1] if first_long_line_only else active_long_lines):
         errs.append(f"{rel_path}:{ln_info['line']}: line width {ln_info['cols']} > {max_col}")
 
     errs.extend(
@@ -993,11 +1122,45 @@ def collect_hygiene_violations(
         f"`@[expose] public section` (line {s['section_line']})"
         for s in rep["proof_expose_section"]  # type: ignore[attr-defined]
     )
-    errs.extend(
-        f"{rel_path}:{t['start_line']}: theorem `{t['name']}` is "
-        f"{t['lines']} lines > {max_proof_thm_loc} (L{t['start_line']}-L{t['end_line']})"
-        for t in rep["proof_long_theorems"]  # type: ignore[attr-defined]
-    )
+
+    if not is_legacy_full_path(rel_path):
+        raw_long_decls = rep.get("long_decls")
+        if raw_long_decls is not None:
+            is_proof_shard = is_proof_shard_path(rel_path)
+            for d in raw_long_decls:  # type: ignore[attr-defined]
+                d_kind = str(d["kind"])
+                d_name = str(d["name"])
+                d_ns = str(d.get("ns", ""))
+                d_start = int(d["start_line"])
+                d_end = int(d["end_line"])
+                d_lines = int(d["lines"])
+                if not is_proof_shard and changed_lines is not None:
+                    if not any(d_start <= ln <= d_end for ln in changed_lines):
+                        continue
+                    key = (d_ns, d_kind, d_name)
+                    if (
+                        base_long_decls is not None
+                        and d_name != "<anon>"
+                        and key in base_long_decls
+                        and base_long_decls[key] > eff_max_decl
+                    ):
+                        if d_lines > base_long_decls[key]:
+                            errs.append(
+                                f"{rel_path}:{d_start}: grandfathered {d_kind} `{d_name}` "
+                                f"grew {base_long_decls[key]} -> {d_lines} lines "
+                                f"(> {eff_max_decl})"
+                            )
+                        continue
+                errs.append(
+                    f"{rel_path}:{d_start}: {d_kind} `{d_name}` is "
+                    f"{d_lines} lines > {eff_max_decl} (L{d_start}-L{d_end})"
+                )
+        else:
+            errs.extend(
+                f"{rel_path}:{t['start_line']}: theorem `{t['name']}` is "
+                f"{t['lines']} lines > {max_proof_thm_loc} (L{t['start_line']}-L{t['end_line']})"
+                for t in rep["proof_long_theorems"]  # type: ignore[attr-defined]
+            )
     return errs
 
 
@@ -1071,21 +1234,69 @@ def run_preflight_lean_hygiene(root: Path, base: str) -> tuple[int, list[str]]:
                 if ln.strip().endswith(".lean") and not ln.strip().startswith("bv_decide_qbe/")
             )
 
+    changed = {f for f in changed if not f.startswith("archive/")}
+
+    tracked_lean: set[str] | None = None
+    tr_res = run_git(root, "ls-files", "-z", "--cached", text=False)
+    if tr_res.returncode == 0:
+        tracked_lean = {
+            b.decode("utf-8")
+            for b in tr_res.stdout.split(b"\0")
+            if b and b.endswith(b".lean")
+        }
+
     errs: list[str] = []
     for f in sorted(changed):
         p = root / f
         if not p.is_file():
             continue
+        text = p.read_text(encoding="utf-8")
         rep = audit_lean_source(
-            f, p.read_text(encoding="utf-8"), max_loc=DEFAULT_MAX_LOC,
-            max_col=DEFAULT_MAX_COL, max_proof_thm_loc=DEFAULT_MAX_PROOF_THM_LOC,
+            f, text, max_loc=DEFAULT_MAX_LOC, max_col=DEFAULT_MAX_COL,
+            max_proof_thm_loc=DEFAULT_MAX_PROOF_THM_LOC,
+            max_decl_loc=DEFAULT_MAX_DECL_LOC,
         )
         base_loc: int | None = None
-        if rep["over_loc"] and base_tree_ref is not None:
+        changed_lines: set[int] | None = None
+        base_long_decls: dict[tuple[str, str, str], int] | None = None
+        needs_base = bool(rep["over_loc"] or rep["long_lines"] or rep["long_decls"])
+        if needs_base and base_tree_ref is not None:
             res = run_git(root, "show", f"{base_tree_ref}:{f}")
             if res.returncode == 0:
-                base_loc = len(res.stdout.splitlines())
-        errs.extend(collect_hygiene_violations(f, rep, base_loc=base_loc))
+                base_txt = res.stdout
+                base_loc = len(base_txt.splitlines())
+                if rep["long_lines"] or rep["long_decls"]:
+                    d_res = run_git(
+                        root, "-c", "core.quotepath=false", "diff", "-U0",
+                        "--no-renames", "--src-prefix=a/", "--dst-prefix=b/",
+                        base_tree_ref, "--", f,
+                    )
+                    if d_res.returncode == 0:
+                        changed_lines = parse_diff_changed_lines(d_res.stdout).get(f, set())
+                    if rep["long_decls"] and not is_legacy_full_path(f):
+                        base_rep = audit_lean_source(
+                            f, base_txt, max_loc=DEFAULT_MAX_LOC,
+                            max_col=DEFAULT_MAX_COL,
+                            max_proof_thm_loc=DEFAULT_MAX_PROOF_THM_LOC,
+                            max_decl_loc=DEFAULT_MAX_DECL_LOC,
+                        )
+                        base_long_decls = {}
+                        for bd in base_rep["long_decls"]:  # type: ignore[attr-defined]
+                            bname = str(bd["name"])
+                            if bname == "<anon>":
+                                continue
+                            bkey = (str(bd.get("ns", "")), str(bd["kind"]), bname)
+                            blines = int(bd["lines"])
+                            if blines > base_long_decls.get(bkey, 0):
+                                base_long_decls[bkey] = blines
+        errs.extend(
+            collect_hygiene_violations(
+                f, rep, base_loc=base_loc, changed_lines=changed_lines,
+                base_long_decls=base_long_decls,
+            )
+        )
+        if tracked_lean is not None:
+            errs.extend(check_tracked_local_imports(root, f, text, tracked_lean))
     return len(changed), errs
 
 

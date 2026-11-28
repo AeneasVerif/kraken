@@ -18,7 +18,7 @@ echo "== preflight: 2. firewall & strict hub sync (<1s) =="
 timeout 30 python3 -B scripts/check_firewall.py --root "$ROOT" --require-isa
 timeout 30 python3 -B scripts/sync_hubs.py --root "$ROOT" --check --strict
 
-echo "== preflight: 3. changed .lean hygiene (tokens, <2500 LOC, <=100c, @[expose], P0-5) =="
+echo "== preflight: 3. changed .lean hygiene (tokens, <2500 LOC, <=450L/decl, <=100c all, tracked imports, @[expose], P0-5) =="
 timeout 30 python3 -B scripts/lean_imports.py preflight-hygiene "$BASE" "$ROOT"
 
 # 4. If any Kissat C0 source changed, run <1s C99 extract + clang syntax/warning check!

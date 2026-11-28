@@ -481,6 +481,10 @@ class TestPreflightAndGateParity(unittest.TestCase):
         self,
         base_files: dict[str, str],
         head_files: dict[str, str],
+        *,
+        staged_files: dict[str, str] | None = None,
+        untracked_files: dict[str, str] | None = None,
+        remove_on_disk: tuple[str, ...] = (),
     ) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -510,8 +514,23 @@ class TestPreflightAndGateParity(unittest.TestCase):
                 p = root / rel
                 p.parent.mkdir(parents=True, exist_ok=True)
                 p.write_text(txt, encoding="utf-8")
-            _git(root, "add", "-A")
-            _git(root, "commit", "-m", "change")
+            if head_files:
+                _git(root, "add", "-A")
+                _git(root, "commit", "-m", "change")
+
+            for rel, txt in (staged_files or {}).items():
+                p = root / rel
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text(txt, encoding="utf-8")
+                _git(root, "add", rel)
+
+            for rel, txt in (untracked_files or {}).items():
+                p = root / rel
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text(txt, encoding="utf-8")
+
+            for rel in remove_on_disk:
+                (root / rel).unlink()
 
             return subprocess.run(
                 ["bash", str(scripts / "preflight.sh"), base_sha],
@@ -653,6 +672,261 @@ class TestPreflightAndGateParity(unittest.TestCase):
             },
         )
         self.assertEqual(res_spec_ok.returncode, 0, res_spec_ok.stdout + res_spec_ok.stderr)
+
+    def test_preflight_450_decl_guard_all_kinds_and_diff_scoping(self) -> None:
+        # 1. 500L `private meta def` outside Proof/ (SlabLayoutElab blind spot) MUST fail
+        big_meta_def = (
+            "module\nprivate meta def slabCommands (n : Nat) : Nat := Id.run do\n"
+            + "\n".join(["  let x := n"] * 498)
+            + "\n  return x\n"
+        )
+        res_meta = self._run_preflight_in_temp_repo(
+            {"README.md": "ok\n"},
+            {"LeanQbe/T/Logic/SlabLayoutElab.lean": big_meta_def},
+        )
+        self.assertNotEqual(res_meta.returncode, 0)
+        self.assertIn("def `slabCommands` is 500 lines > 450", res_meta.stderr)
+
+        # 2. Non-Proof `theorem`, `def`, and `Src/Full.lean` > 450L MUST fail; 450L exact passes
+        big_nonproof_thm = (
+            "module\npublic theorem big_logic_thm : True := by\n"
+            + "\n".join(["  have h := True.intro"] * 449)
+            + "\n  exact h\n"
+        )
+        res_thm = self._run_preflight_in_temp_repo(
+            {"README.md": "ok\n"},
+            {"LeanQbe/T/Logic/BigThm.lean": big_nonproof_thm},
+        )
+        self.assertNotEqual(res_thm.returncode, 0)
+        self.assertIn("theorem `big_logic_thm` is 451 lines > 450", res_thm.stderr)
+
+        big_src_full = (
+            "module\ndef bigData : Nat :=\n"
+            + "\n".join(["  1 +"] * 450)
+            + "\n  0\n"
+        )
+        res_src_full = self._run_preflight_in_temp_repo(
+            {"README.md": "ok\n"},
+            {"LeanQbe/T/Examples/Kissat/Src/Full.lean": big_src_full},
+        )
+        self.assertNotEqual(res_src_full.returncode, 0)
+        self.assertIn("def `bigData` is 452 lines > 450", res_src_full.stderr)
+
+        ok_meta_450 = (
+            "module\nprivate meta def okCommands (n : Nat) : Nat := Id.run do\n"
+            + "\n".join(["  let x := n"] * 448)
+            + "\n  return x\n"
+        )
+        res_ok_450 = self._run_preflight_in_temp_repo(
+            {"README.md": "ok\n"},
+            {"LeanQbe/T/Logic/OkElab.lean": ok_meta_450},
+        )
+        self.assertEqual(res_ok_450.returncode, 0, res_ok_450.stdout + res_ok_450.stderr)
+
+        # 3. Legacy `Kissat/Full*.lean` and `archive/` are excluded from new decl guard
+        res_legacy = self._run_preflight_in_temp_repo(
+            {"README.md": "ok\n"},
+            {
+                "LeanQbe/T/Examples/Kissat/FullLegacyProof.lean": big_meta_def,
+                "archive/ParkedOld.lean": big_meta_def,
+            },
+        )
+        self.assertEqual(res_legacy.returncode, 0, res_legacy.stdout + res_legacy.stderr)
+
+        # 4. Existing file: untouched pre-existing 480L decl & shrunk grandfathered decl pass;
+        #    growing grandfathered decl or growing <=450L decl past 450L MUST fail!
+        old_big = (
+            "module\ndef tiny : Nat := 1\n\n"
+            "def legacyBig (n : Nat) : Nat := Id.run do\n"
+            + "\n".join(["  let x := n"] * 478)
+            + "\n  return x\n"
+        )
+        old_big_edit_tiny = old_big.replace("def tiny : Nat := 1", "def tiny : Nat := 2")
+        res_untouched = self._run_preflight_in_temp_repo(
+            {"LeanQbe/T/OldFile.lean": old_big},
+            {"LeanQbe/T/OldFile.lean": old_big_edit_tiny},
+        )
+        self.assertEqual(
+            res_untouched.returncode, 0, res_untouched.stdout + res_untouched.stderr
+        )
+
+        old_big_shrunk = (
+            "module\ndef tiny : Nat := 1\n\n"
+            "def legacyBig (n : Nat) : Nat := Id.run do\n"
+            + "\n".join(["  let x := n"] * 468)
+            + "\n  return x\n"
+        )
+        res_shrunk = self._run_preflight_in_temp_repo(
+            {"LeanQbe/T/OldFile.lean": old_big},
+            {"LeanQbe/T/OldFile.lean": old_big_shrunk},
+        )
+        self.assertEqual(res_shrunk.returncode, 0, res_shrunk.stdout + res_shrunk.stderr)
+
+        old_big_grown = (
+            "module\ndef tiny : Nat := 1\n\n"
+            "def legacyBig (n : Nat) : Nat := Id.run do\n"
+            + "\n".join(["  let x := n"] * 483)
+            + "\n  return x\n"
+        )
+        res_grown = self._run_preflight_in_temp_repo(
+            {"LeanQbe/T/OldFile.lean": old_big},
+            {"LeanQbe/T/OldFile.lean": old_big_grown},
+        )
+        self.assertNotEqual(res_grown.returncode, 0)
+        self.assertIn("grandfathered def `legacyBig` grew 480 -> 485", res_grown.stderr)
+
+        old_small = (
+            "module\ndef normalDef (n : Nat) : Nat := Id.run do\n"
+            + "\n".join(["  let x := n"] * 398)
+            + "\n  return x\n"
+        )
+        old_small_blown = (
+            "module\ndef normalDef (n : Nat) : Nat := Id.run do\n"
+            + "\n".join(["  let x := n"] * 458)
+            + "\n  return x\n"
+        )
+        res_blown = self._run_preflight_in_temp_repo(
+            {"LeanQbe/T/GrowFile.lean": old_small},
+            {"LeanQbe/T/GrowFile.lean": old_small_blown},
+        )
+        self.assertNotEqual(res_blown.returncode, 0)
+        self.assertIn("def `normalDef` is 460 lines > 450", res_blown.stderr)
+
+    def test_preflight_100_col_guard_including_comments_and_docstrings(self) -> None:
+        # 1. New file: 105c doc-comment (`SlabLayout.lean:92` blind spot), `--` comment, `/-` comment
+        doc_105 = "/-- " + ("a" * 98) + " -/"
+        self.assertEqual(len(doc_105), 105)
+        res_doc = self._run_preflight_in_temp_repo(
+            {"README.md": "ok\n"},
+            {"LeanQbe/T/Logic/SlabLayout.lean": f"module\n{doc_105}\ndef x : Nat := 1\n"},
+        )
+        self.assertNotEqual(res_doc.returncode, 0)
+        self.assertIn("line width 105 > 100", res_doc.stderr)
+
+        line_108 = "-- " + ("b" * 105)
+        self.assertEqual(len(line_108), 108)
+        res_line = self._run_preflight_in_temp_repo(
+            {"README.md": "ok\n"},
+            {"LeanQbe/T/Logic/WideComment.lean": f"module\n{line_108}\ndef x : Nat := 1\n"},
+        )
+        self.assertNotEqual(res_line.returncode, 0)
+        self.assertIn("line width 108 > 100", res_line.stderr)
+
+        block_104 = "/- " + ("c" * 98) + " -/"
+        self.assertEqual(len(block_104), 104)
+        res_block = self._run_preflight_in_temp_repo(
+            {"README.md": "ok\n"},
+            {"LeanQbe/T/Logic/WideBlock.lean": f"module\n{block_104}\ndef x : Nat := 1\n"},
+        )
+        self.assertNotEqual(res_block.returncode, 0)
+        self.assertIn("line width 104 > 100", res_block.stderr)
+
+        # 2. Exact 100c doc-comment passes cleanly
+        doc_100 = "/-- " + ("d" * 93) + " -/"
+        self.assertEqual(len(doc_100), 100)
+        res_ok100 = self._run_preflight_in_temp_repo(
+            {"README.md": "ok\n"},
+            {"LeanQbe/T/Logic/Exact100.lean": f"module\n{doc_100}\ndef x : Nat := 1\n"},
+        )
+        self.assertEqual(res_ok100.returncode, 0, res_ok100.stdout + res_ok100.stderr)
+
+        # 3. Existing file: untouched pre-existing 105c doc-comment passes; adding one fails
+        old_wide = f"module\n{doc_105}\ndef x : Nat := 1\n"
+        res_old_ok = self._run_preflight_in_temp_repo(
+            {"LeanQbe/T/Logic/Existing.lean": old_wide},
+            {"LeanQbe/T/Logic/Existing.lean": f"module\n{doc_105}\ndef x : Nat := 2\n"},
+        )
+        self.assertEqual(res_old_ok.returncode, 0, res_old_ok.stdout + res_old_ok.stderr)
+
+        res_old_bad = self._run_preflight_in_temp_repo(
+            {"LeanQbe/T/Logic/Existing.lean": old_wide},
+            {
+                "LeanQbe/T/Logic/Existing.lean": (
+                    f"module\n{doc_105}\n{line_108}\ndef x : Nat := 2\n"
+                )
+            },
+        )
+        self.assertNotEqual(res_old_bad.returncode, 0)
+        self.assertIn("Existing.lean:3: line width 108 > 100", res_old_bad.stderr)
+
+    def test_preflight_rejects_untracked_and_missing_local_imports(self) -> None:
+        # 1. Exact FrameCalc.lean trap: file exists on disk ONLY as untracked file -> MUST FAIL
+        res_untracked = self._run_preflight_in_temp_repo(
+            {"README.md": "ok\n"},
+            {
+                "LeanQbe/T/Examples/Kissat/Proof/PropSearch/WpInnerBin.lean": (
+                    "module\nimport LeanQbe.T.Logic.FrameCalc\ndef ok : Nat := 1\n"
+                )
+            },
+            untracked_files={
+                "LeanQbe/T/Logic/FrameCalc.lean": "module\ndef fc : Nat := 0\n"
+            },
+        )
+        self.assertNotEqual(res_untracked.returncode, 0)
+        self.assertIn("LeanQbe.T.Logic.FrameCalc", res_untracked.stderr)
+        self.assertIn("is untracked", res_untracked.stderr)
+
+        # 2. Untracked LeanQbeTest.* import -> MUST FAIL
+        res_test_untracked = self._run_preflight_in_temp_repo(
+            {"README.md": "ok\n"},
+            {
+                "LeanQbeTest/T/MyTest.lean": (
+                    "module\npublic meta import LeanQbeTest.T.DraftHelper\n"
+                )
+            },
+            untracked_files={
+                "LeanQbeTest/T/DraftHelper.lean": "module\ndef h : Nat := 1\n"
+            },
+        )
+        self.assertNotEqual(res_test_untracked.returncode, 0)
+        self.assertIn("LeanQbeTest.T.DraftHelper", res_test_untracked.stderr)
+        self.assertIn("is untracked", res_test_untracked.stderr)
+
+        # 3. Missing local module (neither tracked nor on disk) -> MUST FAIL
+        res_missing = self._run_preflight_in_temp_repo(
+            {"README.md": "ok\n"},
+            {
+                "LeanQbe/T/Logic/UsesMissing.lean": (
+                    "module\npublic import LeanQbe.T.Logic.DoesNotExist\n"
+                )
+            },
+        )
+        self.assertNotEqual(res_missing.returncode, 0)
+        self.assertIn("LeanQbe.T.Logic.DoesNotExist", res_missing.stderr)
+        self.assertIn("is missing / not git-tracked", res_missing.stderr)
+
+        # 4. Tracked-in-index but deleted from disk -> MUST FAIL
+        res_deleted = self._run_preflight_in_temp_repo(
+            {"LeanQbe/T/Logic/Gone.lean": "module\ndef g : Nat := 1\n"},
+            {
+                "LeanQbe/T/Logic/UsesGone.lean": (
+                    "module\nimport LeanQbe.T.Logic.Gone\n"
+                )
+            },
+            remove_on_disk=("LeanQbe/T/Logic/Gone.lean",),
+        )
+        self.assertNotEqual(res_deleted.returncode, 0)
+        self.assertIn("missing from working tree", res_deleted.stderr)
+
+        # 5. Tracked + staged-in-index + external Std/Lean + commented-out imports -> MUST PASS
+        res_ok = self._run_preflight_in_temp_repo(
+            {"LeanQbe/T/Logic/TrackedBase.lean": "module\ndef b : Nat := 1\n"},
+            {
+                "LeanQbe/T/Logic/ValidUser.lean": (
+                    "module\n"
+                    "-- import LeanQbe.T.Logic.FrameCalc\n"
+                    "public import LeanQbe.T.Logic.TrackedBase\n"
+                    "import LeanQbe.T.Logic.StagedHelper\n"
+                    "public meta import Lean.Elab.Command\n"
+                    "import Std.Data.HashMap\n"
+                    "def u : Nat := 1\n"
+                )
+            },
+            staged_files={
+                "LeanQbe/T/Logic/StagedHelper.lean": "module\ndef s : Nat := 2\n"
+            },
+        )
+        self.assertEqual(res_ok.returncode, 0, res_ok.stdout + res_ok.stderr)
 
     def test_gate_scripts_swap_slice_and_unittest_wiring(self) -> None:
         common_sh = (SCRIPTS_DIR / "common.sh").read_text(encoding="utf-8")
