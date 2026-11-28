@@ -234,6 +234,13 @@ public import LeanQbe.T.Examples.Kissat.PlainSpec2
 public import LeanQbe.T.Examples.Kissat.Proof.Arena.Cert
 public import LeanQbe.T.Examples.Kissat.Proof.Arena.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Arena.Wp
+public import LeanQbe.T.Examples.Kissat.Proof.Backbone.Cert
+public import LeanQbe.T.Examples.Kissat.Proof.Backbone.Inv
+public import LeanQbe.T.Examples.Kissat.Proof.Backbone.Spec
+public import LeanQbe.T.Examples.Kissat.Proof.Backbone.WpPropAnalyze
+public import LeanQbe.T.Examples.Kissat.Proof.Backbone.WpRound
+public import LeanQbe.T.Examples.Kissat.Proof.Backbone.WpSimple
+public import LeanQbe.T.Examples.Kissat.Proof.Backbone.WpTop
 public import LeanQbe.T.Examples.Kissat.Proof.Backtrack.Cert
 public import LeanQbe.T.Examples.Kissat.Proof.Backtrack.Spec
 public import LeanQbe.T.Examples.Kissat.Proof.Backtrack.WitnessLemmas
