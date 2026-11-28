@@ -320,6 +320,181 @@ class RunUpstreamSuiteTests(unittest.TestCase):
             rc_err = suite.main(["--lean4-tests-dir", str(root / "missing")])
             self.assertEqual(rc_err, 2)
 
+    def test_rewrite_for_qbe_upstream_and_non_bv_files(self) -> None:
+        src = "\n".join(
+            [
+                "module",
+                "meta import Std.Tactic.BVDecide",
+                "import Std.Tactic.BVDecide",
+                "example : True := by bv_decide",
+            ]
+        )
+        rewritten = suite.rewrite_for_qbe(src, qbe_mode="upstream")
+        expected = "\n".join(
+            [
+                "module",
+                "meta import BvDecideQbe.Tactic",
+                "import BvDecideQbe.Tactic",
+                'set_option bv_decide_qbe.mode "upstream"',
+                "example : True := by bv_decide_qbe",
+            ]
+        )
+        self.assertEqual(rewritten, expected)
+
+        # Files without `Std.Tactic.BVDecide` must not receive `set_option bv_decide_qbe.mode`.
+        no_bv = "import Std\nexample : True := by trivial\n"
+        self.assertEqual(suite.rewrite_for_qbe(no_bv, qbe_mode="upstream"), no_bv)
+
+        # Multi-import and `module` headers keep all imports ahead of `set_option`.
+        multi = (
+            "module\n"
+            "import Std.Tactic.BVDecide\n"
+            "import Lean\n"
+            "example : True := by bv_decide\n"
+        )
+        multi_up = suite.rewrite_for_qbe(multi, qbe_mode="upstream")
+        self.assertEqual(
+            multi_up,
+            "module\n"
+            "import BvDecideQbe.Tactic\n"
+            "import Lean\n"
+            'set_option bv_decide_qbe.mode "upstream"\n'
+            "example : True := by bv_decide_qbe\n",
+        )
+
+        with self.assertRaises(ValueError):
+            suite.rewrite_for_qbe(src, qbe_mode="bogus")
+
+    def test_dual_mode_ci_and_conservativity_and_golden_bv_errors(self) -> None:
+        parser = suite.build_arg_parser()
+        args = parser.parse_args(["--lean4-tests-dir", "/tmp/lean4/tests"])
+        self.assertEqual(args.qbe_mode, "enhanced")
+        self.assertAlmostEqual(args.max_enh_wgm, 1.02)
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            tests_dir = root / "tests"
+            (tests_dir / "elab").mkdir(parents=True)
+            (tests_dir / "elab" / "bv_arith.lean").write_text(
+                "import Std.Tactic.BVDecide\nexample : True := by bv_decide\n",
+                encoding="utf-8",
+            )
+            (tests_dir / "elab" / "bv_errors.lean").write_text(
+                "import Std.Tactic.BVDecide\nexample : True := by bv_decide\n",
+                encoding="utf-8",
+            )
+
+            lib_dir = root / "bv_decide_qbe" / ".lake" / "build" / "lib"
+            (lib_dir / "lean" / "BvDecideQbe").mkdir(parents=True)
+            (lib_dir / f"libkissat_qbe{suite.shared_lib_ext()}").write_text("", encoding="utf-8")
+            (lib_dir / f"libbv__decide__qbe_BvDecideQbeNative{suite.shared_lib_ext()}").write_text(
+                "", encoding="utf-8"
+            )
+            (lib_dir / "lean" / "BvDecideQbe" / "Tactic.olean").write_text("", encoding="utf-8")
+
+            up_calls = 0
+            saw_modes: list[str] = []
+
+            def fake_runner(cmd, lean_file, env, timeout_s):
+                nonlocal up_calls
+                is_qbe = any("--load-dynlib=" in c for c in cmd)
+                if not is_qbe:
+                    up_calls += 1
+                    return suite.RunOutput(returncode=0, elapsed_s=2.0, stdout="", stderr="")
+                txt = lean_file.read_text(encoding="utf-8")
+                is_up_mode = 'set_option bv_decide_qbe.mode "upstream"' in txt
+                saw_modes.append("upstream" if is_up_mode else "enhanced")
+                elapsed = 2.0 if is_up_mode else 1.98
+                return suite.RunOutput(returncode=0, elapsed_s=elapsed, stdout="", stderr="")
+
+            out_json = root / "dual.json"
+            orig_resolve_prefix = suite.resolve_lean_prefix
+            orig_runner = suite.run_lean_file
+            try:
+                suite.resolve_lean_prefix = lambda: root / "tc"
+                suite.run_lean_file = fake_runner
+                rc = suite.main(
+                    [
+                        "--lean4-tests-dir",
+                        str(tests_dir),
+                        "--mode",
+                        "compare",
+                        "--qbe-mode",
+                        "both",
+                        "--out-json",
+                        str(out_json),
+                        "--bv-decide-qbe-dir",
+                        str(root / "bv_decide_qbe"),
+                    ]
+                )
+            finally:
+                suite.resolve_lean_prefix = orig_resolve_prefix
+                suite.run_lean_file = orig_runner
+
+            self.assertEqual(rc, 0)
+            # Upstream bv_decide ran once per test (2 tests), not twice!
+            self.assertEqual(up_calls, 2)
+            self.assertEqual(saw_modes.count("upstream"), 2)
+            self.assertEqual(saw_modes.count("enhanced"), 2)
+
+            payload = json.loads(out_json.read_text(encoding="utf-8"))
+            self.assertEqual(payload["qbe_mode"], "both")
+            self.assertTrue(payload["checks"]["all_ok"])
+            self.assertTrue(payload["checks"]["conservativity_ok"])
+            self.assertTrue(payload["checks"]["golden_bv_errors_ok"])
+            self.assertAlmostEqual(payload["enhanced_vs_upstream"]["w_gm"], 0.99)
+            self.assertAlmostEqual(payload["upstream"]["compare"]["w_gm"], 1.0)
+            self.assertAlmostEqual(payload["enhanced"]["compare"]["w_gm"], 0.99)
+
+            # Violating conservativity (W-GM > 1.02) fails exit code cleanly.
+            def slow_enh_runner(cmd, lean_file, env, timeout_s):
+                is_qbe = any("--load-dynlib=" in c for c in cmd)
+                if not is_qbe:
+                    return suite.RunOutput(returncode=0, elapsed_s=1.0, stdout="", stderr="")
+                is_up_mode = 'set_option bv_decide_qbe.mode "upstream"' in lean_file.read_text()
+                return suite.RunOutput(
+                    returncode=0,
+                    elapsed_s=1.0 if is_up_mode else 1.2,
+                    stdout="",
+                    stderr="",
+                )
+
+            dual_slow = suite.run_dual_mode_suite(
+                tests_dir=tests_dir,
+                mode="compat",
+                bv_dir=root / "bv_decide_qbe",
+                repo_root=root,
+                lean_prefix=root / "tc",
+                runner=slow_enh_runner,
+                skip_artifact_check=True,
+                max_enh_wgm=1.02,
+            )
+            self.assertFalse(dual_slow["checks"]["conservativity_ok"])
+            self.assertFalse(dual_slow["checks"]["all_ok"])
+
+            # Non-verbatim bv_errors.lean (#guard_msgs failure) fails golden check.
+            def bad_err_runner(cmd, lean_file, env, timeout_s):
+                if lean_file.name == "bv_errors.lean":
+                    return suite.RunOutput(
+                        returncode=1,
+                        elapsed_s=0.5,
+                        stdout=f"{lean_file}:10:0: error: mismatch\n",
+                        stderr="",
+                    )
+                return suite.RunOutput(returncode=0, elapsed_s=0.5, stdout="", stderr="")
+
+            dual_bad_err = suite.run_dual_mode_suite(
+                tests_dir=tests_dir,
+                mode="compat",
+                bv_dir=root / "bv_decide_qbe",
+                repo_root=root,
+                lean_prefix=root / "tc",
+                runner=bad_err_runner,
+                skip_artifact_check=True,
+            )
+            self.assertFalse(dual_bad_err["checks"]["golden_bv_errors_ok"])
+            self.assertFalse(dual_bad_err["checks"]["all_ok"])
+
 
 if __name__ == "__main__":
     unittest.main()
